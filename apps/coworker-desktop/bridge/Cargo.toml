@@ -28,7 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.23", features = ["v4", "serde"] }
 
 [target.'cfg(unix)'.dependencies]
-fs4 = "0.8"
+fs4 = "1.1"
 
 [target.'cfg(windows)'.dependencies]
-fs4 = "0.8"
+fs4 = "1.1"
