@@ -245,7 +245,7 @@ jobs:
         run: npm run tauri -- build --bundles ${{ matrix.bundles }} ${{ matrix.target_args }}
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
