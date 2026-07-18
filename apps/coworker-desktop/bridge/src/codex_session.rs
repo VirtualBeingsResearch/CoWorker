@@ -623,8 +623,7 @@ fn summary_from_index(
         project_name: meta
             .as_ref()
             .and_then(|m| m.cwd.as_ref())
-            .and_then(|cwd| Path::new(cwd).file_name())
-            .map(|value| value.to_string_lossy().into_owned()),
+            .and_then(|cwd| project_name_from_path(cwd)),
         project_path: meta.as_ref().and_then(|m| m.cwd.clone()),
         last_active_at: newest_timestamp(vec![
             Some(entry.updated_at.clone()),
@@ -666,8 +665,7 @@ fn fallback_summary(
         project_name: meta
             .as_ref()
             .and_then(|m| m.cwd.as_ref())
-            .and_then(|cwd| Path::new(cwd).file_name())
-            .map(|value| value.to_string_lossy().into_owned()),
+            .and_then(|cwd| project_name_from_path(cwd)),
         project_path: meta.as_ref().and_then(|m| m.cwd.clone()),
         status: runtime
             .thread_status
@@ -758,12 +756,17 @@ fn project_name_from_thread(
         )
     })
     .or_else(|| {
-        project_path_from_thread(thread, project, meta).and_then(|path| {
-            Path::new(&path)
-                .file_name()
-                .map(|value| value.to_string_lossy().into_owned())
-        })
+        project_path_from_thread(thread, project, meta)
+            .and_then(|path| project_name_from_path(&path))
     })
+}
+
+fn project_name_from_path(path: &str) -> Option<String> {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
 }
 
 fn project_path_from_thread(
