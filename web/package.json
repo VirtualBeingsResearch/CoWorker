@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.2.0",
+    "@vitejs/plugin-react": "^6.0.3",
     "lucide-react": "^0.468.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
