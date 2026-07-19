@@ -72,8 +72,6 @@ def _format_event_text(event: IncomingEvent) -> str:
 
 # 连续错误阈值：超过此数量的连续错误将触发恢复措施
 _MAX_CONSECUTIVE_ERRORS = 5
-# 恢复措施：截断保留最近多少条消息（在激进恢复时）
-_RECOVERY_KEEP_RECENT = 6
 # 恢复后的等待时间（秒），给 API 冷却时间
 _RECOVERY_COOLDOWN_SECONDS = 30
 
@@ -152,37 +150,38 @@ class AgentLoop:
                 )
 
                 if self._consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-                    # 激进恢复：截断短期记忆，只保留最近几条消息
-                    total = len(self._short_term.primary)
-                    if total > _RECOVERY_KEEP_RECENT:
-                        # 截断前先保存短期记忆备份
-                        if self._snapshot_path:
-                            try:
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                backup_path = (
-                                    self._snapshot_path.parent
-                                    / f"emergency_backup_{timestamp}.json"
-                                )
-                                self._short_term.save_to_file(backup_path)
-                                logger.warning(f"Emergency backup saved to {backup_path}")
-                            except Exception as backup_err:
-                                logger.error(f"Failed to save emergency backup: {backup_err}")
-
-                        removed = total - _RECOVERY_KEEP_RECENT
-                        self._short_term.primary = self._short_term.primary[-_RECOVERY_KEEP_RECENT:]
-                        logger.warning(
-                            f"Recovery: truncated {removed} messages from short-term memory, "
-                            f"kept last {_RECOVERY_KEEP_RECENT}"
+                    # 连续错误时先保存完整上下文，再清空短期记忆以重新开始。
+                    backup_status = "应急备份未创建：当前没有可备份的短期上下文"
+                    if self._short_term.primary and self._snapshot_path:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_path = (
+                            self._snapshot_path.parent
+                            / f"emergency_backup_{timestamp}.json"
                         )
+                        try:
+                            self._short_term.save_to_file(backup_path)
+                            logger.warning(f"Emergency backup saved to {backup_path}")
+                            backup_status = f"应急备份已创建：{backup_path}"
+                        except Exception as backup_err:
+                            logger.error(f"Failed to save emergency backup: {backup_err}")
+                            backup_status = (
+                                f"应急备份创建失败（目标：{backup_path}；"
+                                f"错误：{type(backup_err).__name__}: {str(backup_err)[:200]}）"
+                            )
+                    elif self._short_term.primary:
+                        backup_status = "应急备份未创建：未配置短期记忆快照路径"
+
+                    self._short_term.primary.clear()
                     # 添加恢复通知
                     self._short_term.primary.append(
                         Message(
                             role="user",
                             source="system_recovery",
                             content=(
-                                f"[系统恢复] 连续 {self._consecutive_errors} 次错误后自动恢复。"
-                                f"错误: {type(e).__name__}: {str(e)[:200]}。"
-                                f"已截断过长的上下文，正在等待冷却后重试。"
+                                f"[系统恢复] 上一轮因连续 {self._consecutive_errors} 次执行错误而中断。\n"
+                                f"{backup_status}。\n"
+                                f"当前上下文已经清空重置。\n"
+                                f"最近错误：{type(e).__name__}: {str(e)[:200]}。"
                             ),
                         )
                     )
