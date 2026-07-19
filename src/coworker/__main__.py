@@ -581,7 +581,7 @@ async def _main() -> bool:
         long_term, short_term, brain, recent_activity=recent_activity,
     ))
     registry.register(ManageMemoryTool(long_term))
-    registry.register(SleepTool(inbox_watcher))
+    registry.register(SleepTool(inbox_watcher, config=config))
     registry.register(BreatheTool())
     registry.register(SwitchModelTool(brain))
     alarm_manager = AlarmManager(inbox_watcher, persist_path=alarm_persist_path)

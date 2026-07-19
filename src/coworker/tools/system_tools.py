@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
     from coworker.agent.subconscious import SubconsciousScheduler
     from coworker.brain.brain import Brain
+    from coworker.core.config import Config
     from coworker.core.tool_scope import ToolScope
     from coworker.core.types import AgentState
     from coworker.memory.short_term import ShortTermMemory
@@ -35,22 +36,49 @@ def _validate_snapshot(path: Path) -> bool:
 
 
 class SleepTool(Tool):
-    def __init__(self, inbox_watcher: InboxWatcher | None, label: str = "") -> None:
+    def __init__(
+        self,
+        inbox_watcher: InboxWatcher | None,
+        config: Config | None = None,
+        label: str = "",
+    ) -> None:
         self._inbox = inbox_watcher
+        # 主循环传入 config 以判断 passive_mode；fork（bubble 子任务）为 None。
+        self._config = config
         self._label = label
 
     def fork(self, scope: ToolScope) -> SleepTool:
-        return SleepTool(inbox_watcher=None, label=scope.scope_id)
+        return SleepTool(inbox_watcher=None, config=None, label=scope.scope_id)
 
     @property
     def definition(self) -> ToolDefinition:
+        # 介绍只说明「当前模式下」怎么用：passive 下才提到 sleep(0) 无限等待，
+        # active 下只讲 sleep(N)。两版都不出现 passive/active 字眼。
+        passive = self._config is not None and self._config.agent.passive_mode
+        if passive:
+            description = (
+                "进入低功耗模式休眠，保持 WebSocket 连接。传 seconds>0 时休眠指定秒数"
+                "（收到新消息会提前唤醒）；传 0 表示休眠直到下一次外部信息唤醒"
+                "（不设超时，纯被动等待）。"
+            )
+            seconds_desc = "休眠秒数；传 0 表示休眠直到下一次外部信息唤醒（不设超时）"
+        else:
+            description = (
+                "进入低功耗模式休眠，保持 WebSocket 连接。传 seconds>0 时休眠指定秒数"
+                "（收到新消息会提前唤醒）。"
+            )
+            seconds_desc = "休眠秒数"
         return ToolDefinition(
             name="sleep",
-            description="进入低功耗模式休眠一段时间，降低轮询频率但保持 WebSocket 连接。收到新消息时会提前唤醒。",
+            description=description,
             parameters={
                 "type": "object",
                 "properties": {
-                    "seconds": {"type": "integer", "description": "休眠秒数，默认 30", "default": 30},
+                    "seconds": {
+                        "type": "integer",
+                        "description": seconds_desc,
+                        "default": 30,
+                    },
                 },
                 "required": [],
             },
@@ -58,22 +86,45 @@ class SleepTool(Tool):
 
     async def execute(self, seconds: int = 30, **_) -> ToolResult:
         prefix = f"[{self._label}] " if self._label else ""
-        logger.info(f"{prefix}Entering sleep mode for {seconds}s")
-        woken_early = False
-        if self._inbox is not None:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # sleep(0) 的「无限等待外部事件」是 passive 模式专属能力；非 passive 下 0 即字面 0 秒。
+        indefinite = seconds <= 0
+        passive = self._config is not None and self._config.agent.passive_mode
+        if indefinite and not passive:
+            logger.info(f"{prefix}sleep(0) ignored (not in passive mode)")
+            return ToolResult(
+                tool_call_id="",
+                content=(
+                    f"sleep(0) 不会进入等待。请用 sleep(N) 指定休眠秒数。当前时间 {now_str}。"
+                ),
+            )
+        woken_by_event = False
+        if indefinite:
+            # 走到这里一定是 passive 模式；主循环下 inbox 存在
+            if self._inbox is not None:
+                logger.info(f"{prefix}Sleeping until next external event")
+                await self._inbox.message_event.wait()
+                woken_by_event = True
+            else:
+                logger.info(f"{prefix}sleep(0) with passive but no inbox; returning immediately")
+        elif self._inbox is not None:
+            logger.info(f"{prefix}Entering sleep mode for {seconds}s")
             try:
                 await asyncio.wait_for(
                     self._inbox.message_event.wait(),
                     timeout=seconds,
                 )
-                woken_early = True
+                woken_by_event = True
             except TimeoutError:
                 pass
         else:
+            # fork 后的 bubble 子任务无 inbox：睡指定秒数
+            logger.info(f"{prefix}Entering sleep mode for {seconds}s")
             await asyncio.sleep(seconds)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if woken_early:
+        if woken_by_event:
             msg = f"收到新消息，提前结束休眠。当前时间 {now_str}。"
+        elif indefinite:
+            msg = f"结束被动等待（无外部信道，立即返回）。当前时间 {now_str}。"
         else:
             msg = f"Slept for {seconds}s, resuming. 当前时间 {now_str}。"
         return ToolResult(tool_call_id="", content=msg)

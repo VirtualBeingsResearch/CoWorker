@@ -691,11 +691,25 @@ class AgentLoop:
     async def _rest(self) -> None:
         self.state.is_sleeping = True
         try:
-            await asyncio.wait_for(
-                self._inbox.message_event.wait(),
-                timeout=self._config.agent.idle_sleep_seconds,
-            )
-        except TimeoutError:
-            pass
+            if self._config.agent.passive_mode:
+                # passive 模式：睡到下一次外部干扰进入，不设 idle 超时，
+                # 取消「无事件时周期性自我唤醒」。仍可被 message_event
+                # （外部消息/闹钟/代码任务完成/任务提醒）唤醒。
+                # 与模型主动调用 sleep(0) 的语义一致。
+                logger.info("Agent entering passive rest; waiting for an external event")
+                await self._inbox.message_event.wait()
+                logger.info("Agent woke from passive rest after an external event")
+            else:
+                timeout = self._config.agent.idle_sleep_seconds
+                logger.info(f"Agent entering rest for {timeout}s")
+                try:
+                    await asyncio.wait_for(
+                        self._inbox.message_event.wait(),
+                        timeout=timeout,
+                    )
+                except TimeoutError:
+                    logger.info(f"Agent rest timed out after {timeout}s")
+                else:
+                    logger.info("Agent woke from rest after an external event")
         finally:
             self.state.is_sleeping = False

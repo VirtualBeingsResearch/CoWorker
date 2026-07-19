@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.memory.short_term import ShortTermMemory
@@ -181,6 +183,72 @@ async def test_assistant_response_appended_to_primary():
     asst_msgs = [m for m in mem.primary if m.role == "assistant"]
     assert len(asst_msgs) == 1
     assert asst_msgs[0].content == "my reply"
+
+
+def _make_rest_loop(*, passive: bool, idle_sleep_seconds: int = 0) -> AgentLoop:
+    """构造仅满足 _rest() 依赖的最小 AgentLoop。"""
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.state = MagicMock()
+    loop.state.is_sleeping = False
+    loop._config = MagicMock()
+    loop._config.agent.passive_mode = passive
+    loop._config.agent.idle_sleep_seconds = idle_sleep_seconds
+    return loop
+
+
+@pytest.mark.asyncio
+async def test_rest_passive_waits_for_event_without_timeout(monkeypatch):
+    """passive 模式：_rest() 无超时，等到 message_event 才返回。"""
+    loop = _make_rest_loop(passive=True, idle_sleep_seconds=999)
+    event = asyncio.Event()
+    loop._inbox = MagicMock()
+    loop._inbox.message_event = event
+    log = MagicMock()
+    monkeypatch.setattr(loop_module, "logger", log)
+
+    async def set_event_soon():
+        await asyncio.sleep(0.05)
+        event.set()
+
+    asyncio.create_task(set_event_soon())
+    await asyncio.wait_for(loop._rest(), timeout=5.0)
+    assert loop.state.is_sleeping is False
+    messages = [call.args[0] for call in log.info.call_args_list]
+    assert messages == [
+        "Agent entering passive rest; waiting for an external event",
+        "Agent woke from passive rest after an external event",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rest_passive_does_not_idle_timeout():
+    """passive 模式：event 未 set 时 _rest() 不会因 idle_sleep_seconds 超时而返回。"""
+    loop = _make_rest_loop(passive=True, idle_sleep_seconds=0)  # 若走超时路径会立即返回
+    event = asyncio.Event()
+    loop._inbox = MagicMock()
+    loop._inbox.message_event = event
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(loop._rest(), timeout=0.2)
+
+
+@pytest.mark.asyncio
+async def test_rest_active_uses_idle_sleep_timeout(monkeypatch):
+    """active 模式：_rest() 走 idle_sleep_seconds 超时路径，idle_sleep=0 立即返回不挂起。"""
+    loop = _make_rest_loop(passive=False, idle_sleep_seconds=0)
+    event = asyncio.Event()  # 不 set
+    loop._inbox = MagicMock()
+    loop._inbox.message_event = event
+    log = MagicMock()
+    monkeypatch.setattr(loop_module, "logger", log)
+
+    await loop._rest()  # idle_sleep=0 -> 立即超时返回
+    assert loop.state.is_sleeping is False
+    messages = [call.args[0] for call in log.info.call_args_list]
+    assert messages == [
+        "Agent entering rest for 0s",
+        "Agent rest timed out after 0s",
+    ]
 
 
 @pytest.mark.asyncio

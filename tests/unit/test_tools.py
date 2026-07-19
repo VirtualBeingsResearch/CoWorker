@@ -956,11 +956,46 @@ class TestTaskUpdateTool:
 
 class TestSleepTool:
     @pytest.mark.asyncio
-    async def test_sleeps_full_duration_without_inbox(self):
+    async def test_sleeps_full_duration_without_inbox(self, monkeypatch):
+        """fork 后无 inbox：睡满指定秒数"""
+        slept: list[float] = []
+
+        async def fake_sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr("coworker.tools.system_tools.asyncio.sleep", fake_sleep)
         tool = SleepTool(None)
+        result = await tool.execute(seconds=5)
+        assert not result.is_error
+        assert "Slept for 5s" in result.content
+        assert slept == [5]
+
+    @pytest.mark.asyncio
+    async def test_zero_seconds_rejected_when_not_passive(self):
+        """非 passive 模式下 sleep(0) 不进入无限等待，返回引导提示"""
+        inbox = MagicMock()
+        inbox.message_event = asyncio.Event()
+        config = MagicMock()
+        config.agent.passive_mode = False
+        tool = SleepTool(inbox, config=config)
         result = await tool.execute(seconds=0)
         assert not result.is_error
-        assert "Slept for 0s" in result.content
+        assert "sleep(N)" in result.content
+        assert "不会进入等待" in result.content
+
+    def test_definition_passive_advertises_zero(self):
+        """passive 模式下工具介绍说明 sleep(0) 可无限等待"""
+        config = MagicMock()
+        config.agent.passive_mode = True
+        tool = SleepTool(None, config=config)
+        assert "传 0" in tool.definition.description
+
+    def test_definition_active_omits_zero(self):
+        """active 模式下工具介绍不提 sleep(0)"""
+        config = MagicMock()
+        config.agent.passive_mode = False
+        tool = SleepTool(None, config=config)
+        assert "传 0" not in tool.definition.description
 
     @pytest.mark.asyncio
     async def test_wakes_early_when_message_arrives(self):
@@ -979,14 +1014,62 @@ class TestSleepTool:
         assert "提前" in result.content
 
     @pytest.mark.asyncio
-    async def test_returns_normal_message_on_timeout(self):
+    async def test_returns_normal_message_on_timeout(self, monkeypatch):
+        """有 inbox + seconds>0：超时返回正常消息"""
         event = asyncio.Event()
         inbox = MagicMock()
         inbox.message_event = event
 
+        async def fake_wait_for(coro, timeout):
+            coro.close()
+            raise TimeoutError
+
+        monkeypatch.setattr("coworker.tools.system_tools.asyncio.wait_for", fake_wait_for)
         tool = SleepTool(inbox)
+        result = await tool.execute(seconds=10)
+        assert not result.is_error
+        assert "Slept for 10s" in result.content
+
+    @pytest.mark.asyncio
+    async def test_zero_seconds_sleeps_until_event_when_passive(self):
+        """passive 模式下 sleep(0)：无超时，休眠直到外部信息唤醒"""
+        event = asyncio.Event()
+        inbox = MagicMock()
+        inbox.message_event = event
+        config = MagicMock()
+        config.agent.passive_mode = True
+
+        async def set_event_soon():
+            await asyncio.sleep(0.05)
+            event.set()
+
+        asyncio.create_task(set_event_soon())
+        tool = SleepTool(inbox, config=config)
+        result = await asyncio.wait_for(tool.execute(seconds=0), timeout=5.0)
+        assert not result.is_error
+        assert "提前" in result.content
+
+    @pytest.mark.asyncio
+    async def test_zero_seconds_passive_does_not_return_without_event(self):
+        """passive 模式下 sleep(0) 在无外部事件时不返回（验证无超时）"""
+        event = asyncio.Event()
+        inbox = MagicMock()
+        inbox.message_event = event
+        config = MagicMock()
+        config.agent.passive_mode = True
+        tool = SleepTool(inbox, config=config)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(tool.execute(seconds=0), timeout=0.2)
+
+    @pytest.mark.asyncio
+    async def test_zero_seconds_passive_without_inbox_returns_immediately(self):
+        """passive 模式但无 inbox（兜底）：立即返回"""
+        config = MagicMock()
+        config.agent.passive_mode = True
+        tool = SleepTool(None, config=config)
         result = await tool.execute(seconds=0)
         assert not result.is_error
+        assert "被动等待" in result.content
 
 
 class TestSearchWebTool:

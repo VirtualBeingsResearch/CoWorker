@@ -233,6 +233,9 @@ class AgentConfig(_EnvSettings):
     inbox_poll_interval: float = 2.0
     inbox_batch_max: int = 10
     tick: bool = True
+    # passive 模式：_rest() 不设 idle 超时，模型 sleep 只等外部事件唤醒，
+    # 取消「无事件时周期性 tick 自驱」。运行时可通过管理 API 热切换。
+    passive_mode: bool = False
 
     code_hard_timeout: int = 300
     image_max_dimension: int = 960

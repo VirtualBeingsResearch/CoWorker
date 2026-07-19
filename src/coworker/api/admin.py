@@ -64,6 +64,7 @@ _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
 _HOT_CONFIG_PATHS = {
     "llm.max_tokens",
     "agent.idle_sleep_seconds",
+    "agent.passive_mode",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
     "memory.auto_recall_enabled",
