@@ -66,7 +66,7 @@ coworker/
     ├── outbox/              # Outgoing file messages
     ├── memory/              # mem0/ChromaDB persistence + short_term_snapshot.json
     ├── identity/            # name.txt, personality.md, and related files
-    ├── logs/                # Logs and interactions.jsonl
+    ├── logs/                # Logs and interactions*.jsonl shards
     └── task_board.md        # File used by the task-board tool
 ```
 
@@ -82,7 +82,7 @@ The design maps game-style LOD/mipmaps—full detail nearby and progressively co
 
 - **Time-window recall / unified search**: `query_memory(start=..., end=...)` first uses short-term memory-tree summaries to recall a period; if no summary exists, it falls back to raw logs and generates one. `query_memory(query=...)` searches both the recent-activity index and mem0 long-term memory and returns five combined results by default. `query_memory(query=..., start=..., end=...)` performs semantic search focused on the specified time window. Inline query output is limited to 3,000 characters. The complete frozen result is written to a temporary Markdown file with a `read_file` path and section line numbers for stable paging and expansion. A call without arguments fails; provide `query`, or provide both `start` and `end`.
 - **Manual full compression**: `clear_short_term_memory` compresses every remaining live message in the current `primary` stream into the memory tree. It releases context space without deleting memory and triggers subconscious `summarize` first to extract long-term memories. If a tool is currently running, the final `tool_use` is retained to preserve message structure.
-- **History backfill** (upgrade migration): Upgrades do not backfill by default; the memory tree starts growing from new compression events. To build a multiscale tree from **existing history**, Coworker reads the full `interactions.jsonl` history, divides it by time, summarizes each block into a leaf, and rebuilds the spine through cascading merges. `MEMORY__TREE_BACKFILL_MAX_LEAVES` caps the number of generated leaves. Two methods are available:
+- **History backfill** (upgrade migration): Upgrades do not backfill by default; the memory tree starts growing from new compression events. To build a multiscale tree from **existing history**, Coworker reads every `interactions*.jsonl` shard, divides the history by time, summarizes each block into a leaf, and rebuilds the spine through cascading merges. `MEMORY__TREE_BACKFILL_MAX_LEAVES` caps the number of generated leaves. Two methods are available:
   - **Offline** (while the process is stopped): `uv run python -m coworker --backfill-tree` rebuilds the tree, writes the snapshot, and exits.
   - **Online** (while running): `POST /backfill_tree`, optionally with `{"max_leaves": 64}`. This operator-triggered operation has no model-token cost. It rebuilds asynchronously in the background, logs progress for each block, and exposes progress through `GET /backfill_tree` as `{running, done, total}`. On completion it logs the result and pushes a system message to the inbox; duplicate triggers return 409. A temporary-tree build followed by atomic replacement under the compression lock keeps the live tree untouched during construction and preserves nodes compressed while the backfill was running. Do not run the offline CLI while the process is active; both would contend for the snapshot file.
 - **Fallback**: Set `MEMORY__TREE_ENABLED=false` to restore the legacy single compressed-summary anchor.

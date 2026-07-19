@@ -83,6 +83,7 @@ variables, make sure the working directory does not contain conflicting `.env` v
 | `AGENT__OUTBOX_DIR` | `data/outbox` | Directory for outgoing file messages |
 | `AGENT__IDENTITY_DIR` | `data/identity` | Identity file directory |
 | `AGENT__LOGS_DIR` | `data/logs` | Log directory |
+| `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `10485760` | Maximum bytes in one interaction-log shard. At the limit, the active `interactions.jsonl` is archived under an increasing number and a new file is used. Set to `0` to disable rotation. |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
 | `AGENT__TICK` | `true` | Whether autonomous ticks run when no external message is present |

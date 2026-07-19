@@ -225,7 +225,10 @@ async def assemble_runtime(workdir: Path) -> Runtime:
     config = load_branch_config(workdir)
 
     log_store = LogStore(config.agent.logs_dir)
-    interaction_log = InteractionLogger(f"{config.agent.logs_dir}/interactions.jsonl")
+    interaction_log = InteractionLogger(
+        f"{config.agent.logs_dir}/interactions.jsonl",
+        rotation_bytes=config.agent.interaction_log_rotation_bytes,
+    )
 
     long_term = LongTermMemory(
         db_path=config.memory.db_path,

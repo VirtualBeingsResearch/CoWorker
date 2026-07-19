@@ -305,7 +305,10 @@ async def _run_backfill() -> int:
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
-        interaction_log = InteractionLogger(f"{config.agent.logs_dir}/interactions.jsonl")
+        interaction_log = InteractionLogger(
+            f"{config.agent.logs_dir}/interactions.jsonl",
+            rotation_bytes=config.agent.interaction_log_rotation_bytes,
+        )
         brain.add_summary_usage_listener(
             lambda response, meta: interaction_log.log_summary_llm_response(
                 provider=response.provider,
@@ -356,7 +359,10 @@ async def _main() -> bool:
         spec.name == config.llm.default_provider and bool(spec.api_key)
         for spec in config.llm.resolved_providers()
     )
-    interaction_log = InteractionLogger(f"{config.agent.logs_dir}/interactions.jsonl")
+    interaction_log = InteractionLogger(
+        f"{config.agent.logs_dir}/interactions.jsonl",
+        rotation_bytes=config.agent.interaction_log_rotation_bytes,
+    )
     # 原始日志的只读寻址层，供记忆块树按时间区间重摘要 / 下钻；抗后续分片轮转。
     log_store = LogStore(config.agent.logs_dir)
 

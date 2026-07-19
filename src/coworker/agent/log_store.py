@@ -51,8 +51,8 @@ class LogStore:
     覆盖目标区间的分片读取。分片缺失/已归档时优雅降级（返回部分结果或 None），
     调用方据此回退到节点自存的摘要。
 
-    v1 不主动写多分片：单个 ``interactions.jsonl`` 被当作唯一分片登记。轮转开启后
-    只需让写入端产生多分片，本层无需改动——树的指针也无需改动。
+    写入端会按大小轮转为 ``interactions-000001.jsonl`` 等已完成分片，
+    ``interactions.jsonl`` 始终是当前可追加分片；本层无需随轮转改动，树的指针也无需改动。
     """
 
     def __init__(self, logs_dir: str | Path, log_basename: str = "interactions") -> None:
@@ -67,8 +67,16 @@ class LogStore:
     # ---- 分片发现与边界扫描 ----------------------------------------------
 
     def _shard_paths(self) -> list[Path]:
-        # 匹配 interactions.jsonl 与 interactions-000001.jsonl 之类，不匹配 .seq / manifest.json。
-        return sorted(self._dir.glob(f"{self._basename}*.jsonl"))
+        # 只匹配当前 interactions.jsonl 和编号归档 interactions-000001.jsonl，
+        # 避免把用户手工放入的 interactions-backup.jsonl 一类文件误并入历史。
+        active = self._dir / f"{self._basename}.jsonl"
+        prefix = f"{self._basename}-"
+        paths = [active] if active.is_file() else []
+        for candidate in self._dir.glob(f"{prefix}*.jsonl"):
+            suffix = candidate.stem[len(prefix) :]
+            if candidate.is_file() and suffix.isdecimal():
+                paths.append(candidate)
+        return sorted(paths)
 
     def manifest(self) -> list[ShardInfo]:
         """当前各分片的 seq/ts 范围，按 seq_min 升序。即时扫描磁盘为准。"""
@@ -252,8 +260,8 @@ class LogStore:
     def read_all(self) -> tuple[list[dict[str, Any]], bool]:
         """读取所有分片的全部条目（按 ts,seq 升序）。供一次性历史回溯遍历。
 
-        注意：会把全史一次性载入内存。当前单分片（log_rotation_enabled=False）下可接受；
-        一旦开启日志轮转、分片总量很大，这里需改为按分片流式分块（已知伸缩悬崖，留待轮转落地时）。
+        注意：会把全史一次性载入内存。分片限制单个文件大小，但不会限制总历史；
+        总量很大时，调用方应优先使用流式接口或将这里改为按分片流式分块。
         """
         shards = self.manifest()
         entries: list[dict[str, Any]] = []

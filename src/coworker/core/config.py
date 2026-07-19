@@ -227,6 +227,7 @@ class AgentConfig(_EnvSettings):
     desktop_registry_dir: str = "data/coworker_desktop/registry"
     identity_dir: str = "data/identity"
     logs_dir: str = "data/logs"
+    interaction_log_rotation_bytes: int = 10 * 1024 * 1024
     skills_dir: str = ".coworker/skills"
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"

@@ -826,7 +826,7 @@ async def logs_stream(
     """运行日志 SSE 流（/logs/stream）：身份证背面「运行日志」的数据源。
 
     数据来自 RuntimeEventCollector——InteractionLogger 的唯一 tap，故事件流与持久化日志
-    （data/logs/interactions.jsonl）天然一致。先回放最近若干条历史事件，再实时推送。
+    （data/logs/interactions*.jsonl）天然一致。先回放最近若干条历史事件，再实时推送。
     收尾机制与 /sse/{id} 一致（哨兵 + is_disconnected + 心跳），不拖住 uvicorn 优雅关闭。"""
     if _collector is None:
         return StreamingResponse(

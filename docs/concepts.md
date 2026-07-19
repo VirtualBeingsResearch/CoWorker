@@ -66,7 +66,7 @@ coworker/
     ├── outbox/              # 文件消息输出
     ├── memory/              # mem0/ChromaDB 持久化 + short_term_snapshot.json
     ├── identity/            # name.txt、personality.md 等
-    ├── logs/                # 日志和 interactions.jsonl
+    ├── logs/                # 日志和 interactions*.jsonl 分片
     └── task_board.md        # 任务板工具使用的文件
 ```
 
@@ -82,7 +82,7 @@ coworker/
 
 - **时间窗回忆 / 综合搜索**：`query_memory(start=..., end=...)` 优先使用短期记忆树摘要回忆某段历史；没有摘要时回退原始日志并生成摘要。`query_memory(query=...)` 会同时检索最近活动索引和 mem0 长期记忆，默认合计返回 5 条；`query_memory(query=..., start=..., end=...)` 会在指定时间窗内做语义聚焦搜索。查询内联结果硬限制为 3000 字符，完整冻结结果会写入临时 Markdown，并提供 `read_file` 路径和章节行号供稳定分页、展开。无参数调用会报错，需提供 `query` 或同时提供 `start/end`。
 - **手动全量压缩**：`clear_short_term_memory` 会把当前 `primary` 中尚未压缩的实时消息整体压进记忆树，释放上下文空间但不删除记忆；压缩前同样会触发潜意识 `summarize` 提炼长期记忆；正在执行工具时会保留末尾 `tool_use` 以维持消息结构。
-- **历史回溯**（升级迁移）：升级后默认不回溯，记忆树从新压缩开始往后长。要把**已有历史**也建成多尺度树，读取 `interactions.jsonl` 全史、按时间分块逐块摘要成叶子、级联重建脊柱（生成叶子数受 `MEMORY__TREE_BACKFILL_MAX_LEAVES` 封顶）。两种方式：
+- **历史回溯**（升级迁移）：升级后默认不回溯，记忆树从新压缩开始往后长。要把**已有历史**也建成多尺度树，读取全部 `interactions*.jsonl` 分片、按时间分块逐块摘要成叶子、级联重建脊柱（生成叶子数受 `MEMORY__TREE_BACKFILL_MAX_LEAVES` 封顶）。两种方式：
   - **离线**（进程未运行时）：`uv run python -m coworker --backfill-tree`，重建后写回快照退出。
   - **在线**（运行中）：`POST /backfill_tree`（请求体可带 `{"max_leaves": 64}`）。运维触发、对模型零 token 成本；后台异步重建、不阻塞，逐块打进度日志，可用 `GET /backfill_tree` 轮询进度（`{running, done, total}`），完成后记日志并向 inbox 推送系统消息（重复触发返回 409）。安全性由「临时树构建 + 压缩锁内原子替换」保证：全程不碰活树，替换时保留构建期间新压缩的节点。⚠️ 不要在进程运行时跑离线 CLI——两者会争用快照文件。
 

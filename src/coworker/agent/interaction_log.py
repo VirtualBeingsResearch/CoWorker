@@ -13,9 +13,17 @@ if TYPE_CHECKING:
 
 
 class InteractionLogger:
-    def __init__(self, log_path: str) -> None:
+    """Append-only interaction logger with optional size-based shard rotation.
+
+    ``rotation_bytes=0`` keeps the historical single-file behavior.  When enabled,
+    completed shards are named ``<stem>-000001<suffix>``, while ``log_path`` always
+    remains the active file.  This is the layout consumed by :class:`LogStore`.
+    """
+
+    def __init__(self, log_path: str | Path, rotation_bytes: int = 0) -> None:
         self._path = Path(log_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._rotation_bytes = max(0, rotation_bytes)
         self._last_system_prompt_hash: str | None = None
         # 单调递增的条目序号，作为 LogStore / 记忆块树寻址原始日志的稳定主键
         # （ts 是裸 datetime.now()，非单调、可重复，不能当地址）。
@@ -49,13 +57,70 @@ class InteractionLogger:
         """The seq that will be assigned to the NEXT entry (i.e. current counter)."""
         return self._seq
 
+    def _next_archive_path(self) -> Path:
+        """Return an unused, monotonically numbered archive path.
+
+        We scan at rotation time rather than persisting a second counter.  That keeps
+        upgrades from a legacy single file and manually restored archives safe: an
+        existing ``interactions-000001.jsonl`` is never overwritten.
+        """
+        prefix = f"{self._path.stem}-"
+        suffix = self._path.suffix
+        highest = 0
+        for candidate in self._path.parent.glob(f"{prefix}*{suffix}"):
+            if not candidate.is_file():
+                continue
+            number = candidate.stem[len(prefix) :]
+            if number.isdecimal():
+                highest = max(highest, int(number))
+        return self._path.with_name(f"{prefix}{highest + 1:06d}{suffix}")
+
+    def _rotate_before_write(self, incoming_bytes: int) -> None:
+        """Move a full active file aside before appending a new record.
+
+        A single record may itself be larger than the threshold; it is still written
+        whole into an otherwise empty shard so JSONL records are never split.
+        """
+        if self._rotation_bytes <= 0:
+            return
+        try:
+            current_size = self._path.stat().st_size
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            from loguru import logger
+
+            logger.warning(f"Failed to stat interaction log {self._path} for rotation: {e}")
+            return
+        if current_size == 0 or current_size + incoming_bytes <= self._rotation_bytes:
+            return
+
+        archive_path = self._next_archive_path()
+        try:
+            # rename is an atomic same-directory move on supported filesystems.  The
+            # destination is chosen above to be unused, so prior history is retained.
+            self._path.rename(archive_path)
+        except OSError as e:
+            # Logging must remain best-effort: if an external reader temporarily holds
+            # the file open (notably on Windows), retain the record in the active shard
+            # and retry rotation before the next write instead of dropping it.
+            from loguru import logger
+
+            logger.warning(
+                f"Failed to rotate interaction log {self._path} to {archive_path}: {e}"
+            )
+
     def _write(self, entry: dict) -> None:
         with self._lock:
             entry["seq"] = self._seq
             entry["ts"] = datetime.now().isoformat()
             self._seq += 1
-            with self._path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            record = (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8")
+            self._rotate_before_write(len(record))
+            # Write bytes so the rotation byte limit has identical meaning on Windows
+            # and POSIX (text-mode newline conversion would otherwise add a byte).
+            with self._path.open("ab") as f:
+                f.write(record)
             self._persist_seq()
             # 写盘后再广播给监听者：监听者只读、且任何异常都不应回溯影响已落盘的日志。
             for fn in self._listeners:

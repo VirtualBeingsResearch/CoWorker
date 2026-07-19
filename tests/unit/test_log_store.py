@@ -55,6 +55,64 @@ class TestInteractionLogSeq:
         assert entry["operation"] == "generate_response"
 
 
+class TestInteractionLogRotation:
+    def test_rotates_by_size_and_log_store_reads_full_history(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(path), rotation_bytes=300)
+
+        for content in ("a" * 100, "b" * 100, "c" * 100):
+            log.log_message_in("alice", content, "ws")
+
+        assert sorted(p.name for p in tmp_path.glob("interactions*.jsonl")) == [
+            "interactions-000001.jsonl",
+            "interactions-000002.jsonl",
+            "interactions.jsonl",
+        ]
+        assert [
+            json.loads(line)["seq"]
+            for line in (tmp_path / "interactions-000001.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ] == [0]
+        assert [
+            json.loads(line)["seq"]
+            for line in (tmp_path / "interactions-000002.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ] == [1]
+        assert [
+            json.loads(line)["seq"] for line in path.read_text(encoding="utf-8").splitlines()
+        ] == [2]
+
+        entries, complete = LogStore(tmp_path).read_seq_range(0, 2)
+        assert complete is True
+        assert [entry["seq"] for entry in entries] == [0, 1, 2]
+
+    def test_rotation_uses_next_unused_archive_number(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        old_archive = tmp_path / "interactions-000001.jsonl"
+        old_archive.write_text("keep this archive\n", encoding="utf-8")
+        path.write_text("legacy active log\n", encoding="utf-8")
+
+        log = InteractionLogger(str(path), rotation_bytes=1)
+        log.log_message_in("alice", "new entry", "ws")
+
+        assert old_archive.read_text(encoding="utf-8") == "keep this archive\n"
+        assert (tmp_path / "interactions-000002.jsonl").read_text(encoding="utf-8") == (
+            "legacy active log\n"
+        )
+
+    def test_zero_rotation_bytes_keeps_legacy_single_file_behavior(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(path), rotation_bytes=0)
+
+        for _ in range(3):
+            log.log_message_in("alice", "entry", "ws")
+
+        assert sorted(p.name for p in tmp_path.glob("interactions-*.jsonl")) == []
+        assert len(path.read_text(encoding="utf-8").splitlines()) == 3
+
+
 class TestLogStoreRead:
     def test_read_seq_range_across_two_shards(self, tmp_path):
         _write_shard(tmp_path / "interactions.jsonl", [
