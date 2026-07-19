@@ -59,6 +59,7 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
 
     config = MagicMock()
     config.agent.idle_sleep_seconds = 0
+    config.agent.passive_mode = False
     config.agent.inbox_batch_max = 10
     config.agent.subconscious_thinking = False
     config.agent.subconscious_max_cycles = 5
