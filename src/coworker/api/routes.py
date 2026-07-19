@@ -131,6 +131,7 @@ class SummaryModelConfigPayload(BaseModel):
 class VisionModelConfigPayload(BaseModel):
     provider: str | None = None
     model: str | None = None
+    thinking: bool | None = None
 
 
 class ModelConfigPatchPayload(BaseModel):
@@ -349,6 +350,7 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
             fallbacks=payload.fallbacks,
             vision_provider=payload.vision.provider if payload.vision else None,
             vision_model=payload.vision.model if payload.vision else None,
+            vision_thinking=payload.vision.thinking if payload.vision else None,
         )
         runtime = RuntimeModelConfig.from_brain_snapshot(snapshot)
         write_runtime_model_config(_model_config_path, runtime)

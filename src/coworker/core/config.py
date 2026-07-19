@@ -90,6 +90,8 @@ class LLMConfig(_EnvSettings):
 
     vision_provider: str = ""
     vision_model: str = ""
+    # 保持历史视觉分析默认启用 thinking；可设为 false 以降低延迟和成本。
+    vision_thinking: bool = True
 
     def resolved_providers(self) -> list[ProviderSpec]:
         """合并「扁平字段展开的默认实例」与「providers_file 中的命名实例」。

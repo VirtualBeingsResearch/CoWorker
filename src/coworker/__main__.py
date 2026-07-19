@@ -227,6 +227,7 @@ async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
         fallbacks=config.llm.fallbacks,
         vision_provider=config.llm.vision_provider,
         vision_model=config.llm.vision_model,
+        vision_thinking=config.llm.vision_thinking,
     )
 
 
@@ -246,6 +247,7 @@ async def _run_check() -> int:
             summary_thinking=config.llm.summary_thinking,
             vision_provider=config.llm.vision_provider,
             vision_model=config.llm.vision_model,
+            vision_thinking=config.llm.vision_thinking,
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
@@ -299,6 +301,7 @@ async def _run_backfill() -> int:
             summary_thinking=config.llm.summary_thinking,
             vision_provider=config.llm.vision_provider,
             vision_model=config.llm.vision_model,
+            vision_thinking=config.llm.vision_thinking,
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
@@ -463,6 +466,7 @@ async def _main() -> bool:
         summary_thinking=config.llm.summary_thinking,
         vision_provider=config.llm.vision_provider,
         vision_model=config.llm.vision_model,
+        vision_thinking=config.llm.vision_thinking,
     )
     _register_providers(brain, config)
     await _validate_model_runtime_config(brain, config)

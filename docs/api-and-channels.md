@@ -27,7 +27,7 @@ curl -X POST http://localhost:8000/switch_model \
 curl http://localhost:8000/model_config
 curl -X PATCH http://localhost:8000/model_config \
   -H "Content-Type: application/json" \
-  -d '{"summary":{"provider":"deepseek","model":"deepseek-v4-flash","thinking":false},"fallbacks":["zhipu-userB","deepseek/deepseek-chat"],"vision":{"provider":"anthropic","model":"claude-sonnet-4-6"}}'
+  -d '{"summary":{"provider":"deepseek","model":"deepseek-v4-flash","thinking":false},"fallbacks":["zhipu-userB","deepseek/deepseek-chat"],"vision":{"provider":"anthropic","model":"claude-sonnet-4-6","thinking":false}}'
 
 # 在线回溯记忆树（从原始日志全史重建多尺度记忆树，后台运行）
 curl -X POST http://localhost:8000/backfill_tree \

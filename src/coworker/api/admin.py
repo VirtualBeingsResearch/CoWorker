@@ -98,6 +98,7 @@ class SummaryModelPatch(BaseModel):
 class VisionModelPatch(BaseModel):
     provider: str | None = None
     model: str | None = None
+    thinking: bool | None = None
 
 
 class ModelPatch(BaseModel):
@@ -861,6 +862,7 @@ async def patch_model(
             fallbacks=payload.fallbacks,
             vision_provider=payload.vision.provider if payload.vision else None,
             vision_model=payload.vision.model if payload.vision else None,
+            vision_thinking=payload.vision.thinking if payload.vision else None,
         )
         from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 

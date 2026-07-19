@@ -451,7 +451,7 @@ class TestBrain:
         assert meta["label"] == "screen.png"
 
     @pytest.mark.asyncio
-    async def test_query_with_vision_preserves_provider_default_thinking(self):
+    async def test_query_with_vision_uses_configured_thinking_mode(self):
         class CapturingProvider(MockProvider):
             def __init__(self) -> None:
                 super().__init__()
@@ -463,14 +463,14 @@ class TestBrain:
                 system_prompt,
                 tools,
                 max_tokens=4096,
-                thinking="provider-default",
+                thinking=True,
                 **_,
             ):
                 self.seen_thinking = thinking
                 return await super().complete(messages, system_prompt, tools, max_tokens)
 
         provider = CapturingProvider()
-        brain = Brain("mock", "mock-model", thinking=False)
+        brain = Brain("mock", "mock-model")
         brain.register_provider(provider)
 
         await brain.query_with_vision(
@@ -479,7 +479,16 @@ class TestBrain:
             vision_model="mock-model",
         )
 
-        assert provider.seen_thinking == "provider-default"
+        assert provider.seen_thinking is True
+
+        await brain.update_model_config(vision_thinking=False)
+        await brain.query_with_vision(
+            messages=[Message(role="user", content="describe this image")],
+            vision_provider="mock",
+            vision_model="mock-model",
+        )
+
+        assert provider.seen_thinking is False
 
     @pytest.mark.asyncio
     async def test_query_with_vision_unknown_provider(self):
@@ -711,11 +720,17 @@ class TestBrainModelConfig:
         brain = Brain("mock", "mock-model")
         brain.register_provider(provider)
 
-        await brain.update_model_config(vision_provider="mock", vision_model="vision-model")
+        snapshot = await brain.update_model_config(
+            vision_provider="mock",
+            vision_model="vision-model",
+            vision_thinking=False,
+        )
         result = await brain.query_with_vision([Message(role="user", content="look")])
 
         assert result == "mock response"
         assert provider._current_model == "vision-model"
+        assert brain.vision_thinking is False
+        assert snapshot["vision"]["thinking"] is False
 
     @pytest.mark.asyncio
     async def test_query_with_vision_rejects_video_when_provider_lacks_capability(self):

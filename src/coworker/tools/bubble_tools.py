@@ -40,6 +40,7 @@ def _create_bubble_brain(
         summary_thinking=parent_brain.summary_thinking,
         vision_provider=parent_brain.vision_provider_name,
         vision_model=parent_brain.vision_model,
+        vision_thinking=parent_brain.vision_thinking,
     )
     for provider_obj in parent_brain._providers.values():
         bubble_brain.register_provider(provider_obj)

@@ -626,7 +626,7 @@ class TestGetStatus:
             "active": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
             "summary": {"provider": "", "model": "", "thinking": False},
             "fallbacks": [],
-            "vision": {"provider": "", "model": "", "enabled": False},
+            "vision": {"provider": "", "model": "", "thinking": True, "enabled": False},
         }
         import coworker.api.routes as routes_mod
         routes_mod._agent = mock_agent
@@ -663,7 +663,7 @@ class TestGetStatus:
             "active": {"provider": "openai", "model": "gpt-4o"},
             "summary": {"provider": "", "model": "", "thinking": False},
             "fallbacks": [],
-            "vision": {"provider": "", "model": "", "enabled": False},
+            "vision": {"provider": "", "model": "", "thinking": True, "enabled": False},
         }
         setup_routes(mock_inbox, mock_agent, mock_brain, usage_stats=mock_stats)
 
@@ -801,6 +801,7 @@ class TestModelConfigAPI:
         body = resp.json()
         assert body["providers"] == ["mock"]
         assert body["active"] == {"provider": "mock", "model": "mock-model"}
+        assert body["vision"]["thinking"] is True
         assert body["persisted"] is False
         assert body["override_path"] == str(path)
 
@@ -816,7 +817,7 @@ class TestModelConfigAPI:
             json={
                 "summary": {"provider": "mock", "model": "summary-model", "thinking": True},
                 "fallbacks": ["mock/mock-model"],
-                "vision": {"provider": "mock", "model": "vision-model"},
+                "vision": {"provider": "mock", "model": "vision-model", "thinking": False},
             },
         )
 
@@ -826,12 +827,15 @@ class TestModelConfigAPI:
         assert body["fallbacks"] == ["mock/mock-model"]
         assert body["vision"]["provider"] == "mock"
         assert body["vision"]["model"] == "vision-model"
+        assert body["vision"]["thinking"] is False
         assert body["persisted"] is True
         persisted = json.loads(path.read_text(encoding="utf-8"))
         assert persisted["summary"]["model"] == "summary-model"
         assert persisted["vision"]["model"] == "vision-model"
+        assert persisted["vision"]["thinking"] is False
         assert brain.summary_model == "summary-model"
         assert brain.vision_model == "vision-model"
+        assert brain.vision_thinking is False
 
     def test_patch_invalid_payload_returns_400_and_does_not_write(self, client, tmp_path):
         mock_inbox = MagicMock()

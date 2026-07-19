@@ -699,6 +699,7 @@ class SubconsciousScheduler:
             summary_thinking=self._brain.summary_thinking,
             vision_provider=self._brain.vision_provider_name,
             vision_model=self._brain.vision_model,
+            vision_thinking=self._brain.vision_thinking,
         )
         for provider in self._brain._providers.values():
             new_brain.register_provider(provider)

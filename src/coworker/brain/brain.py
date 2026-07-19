@@ -50,6 +50,7 @@ class Brain:
         summary_thinking: bool = False,
         vision_provider: str = "",
         vision_model: str = "",
+        vision_thinking: bool = True,
     ) -> None:
         self._providers: dict[str, BaseLLMProvider] = {}
         self._active_provider_name = default_provider
@@ -59,6 +60,7 @@ class Brain:
         self._summary_thinking = summary_thinking
         self._vision_provider_name = vision_provider
         self._vision_model = vision_model
+        self._vision_thinking = vision_thinking
         self._message_time_prefix = message_time_prefix
         self._max_tokens = max_tokens
         self._thinking = thinking
@@ -174,6 +176,10 @@ class Brain:
         return self._vision_model
 
     @property
+    def vision_thinking(self) -> bool:
+        return self._vision_thinking
+
+    @property
     def active_provider(self) -> BaseLLMProvider | None:
         return self._providers.get(self._active_provider_name)
 
@@ -257,6 +263,7 @@ class Brain:
             "vision": {
                 "provider": self._vision_provider_name,
                 "model": self._vision_model,
+                "thinking": self._vision_thinking,
                 "enabled": bool(self._vision_provider_name and self._vision_model),
             },
         }
@@ -270,6 +277,7 @@ class Brain:
         fallbacks: list[str] | None = None,
         vision_provider: str | None = None,
         vision_model: str | None = None,
+        vision_thinking: bool | None = None,
     ) -> dict[str, Any]:
         next_summary_provider = self._summary_provider_name if summary_provider is None else summary_provider.strip()
         next_summary_model = self._summary_model if summary_model is None else summary_model.strip()
@@ -277,6 +285,9 @@ class Brain:
         next_fallbacks = self._fallbacks if fallbacks is None else self._validate_fallbacks(fallbacks)
         next_vision_provider = self._vision_provider_name if vision_provider is None else vision_provider.strip()
         next_vision_model = self._vision_model if vision_model is None else vision_model.strip()
+        next_vision_thinking = (
+            self._vision_thinking if vision_thinking is None else bool(vision_thinking)
+        )
 
         self._validate_summary_config(next_summary_provider, next_summary_model)
         self._validate_vision_config(next_vision_provider, next_vision_model)
@@ -288,6 +299,7 @@ class Brain:
             self._fallbacks = list(next_fallbacks)
             self._vision_provider_name = next_vision_provider
             self._vision_model = next_vision_model
+            self._vision_thinking = next_vision_thinking
         return self.model_config_snapshot()
 
     async def count_tokens(self, messages: list[Message]) -> int:
@@ -478,6 +490,7 @@ class Brain:
             system_prompt,
             [],
             max_tokens if max_tokens is not None else self._max_tokens,
+            thinking=self._vision_thinking,
         )
         resp.provider = vision_provider
         self._notify_usage_listeners(

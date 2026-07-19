@@ -937,6 +937,11 @@
         <div class="form-group">
           <label>Vision Model</label>
           <input id="visionModel" type="text" placeholder="claude-sonnet-4-6" />
+          <label>Vision Thinking</label>
+          <select id="visionThinking">
+            <option value="true">Enabled</option>
+            <option value="false">Disabled</option>
+          </select>
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2293,6 +2298,7 @@
       : '';
     document.getElementById('visionProvider').value = vision.provider || '';
     document.getElementById('visionModel').value = vision.model || '';
+    document.getElementById('visionThinking').value = vision.thinking ? 'true' : 'false';
   }
 
   async function fetchModelConfig() {
@@ -2329,6 +2335,7 @@
       vision: {
         provider: document.getElementById('visionProvider').value.trim(),
         model: document.getElementById('visionModel').value.trim(),
+        thinking: document.getElementById('visionThinking').value === 'true',
       },
     };
     setLoading('modelConfigResp', '请求中…');

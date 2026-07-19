@@ -43,6 +43,7 @@ variables, make sure the working directory does not contain conflicting `.env` v
 | `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to summary / fallbacks / vision; these override matching model settings from `.env` at startup |
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
+| `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |
 
 ### Memory
 

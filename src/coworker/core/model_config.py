@@ -21,6 +21,8 @@ class RuntimeVisionConfig(BaseModel):
 
     provider: str = ""
     model: str = ""
+    # 旧版运行态配置没有该字段，应保持此前隐式启用 thinking 的行为。
+    thinking: bool = True
 
 
 class RuntimeModelConfig(BaseModel):
@@ -42,6 +44,7 @@ class RuntimeModelConfig(BaseModel):
             vision=RuntimeVisionConfig(
                 provider=llm.vision_provider,
                 model=llm.vision_model,
+                thinking=llm.vision_thinking,
             ),
         )
 
@@ -59,6 +62,7 @@ class RuntimeModelConfig(BaseModel):
             vision=RuntimeVisionConfig(
                 provider=str(vision.get("provider") or ""),
                 model=str(vision.get("model") or ""),
+                thinking=bool(vision.get("thinking", True)),
             ),
         )
 
@@ -69,6 +73,7 @@ class RuntimeModelConfig(BaseModel):
         llm.fallbacks = list(self.fallbacks)
         llm.vision_provider = self.vision.provider
         llm.vision_model = self.vision.model
+        llm.vision_thinking = self.vision.thinking
 
 
 def load_runtime_model_config(path: str | Path) -> RuntimeModelConfig | None:

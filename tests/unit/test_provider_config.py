@@ -102,6 +102,19 @@ def test_summary_model_config_fields_are_loaded():
     assert cfg.summary_thinking is True
 
 
+def test_vision_thinking_defaults_to_enabled_and_can_be_disabled():
+    assert _llm().vision_thinking is True
+    assert _llm(vision_thinking=False).vision_thinking is False
+
+
+def test_legacy_runtime_vision_config_keeps_thinking_enabled():
+    runtime = RuntimeModelConfig.model_validate({
+        "vision": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+    })
+
+    assert runtime.vision.thinking is True
+
+
 def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     path = tmp_path / "model_runtime_config.json"
     write_runtime_model_config(
@@ -109,7 +122,11 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
         RuntimeModelConfig.model_validate({
             "summary": {"provider": "zhipu-b", "model": "glm-4.7", "thinking": True},
             "fallbacks": ["zhipu-b", "deepseek/deepseek-chat"],
-            "vision": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            "vision": {
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "thinking": False,
+            },
         }),
     )
     cfg = _llm(runtime_config_file=str(path))
@@ -123,6 +140,7 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     assert cfg.fallbacks == ["zhipu-b", "deepseek/deepseek-chat"]
     assert cfg.vision_provider == "anthropic"
     assert cfg.vision_model == "claude-sonnet-4-6"
+    assert cfg.vision_thinking is False
 
 
 def test_runtime_model_config_missing_file_is_ignored(tmp_path):
