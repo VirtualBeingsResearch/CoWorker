@@ -11,9 +11,9 @@
   --admin-muted: oklch(54% 0.014 260);
   --admin-line: oklch(91% 0.008 95);
   --admin-soft: color-mix(in oklch, var(--admin-vital) 7%, var(--admin-surface));
-  --admin-display: 'MiSans VF', 'HarmonyOS Sans SC', 'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
-  --admin-body: 'Noto Sans SC', 'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
-  --admin-data: 'Bahnschrift', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Microsoft YaHei UI', 'PingFang SC', monospace;
+  --admin-display: var(--font-display);
+  --admin-body: var(--font-body);
+  --admin-data: var(--font-mono);
   --admin-type-micro: clamp(10px, calc(9.5px + .04vw), 11px);
   --admin-type-caption: clamp(11px, calc(10.4px + .05vw), 12px);
   --admin-type-small: clamp(12px, calc(11.4px + .05vw), 13px);
@@ -607,6 +607,29 @@ html:has(.admin-login),
 .topbar-actions { display: flex; align-items: center; gap: 22px; }
 .topbar-actions > a { display: inline-flex; align-items: center; gap: 5px; color: var(--admin-muted); font-size: 11px; text-decoration: none; white-space: nowrap; }
 .topbar-actions > a:hover { color: var(--admin-vital); }
+
+/* Language is a mode of the care station, not a pair of competing tabs. */
+.admin-language-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: 999px;
+  color: var(--admin-muted);
+  background: color-mix(in oklch, var(--admin-surface) 92%, var(--admin-paper));
+  box-shadow: 0 5px 16px color-mix(in oklch, var(--admin-ink) 7%, transparent);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.admin-language-toggle svg { color: var(--admin-vital); }
+.admin-language-toggle > span { white-space: nowrap; }
+.admin-language-toggle:hover { color: var(--admin-ink); border-color: color-mix(in oklch, var(--admin-vital) 43%, var(--admin-line)); background: var(--admin-soft); transform: translateY(-1px); }
+.admin-language-toggle:active { transform: translateY(0); }
+.admin-language-toggle-floating { position: fixed; top: 18px; right: 18px; z-index: 100; }
 
 .shell-life { display: flex; align-items: center; gap: 11px; color: var(--admin-muted); }
 .shell-life > span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; white-space: nowrap; }
@@ -1712,11 +1735,11 @@ html:has(.admin-login),
 .release-publish-empty { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 90px; color: var(--admin-muted); font-size: var(--admin-type-small); }
 .release-publish-empty svg { color: var(--admin-vital); }
 
-:lang(zh) .login-presence h1,
-:lang(zh) .login-access h2,
-:lang(zh) .topbar-title h1,
-:lang(zh) .presence-copy h1,
-:lang(zh) .admin-panel > header h2 {
+.login-presence h1,
+.login-access h2,
+.topbar-title h1,
+.presence-copy h1,
+.admin-panel > header h2 {
   letter-spacing: -.015em;
 }
 
@@ -1924,6 +1947,7 @@ html:has(.admin-login),
 }
 
 @media (max-width: 560px) {
+  .admin-language-toggle-floating { top: 12px; right: 12px; }
   .admin-login { display: block; min-height: 100vh; overflow: auto; padding: 0; background: var(--admin-surface); }
   .admin-login::after { display: none; }
   .login-card { display: block; width: 100%; min-height: 100vh; border: 0; border-radius: 0; box-shadow: none; }

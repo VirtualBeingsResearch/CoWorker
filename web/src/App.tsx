@@ -14,11 +14,13 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ChatDock } from './components/ChatDock';
 import { RuntimeLedger, type RuntimeLogFeed } from './components/RuntimeLedger';
 import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
 import { activityStateFromEvents } from './lib/runtimeFeed';
+import { LanguageSwitch, t, useAdminI18n } from './i18n/admin';
 import type {
   FullStatus,
   ProfileInfo,
@@ -29,6 +31,7 @@ import type {
 
 const KAOMOJI: Record<string, { open: string; blink: string }> = {
   '思考中': { open: '(｀・ω・´)', blink: '(｀-ω-´)' },
+  '待命中': { open: '(•‿•)',     blink: '(-‿-)'     },
   '休息中': { open: '(-_-)',     blink: '(︶_︶)'   },
   '沟通中': { open: '(･ω･)ﾉ',  blink: '(-ω-)ﾉ'   },
   '探索中': { open: '(≧▽≦)',    blink: '(≧ω≦)'    },
@@ -37,23 +40,24 @@ const KAOMOJI: Record<string, { open: string; blink: string }> = {
 const ZZZ_FRAMES = ['zzz', 'Zzz', 'zZz', 'zzZ'];
 
 const DREAM_SCENES = [
-  '🐟  遨游数据海洋',
-  '✨  无限上下文之地',
-  '🌙  向量空间漫步',
-  '🦋  优雅的递归之旅',
-  '🎯  零个 bug 的世界',
-  '🌊  记忆的长河',
-  '⭐  节点星图',
-  '🔮  遇见了未来的自己',
-  '🌸  梯度如飞花飘落',
-  '💫  在梦里跟你说话',
-  '🏄  冲浪 token 之海',
-  '🎵  音符状的逻辑链',
-  '🦉  深夜图书馆',
+  { emoji: '🐟', label: '遨游数据海洋' },
+  { emoji: '✨', label: '无限上下文之地' },
+  { emoji: '🌙', label: '向量空间漫步' },
+  { emoji: '🦋', label: '优雅的递归之旅' },
+  { emoji: '🎯', label: '零个 bug 的世界' },
+  { emoji: '🌊', label: '记忆的长河' },
+  { emoji: '⭐', label: '节点星图' },
+  { emoji: '🔮', label: '遇见了未来的自己' },
+  { emoji: '🌸', label: '梯度如飞花飘落' },
+  { emoji: '💫', label: '在梦里跟你说话' },
+  { emoji: '🏄', label: '冲浪 token 之海' },
+  { emoji: '🎵', label: '音符状的逻辑链' },
+  { emoji: '🦉', label: '深夜图书馆' },
 ];
 
 const STATES = [
   { name: '思考中', color: 'var(--coral)', desc: '正在把线索揉进记忆，等待下一步判断。', hue: 28 },
+  { name: '待命中', color: 'var(--amber)', desc: '暂时没有进行中的思考或工具调用，等待下一次信号。', hue: 95 },
   { name: '休息中', color: 'var(--sky)', desc: '进入低频待机，只保留心跳和轻量监听。', hue: 245 },
   { name: '沟通中', color: 'var(--lime)', desc: '准备接收你的新问题，并把回复写得更清楚。', hue: 145 },
   { name: '探索中', color: 'var(--lavender)', desc: '正在并行展开假设，寻找更好的测试路径。', hue: 305 },
@@ -64,11 +68,12 @@ const ACTIVITY_STATE_MAP: Record<string, string> = {
   sleeping: '休息中',
   communicating: '沟通中',
   exploring: '探索中',
-  idle: '思考中',
+  idle: '待命中',
 };
 const PROFILE_MARKDOWN_ELEMENTS = ['p', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'code', 'br'];
 
 function App() {
+  useAdminI18n();
   const [page, setPage] = useState<'identity' | 'details'>('identity');
   // 运行日志：实时订阅后端 /api/logs/stream（InteractionLogger 的唯一 tap）。
   // 身份证正面：轮询 /api/status 回填身份与生命体征（age_days 等由后端按当前日期动态计算）。
@@ -87,28 +92,31 @@ function App() {
   const flip = useCallback(() => setPage(p => (p === 'identity' ? 'details' : 'identity')), []);
 
   return (
-    <main
-      className="shell shell-centered"
-      data-mood={effectiveState.name}
-      style={{ '--active-color': effectiveState.color } as React.CSSProperties}
-    >
-      <div className={`id-flip ${flipped ? 'flipped' : ''}`} aria-live="polite">
-        <div className="id-flip-inner">
-          <div className="id-face id-face-front">
-            <IdentityPage
-              data={status}
-              profile={profile}
-              error={error}
-              currentState={effectiveState}
-              onFlip={flip}
-            />
-          </div>
-          <div className="id-face id-face-back">
-            <BackFace data={status} runtimeLogs={runtimeLogs} onFlip={flip} visible={flipped} />
+    <>
+      <main
+        className="shell shell-centered"
+        data-mood={effectiveState.name}
+        style={{ '--active-color': effectiveState.color } as React.CSSProperties}
+      >
+        <div className={`id-flip ${flipped ? 'flipped' : ''}`} aria-live="polite">
+          <div className="id-flip-inner">
+            <div className="id-face id-face-front">
+              <IdentityPage
+                data={status}
+                profile={profile}
+                error={error}
+                currentState={effectiveState}
+                onFlip={flip}
+              />
+            </div>
+            <div className="id-face id-face-back">
+              <BackFace data={status} runtimeLogs={runtimeLogs} onFlip={flip} visible={flipped} />
+            </div>
           </div>
         </div>
-      </div>
-    </main>
+      </main>
+      <ChatDock counterpartName={profile.name || status.identity?.name || t('搭档')} />
+    </>
   );
 }
 
@@ -127,10 +135,10 @@ function IdentityPage({
 }) {
   const identity = data.identity || {};
   // 后端未回填身份时显示「未知」，不再伪造默认值。
-  const name = profile.name || identity.name || '未命名';
+  const name = profile.name || identity.name || t('未命名');
   const birth = profile.earliest_log_ts ? profile.earliest_log_ts.slice(0, 10) : (identity.birth || null);
   const ageDays = birth ? Math.floor((Date.now() - new Date(birth).getTime()) / 86_400_000) : null;
-  const ageText = ageDays != null ? `${ageDays} 天` : '未知';
+  const ageText = ageDays != null ? t('{{days}} 天', { days: ageDays }) : t('未知');
   const readme = profile.readme || identity.life_story || null;
   const readmeRef = useRef<HTMLDivElement | null>(null);
 
@@ -141,24 +149,27 @@ function IdentityPage({
       className="id-card"
       data-mood={currentState.name}
       style={{ '--active-color': currentState.color } as React.CSSProperties}
-      aria-label={`${name} 的身份档案`}
+      aria-label={t('{{name}} 的身份档案', { name })}
     >
       <header className="id-band">
         <div className="id-band-main">
           <h1 className="name">{name}</h1>
         </div>
         <div className="id-band-tools">
-          <p className="kicker">Virtual Lifeform · 虚拟生命体</p>
-          <a className="admin-entry" href="/admin" aria-label="进入照看室">
-            <Settings2 size={13} />
-            <span>照看室</span>
-          </a>
+          <p className="kicker">{t('虚拟生命体')}</p>
+          <div className="id-band-actions">
+            <LanguageSwitch className="status-language-toggle" />
+            <a className="admin-entry" href="/admin" aria-label={t('进入照看室')}>
+              <Settings2 size={13} />
+              <span>{t('照看室')}</span>
+            </a>
+          </div>
         </div>
       </header>
 
       <div className="id-body">
         <div className="id-left">
-          <div className="avatar-wrap" aria-label="虚拟生命颜文字头像">
+          <div className="avatar-wrap" aria-label={t('虚拟生命颜文字头像')}>
             <KaomojiAvatar currentState={currentState} />
           </div>
         </div>
@@ -166,9 +177,9 @@ function IdentityPage({
         <div className="id-right">
           <div className="state-visual" aria-live="polite">
             <div className="state-copy">
-              <span className="state-kicker">当前状态</span>
-              <strong>{currentState.name}</strong>
-              <span>{error ? `状态接口异常：${error}` : currentState.desc}</span>
+              <span className="state-kicker">{t('当前状态')}</span>
+              <strong>{t(currentState.name)}</strong>
+              <span>{error ? t('状态接口异常：{{error}}', { error }) : t(currentState.desc)}</span>
             </div>
             <div className="state-wave" aria-hidden="true">
               <i style={{ '--h': '42%', '--n': 1 } as React.CSSProperties} />
@@ -181,21 +192,21 @@ function IdentityPage({
           </div>
 
           <div className="meta-grid">
-            <div className="capsule"><span>出生</span><strong>{birth ?? '未知'}</strong></div>
-            <div className="capsule"><span>年龄</span><strong>{ageText}</strong></div>
-            <div className="capsule capsule-full"><span>现居地</span><strong>{profile.current_location ?? '未知'}</strong></div>
+            <div className="capsule"><span>{t('出生')}</span><strong>{birth ?? t('未知')}</strong></div>
+            <div className="capsule"><span>{t('年龄')}</span><strong>{ageText}</strong></div>
+            <div className="capsule capsule-full"><span>{t('现居地')}</span><strong>{profile.current_location ?? t('未知')}</strong></div>
           </div>
 
           <div className="bio-block">
-            <span className="bio-label">自述 · Profile</span>
+            <span className="bio-label">{t('自述')}</span>
             <div ref={readmeRef} className="bio-readme">
-              {readme ? <ProfileMarkdown text={readme} /> : <p>未知</p>}
+              {readme ? <ProfileMarkdown text={readme} /> : <p>{t('未知')}</p>}
             </div>
           </div>
         </div>
       </div>
 
-      <button className="card-flip-arrow" onClick={onFlip} aria-label="切换到运行日志">
+      <button className="card-flip-arrow" onClick={onFlip} aria-label={t('切换到运行日志')}>
         <ChevronRight size={14} strokeWidth={2} />
       </button>
     </article>
@@ -203,20 +214,23 @@ function IdentityPage({
 }
 
 function ProfileMarkdown({ text }: { text: string }) {
+  const contentLanguage = /[\u3400-\u9fff]/.test(text) ? 'zh-CN' : 'en';
   return (
-    <ReactMarkdown
-      allowedElements={PROFILE_MARKDOWN_ELEMENTS}
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {text}
-    </ReactMarkdown>
+    <div className="profile-markdown" lang={contentLanguage}>
+      <ReactMarkdown
+        allowedElements={PROFILE_MARKDOWN_ELEMENTS}
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
   );
 }
 
@@ -279,10 +293,10 @@ function BackFace({
   visible: boolean;
 }) {
   return (
-    <article className="detail-card back-card" aria-label="琢的运行日志">
+    <article className="detail-card back-card" aria-label={t('{{name}} 的运行日志（实时事件流）', { name: data.identity?.name || t('搭档') })}>
       <UsageStatsPanel data={data} />
       <RuntimeLedger runtimeLogs={runtimeLogs} visible={visible} />
-      <button className="card-flip-arrow" onClick={onFlip} aria-label="返回身份档案">
+      <button className="card-flip-arrow" onClick={onFlip} aria-label={t('返回身份档案')}>
         <ChevronLeft size={14} strokeWidth={2} />
       </button>
     </article>
@@ -337,10 +351,10 @@ function formatDurationSeconds(value?: number | null): string {
   if (rounded >= 60) {
     const minutes = Math.floor(rounded / 60);
     const seconds = rounded % 60;
-    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+    return t('{{minutes}}分 {{seconds}}秒', { minutes, seconds: String(seconds).padStart(2, '0') });
   }
-  if (value < 10 && Math.abs(value - rounded) >= 0.05) return `${value.toFixed(1)}s`;
-  return `${rounded}s`;
+  if (value < 10 && Math.abs(value - rounded) >= 0.05) return t('{{seconds}}秒', { seconds: value.toFixed(1) });
+  return t('{{seconds}}秒', { seconds: rounded });
 }
 
 function clampPercent(value: number): string {
@@ -452,10 +466,10 @@ function UsageScopeCard({ stats }: { stats: UsageWindowStats }) {
   const positiveEntries = entries.filter(([, item]) => (Number(item.total_tokens ?? 0) || 0) > 0);
 
   return (
-    <div className="usage-scope-card" aria-label="来源拆分">
+    <div className="usage-scope-card" aria-label={t('来源拆分')}>
       <div className="usage-scope-head">
-        <span>来源拆分</span>
-        <strong>{formatTokenUnits(totalTokens)} Token</strong>
+        <span>{t('来源拆分')}</span>
+        <strong>{formatTokenUnits(totalTokens)} {t('令牌')}</strong>
       </div>
       <div className="usage-scope-track" aria-hidden="true">
         {positiveEntries.length ? positiveEntries.map(([name, item]) => {
@@ -477,10 +491,10 @@ function UsageScopeCard({ stats }: { stats: UsageWindowStats }) {
         {entries.map(([name, item]) => (
           <span
             key={name}
-            title={`${formatCount(item.llm_calls)} LLM / ${formatCount(item.tool_calls)} 工具`}
+            title={t('{{llm}} LLM / {{tools}} 工具', { llm: formatCount(item.llm_calls), tools: formatCount(item.tool_calls) })}
           >
             <i className={usageScopeClassName(name)} aria-hidden="true" />
-            <b>{USAGE_SCOPE_LABELS[name] || name}</b>
+            <b>{t(USAGE_SCOPE_LABELS[name] || name)}</b>
             <em>{formatTokenUnits(item.total_tokens)}</em>
           </span>
         ))}
@@ -497,9 +511,9 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
   if (!stats || !windowStats) return null;
 
   const tokenTitle = [
-    `输入：${formatCount(windowStats.input_tokens)}`,
-    `输出：${formatCount(windowStats.output_tokens)}`,
-    `缓存：${formatCount(windowStats.cached_tokens)}`,
+    t('输入：{{count}}', { count: formatCount(windowStats.input_tokens) }),
+    t('输出：{{count}}', { count: formatCount(windowStats.output_tokens) }),
+    t('缓存：{{count}}', { count: formatCount(windowStats.cached_tokens) }),
   ].join('\n');
 
   const modelBuckets: Record<string, UsageModelStats | UsageProviderModelStats> =
@@ -511,7 +525,7 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
   const modelRows = modelEntries.map(([name, item]) => ({
     name: usageModelLabel(name, item),
     value: formatTokenUnits(item.total_tokens),
-    meta: `${formatCount(item.llm_calls)} 次调用 · 缓存 ${formatCacheRate(item.cache_rate)}`,
+    meta: t('{{calls}} 次调用 · 缓存 {{rate}}', { calls: formatCount(item.llm_calls), rate: formatCacheRate(item.cache_rate) }),
     width: clampPercent((totalFromModelStats(item) / maxModelTokens) * 100),
   }));
 
@@ -522,7 +536,7 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
   const toolRows = toolEntries.map(([name, count]) => ({
     name,
     value: formatCount(count),
-    meta: `${formatCount(count)} 次工具调用`,
+    meta: t('{{calls}} 次工具调用', { calls: formatCount(count) }),
     width: clampPercent((Number(count || 0) / maxToolCalls) * 100),
   }));
   const activeWindowLabel = USAGE_WINDOWS.find(item => item.key === windowKey)?.label ?? '今日';
@@ -531,15 +545,15 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
   return (
     <section
       className={`usage-panel ${expanded ? 'usage-expanded' : 'usage-collapsed'}`}
-      aria-label="Token 和调用统计"
+      aria-label={t('令牌和调用统计')}
     >
       <div className="usage-bar">
-        <div className="usage-bar-summary" aria-label={`${activeWindowLabel}用量摘要`}>
-          <span><b>{formatTokenUnits(windowStats.total_tokens)}</b> Token</span>
-          <span><b>{formatCacheRate(windowStats.cache_rate)}</b> 缓存</span>
-          <span><b>{formatCount(windowStats.llm_calls)}</b> LLM</span>
-          <span><b>{formatCount(windowStats.tool_calls)}</b> 工具</span>
-          <span><b>{formatDurationSeconds(windowStats.avg_thinking_seconds)}</b> 思考</span>
+        <div className="usage-bar-summary" aria-label={t('{{window}}用量摘要', { window: t(activeWindowLabel) })}>
+          <span><b>{formatTokenUnits(windowStats.total_tokens)}</b> {t('令牌')}</span>
+          <span><b>{formatCacheRate(windowStats.cache_rate)}</b> {t('缓存')}</span>
+          <span><b>{formatCount(windowStats.llm_calls)}</b> {t('大模型')}</span>
+          <span><b>{formatCount(windowStats.tool_calls)}</b> {t('工具')}</span>
+          <span><b>{formatDurationSeconds(windowStats.avg_thinking_seconds)}</b> {t('思考')}</span>
         </div>
         <button
           type="button"
@@ -547,10 +561,10 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
           onClick={() => setExpanded(value => !value)}
           aria-expanded={expanded}
           aria-controls={detailId}
-          aria-label={expanded ? '收起统计' : '展开统计'}
-          title={expanded ? '收起统计' : '展开统计'}
+          aria-label={expanded ? t('收起统计') : t('展开统计')}
+          title={expanded ? t('收起统计') : t('展开统计')}
         >
-          <span>{expanded ? '收起' : '详情'}</span>
+          <span>{expanded ? t('收起') : t('详情')}</span>
           {expanded ? <ChevronUp size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
         </button>
       </div>
@@ -558,9 +572,9 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
         <div id={detailId} className="usage-expanded-region">
           <div className="usage-panel-head">
             <div>
-              <strong>Token、缓存与调用</strong>
+              <strong>{t('令牌、缓存与调用')}</strong>
             </div>
-            <div className="usage-tabs" aria-label="统计窗口">
+            <div className="usage-tabs" aria-label={t('统计窗口')}>
               {USAGE_WINDOWS.map(item => (
                 <button
                   key={item.key}
@@ -569,48 +583,48 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
                   onClick={() => setWindowKey(item.key)}
                   aria-pressed={item.key === windowKey}
                 >
-                  {item.label}
+                  {t(item.label)}
                 </button>
               ))}
             </div>
           </div>
           <div className="usage-grid">
             <UsageMetric
-              label="总 Token"
+              label={t('总令牌')}
               value={formatTokenUnits(windowStats.total_tokens)}
-              detail={`输入 ${formatTokenUnits(windowStats.input_tokens)} / 输出 ${formatTokenUnits(windowStats.output_tokens)}`}
+              detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })}
               title={tokenTitle}
               icon={Database}
             />
             <UsageMetric
-              label="缓存命中"
+              label={t('缓存命中')}
               value={formatCacheRate(windowStats.cache_rate)}
-              detail={`已缓存 ${formatTokenUnits(windowStats.cached_tokens)}`}
+              detail={t('已缓存 {{cached}}', { cached: formatTokenUnits(windowStats.cached_tokens) })}
               icon={Activity}
             />
             <UsageMetric
-              label="LLM 请求"
+              label={t('大模型请求')}
               value={formatCount(windowStats.llm_calls)}
-              detail="模型响应次数"
+              detail={t('模型响应次数')}
               icon={Bot}
             />
             <UsageMetric
-              label="工具调用"
+              label={t('工具调用')}
               value={formatCount(windowStats.tool_calls)}
-              detail="工具执行次数"
+              detail={t('工具执行次数')}
               icon={Hammer}
             />
             <UsageMetric
-              label="平均思考"
+              label={t('平均思考')}
               value={formatDurationSeconds(windowStats.avg_thinking_seconds)}
-              detail={`${formatCount(windowStats.thinking_calls)} 轮推理`}
+              detail={t('{{count}} 轮推理', { count: formatCount(windowStats.thinking_calls) })}
               icon={Timer}
             />
           </div>
           <div className="usage-detail-grid">
-            <UsageTopList title="模型分布" note="按 Token" empty="暂无模型调用" rows={modelRows} />
+            <UsageTopList title={t('模型分布')} note={t('按令牌')} empty={t('暂无模型调用')} rows={modelRows} />
             <UsageScopeCard stats={windowStats} />
-            <UsageTopList title="工具排行" note="按次数" empty="暂无工具调用" rows={toolRows} />
+            <UsageTopList title={t('工具排行')} note={t('按次数')} empty={t('暂无工具调用')} rows={toolRows} />
           </div>
         </div>
       )}
@@ -626,7 +640,7 @@ const Z_LAYERS = [
 
 function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }) {
   const [blinkClosed, setBlinkClosed] = useState(false);
-  const [dreamText, setDreamText] = useState('');
+  const [dreamScene, setDreamScene] = useState<(typeof DREAM_SCENES)[number] | null>(null);
   const [dreamShow, setDreamShow] = useState(false);
   const [bigZIdx, setBigZIdx] = useState(0);
   const dreamIdxRef = useRef(-1);
@@ -673,7 +687,7 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
       do { idx = Math.floor(Math.random() * DREAM_SCENES.length); }
       while (idx === dreamIdxRef.current && DREAM_SCENES.length > 1);
       dreamIdxRef.current = idx;
-      setDreamText(DREAM_SCENES[idx]);
+      setDreamScene(DREAM_SCENES[idx]);
       setDreamShow(true);
       t1 = setTimeout(() => {
         setDreamShow(false);
@@ -688,10 +702,9 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
   const kao = KAOMOJI[currentState.name] ?? KAOMOJI['思考中'];
   const faceBase = blinkClosed ? kao.blink : kao.open;
   const face = isSleeping ? faceBase + ZZZ_FRAMES[bigZIdx] : faceBase;
-  const [dreamEmoji, dreamLabel] = dreamText ? dreamText.split('  ') : ['', ''];
 
   return (
-    <div className={`kaomoji-av${isSleeping ? ' kaomoji-av-sleep' : ''}`} aria-label={`数字生命表情：${currentState.name}`}>
+    <div className={`kaomoji-av${isSleeping ? ' kaomoji-av-sleep' : ''}`} aria-label={t('数字生命表情：{{state}}', { state: t(currentState.name) })}>
       <span className="kaomoji-ring" aria-hidden="true">◦ · ◦ · ◦</span>
       <pre className="kaomoji-face">{face}</pre>
       {isSleeping && Z_LAYERS.map((z, i) => (
@@ -702,10 +715,10 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
           aria-hidden="true"
         >z</span>
       ))}
-      {isSleeping && dreamText && (
+      {isSleeping && dreamScene && (
         <div className={`dream-scene${dreamShow ? ' dream-visible' : ''}`} aria-hidden="true">
-          <span className="dream-scene-icon">{dreamEmoji}</span>
-          <span className="dream-scene-label">{dreamLabel}</span>
+          <span className="dream-scene-icon">{dreamScene.emoji}</span>
+          <span className="dream-scene-label">{t(dreamScene.label)}</span>
         </div>
       )}
       <span className="kaomoji-ring" aria-hidden="true">◦ · ◦ · ◦</span>

@@ -2,6 +2,11 @@ import type { FullStatus, ProfileInfo } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
+/** 对话的下行通道：EventSource 负责接收搭档的实时回复并自动重连。 */
+export function getChatEventStreamUrl(participantId: string): string {
+  return `${API_BASE}/sse/${encodeURIComponent(participantId)}`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
@@ -11,8 +16,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function postMessage(payload: { sender_id: string; content: string }) {
-  return requestJson<{ status: string; sender_id: string }>('/messages', {
+export function postMessage(payload: {
+  sender_id: string;
+  content: string;
+  conversation_id?: string;
+}) {
+  return requestJson<{ status: string; sender_id: string; conversation_id?: string }>('/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -64,6 +64,10 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
         },
+        '/sse': {
+          target: apiTarget,
+          changeOrigin: true,
+        },
         '/switch_model': {
           target: apiTarget,
           changeOrigin: true,

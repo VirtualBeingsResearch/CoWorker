@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RuntimeLogEvent } from '../api/types';
 import { deriveFeedRows, type FeedRow } from '../lib/runtimeFeed';
+import { t, useAdminI18n } from '../i18n/admin';
 
 // 运行日志的数据源形状（useRuntimeLogStream 的返回值）：events 来自后端
 // /api/logs/stream（InteractionLogger → RuntimeEventCollector 的实时 SSE 流）。
@@ -33,6 +34,23 @@ function fmtTime(ts?: string): string {
   if (!ts) return '--:--:--';
   const t = ts.indexOf('T');
   return t >= 0 ? ts.slice(t + 1, t + 9) : ts.slice(0, 8);
+}
+
+function fmtDuration(durationMs?: number): string | null {
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) return null;
+  if (durationMs < 1_000) return t('{{milliseconds}}毫秒', { milliseconds: Math.round(durationMs) });
+
+  const seconds = durationMs / 1_000;
+  if (seconds < 10) return t('{{seconds}}秒', { seconds: seconds.toFixed(1) });
+
+  const rounded = Math.round(seconds);
+  if (rounded >= 60) {
+    return t('{{minutes}}分 {{seconds}}秒', {
+      minutes: Math.floor(rounded / 60),
+      seconds: String(rounded % 60).padStart(2, '0'),
+    });
+  }
+  return t('{{seconds}}秒', { seconds: rounded });
 }
 
 // 骨架屏：数据到达前的占位行（布局与 .le 完全对齐）
@@ -71,12 +89,16 @@ function isSettled(row: FeedRow): boolean {
 
 function LedgerRow({ row, initial }: { row: FeedRow; initial?: boolean }) {
   const noAnim = initial && isSettled(row);
+  const duration = fmtDuration(row.durationMs);
   return (
     <div className={`${rowClass(row)}${row.cls ? ` ${row.cls}` : ''}${noAnim ? ' no-anim' : ''}`}>
       <span className="le-time">{fmtTime(row.ts)}</span>
       <span className="le-icon">{row.icon}</span>
       <span className="le-body">
-        <span className="le-tag">{row.tag}</span>
+        <span className="le-heading">
+          <span className="le-tag">{row.tag}</span>
+          {duration && <span className="le-duration">{duration}</span>}
+        </span>
         {(row.text || row.dots) && (
           <span className="le-text">
             {row.text}
@@ -100,7 +122,8 @@ export function RuntimeLedger({
   runtimeLogs: RuntimeLogFeed;
   visible?: boolean;
 }) {
-  const rows = useMemo(() => deriveFeedRows(runtimeLogs.events), [runtimeLogs.events]);
+  const { language } = useAdminI18n();
+  const rows = useMemo(() => deriveFeedRows(runtimeLogs.events), [language, runtimeLogs.events]);
 
   // 首次翻开时逐行插入动画：先展示最新行，再向上依次插入历史行
   const [revealCount, setRevealCount] = useState(0);
@@ -276,7 +299,7 @@ export function RuntimeLedger({
   }, [rows]);
 
   return (
-    <div className="ledger" aria-label="琢的运行日志（实时事件流）">
+    <div className="ledger" aria-label={t('{{name}} 的运行日志（实时事件流）', { name: t('搭档') })}>
       <div className="ledger-feed-wrap">
         <div
           className="ledger-feed"
@@ -286,7 +309,7 @@ export function RuntimeLedger({
           aria-live="polite"
         >
           {runtimeLogs.error ? (
-            <div className="ledger-empty">{`日志流：${runtimeLogs.error}`}</div>
+            <div className="ledger-empty">{t('日志流：{{error}}', { error: runtimeLogs.error })}</div>
           ) : rows.length === 0 ? (
             <LedgerSkeleton />
           ) : (
@@ -298,10 +321,10 @@ export function RuntimeLedger({
         <button
           className={`jump-btn ${!following && unseen > 0 ? 'show' : ''}`}
           onClick={scrollToLatest}
-          aria-label="回到最新日志"
+          aria-label={t('回到最新日志')}
         >
           <span className="dot" />
-          <b>{unseen > 99 ? '99+' : unseen}</b> 条新日志 <span className="arr">↓</span>
+          <b>{t('{{count}} 条新日志', { count: unseen > 99 ? '99+' : unseen })}</b> <span className="arr">↓</span>
         </button>
 
         {heroes.map(h => (
