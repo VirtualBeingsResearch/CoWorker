@@ -165,7 +165,12 @@ class TestInboxWatcher:
         assert watcher.poll_interval == 30.0
 
     @pytest.mark.asyncio
-    async def test_poll_image_file_creates_attachment(self, tmp_path):
+    async def test_poll_image_file_creates_attachment(self, tmp_path, monkeypatch):
+        compact_id_with_separator = "abcde_fghijk"
+        monkeypatch.setattr(
+            "coworker.agent.inbox_watcher.new_compact_id",
+            lambda: compact_id_with_separator,
+        )
         inbox_dir = tmp_path / "inbox"
         inbox_dir.mkdir()
         attachments_dir = tmp_path / "attachments"
@@ -188,7 +193,7 @@ class TestInboxWatcher:
         assert att.filename == "20240101_120000_alice.png"
         assert att.media_type == "image/png"
         assert att.data is not None
-        assert len(Path(att.saved_path).name.split("_", 1)[0]) == 12
+        assert Path(att.saved_path).name == f"{compact_id_with_separator}_{att.filename}"
         assert not img_file.exists()
 
     @pytest.mark.asyncio

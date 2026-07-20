@@ -159,14 +159,16 @@ def test_frame_to_event_mixed_concats_text_items():
 
 
 @pytest.mark.asyncio
-async def test_collect_attachments_image(tmp_path):
+async def test_collect_attachments_image(tmp_path, monkeypatch):
+    compact_id_with_separator = "abcde_fghijk"
+    monkeypatch.setattr(adapter, "new_compact_id", lambda: compact_id_with_separator)
     client = AsyncMock()
     client.download_file = AsyncMock(return_value={"buffer": b"\x89PNG-fake-bytes", "filename": "shot.png"})
     atts = await adapter.collect_attachments(client, _image_single(), tmp_path)
     assert len(atts) == 1
     assert atts[0].filename == "shot.png"
     assert atts[0].media_type == "image/png"
-    assert len(Path(atts[0].saved_path).name.split("_", 1)[0]) == 12
+    assert Path(atts[0].saved_path).name == f"{compact_id_with_separator}_{atts[0].filename}"
     # small image inlined as base64
     assert atts[0].data is not None
     client.download_file.assert_awaited_once_with("https://x/y", "AESKEY")

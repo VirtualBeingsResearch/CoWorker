@@ -103,7 +103,11 @@ class TestPostMessages:
         assert resp.status_code == 422
         mock_inbox.push.assert_not_awaited()
 
-    def test_attachment_filename_is_sanitized(self, client, tmp_path):
+    def test_attachment_filename_is_sanitized(self, client, tmp_path, monkeypatch):
+        compact_id_with_separator = "abcde_fghijk"
+        monkeypatch.setattr(
+            "coworker.api.routes.new_compact_id", lambda: compact_id_with_separator
+        )
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
         mock_agent = MagicMock()
@@ -131,8 +135,8 @@ class TestPostMessages:
         saved_path = Path(attachment.saved_path).resolve()
         attachments_dir = (tmp_path / "attachments").resolve()
         assert saved_path.parent == attachments_dir
-        assert len(saved_path.name.split("_", 1)[0]) == 12
         assert attachment.filename == "evil-name.txt"
+        assert saved_path.name == f"{compact_id_with_separator}_{attachment.filename}"
         assert saved_path.read_bytes() == b"hello"
 
     def test_desktop_thread_envelope_extracts_attachment_instead_of_exposing_base64(
