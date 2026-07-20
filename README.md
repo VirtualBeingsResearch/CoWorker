@@ -1,26 +1,54 @@
-<p align="center">
-  <img src="apps/coworker-desktop/desktop/src-tauri/icons/128x128@2x.png" width="112" alt="Coworker logo">
-</p>
+<a id="readme-top"></a>
 
-<h1 align="center">Coworker（搭档）</h1>
+<div align="center">
+  <img src="apps/coworker-desktop/desktop/src-tauri/icons/128x128@2x.png" width="128" alt="Coworker logo">
+  <h1>Coworker（搭档）</h1>
+  <p><strong>一个持续感知、记忆、行动与成长的虚拟生命体</strong></p>
+  <p>
+    <strong>简体中文</strong>
+    <span> · </span>
+    <a href="README.en.md">English</a>
+  </p>
+  <p>
+    <a href="https://github.com/VirtualBeingsResearch/CoWorker/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VirtualBeingsResearch/CoWorker/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;logo=githubactions&amp;logoColor=white" alt="CI status"></a>
+    <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.13+"></a>
+    <a href="#让她跑起来"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/VirtualBeingsResearch/CoWorker?style=flat-square&amp;color=2ea44f" alt="MIT License"></a>
+    <a href="https://github.com/VirtualBeingsResearch/CoWorker/stargazers"><img src="https://img.shields.io/github/stars/VirtualBeingsResearch/CoWorker?style=flat-square&amp;logo=github&amp;label=stars" alt="GitHub stars"></a>
+  </p>
+  <p>
+    <a href="#为什么称她为虚拟生命体"><strong>核心理念</strong></a>
+    <span> · </span>
+    <a href="#她在团队里扮演什么角色"><strong>团队协作</strong></a>
+    <span> · </span>
+    <a href="#让她跑起来"><strong>快速开始</strong></a>
+    <span> · </span>
+    <a href="docs/README.md"><strong>文档</strong></a>
+    <span> · </span>
+    <a href="CONTRIBUTING.zh-CN.md"><strong>参与贡献</strong></a>
+  </p>
+</div>
 
-<p align="center"><strong>一个持续感知、记忆、行动与成长的虚拟生命体</strong></p>
-
-<p align="center">
-  中文 · <a href="README.en.md">English</a>
-</p>
-
-<p align="center">
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white" alt="Python 3.13+"></a>
-  <img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1" alt="Self-hosted">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="MIT License"></a>
-</p>
+<br>
 
 大多数 AI 只在你提问时出现，回答完便停下。Coworker 选择持续在场：她拥有自己的身份和记忆，能调用真实工具完成工作，也可以在后台整理经验，并通过 API、企业微信或 Coworker Desktop 出现在你已经熟悉的工作流里。
 
 她不是又一个套在模型外面的聊天窗口，而是一个**可自托管、可扩展、持续运行的 Agent 运行时**。
 
 对个人，她是持续在场的搭档；对团队，她更像一层**长期记忆与执行接口**——承接上下文，连接人与 AI，让跨成员、跨会话、跨天的工作继续往前。
+
+<table align="center">
+  <tr>
+    <td align="center"><strong>⏳ 持续存在</strong></td>
+    <td align="center"><strong>🧠 形成记忆</strong></td>
+    <td align="center"><strong>👁️ 感知并行动</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>🌱 学习与生长</strong></td>
+    <td align="center"><strong>🤝 建立关系与边界</strong></td>
+    <td align="center"><strong>🧩 可自托管与扩展</strong></td>
+  </tr>
+</table>
 
 > [!WARNING]
 > Coworker 不是安全沙箱。她可以执行命令，并以运行进程的系统用户权限读写文件。
@@ -34,7 +62,7 @@
 这不是在宣称她拥有生物生命或主观意识，而是一种产品与架构定义：Coworker 不是无状态的请求处理器，她在连续时间中维持身份、积累经验、感知环境并采取行动。
 
 | 生命体特征 | Coworker 中的实现 |
-|---|---|
+|:---:|---|
 | **⏳ 连续存在** | 常驻后台，在感知、思考、行动、睡眠的循环中接收新事件，而不是在一次请求结束后消失。 |
 | **🪪 拥有身份** | 从 `data/identity/` 维护名字与人格，以同一个“她”延续不同时间、信道和任务中的经历。 |
 | **🧠 形成记忆** | 压缩短期上下文、检索长期语义记忆，并在重启后恢复对话、闹钟和近期状态。 |
@@ -49,7 +77,7 @@
 作为团队中的虚拟生命体，Coworker 的价值不是“再增加一个聊天窗口”，而是让重要上下文和可执行能力不再只存在于某个人的一次会话里。
 
 | 团队时刻 | 她的角色 | 带来的变化 |
-|---|---|---|
+|---|:---:|---|
 | 任务交接、新成员加入、隔天继续问题 | **项目记忆员** | 把确认过的背景、决策和经验沉淀为长期记忆；下一次协作从已有上下文开始，不必重新口述。 |
 | 调研、排查、提醒和跨时区跟进 | **异步执行者** | 调用工具完成工作、保存中间结果、设置持久化提醒，让成员不必同时在线也能继续推进。 |
 | 产品、工程与多个 AI 工具协作 | **协作枢纽** | 通过 Coworker Desktop 连接本机成员、Codex 和 Claude Code，交换任务与结果，并用 `participant_id` 隔离各自的对话上下文。 |
@@ -253,4 +281,8 @@ uv run pytest
 
 ## 许可证
 
-Coworker 使用 [MIT License](LICENSE)。
+<p align="center">
+  Coworker 使用 <a href="LICENSE">MIT License</a>。
+  <br><br>
+  <a href="#readme-top"><strong>返回顶部 ↑</strong></a>
+</p>

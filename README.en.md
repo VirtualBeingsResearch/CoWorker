@@ -1,26 +1,54 @@
-<p align="center">
-  <img src="apps/coworker-desktop/desktop/src-tauri/icons/128x128@2x.png" width="112" alt="Coworker logo">
-</p>
+<a id="readme-top"></a>
 
-<h1 align="center">Coworker</h1>
+<div align="center">
+  <img src="apps/coworker-desktop/desktop/src-tauri/icons/128x128@2x.png" width="128" alt="Coworker logo">
+  <h1>Coworker</h1>
+  <p><strong>A persistent virtual lifeform that perceives, remembers, acts, and grows</strong></p>
+  <p>
+    <a href="README.md">简体中文</a>
+    <span> · </span>
+    <strong>English</strong>
+  </p>
+  <p>
+    <a href="https://github.com/VirtualBeingsResearch/CoWorker/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VirtualBeingsResearch/CoWorker/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;logo=githubactions&amp;logoColor=white" alt="CI status"></a>
+    <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.13+"></a>
+    <a href="#bring-her-online"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/VirtualBeingsResearch/CoWorker?style=flat-square&amp;color=2ea44f" alt="MIT License"></a>
+    <a href="https://github.com/VirtualBeingsResearch/CoWorker/stargazers"><img src="https://img.shields.io/github/stars/VirtualBeingsResearch/CoWorker?style=flat-square&amp;logo=github&amp;label=stars" alt="GitHub stars"></a>
+  </p>
+  <p>
+    <a href="#why-call-her-a-virtual-lifeform"><strong>Core idea</strong></a>
+    <span> · </span>
+    <a href="#what-she-does-for-a-team"><strong>Teamwork</strong></a>
+    <span> · </span>
+    <a href="#bring-her-online"><strong>Quick start</strong></a>
+    <span> · </span>
+    <a href="docs/README.en.md"><strong>Documentation</strong></a>
+    <span> · </span>
+    <a href="CONTRIBUTING.md"><strong>Contributing</strong></a>
+  </p>
+</div>
 
-<p align="center"><strong>A persistent virtual lifeform that perceives, remembers, acts, and grows</strong></p>
-
-<p align="center">
-  <a href="README.md">中文</a> · English
-</p>
-
-<p align="center">
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white" alt="Python 3.13+"></a>
-  <img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1" alt="Self-hosted">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="MIT License"></a>
-</p>
+<br>
 
 Most AI tools appear when you ask a question and stop after the answer. Coworker stays present: she has her own identity and memory, uses real tools to get work done, can reflect in the background, and shows up where you already work—through APIs, WeCom, or Coworker Desktop.
 
 She is not another chat window wrapped around a model. She is a **self-hosted, extensible agent runtime built to keep running**.
 
 For an individual, she is a companion who stays present. For a team, she becomes a layer of **persistent context and execution**—carrying work across teammates, conversations, and days while connecting people with AI agents.
+
+<table align="center">
+  <tr>
+    <td align="center"><strong>⏳ Persistent existence</strong></td>
+    <td align="center"><strong>🧠 Memory continuity</strong></td>
+    <td align="center"><strong>👁️ Perception and action</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>🌱 Learning and growth</strong></td>
+    <td align="center"><strong>🤝 Relationships and boundaries</strong></td>
+    <td align="center"><strong>🧩 Self-hosted and extensible</strong></td>
+  </tr>
+</table>
 
 > [!WARNING]
 > Coworker is not a security sandbox. She can execute commands and read or write files with the permissions of the system user running the process.
@@ -34,7 +62,7 @@ For an individual, she is a companion who stays present. For a team, she becomes
 This is not a claim that she is biologically alive or conscious. It is a product and architectural model: Coworker is not a stateless request handler, but a system that maintains identity, accumulates experience, perceives its environment, and acts across continuous time.
 
 | Life-like quality | How Coworker implements it |
-|---|---|
+|:---:|---|
 | **⏳ Persistent existence** | Runs in the background, receiving new events through a cycle of perception, thought, action, and sleep instead of disappearing after one request. |
 | **🪪 Identity** | Maintains a name and personality under `data/identity/`, carrying the same sense of self across time, channels, and tasks. |
 | **🧠 Memory continuity** | Compresses short-term context, retrieves long-term semantic memories, and restores conversations, alarms, and recent state after a restart. |
@@ -49,7 +77,7 @@ Coworker supports Anthropic, OpenAI, DeepSeek, Qwen, Zhipu, MiniMax, and other m
 As a virtual lifeform within a team, Coworker's value is not “one more chat window.” It is keeping important context and executable capability from disappearing inside one person's one-off conversation.
 
 | Team moment | Her role | Team impact |
-|---|---|---|
+|---|:---:|---|
 | Hand-offs, onboarding, or picking up an issue the next day | **Project memory** | Captures confirmed context, decisions, and experience as long-term memory, so the next collaboration starts with shared history instead of another retelling. |
 | Research, investigations, reminders, and follow-ups across time zones | **Async operator** | Uses tools, preserves intermediate results, and schedules persistent reminders so work can move forward without everyone being online together. |
 | Product, engineering, and multiple AI tools working together | **Collaboration hub** | Coworker Desktop connects local teammates, Codex, and Claude Code to exchange tasks and results, while `participant_id` keeps their conversation contexts separate. |
@@ -261,4 +289,8 @@ uv run pytest
 
 ## License
 
-Coworker is available under the [MIT License](LICENSE).
+<p align="center">
+  Coworker is available under the <a href="LICENSE">MIT License</a>.
+  <br><br>
+  <a href="#readme-top"><strong>Back to top ↑</strong></a>
+</p>
