@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "anthropic>=0.50",
+    "anthropic>=0.117.0",
     "openai>=1.40",
     "chromadb>=0.5",
     "sentence-transformers>=3.0",
