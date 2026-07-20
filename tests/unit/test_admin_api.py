@@ -465,6 +465,63 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
     )
 
 
+def test_short_term_memory_returns_wecom_structured_text_without_attachment_bytes(tmp_path):
+    client, config = _client(tmp_path)
+    short_term = ShortTermMemory(max_tokens=1_000)
+    short_term.primary.append(
+        Message(
+            role="user",
+            content=[
+                {"type": "text", "text": "用户输入正文"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "secret-image-bytes",
+                    },
+                    "_filename": "example.png",
+                },
+            ],
+            source="wecom",
+        )
+    )
+    agent = SimpleNamespace(
+        _identity=_Identity(),
+        _short_term=short_term,
+        state=SimpleNamespace(last_main_response_usage=None),
+    )
+    brain = SimpleNamespace(
+        active_provider=None,
+        current_provider_name="openai",
+        current_model="gpt-5.2",
+    )
+    admin.setup_admin(
+        agent=agent,
+        brain=brain,
+        config=config,
+        alarm_manager=None,
+        skill_loader=None,
+        palace_loader=None,
+        mode_loader=None,
+    )
+
+    response = client.get(
+        "/api/admin/memory/short-term",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    message = response.json()["messages"][0]
+    assert message["role"] == "user"
+    assert message["source"] == "wecom"
+    assert message["content"] == [
+        {"type": "text", "text": "用户输入正文"},
+        {"type": "image"},
+    ]
+    assert "secret-image-bytes" not in response.text
+
+
 def test_content_registry_includes_parsed_metadata(tmp_path):
     client, config = _client(tmp_path)
     skills_dir = tmp_path / "skills"

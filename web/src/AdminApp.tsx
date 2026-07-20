@@ -446,8 +446,10 @@ function memoryContentText(content: unknown) {
   return content.map(block => {
     if (!block || typeof block !== 'object') return String(block);
     const item = block as Json;
-    const kind = item.type || t('结构化内容');
-    return '[' + kind + (item.filename ? ' · ' + item.filename : '') + ']';
+    const kind = String(item.type || t('结构化内容'));
+    if (['text', 'input_text', 'output_text'].includes(kind)) return String(item.text ?? '');
+    const filename = item.filename || item._filename || item.name;
+    return '[' + kind + (filename ? ' · ' + filename : '') + ']';
   }).join('\n');
 }
 
