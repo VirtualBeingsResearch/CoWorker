@@ -60,14 +60,11 @@ def parse_participant(participant_id: str) -> tuple[str, str]:
     return chat_type, parts[2]
 
 
-def _identity_prefix(frame: dict[str, Any]) -> str:
+def _sender_prefix(frame: dict[str, Any]) -> str:
     body = frame["body"]
-    userid = body["from"]["userid"]
-    chattype = body.get("chattype", "single")
-    if chattype == "group":
-        chatid = body.get("chatid", "")
-        return f"[来自企业微信 · 群聊 · chatid={chatid} · 发送者 userid={userid}]\n"
-    return f"[来自企业微信 · 单聊 · userid={userid}]\n"
+    if body.get("chattype", "single") != "group":
+        return ""
+    return f"[发送者 userid={body['from']['userid']}]\n"
 
 
 def _guess_media_type(filename: str | None, fallback: str) -> str:
@@ -260,7 +257,7 @@ def frame_to_event(
 ) -> IncomingEvent:
     pid = participant_id_for(frame)
     raw = _content_for(frame)
-    content = _identity_prefix(frame) + raw
+    content = _sender_prefix(frame) + raw
     return IncomingEvent(
         participant_id=pid,
         content=content,

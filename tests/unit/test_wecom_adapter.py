@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from coworker.agent.incoming_content import format_event_text
 from coworker.channels.wecom import adapter
 
 
@@ -129,10 +130,10 @@ def test_frame_to_event_text_single():
     event = adapter.frame_to_event(_text_single(), attachments=[])
     assert event.participant_id == "wecom:single:U123"
     assert event.source == "wecom"
-    assert "userid=U123" in event.content
-    assert "你好" in event.content
-    # 身份前缀确保模型能从消息识别渠道
-    assert event.content.startswith("[来自企业微信")
+    assert event.content == "你好"
+    assert format_event_text(event) == (
+        "[来自企业微信][wecom:single:U123]的消息:\n你好"
+    )
 
 
 def test_frame_to_event_voice_uses_transcript():
@@ -143,8 +144,11 @@ def test_frame_to_event_voice_uses_transcript():
 def test_frame_to_event_group_includes_chatid_and_userid():
     event = adapter.frame_to_event(_text_group(), attachments=[])
     assert event.participant_id == "wecom:group:CHATX"
-    assert "chatid=CHATX" in event.content
-    assert "userid=Ualice" in event.content
+    assert event.content == "[发送者 userid=Ualice]\n@robot 帮忙"
+    assert format_event_text(event) == (
+        "[来自企业微信][wecom:group:CHATX]的消息:\n"
+        "[发送者 userid=Ualice]\n@robot 帮忙"
+    )
 
 
 def test_frame_to_event_mixed_concats_text_items():

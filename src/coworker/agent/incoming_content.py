@@ -49,7 +49,7 @@ def build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
 
     blocks: list[dict] = []
     for event in events:
-        if event.content:
+        if event.content or event.attachments:
             blocks.append({"type": "text", "text": format_event_text(event)})
         for att in event.attachments:
             if att.media_type.startswith("image/") and att.data is not None:

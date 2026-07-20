@@ -73,6 +73,7 @@ class TestBuildContentBlocks:
         att = _image_att(path="data/attachments/x.jpg")
         event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
+        assert result[0]["text"] == "[来自文件投递][alice]的消息:\n"
         img_block = next(b for b in result if b["type"] == "image")
         assert img_block["_saved_path"] == "data/attachments/x.jpg"
         assert img_block["_filename"] == "photo.jpg"
@@ -88,7 +89,7 @@ class TestBuildContentBlocks:
         event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
         assert isinstance(result, list)
-        text_block = result[0]
+        text_block = next(block for block in result if "notes.txt" in block.get("text", ""))
         assert "notes.txt" in text_block["text"]
         assert "data/attachments/notes.txt" in text_block["text"]
 
@@ -102,10 +103,13 @@ class TestBuildContentBlocks:
     def test_video_attachment_is_path_only_and_labeled(self):
         event = IncomingEvent(participant_id="bob", content="", attachments=[_video_att()])
         result = AgentLoop._build_content_blocks([event])
-        assert result == [{
-            "type": "text",
-            "text": "[视频附件: clip.mp4 — 已保存至 data/attachments/clip.mp4，可使用工具读取]",
-        }]
+        assert result == [
+            {"type": "text", "text": "[来自文件投递][bob]的消息:\n"},
+            {
+                "type": "text",
+                "text": "[视频附件: clip.mp4 — 已保存至 data/attachments/clip.mp4，可使用工具读取]",
+            },
+        ]
 
     def test_content_text_prefix_included_when_nonempty(self):
         event = IncomingEvent(participant_id="carol", content="消息内容", attachments=[_image_att()])
