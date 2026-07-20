@@ -4,14 +4,31 @@
 
 [← 返回项目首页](../README.md)
 
-CoWorker Desktop 把本机用户、Codex 与 Claude Code 作为三个独立身份连接到一个或多个 Coworker。participant 决定目标身份，会话以 actor 与 conversation id 共同寻址；AI 的普通 final 只留在本机会话，只有显式调用 `send_to_coworker` 才会通知搭档。
+Coworker Desktop 是一个本机协作工作台：它把本机用户、Codex、Claude Code 与一个或多个 Coworker 放进同一界面，同时保留彼此独立的身份、项目和对话上下文。你可以查看连接状态、切换身份、继续已有会话，并在明确需要时把结果发送给 Coworker。
 
-CoWorker Desktop 有两种分发/运行方式：
+## 桌面端一览
+
+![Coworker Desktop 对话工作台，展示本机用户、Codex、Claude Code 与 Coworker](assets/screenshots/desktop-conversations-zh.png)
+
+<p align="center"><sub>左侧管理运行状态与 Coworker，中间切换身份和会话，右侧查看对话与工具活动。</sub></p>
+
+截图使用隔离的伪造演示数据，不包含真实用户、密钥、会话或运行记录。
+
+界面中的本机用户、Codex 与 Claude Code 是三个独立的 `actor` 身份。`participant` 决定目标身份，会话由 `actor` 与 `conversation_id` 共同寻址；AI 的普通 `final` 只留在本机会话，只有显式调用 `send_to_coworker` 才会通知 Coworker。
+
+Coworker Desktop 有两种分发/运行方式：
 
 - **CLI**：`coworker-desktop`，适合开发、脚本、服务化和问题排查。
 - **桌面版**：`apps/coworker-desktop/desktop`，基于 Tauri，提供配置、启动/停止、状态、日志和诊断界面；用于面向普通本机用户的安装包分发。
 
 桌面版不内置 Coworker Python 服务、Codex CLI 或 Claude Code CLI。唯一配置入口是 schema v2 的 `coworker_desktop.json`。Codex/Claude 分别健康检查，任一缺失都不会阻止本机聊天及其他可用 actor 启动。
+
+## 本页导航
+
+- [CLI 运行](#cli-运行)：配置并启动 bridge。
+- [桌面版运行和打包](#桌面版运行和打包)：开发运行与安装包构建。
+- [产品版本管理](#产品版本管理)：同步版本号并生成变更记录。
+- [桌面自动更新发布](#桌面自动更新发布)：签名、清单与发布流程。
 
 ## CLI 运行
 
@@ -93,7 +110,7 @@ Tauri 桌面版位于 `apps/coworker-desktop/desktop`，Rust 入口位于 `apps/
 
 ## 产品版本管理
 
-仓库使用根目录 `VERSION` 作为唯一产品版本源。Coworker Python 包、Rust workspace、CoWorker Desktop、web 包和 Tauri 配置都必须与它保持一致。
+仓库使用根目录 `VERSION` 作为唯一产品版本源。Coworker Python 包、Rust workspace、Coworker Desktop、Web 包和 Tauri 配置都必须与它保持一致。
 
 ```bash
 # 更新版本、同步各 manifest/package-lock 顶层版本，并自动补充 changelog

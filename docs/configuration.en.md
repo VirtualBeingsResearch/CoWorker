@@ -6,7 +6,7 @@
 
 ## Basic configuration
 
-Currently we supports running from a source checkout only. Common settings can be
+Coworker currently supports running from a source checkout only. Common settings can be
 supplied through the first-run setup wizard, `.env`, or environment variables. Variable names use
 double underscores to separate groups; start with the repository's `.env.example` for unattended
 configuration.

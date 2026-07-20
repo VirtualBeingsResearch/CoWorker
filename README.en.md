@@ -16,6 +16,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="MIT License"></a>
 </p>
 
+![Coworker Web identity page showing Aster's identity, current state, and profile](docs/assets/screenshots/web-identity-en.png)
+
+<p align="center"><sub>Web identity page · Captured with isolated synthetic demo data.</sub></p>
+
 Most AI tools appear when you ask a question and stop after the answer. Coworker stays present: she has her own identity and memory, uses real tools to get work done, can reflect in the background, and shows up where you already work—through APIs, WeCom, or Coworker Desktop.
 
 She is not another chat window wrapped around a model. She is a **self-hosted, extensible agent runtime built to keep running**.
@@ -26,6 +30,31 @@ For an individual, she is a companion who stays present. For a team, she becomes
 > Coworker is not a security sandbox. She can execute commands and read or write files with the permissions of the system user running the process.
 > The current v0.x releases should only run locally or on a trusted network. Do not expose port 8000 to the public internet.
 > See the [security policy](SECURITY.md) for details.
+
+## One runtime, multiple ways in
+
+Identity, memory, tasks, and tools all live in the same local-first runtime. Web, Desktop, and communication channels are complementary ways to observe Coworker, care for her, and work with her.
+
+| Surface | Best for |
+|---|---|
+| **Web identity page and Care Station** | Review identity, current state, memory, Skills, models, and runtime activity, and handle day-to-day configuration. |
+| **Coworker Desktop** | Put the local user, Codex, Claude Code, and Coworker in one workbench while keeping identities and conversations distinct. |
+| **APIs, WeCom, and file channels** | Bring persistent context and execution into existing tools, services, and automation. |
+
+![Coworker Desktop conversation workspace showing collaboration among a local user, Codex, Claude Code, and Coworker](docs/assets/screenshots/desktop-conversations-en.png)
+
+<p align="center"><sub>Coworker Desktop · Switch among identities, projects, and conversations in one workbench.</sub></p>
+
+<details>
+<summary><strong>See Web usage and runtime details</strong></summary>
+
+![Coworker Web usage page showing breakdowns by model, source, cache, and tool calls](docs/assets/screenshots/web-usage-en.png)
+
+<p align="center"><sub>Web usage · Drill down from totals to models, sources, cache behavior, and tool calls.</sub></p>
+
+</details>
+
+> Every screenshot on this page uses isolated synthetic demo data and contains no real users, secrets, conversations, or runtime records.
 
 ## Why call her a “virtual lifeform”?
 
@@ -82,8 +111,8 @@ In a single request, Coworker can recover yesterday's context, use file and code
 
 ## Bring her online
 
-Currently we supports running from a source checkout only; PyPI and wheel installs are
-not supported. Install **Python 3.13+** and [uv](https://docs.astral.sh/uv/), clone this repository,
+Coworker currently supports running from a source checkout only; PyPI and wheel packages are
+not available. Install **Python 3.13+** and [uv](https://docs.astral.sh/uv/), clone this repository,
 and run the following commands from its root:
 
 ```bash
@@ -178,6 +207,18 @@ If `data/identity/name.txt` does not exist on the first launch, the identity mod
 
 </details>
 
+## Say hello
+
+Use the administration page at <http://localhost:8000/admin> to check her status, or send a message directly:
+
+```bash
+curl -X POST http://localhost:8000/messages \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
+```
+
+For more REST, SSE, WebSocket, and file message examples, see [API and communication channels](docs/api-and-channels.en.md).
+
 ## Sync upstream source
 
 Coworker can edit and commit the repository source directly, so your checkout may contain local
@@ -214,18 +255,6 @@ be checked out when it runs. For example:
 This workflow updates only the local branch. To update your own remote repository too, ask Coworker
 to confirm the target remote and branch before running `git push`.
 
-## Say hello
-
-Use the administration page at <http://localhost:8000/admin> to check her status, or send a message directly:
-
-```bash
-curl -X POST http://localhost:8000/messages \
-  -H "Content-Type: application/json" \
-  -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
-```
-
-For more REST, SSE, WebSocket, and file message examples, see [API and communication channels](docs/api-and-channels.en.md).
-
 ## Data and trust boundaries
 
 Runtime data, memory, logs, and secrets stay on the local machine by default; Coworker does not
@@ -245,7 +274,7 @@ data, cleanup scope, and deployment boundaries.
 | [Configuration and models](docs/configuration.en.md) | Environment variables, providers, models, and multi-instance configuration |
 | [Data and trust boundaries](docs/data-boundaries.en.md) | Local storage, external services, permissions, and cleanup |
 | [API and communication channels](docs/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |
-| [Coworker Desktop](docs/desktop.en.md) | CLI, desktop app, protocol, builds, and automatic updates |
+| [Coworker Desktop](docs/desktop.en.md) | Desktop workspace connecting local users, Codex, and Claude Code, plus CLI, configuration, and build guidance |
 | [Core concepts and capabilities](docs/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
 | [Development guide](docs/development.en.md) | Local checks and Explore Lab |
 

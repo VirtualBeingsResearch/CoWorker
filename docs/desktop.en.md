@@ -4,7 +4,17 @@
 
 [← Back to project home](../README.en.md)
 
-Coworker Desktop connects the local user, Codex, and Claude Code to one or more Coworker instances as three independent identities. The participant selects the target identity, while an actor and conversation ID jointly address a session. Ordinary AI `final` output remains in the local session; only an explicit `send_to_coworker` call notifies Coworker.
+Coworker Desktop is a local collaboration workbench. It brings the local user, Codex, Claude Code, and one or more Coworker instances into one interface while keeping their identities, projects, and conversation contexts distinct. You can inspect connection health, switch actors, resume existing conversations, and deliberately send results to Coworker when needed.
+
+## Desktop at a glance
+
+![Coworker Desktop conversation workspace showing a local user, Codex, Claude Code, and Coworker](assets/screenshots/desktop-conversations-en.png)
+
+<p align="center"><sub>Manage runtime health and Coworker instances on the left, switch actors and conversations in the middle, and inspect messages and tool activity on the right.</sub></p>
+
+This screenshot uses isolated synthetic demo data and contains no real users, secrets, conversations, or runtime records.
+
+The local user, Codex, and Claude Code appear as three independent `actor` identities. A `participant` selects the target identity, while `actor` and `conversation_id` jointly address a session. Ordinary AI `final` output remains in the local session; only an explicit `send_to_coworker` call notifies Coworker.
 
 Coworker Desktop has two distribution and runtime modes:
 
@@ -12,6 +22,13 @@ Coworker Desktop has two distribution and runtime modes:
 - **Desktop application**: `apps/coworker-desktop/desktop`, built with Tauri. It provides configuration, start/stop controls, status, logs, and diagnostics and is distributed as an installer for ordinary local users.
 
 The desktop application does not bundle the Coworker Python service, Codex CLI, or Claude Code CLI. Its only configuration entry point is the schema-v2 `coworker_desktop.json`. Codex and Claude are health-checked independently; either can be missing without preventing local chat or other available actors from starting.
+
+## On this page
+
+- [Running the CLI](#running-the-cli): configure and start the bridge.
+- [Running and packaging the desktop application](#running-and-packaging-the-desktop-application): development and installer builds.
+- [Product version management](#product-version-management): synchronize versions and generate changelog entries.
+- [Desktop automatic-update releases](#desktop-automatic-update-releases): signing, manifests, and releases.
 
 ## Running the CLI
 

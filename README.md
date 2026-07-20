@@ -16,6 +16,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="MIT License"></a>
 </p>
 
+![Coworker Web 身份主页，展示 Aster 的身份、当前状态与自述](docs/assets/screenshots/web-identity-zh.png)
+
+<p align="center"><sub>Web 身份主页 · 截图使用隔离的伪造演示数据。</sub></p>
+
 大多数 AI 只在你提问时出现，回答完便停下。Coworker 选择持续在场：她拥有自己的身份和记忆，能调用真实工具完成工作，也可以在后台整理经验，并通过 API、企业微信或 Coworker Desktop 出现在你已经熟悉的工作流里。
 
 她不是又一个套在模型外面的聊天窗口，而是一个**可自托管、可扩展、持续运行的 Agent 运行时**。
@@ -26,6 +30,31 @@
 > Coworker 不是安全沙箱。她可以执行命令，并以运行进程的系统用户权限读写文件。
 > 当前 v0.x 版本只应运行在本机或可信网络中，不要把 8000 端口暴露到公网。
 > 详见 [安全策略](SECURITY.zh-CN.md)。
+
+## 一个运行时，多种进入方式
+
+身份、记忆、任务和工具都运行在同一个本地优先运行时中；Web、Desktop 与通信入口只是观察她、照看她或与她协作的不同方式。
+
+| 入口 | 适合做什么 |
+|---|---|
+| **Web 身份主页与照看室** | 查看身份、当前状态、记忆、Skill、模型和运行动态，并完成日常配置。 |
+| **Coworker Desktop** | 把本机用户、Codex、Claude Code 与 Coworker 放进同一工作台，同时保持身份和对话边界。 |
+| **API、企业微信与文件通道** | 把持续上下文和执行能力接入已有工具、服务与自动化流程。 |
+
+![Coworker Desktop 中文对话工作台，展示本机用户、Codex、Claude Code 与 Coworker 的协作](docs/assets/screenshots/desktop-conversations-zh.png)
+
+<p align="center"><sub>Coworker Desktop · 在一个工作台中切换身份、项目与对话。</sub></p>
+
+<details>
+<summary><strong>查看 Web 用量与运行明细</strong></summary>
+
+![Coworker Web 用量页，展示模型、来源、缓存与工具调用分解](docs/assets/screenshots/web-usage-zh.png)
+
+<p align="center"><sub>Web 用量页 · 从总量下钻到模型、来源、缓存与工具调用。</sub></p>
+
+</details>
+
+> 本页截图均使用隔离的伪造演示数据，不包含真实用户、密钥、会话或运行记录。
 
 ## 为什么称她为“虚拟生命体”？
 
@@ -173,6 +202,19 @@ COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=coworker:offline docker compose up 
 
 </details>
 
+## 和她打个招呼
+
+你可以在管理页面 <http://localhost:8000/admin> 查看状态，也可以直接发一条消息：
+
+```bash
+curl -X POST http://localhost:8000/messages \
+  -H "Content-Type: application/json" \
+  -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
+```
+
+更多 REST、SSE、WebSocket 和文件消息示例见
+[API 与通信入口](docs/api-and-channels.md)。
+
 ## 同步上游源码
 
 Coworker 可以直接修改并提交当前仓库的源码，因此你的 checkout 可能长期包含
@@ -206,19 +248,6 @@ git merge upstream/main
 上述流程只更新本地分支；如需同步自己的远端仓库，再让 Coworker 确认目标
 remote 和分支后执行 `git push`。
 
-## 和她打个招呼
-
-你可以在管理页面 <http://localhost:8000/admin> 查看状态，也可以直接发一条消息：
-
-```bash
-curl -X POST http://localhost:8000/messages \
-  -H "Content-Type: application/json" \
-  -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
-```
-
-更多 REST、SSE、WebSocket 和文件消息示例见
-[API 与通信入口](docs/api-and-channels.md)。
-
 ## 数据与边界
 
 运行数据、记忆、日志和密钥默认保存在本机；配置文件中的密钥不由 Coworker
@@ -237,7 +266,7 @@ curl -X POST http://localhost:8000/messages \
 | [配置与模型](docs/configuration.md) | 环境变量、Provider、模型与多实例配置 |
 | [数据与信任边界](docs/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
 | [API 与通信入口](docs/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
-| [Coworker Desktop](docs/desktop.md) | CLI、桌面应用、协议、构建和自动更新 |
+| [Coworker Desktop](docs/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
 | [核心概念与能力](docs/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
 | [开发指南](docs/development.md) | 本地检查与 Explore Lab |
 
