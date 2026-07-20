@@ -26,8 +26,10 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
 
-# Install Playwright Chromium + system dependencies (cached, runs before source copy)
-RUN uv run playwright install --with-deps chromium
+# Install Playwright Chromium + system dependencies (cached, runs before source copy).
+# Invoke the installed CLI directly so uv does not try to package source that has
+# not been copied into this layer yet.
+RUN /opt/venv/bin/playwright install --with-deps chromium
 
 # Copy source and install local package (fast, deps already cached)
 COPY . .
