@@ -57,7 +57,7 @@
   "plugins": {
     "updater": {
       "dangerousInsecureTransportProtocol": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwMzc0M0U2Qzc0M0YwQUMKUldTczhFUEg1a00zNEFYKzBBdnR6VG1KT1hMMWI3SzZLeVhaYTBpalIxV0E1OFJ0Z3pKQnRMZnEK",
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY",
       "endpoints": [
         "https://coworker.example.com/api/desktop-updates/{{target}}/{{arch}}/{{current_version}}"
       ],
