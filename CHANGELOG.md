@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 - Unreleased
+## 0.3.1 - 2026-07-20
 
 - Bump actions/setup-node from 6 to 7
 - Bump actions/upload-artifact from 4 to 7
@@ -21,3 +21,12 @@
 - feat(bubble): resume timed-out bubbles
 - fix: make AgentConfig default visible to mypy
 - feat: add transparent Bubble conversation handoff
+- fix: preserve stream transport literal types
+- fix: harden Bubble participant communication
+- fix(admin): render structured user messages
+- fix(wecom): deduplicate message prefixes
+- refactor: shorten model-facing IDs
+- docs: improve the bilingual project documentation and add product screenshots
+- chore(desktop): move the updater public key to build-time configuration
+- ci: add merge queue coverage, automatic web bundle updates, and mypy caching
+- build(deps): refresh Python, Rust, web, desktop, and Explore Lab dependencies
