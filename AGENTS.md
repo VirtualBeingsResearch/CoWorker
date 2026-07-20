@@ -1,11 +1,3 @@
-<claude-mem-context>
-# Memory Context
-
-# [CoWorker] recent context, 2026-07-20 1:51pm GMT+8
-
-No previous sessions found.
-</claude-mem-context>
-
 # Standard development workflow
 
 ## Repository roles
