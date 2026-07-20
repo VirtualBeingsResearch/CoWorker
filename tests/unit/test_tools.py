@@ -1402,6 +1402,7 @@ class TestCommunicateToolCheckers:
         assert not result.is_error
         request = await asyncio.wait_for(queue.get(), timeout=1)
         assert request.extra["request_id"]
+        assert len(request.extra["request_id"]) == 16
         assert "request_id=" in result.content
 
         tool.unregister_ws(participant_id, queue)

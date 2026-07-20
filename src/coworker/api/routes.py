@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import re
-import uuid
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
+from coworker.core.ids import new_compact_id
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import AttachmentData, IncomingEvent, SummaryResult
 from coworker.memory.short_term import ShortTermMemory
@@ -155,7 +155,7 @@ def _save_attachment(
     raw = base64.b64decode(att.data)
     leaf = re.split(r"[\\/]+", att.filename)[-1].strip(" .")
     filename = _UNSAFE_ATTACHMENT_CHARS_RE.sub("-", leaf).strip(" .-") or "attachment"
-    dest = _attachments_dir / f"{uuid.uuid4().hex}_{filename}"
+    dest = _attachments_dir / f"{new_compact_id()}_{filename}"
     dest.write_bytes(raw)
     keep_data = keep_inline_data and (
         att.media_type in _IMAGE_MEDIA_TYPES or att.media_type in _PDF_MEDIA_TYPES

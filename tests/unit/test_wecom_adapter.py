@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -165,6 +166,7 @@ async def test_collect_attachments_image(tmp_path):
     assert len(atts) == 1
     assert atts[0].filename == "shot.png"
     assert atts[0].media_type == "image/png"
+    assert len(Path(atts[0].saved_path).name.split("_", 1)[0]) == 12
     # small image inlined as base64
     assert atts[0].data is not None
     client.download_file.assert_awaited_once_with("https://x/y", "AESKEY")

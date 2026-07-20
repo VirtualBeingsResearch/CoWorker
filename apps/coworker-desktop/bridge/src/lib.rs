@@ -10,6 +10,7 @@ pub mod coworker;
 pub mod desktop_protocol;
 pub mod desktop_router;
 pub mod error;
+pub mod ids;
 pub mod lock;
 pub mod logging;
 pub mod mcp_sidecar;

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest, ToolResult
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ class DesktopCommunicateSender:
             )
 
         extra = dict(request.extra)
-        request_id = str(extra.get("request_id") or uuid.uuid4())
+        request_id = str(extra.get("request_id") or new_compact_id("req_"))
         extra["request_id"] = request_id
         await queue.put(replace(request, extra=extra))
 

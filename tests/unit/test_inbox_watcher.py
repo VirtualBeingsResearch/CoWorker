@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -187,6 +188,7 @@ class TestInboxWatcher:
         assert att.filename == "20240101_120000_alice.png"
         assert att.media_type == "image/png"
         assert att.data is not None
+        assert len(Path(att.saved_path).name.split("_", 1)[0]) == 12
         assert not img_file.exists()
 
     @pytest.mark.asyncio

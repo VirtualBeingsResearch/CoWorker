@@ -38,12 +38,31 @@ const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
 const MAX_STORED_MESSAGES = 160;
 const BUBBLE_REPLY_PREFIX = '🫧 泡泡：';
+const COMPACT_ID_RE = /^[A-Za-z0-9_-]{12}$/;
 
 function newId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(9));
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
   }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.slice(-12);
+}
+
+function compactStoredClientId(clientId: string): string {
+  if (COMPACT_ID_RE.test(clientId)) return clientId;
+  const compactId = newId();
+  try {
+    const previousHistory = window.localStorage.getItem(historyKey(clientId));
+    if (previousHistory && !window.localStorage.getItem(historyKey(compactId))) {
+      window.localStorage.setItem(historyKey(compactId), previousHistory);
+    }
+  } catch {
+    // 身份仍可缩短；旧历史保留在原 key 下，存储恢复后也不会被删除。
+  }
+  return compactId;
 }
 
 function normalizeName(value: string): string {
@@ -59,7 +78,7 @@ function readChatProfile(): ChatProfile {
         const profile = parsed as Record<string, unknown>;
         if (typeof profile.clientId === 'string' && profile.clientId.trim()) {
           return {
-            clientId: profile.clientId,
+            clientId: compactStoredClientId(profile.clientId.trim()),
             name: normalizeName(typeof profile.name === 'string' ? profile.name : ''),
           };
         }
@@ -146,18 +165,9 @@ function loadChatHistory(clientId: string): ChatMessage[] {
   }
 }
 
-function participantNameSegment(name: string): string {
-  const normalized = typeof name.normalize === 'function' ? name.normalize('NFKC') : name;
-  const segment = normalized
-    .replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32);
-  return segment || 'guest';
-}
-
 function participantIdFor(profile: ChatProfile): string {
-  // 名字是连接身份的一部分；追加本机随机 ID，可避免同名访客互相占用同一通道。
-  return `web:${participantNameSegment(profile.name)}:${profile.clientId}`;
+  // 姓名通过首条消息共享；路由 ID 只需本机随机值，避免把展示信息反复放入模型上下文。
+  return `w:${profile.clientId}`;
 }
 
 function readOutboundMessage(raw: unknown): { content: string; bubble: BubbleChatMeta | null } {
@@ -407,7 +417,6 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       await postMessage({
         sender_id: participantId,
         content: outgoing,
-        conversation_id: participantId,
       });
       hasSharedNameRef.current = true;
       setConnectionDetail('');

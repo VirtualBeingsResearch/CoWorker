@@ -131,6 +131,7 @@ class TestPostMessages:
         saved_path = Path(attachment.saved_path).resolve()
         attachments_dir = (tmp_path / "attachments").resolve()
         assert saved_path.parent == attachments_dir
+        assert len(saved_path.name.split("_", 1)[0]) == 12
         assert attachment.filename == "evil-name.txt"
         assert saved_path.read_bytes() == b"hello"
 
@@ -541,7 +542,8 @@ class TestCommunicateRegistrationAPI:
 
         assert resp.status_code == 200
         registration = resp.json()
-        assert registration["participant_id"].startswith("coworker-desktop:desk:local:cw_default:")
+        assert registration["participant_id"].startswith("coworker-desktop:d:local:")
+        assert len(registration["participant_id"]) == 33
         assert registration["active"] is False
 
         list_resp = client.get("/api/communicate/register")

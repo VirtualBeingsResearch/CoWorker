@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRegistration, CommunicateRequest, ToolResult
 from coworker.tools.base import Tool, ToolDefinition
 
@@ -405,9 +406,17 @@ class CommunicateTool(Tool):
         used = {item.participant_id for item in registrations}
         prefix = _SAFE_PARTICIPANT_CHARS_RE.sub("-", kind).strip(".:-") or "unknown"
         client_segment = _SAFE_PARTICIPANT_CHARS_RE.sub("-", client_id).strip(".:-") or "unknown"
-        base = f"{prefix}:{client_segment}"
+        if prefix == "coworker-desktop":
+            # Desktop metadata already stores desktop_id/coworker_id.  Keep only
+            # the actor segment required by handoff matching instead of copying
+            # the full client_id into every model-visible participant ID.
+            client_parts = client_segment.split(":")
+            actor_segment = client_parts[1] if len(client_parts) > 1 else "unknown"
+            base = f"{prefix}:d:{actor_segment}"
+        else:
+            base = prefix
         while True:
-            candidate = f"{base}:{uuid.uuid4().hex[:8]}"
+            candidate = f"{base}:{new_compact_id(entropy_bytes=6)}"
             if candidate not in used and candidate not in self._ws_connections:
                 return candidate
 

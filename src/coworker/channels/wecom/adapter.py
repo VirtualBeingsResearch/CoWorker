@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import base64
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
 
 if TYPE_CHECKING:
@@ -81,7 +81,7 @@ async def _save_buffer(
     attachments_dir: Path,
 ) -> AttachmentData:
     attachments_dir.mkdir(parents=True, exist_ok=True)
-    dest = attachments_dir / f"{uuid.uuid4().hex}_{filename}"
+    dest = attachments_dir / f"{new_compact_id()}_{filename}"
     dest.write_bytes(buffer)
     inline = len(buffer) <= _INLINE_BASE64_LIMIT and media_type.startswith("image/")
     return AttachmentData(

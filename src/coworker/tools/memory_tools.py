@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import secrets
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from coworker.core.ids import new_compact_id
 from coworker.core.types import Message, SummaryResult, ToolResult
 from coworker.memory.long_term import LongTermMemory
 from coworker.memory.recent_activity import render_recent_activity_replay
@@ -342,7 +342,7 @@ class QueryMemoryTool(Tool):
             end = len(lines)
             ranges.append((name, start, end))
             lines.append("")
-        path = self._snapshot_dir / f"qmem-{secrets.token_hex(8)}.md"
+        path = self._snapshot_dir / f"qmem-{new_compact_id()}.md"
         path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
         self._prune_snapshots()
         return path.resolve(), ranges

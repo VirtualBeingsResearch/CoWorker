@@ -6,7 +6,6 @@ import os
 import re
 import secrets
 import tempfile
-import uuid
 from datetime import datetime
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any
@@ -42,6 +41,7 @@ from coworker.api.routes import (
 from coworker.api.ws import SHUTDOWN_SENTINEL, ConnectionPool, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
+from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest, IncomingEvent
 from coworker.version import __version__
 
@@ -270,7 +270,7 @@ def _enqueue_desktop_update_checks(version: str) -> dict[str, int]:
                     participant_id=participant_id,
                     extra={
                         "operation": "check_desktop_update",
-                        "request_id": str(uuid.uuid4()),
+                        "request_id": new_compact_id("req_"),
                         "published_version": version,
                     },
                 )

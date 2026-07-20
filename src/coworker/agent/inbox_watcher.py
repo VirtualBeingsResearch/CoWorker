@@ -4,13 +4,13 @@ import asyncio
 import base64
 import secrets
 import shutil
-import uuid
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
 
+from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -184,7 +184,7 @@ class InboxWatcher:
         raw = path.read_bytes()
         data_b64 = base64.b64encode(raw).decode("ascii")
 
-        dest = self._attachments / f"{uuid.uuid4().hex}_{path.name}"
+        dest = self._attachments / f"{new_compact_id()}_{path.name}"
         shutil.copy2(path, dest)
         path.unlink(missing_ok=True)
 
@@ -210,7 +210,7 @@ class InboxWatcher:
         suffix = path.suffix.lower()
         media_type = _guess_media_type(suffix)
 
-        dest = self._attachments / f"{uuid.uuid4().hex}_{path.name}"
+        dest = self._attachments / f"{new_compact_id()}_{path.name}"
         shutil.copy2(path, dest)
         path.unlink(missing_ok=True)
 

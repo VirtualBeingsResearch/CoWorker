@@ -20,6 +20,7 @@ use crate::{
     coworker::{CoworkerHttpClient, CoworkerRegistration},
     desktop_protocol::{ActorId, DesktopEnvelopeV1, DesktopEventType},
     error::{BridgeError, Result},
+    ids::new_compact_id,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -497,7 +498,7 @@ impl DesktopRouter {
         let conversation_id = conversation_id
             .filter(|value| !value.trim().is_empty())
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("local-{}", Uuid::new_v4()));
+            .unwrap_or_else(|| new_compact_id("local_"));
         let coworker = self.coworker(coworker_id)?;
         let registration = self.ensure_registered(&coworker, actor).await?;
         let attachments = self.desktop_attachment_payload(attachment_paths)?;
@@ -1152,7 +1153,7 @@ impl DesktopRouter {
             .cloned()
             .unwrap_or(Value::Object(serde_json::Map::new()));
         let request_id = if server_request_id.is_empty() {
-            Uuid::new_v4().to_string()
+            new_compact_id("req_")
         } else {
             server_request_id.to_owned()
         };
@@ -1393,7 +1394,7 @@ impl DesktopRouter {
             .and_then(|value| value.get("request_id"))
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+            .unwrap_or_else(|| new_compact_id("req_"));
         let incoming = DesktopEnvelopeV1 {
             protocol_version: 1,
             message_id: Uuid::parse_str(&request_id)
@@ -1686,7 +1687,7 @@ impl DesktopRouter {
             None if actor == ActorId::Local => {
                 let conversation_id = conversation_id
                     .map(str::to_owned)
-                    .unwrap_or_else(|| format!("local-{}", Uuid::new_v4()));
+                    .unwrap_or_else(|| new_compact_id("local_"));
                 let (_, attachments) = save_incoming_attachments(
                     &self.config.storage_dir,
                     mapping.get("attachments"),

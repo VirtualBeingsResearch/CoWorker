@@ -15,6 +15,7 @@ use crate::{
     coworker::CoworkerHttpClient,
     desktop_protocol::{ActorId, DesktopEnvelopeV1, DesktopEventType},
     error::{BridgeError, Result},
+    ids::new_compact_id,
 };
 
 pub async fn run_proxy(ipc_port: u16, sidecar_token: &str) -> Result<()> {
@@ -269,7 +270,7 @@ async fn request_permission(
     let conversation_id = store
         .actor_run_conversation(run_id)?
         .ok_or_else(|| BridgeError::message("Claude session id is not available yet"))?;
-    let request_id = uuid::Uuid::new_v4().to_string();
+    let request_id = new_compact_id("req_");
     let timeout_seconds = config.codex.approval_timeout_seconds.max(1);
     let request = ApprovalRequest {
         request_id: request_id.clone(),
