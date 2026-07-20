@@ -5,17 +5,202 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A GITHUB_TOKEN push may surface as a bot-authored PR event. Do not let it
+  # cancel the updater before that updater dispatches CI for the new commit.
+  cancel-in-progress: ${{ github.actor != 'github-actions[bot]' }}
 
 jobs:
+  web_bundle:
+    name: Frontend (Web)
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      stale: ${{ steps.bundle.outputs.stale }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - name: Package committed bundle patch
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_dir="$RUNNER_TEMP/dependabot-web-bundle"
+          mkdir -p "$artifact_dir"
+
+          git add -- src/coworker/web
+          if git diff --cached --quiet -- src/coworker/web; then
+            stale=false
+          else
+            stale=true
+            git diff --cached --stat -- src/coworker/web
+          fi
+          echo "stale=$stale" >> "$GITHUB_OUTPUT"
+
+          git diff --cached --binary --full-index -- src/coworker/web \
+            > "$artifact_dir/web-bundle.patch"
+      - name: Upload Dependabot bundle patch
+        if: >-
+          steps.bundle.outputs.stale == 'true' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependabot-web-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dependabot-web-bundle
+          if-no-files-found: error
+          retention-days: 1
+      - name: Reject stale committed bundle
+        if: steps.bundle.outputs.stale == 'true'
+        run: |
+          echo "::error::Committed web bundle is stale. Run 'npm ci && npm run build' in web/ and commit src/coworker/web/."
+          exit 1
+
+  update_dependabot_bundle:
+    name: Update Dependabot web bundle
+    needs: web_bundle
+    if: >-
+      always() &&
+      needs.web_bundle.result == 'failure' &&
+      needs.web_bundle.outputs.stale == 'true' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download generated patch
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dependabot-web-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dependabot-web-bundle
+
+      - name: Validate current pull request head
+        id: metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          test "$(jq -r '.user.login' <<< "$pr")" = 'dependabot[bot]'
+          test "$(jq -r '.state' <<< "$pr")" = 'open'
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.base.repo.full_name' <<< "$pr")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.head.ref' <<< "$pr")" = "$HEAD_REF"
+
+          current_head_sha="$(jq -r '.head.sha' <<< "$pr")"
+          if [ "$current_head_sha" != "$HEAD_SHA" ]; then
+            echo "Dependabot PR #$PR_NUMBER moved from $HEAD_SHA to $current_head_sha; skipping stale patch."
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "stale=false" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Dependabot head
+        if: steps.metadata.outputs.stale == 'false'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Apply and validate bundle patch
+        if: steps.metadata.outputs.stale == 'false'
+        shell: bash
+        env:
+          PATCH: ${{ runner.temp }}/dependabot-web-bundle/web-bundle.patch
+        run: |
+          set -euo pipefail
+
+          test -f "$PATCH"
+          git apply --index --whitespace=nowarn "$PATCH"
+          git diff --cached --check
+
+          mapfile -d '' -t changed_paths < <(git diff --cached --name-only -z)
+          if [ "${#changed_paths[@]}" -eq 0 ]; then
+            echo "Generated patch did not contain any changes." >&2
+            exit 1
+          fi
+
+          for path in "${changed_paths[@]}"; do
+            case "$path" in
+              src/coworker/web/*) ;;
+              *)
+                echo "Refusing generated change outside src/coworker/web: $path" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          mapfile -d '' -t staged_entries < <(git ls-files --stage -z -- "${changed_paths[@]}")
+          for entry in "${staged_entries[@]}"; do
+            metadata="${entry%%$'\t'*}"
+            path="${entry#*$'\t'}"
+            mode="${metadata%% *}"
+            if [ "$mode" != 100644 ]; then
+              echo "Refusing generated file mode $mode for $path" >&2
+              exit 1
+            fi
+          done
+
+          git diff --cached --stat
+
+      - name: Commit and push bundle
+        if: steps.metadata.outputs.stale == 'false'
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore(web): rebuild bundle for Dependabot PR #$PR_NUMBER [dependabot skip]"
+          git push origin "HEAD:refs/heads/$HEAD_REF"
+
+      - name: Run CI for the generated commit
+        if: steps.metadata.outputs.stale == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --ref "$HEAD_REF"
+
   python:
     name: Python
+    needs: web_bundle
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -39,6 +224,7 @@ jobs:
 
   rust:
     name: Rust
+    needs: web_bundle
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -62,15 +248,13 @@ jobs:
 
   frontend:
     name: Frontend (${{ matrix.name }})
+    needs: web_bundle
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Web
-            directory: web
-            test: false
           - name: Explore Lab
             directory: apps/explore-lab/frontend
             test: false
@@ -91,11 +275,3 @@ jobs:
         working-directory: ${{ matrix.directory }}
       - run: npm run build
         working-directory: ${{ matrix.directory }}
-      - if: matrix.name == 'Web' && github.actor != 'dependabot[bot]'
-        name: Check committed web bundle
-        run: |
-          bundle_changes="$(git status --porcelain --untracked-files=all -- src/coworker/web)"
-          if [ -n "$bundle_changes" ]; then
-            printf '%s\n' "$bundle_changes"
-            exit 1
-          fi
