@@ -30,3 +30,4 @@
 - chore(desktop): move the updater public key to build-time configuration
 - ci: add merge queue coverage, automatic web bundle updates, and mypy caching
 - build(deps): refresh Python, Rust, web, desktop, and Explore Lab dependencies
+- fix(container): keep the image on Python 3.13 for spaCy compatibility
