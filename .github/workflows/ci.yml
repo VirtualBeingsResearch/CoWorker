@@ -212,6 +212,13 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
+      - name: Cache mypy state
+        uses: actions/cache@v5
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
       - name: Check versions
         run: uv run --frozen python scripts/check_version.py
       - name: Lint Python
