@@ -82,4 +82,27 @@ gh pr create \
 - Keep the pull request reviewable and limited to one logical change. Create it as ready for review when the feature is complete; use a draft only when work is intentionally incomplete or externally blocked.
 - After creation, return the PR URL and inspect CI with `gh pr checks --repo VirtualBeingsResearch/CoWorker --watch` when practical.
 
+## Merge eligible pull requests
+
+- After creating or updating a pull request, inspect both the authenticated account's repository permissions and the pull request's merge readiness. Useful checks include:
+
+  ```bash
+  gh api repos/VirtualBeingsResearch/CoWorker --jq '.permissions'
+  gh pr view <number> --repo VirtualBeingsResearch/CoWorker \
+    --json isDraft,mergeable,reviewDecision,statusCheckRollup
+  gh pr checks <number> --repo VirtualBeingsResearch/CoWorker --watch
+  ```
+
+- If the authenticated account has merge permission, prefer completing the workflow by merging the pull request directly without waiting for a separate confirmation. This default authorization applies only to pull requests created for the requested, reviewed, and validated work; respect an explicit user request to leave a pull request open.
+- Merge only when the pull request is ready: it is not a draft, GitHub reports it as mergeable, required reviews are satisfied, there are no unresolved blocking review conversations, and all required checks have passed. If the repository has no checks configured, verify that this is intentional before merging.
+- If checks are pending, wait for them. If the repository supports auto-merge, it may be enabled with the repository's preferred merge method; otherwise monitor the checks and merge after they pass.
+- Respect the repository's configured merge strategy. When multiple methods are allowed and no project-specific convention exists, prefer squash merge for a single logical change:
+
+  ```bash
+  gh pr merge <number> --repo VirtualBeingsResearch/CoWorker --squash
+  ```
+
+- Never use `--admin` or another policy-bypass mechanism automatically. Do not merge a conflicted PR, a PR with failing checks, a PR blocked by required review, or a PR containing changes outside the requested scope.
+- If merge permission is unavailable or a repository rule blocks the merge, leave the pull request open and report the exact remaining requirement.
+
 Do not merge the feature branch into the local or fork `main` before opening the pull request. The pull request branch is the integration boundary. After the pull request is merged upstream, synchronize `main` from `upstream/main`, push the synchronized `main` to `origin`, and only then remove the feature worktree and delete the feature branch after verifying that it contains no uncommitted work.
