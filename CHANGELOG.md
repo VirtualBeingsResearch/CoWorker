@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects
 - ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - fix(admin): show model-switch errors in the management console
 - fix(first-run): avoid queuing profile generation before a model is configured, clarify the setup URL, and default Compose to the published offline image

@@ -118,7 +118,9 @@ uv run python scripts/bump_version.py 0.2.0
 uv run python scripts/check_version.py
 ```
 
-`bump_version.py` first collects commits after the most recent `vX.Y.Z` tag for `CHANGELOG.md`; during the migration it also recognizes historical `coworker-desktop-vX.Y.Z` tags. If no release tag exists, it falls back to commits after the last change to `VERSION`. A version section with manually written content is not overwritten. After reviewing `CHANGELOG.md`, push a `vX.Y.Z` tag to trigger the desktop and container release workflows.
+`bump_version.py` first collects commits after the most recent `vX.Y.Z` tag for `CHANGELOG.md`; during the migration it also recognizes historical `coworker-desktop-vX.Y.Z` tags. If no release tag exists, it falls back to commits after the last change to `VERSION`. Manually written content under a generic `## Unreleased` heading is moved into the target `## X.Y.Z - Unreleased` section, while an empty generic `## Unreleased` section remains at the top for future changes. Existing manual content for the target version is not overwritten. Commit subjects are no longer filtered by internal category; only merges and release-preparation noise are omitted.
+
+The recommended preparation path is to run `Prepare CoWorker Release` from `.github/workflows/prepare-release.yml` on the default branch and enter a version without the `v` prefix. It runs `bump_version.py`, version checks, lint, and focused tests; restricts generated changes to the expected version and changelog files; and opens a `chore/release-vX.Y.Z` pull request. The repository must allow GitHub Actions to create pull requests. Review and merge that PR before running `Create CoWorker Release` with the corresponding `vX.Y.Z` tag.
 
 Run in development:
 
@@ -175,7 +177,7 @@ The workflow supports manual dispatch and runs when a `v*` tag is pushed:
 - `macos-latest`: Creates separate Apple Silicon `aarch64-apple-darwin` and Intel `x86_64-apple-darwin` `.app`, dmg, and updater artifacts. It signs and can notarize them when Apple secrets are configured.
 - `ubuntu-22.04`: Creates AppImage and deb packages.
 
-The recommended manual entry point is `Create CoWorker Release` in `.github/workflows/release.yml`: select the ref to release, enter a `vX.Y.Z` tag, and choose whether to attempt macOS notarization. It verifies that the tag matches `VERSION`, creates the tag on the selected commit, and explicitly starts both the desktop and container release workflows. The same tag can be rerun safely, but a tag that already points to another commit is rejected. Pushing a `v*` tag directly remains supported and starts both release workflows automatically.
+After merging the version-preparation PR, run `Create CoWorker Release` from `.github/workflows/release.yml`: select the ref to release, enter a `vX.Y.Z` tag, and choose whether to attempt macOS notarization. It verifies that the tag matches `VERSION`, creates the tag on the selected commit, and explicitly starts both the desktop and container release workflows. The same tag can be rerun safely, but a tag that already points to another commit is rejected. Pushing a `v*` tag directly remains supported and starts both release workflows automatically.
 
 Running the desktop workflow manually from a branch creates Actions artifacts only. For a tag run or a run dispatched by the unified release entry point, the workflow creates a Release draft with GitHub-generated notes after every platform build succeeds; a maintainer reviews and publishes it manually. The draft contains the Windows EXE, both macOS dmg files, the Linux AppImage/deb packages, each platform's updater and signature, and a `SHA256SUMS.txt` covering every file. A rerun refreshes assets on a matching draft but never modifies an already-published Release.
 
