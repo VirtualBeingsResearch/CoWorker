@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from coworker.core.types import ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 _GREP_OUTPUT_LIMIT = 3_000  # 单次返回字符上限
@@ -50,8 +51,11 @@ class ReadFileTool(Tool):
                     tool_call_id="",
                     content=(
                         f"{truncated}\n\n"
-                        f"（内容已截断，共 {len(lines)} 行，已显示前 ~{shown_lines} 行。"
-                        f"请使用 offset/limit 参数分段读取。）"
+                        + tr(
+                            "tool_result.file.read_truncated",
+                            total=len(lines),
+                            shown=shown_lines,
+                        )
                     ),
                 )
             return ToolResult(tool_call_id="", content=chunk)
@@ -78,10 +82,16 @@ class WriteFileTool(Tool):
                 "properties": {
                     "path": {"type": "string", "description": "文件路径"},
                     "content": {"type": "string", "description": "全量写入时的内容"},
-                    "append": {"type": "boolean", "description": "是否追加而非覆盖，默认 false（仅全量写入时有效）"},
+                    "append": {
+                        "type": "boolean",
+                        "description": "是否追加而非覆盖，默认 false（仅全量写入时有效）",
+                    },
                     "old_string": {"type": "string", "description": "局部替换：要被替换的原始文本"},
                     "new_string": {"type": "string", "description": "局部替换：替换后的新文本"},
-                    "replace_all": {"type": "boolean", "description": "局部替换：是否替换所有匹配项，默认 false"},
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "局部替换：是否替换所有匹配项，默认 false",
+                    },
                 },
                 "required": ["path"],
             },
@@ -98,7 +108,9 @@ class WriteFileTool(Tool):
         **_,
     ) -> ToolResult:
         async with self._lock:
-            return await self._execute_locked(path, content, append, old_string, new_string, replace_all)
+            return await self._execute_locked(
+                path, content, append, old_string, new_string, replace_all
+            )
 
     async def _execute_locked(
         self,
@@ -114,29 +126,50 @@ class WriteFileTool(Tool):
             if old_string is not None:
                 # patch 模式
                 if new_string is None:
-                    return ToolResult(tool_call_id="", content="patch 模式需要同时提供 new_string", is_error=True)
+                    return ToolResult(
+                        tool_call_id="",
+                        content=tr("tool_result.file.patch_needs_new"),
+                        is_error=True,
+                    )
                 text = p.read_text(encoding="utf-8")
                 count = text.count(old_string)
                 if count == 0:
-                    return ToolResult(tool_call_id="", content="patch 失败：old_string 在文件中未找到", is_error=True)
+                    return ToolResult(
+                        tool_call_id="",
+                        content=tr("tool_result.file.patch_not_found"),
+                        is_error=True,
+                    )
                 if count > 1 and not replace_all:
                     return ToolResult(
                         tool_call_id="",
-                        content=f"patch 失败：old_string 出现了 {count} 次，存在歧义。请提供更多上下文使其唯一，或传入 replace_all=true。",
+                        content=tr("tool_result.file.patch_ambiguous", count=count),
                         is_error=True,
                     )
                 replaced = count if replace_all else 1
-                new_text = text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1)
+                new_text = (
+                    text.replace(old_string, new_string)
+                    if replace_all
+                    else text.replace(old_string, new_string, 1)
+                )
                 p.write_text(new_text, encoding="utf-8")
-                return ToolResult(tool_call_id="", content=f"已替换 {replaced} 处: {path}")
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.file.replaced", count=replaced, path=path),
+                )
             else:
                 # 全量写入模式
                 if content is None:
-                    return ToolResult(tool_call_id="", content="需要提供 content 或 old_string", is_error=True)
+                    return ToolResult(
+                        tool_call_id="",
+                        content=tr("tool_result.file.needs_content"),
+                        is_error=True,
+                    )
                 p.parent.mkdir(parents=True, exist_ok=True)
                 mode = "a" if append else "w"
                 p.open(mode, encoding="utf-8").write(content)
-                return ToolResult(tool_call_id="", content=f"Written to {path}")
+                return ToolResult(
+                    tool_call_id="", content=tr("tool_result.file.written", path=path)
+                )
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
 
@@ -151,7 +184,10 @@ class ListDirectoryTool(Tool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "目录路径，默认为当前目录"},
-                    "show_hidden": {"type": "boolean", "description": "是否显示隐藏文件（以 . 开头），默认 false"},
+                    "show_hidden": {
+                        "type": "boolean",
+                        "description": "是否显示隐藏文件（以 . 开头），默认 false",
+                    },
                 },
                 "required": [],
             },
@@ -161,12 +197,20 @@ class ListDirectoryTool(Tool):
         try:
             p = Path(path).resolve()
             if not p.exists():
-                return ToolResult(tool_call_id="", content=f"路径不存在: {path}", is_error=True)
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.file.path_missing", path=path),
+                    is_error=True,
+                )
             if not p.is_dir():
-                return ToolResult(tool_call_id="", content=f"不是目录: {path}", is_error=True)
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.file.not_directory", path=path),
+                    is_error=True,
+                )
 
             entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
-            lines = [f"目录: {p}", ""]
+            lines = [tr("tool_result.file.directory", path=p), ""]
             for entry in entries:
                 if not show_hidden and entry.name.startswith("."):
                     continue
@@ -174,7 +218,7 @@ class ListDirectoryTool(Tool):
                     stat = entry.stat()
                     size = stat.st_size
                     if entry.is_dir():
-                        lines.append(f"[目录]  {entry.name}/")
+                        lines.append(tr("tool_result.file.directory_entry", name=entry.name))
                     else:
                         if size < 1024:
                             size_str = f"{size}B"
@@ -182,7 +226,9 @@ class ListDirectoryTool(Tool):
                             size_str = f"{size / 1024:.1f}KB"
                         else:
                             size_str = f"{size / 1024 / 1024:.1f}MB"
-                        lines.append(f"[文件]  {entry.name}  ({size_str})")
+                        lines.append(
+                            tr("tool_result.file.file_entry", name=entry.name, size=size_str)
+                        )
                 except OSError:
                     lines.append(f"[?]     {entry.name}")
 
@@ -203,7 +249,10 @@ class FindFilesTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "pattern": {"type": "string", "description": "文件名 glob 模式，例如 *.py 或 **/*.json"},
+                    "pattern": {
+                        "type": "string",
+                        "description": "文件名 glob 模式，例如 *.py 或 **/*.json",
+                    },
                     "root": {"type": "string", "description": "搜索根目录，默认为当前目录"},
                     "max_results": {"type": "integer", "description": "最多返回的结果数，默认 50"},
                 },
@@ -211,11 +260,17 @@ class FindFilesTool(Tool):
             },
         )
 
-    async def execute(self, pattern: str, root: str = ".", max_results: int = 50, **_) -> ToolResult:
+    async def execute(
+        self, pattern: str, root: str = ".", max_results: int = 50, **_
+    ) -> ToolResult:
         try:
             root_path = Path(root).resolve()
             if not root_path.exists():
-                return ToolResult(tool_call_id="", content=f"根目录不存在: {root}", is_error=True)
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.file.root_missing", path=root),
+                    is_error=True,
+                )
 
             name_pattern = Path(pattern).name if ("/" in pattern or "\\" in pattern) else pattern
 
@@ -236,14 +291,23 @@ class FindFilesTool(Tool):
             results, stop_reason = await asyncio.to_thread(_walk)
 
             if not results:
-                return ToolResult(tool_call_id="", content=f"未找到匹配 '{pattern}' 的文件")
+                return ToolResult(
+                    tool_call_id="", content=tr("tool_result.file.find_none", pattern=pattern)
+                )
 
-            lines = [f"在 {root_path} 中搜索 '{pattern}'，共找到 {len(results)} 个结果:"]
+            lines = [
+                tr(
+                    "tool_result.file.find_header",
+                    root=root_path,
+                    pattern=pattern,
+                    count=len(results),
+                )
+            ]
             lines += sorted(results)
             if stop_reason == "results":
-                lines.append(f"（已达结果上限 {max_results}，可能还有更多）")
+                lines.append(tr("tool_result.file.result_limit", limit=max_results))
             elif stop_reason == "scan":
-                lines.append(f"（已扫描 {_FIND_MAX_SCAN} 个文件，搜索提前终止，可能还有更多）")
+                lines.append(tr("tool_result.file.scan_limit", limit=_FIND_MAX_SCAN))
             return ToolResult(tool_call_id="", content="\n".join(lines))
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
@@ -258,11 +322,23 @@ class GrepFilesTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "pattern": {"type": "string", "description": "要搜索的正则表达式（或普通字符串）"},
-                    "path": {"type": "string", "description": "搜索目标：文件路径或目录路径，默认当前目录"},
-                    "file_pattern": {"type": "string", "description": "只搜索匹配此 glob 的文件，如 *.py，默认搜索所有文件"},
+                    "pattern": {
+                        "type": "string",
+                        "description": "要搜索的正则表达式（或普通字符串）",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "搜索目标：文件路径或目录路径，默认当前目录",
+                    },
+                    "file_pattern": {
+                        "type": "string",
+                        "description": "只搜索匹配此 glob 的文件，如 *.py，默认搜索所有文件",
+                    },
                     "ignore_case": {"type": "boolean", "description": "是否忽略大小写，默认 false"},
-                    "context_lines": {"type": "integer", "description": "每个匹配行前后额外显示的行数，默认 0"},
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "每个匹配行前后额外显示的行数，默认 0",
+                    },
                     "max_matches": {"type": "integer", "description": "最多返回的匹配数，默认 50"},
                 },
                 "required": ["pattern"],
@@ -285,7 +361,11 @@ class GrepFilesTool(Tool):
             target = Path(path).resolve()
 
             if not target.exists():
-                return ToolResult(tool_call_id="", content=f"路径不存在: {path}", is_error=True)
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.file.path_missing", path=path),
+                    is_error=True,
+                )
 
             files: list[Path]
             if target.is_file():
@@ -339,15 +419,21 @@ class GrepFilesTool(Tool):
                     break
 
             if not hits:
-                return ToolResult(tool_call_id="", content=f"未找到匹配 '{pattern}' 的内容")
+                return ToolResult(
+                    tool_call_id="", content=tr("tool_result.file.grep_none", pattern=pattern)
+                )
 
-            header = f"搜索 '{pattern}'，共 {total} 处匹配:"
+            header = tr("tool_result.file.grep_header", pattern=pattern, count=total)
             if output_truncated:
-                header += f"（输出已达字符上限 {_GREP_OUTPUT_LIMIT}，请缩小搜索范围或指定更精确的 file_pattern）"
+                header += tr("tool_result.file.grep_output_limit", limit=_GREP_OUTPUT_LIMIT)
             elif total >= max_matches:
-                header += f"（已达上限 {max_matches}，可能还有更多）"
+                header += tr("tool_result.file.grep_match_limit", limit=max_matches)
             return ToolResult(tool_call_id="", content="\n".join([header, ""] + hits))
         except re.error as e:
-            return ToolResult(tool_call_id="", content=f"正则表达式错误: {e}", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.file.regex_error", error=e),
+                is_error=True,
+            )
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)

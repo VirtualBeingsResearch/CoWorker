@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 import yaml
 from loguru import logger
 
+from coworker.i18n import tr
+from coworker.i18n.resources import load_markdown_companion
 from coworker.palaces.loader import _as_str_list
 
 if TYPE_CHECKING:
@@ -87,8 +89,7 @@ class SubconsciousMode:
         in example JSON or template text inside the body.
         """
         return (
-            self.body
-            .replace("{bubble_id}", bubble.id)
+            self.body.replace("{bubble_id}", bubble.id)
             .replace("{goal}", bubble.goal)
             .replace("{max_cycles}", str(bubble.max_cycles))
         )
@@ -128,9 +129,11 @@ class SubconsciousModeLoader:
             if mode:
                 existing = self._modes.get(mode.name)
                 if existing is not None:
-                    msg = (
-                        f"SubconsciousMode '{mode.name}' 重名，文件 {mode_file} 被跳过；"
-                        f"已保留先加载的定义。"
+                    msg = tr(
+                        "assets.duplicate",
+                        kind="SubconsciousMode",
+                        name=mode.name,
+                        path=mode_file,
                     )
                     warnings[f"duplicate:{mode.name}:{mode_file}"] = msg
                     logger.warning(msg)
@@ -143,30 +146,44 @@ class SubconsciousModeLoader:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception as e:
-            warning = f"MODE 文件 {path} 读取失败：{type(e).__name__}: {e}"
+            warning = tr(
+                "assets.read_failed",
+                kind="MODE",
+                path=path,
+                error_type=type(e).__name__,
+                error=e,
+            )
             logger.warning(warning)
             return None, warning
         if not text.startswith("---"):
-            warning = f"MODE 文件 {path} 缺少 frontmatter，已跳过。"
+            warning = tr("assets.asset_frontmatter_missing", kind="MODE", path=path)
             logger.warning(warning)
             return None, warning
         parts = text.split("---", 2)
         if len(parts) < 3:
-            warning = f"MODE 文件 {path} 的 frontmatter 结构不完整，已跳过。"
+            warning = tr("assets.asset_frontmatter_incomplete", kind="MODE", path=path)
             logger.warning(warning)
             return None, warning
         try:
             fm: dict = yaml.safe_load(parts[1]) or {}
         except yaml.YAMLError as e:
-            warning = f"MODE 文件 {path} 的 YAML frontmatter 解析失败：{e}"
+            warning = tr("assets.yaml_failed", kind="MODE", path=path, error=e)
             logger.warning(warning)
             return None, warning
         name = str(fm.get("name", "")).strip()
         if not name:
-            warning = f"MODE 文件 {path} 缺少 name 字段，已跳过。"
+            warning = tr("assets.name_missing", kind="MODE", path=path)
             logger.warning(warning)
             return None, warning
         body = parts[2].strip()
+        localized = load_markdown_companion(
+            path,
+            base_fields=fm,
+            base_body=body,
+            localizable_fields=("goal", "purpose", "retire_after"),
+        )
+        if localized.warning:
+            logger.warning(localized.warning)
 
         trigger = str(fm.get("trigger", "periodic"))
         if trigger not in _VALID_TRIGGERS:
@@ -175,12 +192,14 @@ class SubconsciousModeLoader:
 
         context_builder = str(fm.get("context_builder", "short_term"))
         if context_builder not in _VALID_CONTEXT_BUILDERS:
-            logger.warning(f"MODE 文件 {path} 的 context_builder='{context_builder}' 无效，回退为 'short_term'。")
+            logger.warning(
+                f"MODE 文件 {path} 的 context_builder='{context_builder}' 无效，回退为 'short_term'。"
+            )
             context_builder = "short_term"
 
         return SubconsciousMode(
             name=name,
-            body=body,
+            body=localized.body,
             enabled=bool(fm.get("enabled", True)),
             trigger=trigger,
             context_builder=context_builder,
@@ -189,7 +208,7 @@ class SubconsciousModeLoader:
             every_n_tool_calls=int(fm.get("every_n_tool_calls", 0) or 0),
             cold_floor_seconds=int(fm.get("cold_floor_seconds", 0) or 0),
             max_cycles=int(fm.get("max_cycles", 0) or 0),
-            goal=str(fm.get("goal", "") or ""),
+            goal=localized.fields["goal"],
             extra_intercepts=_as_str_list(fm.get("extra_intercepts")),
             grants_task_store=bool(fm.get("grants_task_store", False)),
             inject_skill_anomalies=bool(fm.get("inject_skill_anomalies", False)),
@@ -197,10 +216,10 @@ class SubconsciousModeLoader:
             fresh_start=bool(fm.get("fresh_start", False)),
             use_threshold=int(fm.get("use_threshold", 0) or 0),
             min_interval_seconds=int(fm.get("min_interval_seconds", 0) or 0),
-            purpose=str(fm.get("purpose", "") or ""),
-            retire_after=str(fm.get("retire_after", "") or ""),
+            purpose=localized.fields["purpose"],
+            retire_after=localized.fields["retire_after"],
             protected=bool(fm.get("protected", False)),
-        ), None
+        ), localized.warning
 
     def _refresh_load_warnings(self, warnings: dict[str, str]) -> None:
         self._pending_load_warnings = [

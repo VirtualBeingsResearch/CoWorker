@@ -11,8 +11,17 @@ from coworker.brain.base import BaseLLMProvider
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
+from coworker.i18n import tr
 
-_WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+_WEEKDAY_KEYS = [
+    "calendar.monday",
+    "calendar.tuesday",
+    "calendar.wednesday",
+    "calendar.thursday",
+    "calendar.friday",
+    "calendar.saturday",
+    "calendar.sunday",
+]
 
 
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
@@ -27,7 +36,7 @@ def _prepend_timestamps(messages: list[Message]) -> list[Message]:
             out.append(m)
             continue
         ts = m.timestamp
-        prefix = f"[{ts.strftime('%Y-%m-%d %H:%M:%S')} {_WEEKDAYS[ts.weekday()]}] "
+        prefix = f"[{ts.strftime('%Y-%m-%d %H:%M:%S')} {tr(_WEEKDAY_KEYS[ts.weekday()])}] "
         if isinstance(m.content, str):
             new_content: str | list = prefix + m.content
         else:  # content blocks (user message with attachments)
@@ -100,15 +109,18 @@ class Brain:
                 and not provider.supports_tool_use(self._active_model)
             ):
                 raise ModelNotSupportedError(
-                    f"Provider '{provider.provider_name}' does not support active model "
-                    f"'{self._active_model}'"
+                    tr(
+                        "brain.validation.active_model_unsupported",
+                        provider=provider.provider_name,
+                        model=self._active_model,
+                    )
                 )
             self._providers[provider.provider_name] = provider
             logger.info(f"Hot-updated LLM provider: {provider.provider_name}")
 
     def set_max_tokens(self, value: int) -> None:
         if value <= 0:
-            raise ValueError("max_tokens 必须大于 0")
+            raise ValueError(tr("brain.validation.max_tokens_positive"))
         self._max_tokens = value
 
     def add_summary_usage_listener(
@@ -197,21 +209,25 @@ class Brain:
     def _fallback_model_for(self, entry: str) -> tuple[str, str]:
         entry = entry.strip()
         if not entry:
-            raise ValueError("fallback 项不能为空")
+            raise ValueError(tr("brain.validation.fallback_empty"))
         name, sep, model = entry.partition("/")
         if not name or (sep and not model) or "/" in model:
-            raise ValueError(f"fallback 项格式无效：{entry!r}")
+            raise ValueError(tr("brain.validation.fallback_invalid", entry=repr(entry)))
         provider = self._providers.get(name)
         if provider is None:
             raise ProviderNotFoundError(name)
         model = model or provider.default_model
         if not model:
             raise ModelNotSupportedError(
-                f"未指定 fallback 模型，且 provider '{name}' 没有配置 default_model"
+                tr("brain.validation.fallback_model_missing", provider=name)
             )
         if not provider.supports_tool_use(model):
             raise ModelNotSupportedError(
-                f"Fallback model '{model}' does not support tool use on provider '{name}'"
+                tr(
+                    "brain.validation.fallback_tool_unsupported",
+                    model=model,
+                    provider=name,
+                )
             )
         return name, model
 
@@ -231,20 +247,24 @@ class Brain:
             raise ProviderNotFoundError(provider_name)
         if not model and not provider.default_model:
             raise ModelNotSupportedError(
-                f"未指定 summary 模型，且 provider '{provider_name}' 没有配置 default_model"
+                tr("brain.validation.summary_model_missing", provider=provider_name)
             )
 
     def _validate_vision_config(self, provider_name: str, model: str) -> None:
         if not provider_name and not model:
             return
         if not provider_name or not model:
-            raise ValueError("vision.provider 和 vision.model 必须同时填写或同时清空")
+            raise ValueError(tr("brain.validation.vision_pair"))
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ProviderNotFoundError(provider_name)
         if not provider.supports_vision(model):
             raise ModelNotSupportedError(
-                f"Vision model '{model}' does not support vision on provider '{provider_name}'"
+                tr(
+                    "brain.validation.vision_unsupported",
+                    model=model,
+                    provider=provider_name,
+                )
             )
 
     def model_config_snapshot(self) -> dict[str, Any]:
@@ -279,11 +299,19 @@ class Brain:
         vision_model: str | None = None,
         vision_thinking: bool | None = None,
     ) -> dict[str, Any]:
-        next_summary_provider = self._summary_provider_name if summary_provider is None else summary_provider.strip()
+        next_summary_provider = (
+            self._summary_provider_name if summary_provider is None else summary_provider.strip()
+        )
         next_summary_model = self._summary_model if summary_model is None else summary_model.strip()
-        next_summary_thinking = self._summary_thinking if summary_thinking is None else bool(summary_thinking)
-        next_fallbacks = self._fallbacks if fallbacks is None else self._validate_fallbacks(fallbacks)
-        next_vision_provider = self._vision_provider_name if vision_provider is None else vision_provider.strip()
+        next_summary_thinking = (
+            self._summary_thinking if summary_thinking is None else bool(summary_thinking)
+        )
+        next_fallbacks = (
+            self._fallbacks if fallbacks is None else self._validate_fallbacks(fallbacks)
+        )
+        next_vision_provider = (
+            self._vision_provider_name if vision_provider is None else vision_provider.strip()
+        )
         next_vision_model = self._vision_model if vision_model is None else vision_model.strip()
         next_vision_thinking = (
             self._vision_thinking if vision_thinking is None else bool(vision_thinking)
@@ -307,6 +335,7 @@ class Brain:
         provider = self.active_provider
         if provider is None:
             from coworker.core.token_utils import estimate_content_tokens
+
             return sum(estimate_content_tokens(m.content) for m in messages)
         return await provider.count_tokens(messages, self._active_model)
 
@@ -352,13 +381,15 @@ class Brain:
                 if not provider:
                     raise ProviderNotFoundError(provider_name)
                 provider.set_model(model)
-                return await provider.complete(messages, system_prompt, tools, max_tokens, thinking=thinking)
+                return await provider.complete(
+                    messages, system_prompt, tools, max_tokens, thinking=thinking
+                )
             except (ProviderNotFoundError, ModelNotSupportedError):
                 raise
             except Exception as e:
                 last_err = e
                 if attempt < tries - 1:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     logger.warning(
                         f"LLM call {provider_name}/{model} failed (attempt {attempt + 1}/{tries}), retrying in {wait}s: {e}"
                     )
@@ -385,7 +416,13 @@ class Brain:
         for idx, (name, model, tries) in enumerate(candidates):
             try:
                 response = await self._attempt(
-                    name, model, messages, system_prompt, tools, tokens, tries,
+                    name,
+                    model,
+                    messages,
+                    system_prompt,
+                    tools,
+                    tokens,
+                    tries,
                     thinking=self._thinking if _thinking_override is None else _thinking_override,
                 )
             except Exception as e:
@@ -421,7 +458,7 @@ class Brain:
             model = provider.default_model
         if not model:
             raise ModelNotSupportedError(
-                f"未指定 summary 模型，且 provider '{provider_name}' 没有配置 default_model"
+                tr("brain.validation.summary_model_missing", provider=provider_name)
             )
         return provider_name, model
 
@@ -471,18 +508,27 @@ class Brain:
         vision_provider = vision_provider or self._vision_provider_name
         vision_model = vision_model or self._vision_model
         if not vision_provider or not vision_model:
-            raise RuntimeError("未配置视觉模型，请先设置 vision.provider 和 vision.model。")
+            raise RuntimeError(tr("brain.validation.vision_unconfigured"))
         provider = self._providers.get(vision_provider)
         if not provider:
-            raise RuntimeError(f"视觉 provider '{vision_provider}' 未注册。")
+            raise RuntimeError(
+                tr("brain.validation.vision_provider_missing", provider=vision_provider)
+            )
         if not provider.supports_vision(vision_model):
             raise ModelNotSupportedError(
-                f"Vision model '{vision_model}' does not support vision on provider '{vision_provider}'"
+                tr(
+                    "brain.validation.vision_unsupported",
+                    model=vision_model,
+                    provider=vision_provider,
+                )
             )
         if require_video and not provider.supports_video(vision_model):
             raise ModelNotSupportedError(
-                f"Vision model '{vision_model}' does not support native video input "
-                f"on provider '{vision_provider}'"
+                tr(
+                    "brain.validation.video_unsupported",
+                    model=vision_model,
+                    provider=vision_provider,
+                )
             )
         provider.set_model(vision_model)
         resp = await provider.complete(
@@ -509,11 +555,15 @@ class Brain:
                 model_id = provider.default_model
                 if not model_id:
                     raise ModelNotSupportedError(
-                        f"未指定模型，且 provider '{provider_name}' 没有配置 default_model"
+                        tr("brain.validation.model_missing", provider=provider_name)
                     )
             if not provider.supports_tool_use(model_id):
                 raise ModelNotSupportedError(
-                    f"Model '{model_id}' does not support tool use on provider '{provider_name}'"
+                    tr(
+                        "brain.validation.model_tool_unsupported",
+                        model=model_id,
+                        provider=provider_name,
+                    )
                 )
             old = (self._active_provider_name, self._active_model)
             self._active_provider_name = provider_name
@@ -530,8 +580,13 @@ class Brain:
             btype = block.get("type", "")
             if btype in ("image", "document"):
                 filename = block.get("_filename", block.get("source", {}).get("media_type", btype))
-                label = "图片" if btype == "image" else "文件"
-                sanitized.append({"type": "text", "text": f"[{label}: {filename}]"})
+                label = tr("brain.summary.image" if btype == "image" else "brain.summary.file")
+                sanitized.append(
+                    {
+                        "type": "text",
+                        "text": tr("brain.summary.attachment", kind=label, filename=filename),
+                    }
+                )
             else:
                 sanitized.append(block)
         return sanitized
@@ -569,25 +624,23 @@ class Brain:
                 content = d.get("content", "")
                 if isinstance(content, list):
                     content = " ".join(
-                        b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                        b.get("text", "")
+                        for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"
                     )
-                label = {"user": "[user]", "assistant": "[assistant]", "tool": "[tool_result]"}.get(role, f"[{role}]")
+                label = {"user": "[user]", "assistant": "[assistant]", "tool": "[tool_result]"}.get(
+                    role, f"[{role}]"
+                )
                 lines.append(f"{label} {content}")
             slice_text = "\n".join(lines)
 
-            hint_line = f"背景提示: {context_hint}\n" if context_hint else ""
-            slice_msg = (
-                "==== 以下是即将被压缩淘汰的对话片段（只读，无需回复）====\n"
-                f"{hint_line}"
-                f"{slice_text}\n"
-                "==== 片段结束 ===="
+            hint_line = tr("brain.summary.context_hint", hint=context_hint) if context_hint else ""
+            slice_msg = tr(
+                "brain.summary.subjective_slice",
+                hint=hint_line,
+                content=slice_text,
             )
-            instruction = (
-                "请将上方对话片段从你自己的第一人称视角压缩为记忆摘要。\n"
-                "格式：「我正在/已经...。关键词：A, B, C, ...」\n"
-                "摘要中应密集出现人名、项目名、工具名、任务名、网页链接、账号密码等专有名词或关键信息（用作后续检索锚点）。\n"
-                "直接输出纯文本，不要 JSON，不要解释，只输出摘要本身。"
-            )
+            instruction = tr("brain.summary.subjective_instruction")
             think_messages: list[Message] = []
             if stm_context:
                 think_messages.extend(stm_context)
@@ -605,25 +658,19 @@ class Brain:
                 content = d.get("content", "")
                 if isinstance(content, list):
                     content = " ".join(
-                        b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                        b.get("text", "")
+                        for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"
                     )
-                label = {"user": "[user]", "assistant": "[assistant]", "tool": "[tool_result]"}.get(role, f"[{role}]")
+                label = {"user": "[user]", "assistant": "[assistant]", "tool": "[tool_result]"}.get(
+                    role, f"[{role}]"
+                )
                 lines.append(f"{label} {content}")
             messages_natural = "\n".join(lines)
 
-            prompt = (
-                "你是一个记忆压缩助手。请将以下对话历史压缩为高质量的纯文本摘要。\n\n"
-                "⚠️ 重要原则：\n"
-                "1. 摘要的首要目标是成为长期记忆的「查询锚点」——摘要中应密集出现：\n"
-                "   - 人名、项目名、工具名、任务名等专有名词\n"
-                "   - 已讨论的核心概念和技术术语\n"
-                "   - 关键决策的主题词\n"
-                "   - 未完成任务的关键词 + 状态\n"
-                "2. 格式：先写第三方叙述，再跟「关键词：A, B, C, ...」\n"
-                "3. 直接输出纯文本，不要 JSON 包装。\n"
-            )
+            prompt = tr("brain.summary.objective_prompt")
             if context_hint:
-                prompt += f"\n背景提示: {context_hint}"
+                prompt += tr("brain.summary.objective_hint", hint=context_hint)
             response = await self._summary_think(
                 messages=[Message(role="user", content=messages_natural)],
                 system_prompt=prompt,

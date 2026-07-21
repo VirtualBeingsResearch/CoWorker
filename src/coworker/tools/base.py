@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from coworker.core.types import ToolResult
+from coworker.i18n import SupportedLocale, get_locale, tr
+from coworker.i18n.runtime import catalog
 
 if TYPE_CHECKING:
     from coworker.core.tool_scope import ToolScope
 
-PAGE_CHAR_LIMIT = 3_000   # 工具单次返回的默认页大小（字符）
-PAGE_CHAR_MAX = 10_000    # 工具单次返回的硬上限（字符）：即便显式要求更多也不超过，防止上下文被冲爆
+PAGE_CHAR_LIMIT = 3_000  # 工具单次返回的默认页大小（字符）
+PAGE_CHAR_MAX = 10_000  # 工具单次返回的硬上限（字符）：即便显式要求更多也不超过，防止上下文被冲爆
 
 
 def paginate_text(
@@ -45,20 +47,29 @@ def paginate_text(
         return chunk
 
     if chunk:
-        notice = f"[字符 {offset}–{next_offset - 1} / 共 {total}"
+        notice = tr(
+            "pagination.range",
+            start=offset,
+            end=next_offset - 1,
+            total=total,
+        )
         if remaining > 0:
-            notice += f"；剩余 {remaining}"
+            notice += tr("pagination.remaining", remaining=remaining)
         else:
-            notice += "；已到末尾"
+            notice += tr("pagination.end")
         notice += "]"
     else:
-        notice = f"[offset={offset} 超出范围 / 共 {total} 字符]"
+        notice = tr("pagination.out_of_range", offset=offset, total=total)
     if remaining > 0:
-        hint = next_hint.format(
-            offset=next_offset,
-            total=total,
-            remaining=remaining,
-        ) if next_hint else f"如需后续内容，请在下次调用时传 offset={next_offset}"
+        hint = (
+            next_hint.format(
+                offset=next_offset,
+                total=total,
+                remaining=remaining,
+            )
+            if next_hint
+            else tr("pagination.next", offset=next_offset)
+        )
         notice += f"  {hint}"
     return notice + "\n" + chunk
 
@@ -70,10 +81,49 @@ class ToolDefinition:
     parameters: dict[str, Any]
 
     def to_schema(self) -> dict[str, Any]:
+        entries = catalog()
+
+        def localized_description(original: str, path: tuple[str, ...]) -> str:
+            if get_locale() is SupportedLocale.ZH_CN:
+                return original
+            if not path:
+                return entries.get(
+                    f"tool_schema.description.{self.name}",
+                    tr("tool_schema.fallback.tool", name=self.name),
+                )
+            parameter = ".".join(path)
+            return entries.get(
+                f"tool_schema.parameter.{self.name}.{parameter}",
+                tr(
+                    "tool_schema.fallback.parameter",
+                    parameter=parameter,
+                    tool=self.name,
+                ),
+            )
+
+        def localize(value: Any, path: tuple[str, ...] = ()) -> Any:
+            if isinstance(value, list):
+                return [localize(item, path) for item in value]
+            if not isinstance(value, dict):
+                return value
+            localized: dict[str, Any] = {}
+            for key, item in value.items():
+                if key == "description" and isinstance(item, str):
+                    localized[key] = localized_description(item, path)
+                elif key == "properties" and isinstance(item, dict):
+                    localized[key] = {
+                        name: localize(child, (*path, name)) for name, child in item.items()
+                    }
+                elif key == "items":
+                    localized[key] = localize(item, (*path, "item"))
+                else:
+                    localized[key] = localize(item, path)
+            return localized
+
         return {
             "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters,
+            "description": localized_description(self.description, ()),
+            "parameters": localize(self.parameters),
         }
 
 
@@ -83,12 +133,10 @@ class Tool(ABC):
 
     @property
     @abstractmethod
-    def definition(self) -> ToolDefinition:
-        ...
+    def definition(self) -> ToolDefinition: ...
 
     @abstractmethod
-    async def execute(self, **kwargs: Any) -> ToolResult:
-        ...
+    async def execute(self, **kwargs: Any) -> ToolResult: ...
 
     def fork(self, scope: ToolScope) -> Tool:
         """Return a variant of this tool wired to the given scope.

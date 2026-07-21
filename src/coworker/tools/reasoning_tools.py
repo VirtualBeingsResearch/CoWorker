@@ -11,10 +11,20 @@ from typing import Any
 from loguru import logger
 
 from coworker.core.types import ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 _TASK_STATUSES = ("pending", "in_progress", "completed", "deleted")
 _DETAILS_UPDATE_MODES = ("replace", "append", "patch")
+_TASK_KIND_PREFIXES = {
+    "[growth]": "growth",
+    "[maintenance]": "maintenance",
+    "[subconscious]": "subconscious",
+    # Read-only compatibility for tasks created before the stable ASCII protocol.
+    "[成长]": "growth",
+    "[维护]": "maintenance",
+    "[潜意识]": "subconscious",
+}
 _HUNK_RE = re.compile(
     r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? "
     r"\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@"
@@ -38,12 +48,20 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def infer_task_kind(description: str) -> str:
+    """Return the stable framework task kind, including legacy-prefix inference."""
+
+    stripped = description.lstrip()
+    for prefix, kind in _TASK_KIND_PREFIXES.items():
+        if stripped.startswith(prefix):
+            return kind
+    return ""
+
+
 def _timestamp_from_path(path: Path) -> str | None:
     try:
         return (
-            datetime.fromtimestamp(path.stat().st_mtime)
-            .astimezone()
-            .isoformat(timespec="seconds")
+            datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
         )
     except OSError:
         return None
@@ -66,38 +84,43 @@ def _relative_time(value: datetime, *, now: datetime | None = None) -> str:
     future = seconds < 0
     seconds = abs(seconds)
 
-    suffix = "后" if future else "前"
     if seconds < 60:
-        return "即将" if future else "刚刚"
+        return tr("tool_result.task.soon" if future else "tool_result.task.just_now")
     if seconds < 3600:
-        return f"{seconds // 60} 分钟{suffix}"
+        return tr(
+            "tool_result.task.minutes_future" if future else "tool_result.task.minutes_past",
+            count=seconds // 60,
+        )
     if seconds < 86400:
-        return f"{seconds // 3600} 小时{suffix}"
+        return tr(
+            "tool_result.task.hours_future" if future else "tool_result.task.hours_past",
+            count=seconds // 3600,
+        )
 
     day_delta = (now.date() - value.date()).days
     if future:
         day_delta = -day_delta
         if day_delta == 1:
-            return "明天"
+            return tr("tool_result.task.tomorrow")
         if day_delta == 2:
-            return "后天"
+            return tr("tool_result.task.day_after_tomorrow")
         if day_delta < 30:
-            return f"{day_delta} 天后"
+            return tr("tool_result.task.days_future", count=day_delta)
         if day_delta < 365:
-            return f"{day_delta // 30} 个月后"
-        return f"{day_delta // 365} 年后"
+            return tr("tool_result.task.months_future", count=day_delta // 30)
+        return tr("tool_result.task.years_future", count=day_delta // 365)
 
     if day_delta == 0:
-        return "今天"
+        return tr("tool_result.task.today")
     if day_delta == 1:
-        return "昨天"
+        return tr("tool_result.task.yesterday")
     if day_delta == 2:
-        return "前天"
+        return tr("tool_result.task.day_before_yesterday")
     if day_delta < 30:
-        return f"{day_delta} 天前"
+        return tr("tool_result.task.days_past", count=day_delta)
     if day_delta < 365:
-        return f"{day_delta // 30} 个月前"
-    return f"{day_delta // 365} 年前"
+        return tr("tool_result.task.months_past", count=day_delta // 30)
+    return tr("tool_result.task.years_past", count=day_delta // 365)
 
 
 def _should_show_absolute_date(value: datetime, *, now: datetime | None = None) -> bool:
@@ -109,17 +132,22 @@ def _should_show_absolute_date(value: datetime, *, now: datetime | None = None) 
 def format_task_time(value: str, *, now: datetime | None = None) -> str:
     parsed = _parse_task_time(value)
     if parsed is None:
-        return value or "未知"
+        return value or tr("tool_result.task.unknown_time")
     relative = _relative_time(parsed, now=now)
     if not _should_show_absolute_date(parsed, now=now):
         return relative
-    return f"{relative}（{parsed.strftime('%Y-%m-%d')}）"
+    return tr(
+        "tool_result.task.absolute",
+        relative=relative,
+        date=parsed.strftime("%Y-%m-%d"),
+    )
 
 
 def format_task_times(task: Task, *, now: datetime | None = None) -> str:
-    return (
-        f"创建于 {format_task_time(task.created_at, now=now)} / "
-        f"修改于 {format_task_time(task.updated_at, now=now)}"
+    return tr(
+        "tool_result.task.times",
+        created=format_task_time(task.created_at, now=now),
+        updated=format_task_time(task.updated_at, now=now),
     )
 
 
@@ -147,7 +175,7 @@ def _join_text_lines(lines: list[str], trailing_newline: bool) -> str:
 def _parse_hunk_header(line: str) -> tuple[int, int, int, int]:
     m = _HUNK_RE.match(line)
     if not m:
-        raise DetailsPatchError(f"非法 hunk header: {line}")
+        raise DetailsPatchError(tr("tool_result.task_patch.invalid_header", line=line))
     old_start = int(m.group("old_start"))
     old_count = int(m.group("old_count") or "1")
     new_start = int(m.group("new_start"))
@@ -163,7 +191,7 @@ def _apply_unified_diff(text: str, patch: str) -> str:
     """
     patch = _normalize_newlines(patch)
     if not patch.strip():
-        raise DetailsPatchError("patch 为空")
+        raise DetailsPatchError(tr("tool_result.task_patch.empty"))
 
     source, source_trailing_newline = _split_text_lines(text)
     patch_lines = patch.split("\n")
@@ -180,19 +208,19 @@ def _apply_unified_diff(text: str, patch: str) -> str:
     while i < len(patch_lines):
         line = patch_lines[i]
         if line.startswith(_UNSUPPORTED_PATCH_PREFIXES):
-            raise DetailsPatchError("不支持多文件、二进制、rename 或 mode change patch")
+            raise DetailsPatchError(tr("tool_result.task_patch.unsupported_metadata"))
         if line.startswith("--- "):
             if seen_file_header or seen_hunk:
-                raise DetailsPatchError("不支持多文件 patch")
+                raise DetailsPatchError(tr("tool_result.task_patch.multi_file"))
             if i + 1 >= len(patch_lines) or not patch_lines[i + 1].startswith("+++ "):
-                raise DetailsPatchError("patch 文件头缺少 +++ 行")
+                raise DetailsPatchError(tr("tool_result.task_patch.missing_plus_header"))
             seen_file_header = True
             i += 2
             continue
         if line.startswith("+++ "):
-            raise DetailsPatchError("patch 文件头缺少 --- 行")
+            raise DetailsPatchError(tr("tool_result.task_patch.missing_minus_header"))
         if not line.startswith("@@ "):
-            raise DetailsPatchError(f"patch 中出现非 hunk 内容: {line}")
+            raise DetailsPatchError(tr("tool_result.task_patch.unexpected", line=line))
 
         seen_hunk = True
         old_start, old_count, _new_start, new_count = _parse_hunk_header(line)
@@ -200,7 +228,7 @@ def _apply_unified_diff(text: str, patch: str) -> str:
 
         target_pos = 0 if old_start == 0 and old_count == 0 else old_start - 1
         if target_pos < source_pos or target_pos > len(source):
-            raise DetailsPatchError("hunk 位置越界或顺序错误")
+            raise DetailsPatchError(tr("tool_result.task_patch.out_of_bounds"))
         out.extend(source[source_pos:target_pos])
         source_pos = target_pos
 
@@ -213,21 +241,25 @@ def _apply_unified_diff(text: str, patch: str) -> str:
                 i += 1
                 continue
             if hline.startswith("--- ") or hline.startswith("+++ "):
-                raise DetailsPatchError("不支持多文件 patch")
+                raise DetailsPatchError(tr("tool_result.task_patch.multi_file"))
             if not hline:
-                raise DetailsPatchError("非法 patch 行：缺少前缀")
+                raise DetailsPatchError(tr("tool_result.task_patch.missing_prefix"))
             op = hline[0]
             value = hline[1:]
             if op == " ":
                 if source_pos >= len(source) or source[source_pos] != value:
-                    raise DetailsPatchError(f"hunk 上下文不匹配: {value}")
+                    raise DetailsPatchError(
+                        tr("tool_result.task_patch.context_mismatch", value=value)
+                    )
                 out.append(value)
                 source_pos += 1
                 old_seen += 1
                 new_seen += 1
             elif op == "-":
                 if source_pos >= len(source) or source[source_pos] != value:
-                    raise DetailsPatchError(f"hunk 删除行不匹配: {value}")
+                    raise DetailsPatchError(
+                        tr("tool_result.task_patch.deletion_mismatch", value=value)
+                    )
                 source_pos += 1
                 old_seen += 1
             elif op == "+":
@@ -235,16 +267,22 @@ def _apply_unified_diff(text: str, patch: str) -> str:
                 new_seen += 1
                 result_trailing_newline = True
             else:
-                raise DetailsPatchError(f"非法 patch 行前缀: {op}")
+                raise DetailsPatchError(tr("tool_result.task_patch.invalid_prefix", op=op))
             i += 1
 
         if old_seen != old_count or new_seen != new_count:
             raise DetailsPatchError(
-                f"hunk 行数不匹配: old {old_seen}/{old_count}, new {new_seen}/{new_count}"
+                tr(
+                    "tool_result.task_patch.count_mismatch",
+                    old_seen=old_seen,
+                    old_count=old_count,
+                    new_seen=new_seen,
+                    new_count=new_count,
+                )
             )
 
     if not seen_hunk:
-        raise DetailsPatchError("patch 未包含任何 hunk")
+        raise DetailsPatchError(tr("tool_result.task_patch.no_hunk"))
     out.extend(source[source_pos:])
     return _join_text_lines(out, result_trailing_newline)
 
@@ -258,10 +296,15 @@ class Task:
     created_at: str = ""
     updated_at: str = ""
 
+    @property
+    def kind(self) -> str:
+        return infer_task_kind(self.description)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "description": self.description,
+            "kind": self.kind,
             "status": self.status,
             "details": self.details,
             "created_at": self.created_at,
@@ -377,7 +420,7 @@ class TaskStore:
             elif mode == "patch":
                 new_details = _apply_unified_diff(task.details, details)
             else:
-                raise ValueError(f"未知 details_update_mode: {mode}")
+                raise ValueError(tr("tool_result.task.unknown_details_mode", mode=mode))
 
         if status is not None:
             task.status = status
@@ -457,7 +500,11 @@ class TaskGetTool(Tool):
     async def execute(self, task_id: str, **_) -> ToolResult:
         task = self._store.get(task_id)
         if task is None:
-            return ToolResult(tool_call_id="", content=f"未找到任务 [{task_id}]", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.task.missing", id=task_id),
+                is_error=True,
+            )
         return ToolResult(
             tool_call_id="",
             content=(
@@ -491,8 +538,8 @@ class TaskListTool(Tool):
     async def execute(self, **_) -> ToolResult:
         tasks = self._store.list()
         if not tasks:
-            return ToolResult(tool_call_id="", content="（任务列表为空）")
-        lines = [f"共 {len(tasks)} 个任务："]
+            return ToolResult(tool_call_id="", content=tr("tool_result.task.empty"))
+        lines = [tr("tool_result.task.list_title", count=len(tasks))]
         for t in tasks:
             suffix = " has_details=true" if t.details.strip() else ""
             lines.append(
@@ -567,7 +614,11 @@ class TaskUpdateTool(Tool):
         except (ValueError, DetailsPatchError) as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
         if task is None:
-            return ToolResult(tool_call_id="", content=f"未找到任务 [{task_id}]", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.task.missing", id=task_id),
+                is_error=True,
+            )
         suffix = " has_details=true" if task.details.strip() else ""
         return ToolResult(
             tool_call_id="",

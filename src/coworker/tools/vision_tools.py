@@ -14,6 +14,7 @@ from PIL import Image
 
 from coworker.core.tool_scope import ToolScope
 from coworker.core.types import IncomingEvent, Message, ToolResult
+from coworker.i18n import capture_locale, locale_context, tr
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
@@ -53,7 +54,17 @@ def _resize_image(
     fmt = "JPEG" if media_type == "image/jpeg" else "PNG"
     out_media_type = "image/jpeg" if fmt == "JPEG" else "image/png"
     resized.save(out, format=fmt)
-    return out.getvalue(), out_media_type, f"已从 {w}x{h} 缩放至 {new_w}x{new_h}"
+    return (
+        out.getvalue(),
+        out_media_type,
+        tr(
+            "vision.resized",
+            width=w,
+            height=h,
+            new_width=new_w,
+            new_height=new_h,
+        ),
+    )
 
 
 def _sniff_image_media_type(raw: bytes) -> str | None:
@@ -115,17 +126,19 @@ async def _compress_video(raw: bytes, original_suffix: str) -> bytes:
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as e:
-            raise RuntimeError("FFmpeg 未安装，无法压缩超限视频") from e
+            raise RuntimeError(tr("vision.ffmpeg_missing")) from e
 
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
         except TimeoutError as e:
             proc.kill()
             await proc.communicate()
-            raise RuntimeError("FFmpeg 压缩视频超时") from e
+            raise RuntimeError(tr("vision.ffmpeg_timeout")) from e
         if proc.returncode != 0 or not output_path.is_file():
             detail = (stderr or b"").decode(errors="replace").strip()
-            raise RuntimeError(f"FFmpeg 压缩视频失败: {detail or '未知错误'}")
+            raise RuntimeError(
+                tr("vision.ffmpeg_failed", error=detail or tr("vision.unknown_error"))
+            )
         return output_path.read_bytes()
 
 
@@ -140,8 +153,12 @@ async def _prepare_video(raw: bytes, media_type: str, filename: str) -> tuple[by
     else:
         compressed_media_type = "video/mp4"
     if _video_data_url_size(compressed, compressed_media_type) >= _VIDEO_BASE64_LIMIT:
-        raise RuntimeError("视频压缩后 Base64 数据仍达到或超过 10 MiB")
-    return compressed, compressed_media_type, f"已从 {len(raw)} 字节压缩至 {len(compressed)} 字节"
+        raise RuntimeError(tr("vision.compressed_too_large"))
+    return (
+        compressed,
+        compressed_media_type,
+        tr("vision.compressed", before=len(raw), after=len(compressed)),
+    )
 
 
 async def _load_media(media_path: str) -> tuple[bytes, str, str]:
@@ -165,26 +182,26 @@ async def _load_media(media_path: str) -> tuple[bytes, str, str]:
                     async for chunk in resp.aiter_bytes():
                         downloaded += len(chunk)
                         if video_hint and downloaded > _VIDEO_SOURCE_LIMIT:
-                            raise ValueError("视频原文件超过 100 MiB，拒绝下载")
+                            raise ValueError(tr("vision.source_too_large_download"))
                         chunks.append(chunk)
                     raw = b"".join(chunks)
         except Exception as e:
-            raise RuntimeError(f"下载视觉媒体失败: {e}") from e
+            raise RuntimeError(tr("vision.download_failed", error=e)) from e
         filename = Path(urlparse(media_path).path).name or "media"
     else:
         path = Path(media_path)
         if not path.exists():
-            raise FileNotFoundError(f"文件不存在: {media_path}")
+            raise FileNotFoundError(tr("vision.file_missing", path=media_path))
         if not path.is_file():
-            raise ValueError(f"不是文件: {media_path}")
+            raise ValueError(tr("vision.not_file", path=media_path))
         raw = path.read_bytes()
         filename = path.name
 
     media_type = _detect_media_type(raw, media_path, declared_type)
     if media_type is None:
-        raise ValueError(f"不支持的视觉媒体类型: {filename}")
+        raise ValueError(tr("vision.unsupported_media", filename=filename))
     if media_type in _SUPPORTED_VIDEO_MEDIA_TYPES and len(raw) > _VIDEO_SOURCE_LIMIT:
-        raise ValueError("视频原文件超过 100 MiB，拒绝处理")
+        raise ValueError(tr("vision.source_too_large_process"))
     return raw, media_type, filename
 
 
@@ -229,7 +246,11 @@ class ViewImageTool(Tool):
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
         if media_type not in _SUPPORTED_IMAGE_MEDIA_TYPES:
-            return ToolResult(tool_call_id="", content=f"不是支持的图片: {filename}", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("vision.unsupported_image", filename=filename),
+                is_error=True,
+            )
 
         try:
             raw, media_type, resize_note = (
@@ -238,8 +259,13 @@ class ViewImageTool(Tool):
                 else _resize_image(raw, media_type, self._max_dimension)
             )
         except Exception as e:
-            return ToolResult(tool_call_id="", content=f"读取图片失败: {e}", is_error=True)
-        note = f"（{resize_note}）" if resize_note else ""
+            return ToolResult(
+                tool_call_id="",
+                content=tr("vision.image_read_failed", error=e),
+                is_error=True,
+            )
+        note = tr("vision.parenthesized_note", note=resize_note) if resize_note else ""
+        loaded = tr("vision.image_loaded", filename=filename, note=note)
         content_blocks: list[dict[str, Any]] = [
             {
                 "type": "image",
@@ -250,11 +276,11 @@ class ViewImageTool(Tool):
                 },
                 "_filename": filename,
             },
-            {"type": "text", "text": f"图片已加载: {filename}{note}"},
+            {"type": "text", "text": loaded},
         ]
         return ToolResult(
             tool_call_id="",
-            content=f"图片已加载: {filename}{note}",
+            content=loaded,
             content_blocks=content_blocks,
         )
 
@@ -313,15 +339,12 @@ class VisualAnalysisTool(Tool):
         if not vision_provider or not vision_model:
             return ToolResult(
                 tool_call_id="",
-                content=(
-                    "未配置视觉模型，请先通过 /model_config 设置 "
-                    "vision.provider 和 vision.model。"
-                ),
+                content=tr("vision.config_missing"),
                 is_error=True,
             )
         inbox = self._inbox
         if inbox is None:
-            return ToolResult(tool_call_id="", content="视觉分析 inbox 未就绪。", is_error=True)
+            return ToolResult(tool_call_id="", content=tr("vision.inbox_unready"), is_error=True)
 
         try:
             raw, media_type, filename = await _load_media(media_path)
@@ -333,59 +356,75 @@ class VisualAnalysisTool(Tool):
             try:
                 raw, media_type, resize_note = _resize_image(raw, media_type, self._max_dimension)
             except Exception as e:
-                return ToolResult(tool_call_id="", content=f"读取图片失败: {e}", is_error=True)
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("vision.image_read_failed", error=e),
+                    is_error=True,
+                )
         else:
             resize_note = ""
 
+        bound_locale = capture_locale()
+
         async def _run() -> None:
-            kind = "视频" if is_video else "图片"
-            try:
-                prepared_raw = raw
-                prepared_media_type = media_type
-                preparation_note = resize_note
-                if is_video:
-                    prepared_raw, prepared_media_type, preparation_note = await _prepare_video(
-                        raw, media_type, filename
+            with locale_context(bound_locale):
+                kind = tr("vision.video" if is_video else "vision.image")
+                try:
+                    prepared_raw = raw
+                    prepared_media_type = media_type
+                    preparation_note = resize_note
+                    if is_video:
+                        prepared_raw, prepared_media_type, preparation_note = await _prepare_video(
+                            raw, media_type, filename
+                        )
+                    prompt = question
+                    if preparation_note:
+                        prompt = tr(
+                            "vision.preparation_note",
+                            question=question,
+                            kind=kind,
+                            note=preparation_note,
+                        )
+                    media_block: dict = {
+                        "type": "video" if is_video else "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": prepared_media_type,
+                            "data": base64.standard_b64encode(prepared_raw).decode(),
+                        },
+                        "_filename": filename,
+                    }
+                    messages = [
+                        Message(
+                            role="user",
+                            content=[media_block, {"type": "text", "text": prompt}],
+                        )
+                    ]
+                    answer = await self._brain.query_with_vision(
+                        messages,
+                        vision_provider=vision_provider,
+                        vision_model=vision_model,
+                        usage_context={"label": filename},
+                        require_video=is_video,
                     )
-                prompt = question
-                if preparation_note:
-                    prompt = f"{question}（注：{kind}{preparation_note}）"
-                media_block: dict = {
-                    "type": "video" if is_video else "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": prepared_media_type,
-                        "data": base64.standard_b64encode(prepared_raw).decode(),
-                    },
-                    "_filename": filename,
-                }
-                messages = [
-                    Message(
-                        role="user",
-                        content=[media_block, {"type": "text", "text": prompt}],
+                    content = tr(
+                        "vision.analysis_result",
+                        kind=kind,
+                        path=media_path,
+                        question=question,
+                        answer=answer,
                     )
-                ]
-                answer = await self._brain.query_with_vision(
-                    messages,
-                    vision_provider=vision_provider,
-                    vision_model=vision_model,
-                    usage_context={"label": filename},
-                    require_video=is_video,
+                except Exception as e:
+                    logger.error(f"VisualAnalysisTool background task failed: {e}")
+                    content = tr("vision.analysis_failed", kind=kind, path=media_path, error=e)
+                await inbox.push(
+                    IncomingEvent(participant_id="system", content=content, source="system")
                 )
-                content = f"[{kind}分析结果: {media_path}]\n问题：{question}\n\n{answer}"
-            except Exception as e:
-                logger.error(f"VisualAnalysisTool background task failed: {e}")
-                content = f"[{kind}分析失败: {media_path}] {e}"
-            await inbox.push(
-                IncomingEvent(participant_id="system", content=content, source="system")
-            )
 
         task = asyncio.create_task(_run())
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-        kind = "视频" if is_video else "图片"
-        return ToolResult(
-            tool_call_id="", content=f"已在后台启动{kind}分析，完成后将通过系统消息推送结果。"
-        )
+        kind = tr("vision.video" if is_video else "vision.image")
+        return ToolResult(tool_call_id="", content=tr("vision.analysis_started", kind=kind))
 
     def fork(self, scope: ToolScope) -> VisualAnalysisTool:
         return VisualAnalysisTool(

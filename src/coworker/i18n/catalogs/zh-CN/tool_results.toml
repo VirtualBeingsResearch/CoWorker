@@ -1,0 +1,258 @@
+[tool_result.alarm]
+overdue = "迟到 {{seconds}} 秒触发"
+display = "{{message}}（{{note}}）"
+reminder = "[闹钟提醒] {{id}}: {{message}}"
+invalid_time = "时间格式错误，请使用 YYYY-MM-DD HH:MM:SS"
+past_time = "指定的时间 {{time}} 已过去"
+repeat_set = "每 {{seconds}} 秒循环"
+repeat_list = "每 {{seconds}} 秒重复"
+once = "一次性"
+set = "闹钟已设置：[{{id}}] 将在 {{time}} 触发（{{delay}} 秒后），{{mode}}"
+none = "当前没有待触发的闹钟"
+title = "待触发闹钟："
+cancelled = "闹钟 [{{id}}] 已取消"
+missing = "未找到闹钟 [{{id}}]"
+
+[tool_result.common]
+breathe = "🌬️ 呼吸。刚才做了什么？接下来想做什么？继续。"
+unknown_action = "未知 action: {{action}}"
+
+[tool_result.browser]
+screenshot_saved = "截图已保存：{{path}}"
+navigated = "已导航到 {{url}}"
+clicked = "已点击 {{selector}}"
+typed = "已在 {{selector}} 输入文本"
+selected = "已选择 {{selector}} 的选项 {{value}}"
+hovered = "已悬停在 {{selector}}"
+pressed = "已在 {{selector}} 按下 {{value}}"
+script_timeout = "脚本执行超时"
+content_truncated = "[内容已截断：共 {{total}} 字符，当前显示第 {{start}}~{{end}} 字符。如需继续，使用 start={{end}}]"
+closed = "Session {{id}} 已关闭"
+pages = "会话页面："
+view = "浏览器截图 session={{id}} url={{url}}{{note}}"
+none = "当前没有活跃的浏览器 session"
+
+[tool_result.file]
+read_truncated = "（内容已截断，共 {{total}} 行，已显示前 ~{{shown}} 行。请使用 offset/limit 参数分段读取。）"
+patch_needs_new = "patch 模式需要同时提供 new_string"
+patch_not_found = "patch 失败：old_string 在文件中未找到"
+patch_ambiguous = "patch 失败：old_string 出现了 {{count}} 次，存在歧义。请提供更多上下文使其唯一，或传入 replace_all=true。"
+replaced = "已替换 {{count}} 处: {{path}}"
+needs_content = "需要提供 content 或 old_string"
+written = "已写入 {{path}}"
+path_missing = "路径不存在: {{path}}"
+not_directory = "不是目录: {{path}}"
+directory = "目录: {{path}}"
+directory_entry = "[目录]  {{name}}/"
+file_entry = "[文件]  {{name}}  ({{size}})"
+root_missing = "根目录不存在: {{path}}"
+find_none = "未找到匹配 '{{pattern}}' 的文件"
+find_header = "在 {{root}} 中搜索 '{{pattern}}'，共找到 {{count}} 个结果:"
+result_limit = "（已达结果上限 {{limit}}，可能还有更多）"
+scan_limit = "（已扫描 {{limit}} 个文件，搜索提前终止，可能还有更多）"
+grep_none = "未找到匹配 '{{pattern}}' 的内容"
+grep_header = "搜索 '{{pattern}}'，共 {{count}} 处匹配:"
+grep_output_limit = "（输出已达字符上限 {{limit}}，请缩小搜索范围或指定更精确的 file_pattern）"
+grep_match_limit = "（已达上限 {{limit}}，可能还有更多）"
+regex_error = "正则表达式错误: {{error}}"
+
+[tool_result.system]
+sleep_zero = "sleep(0) 不会进入等待。请用 sleep(N) 指定休眠秒数。当前时间 {{time}}。"
+sleep_woken = "收到新消息，提前结束休眠。当前时间 {{time}}。"
+sleep_no_channel = "结束被动等待（无外部信道，立即返回）。当前时间 {{time}}。"
+slept = "Slept for {{seconds}}s, resuming. 当前时间 {{time}}。"
+context = '''当前时间：{{time}}
+运行周期：{{cycles}}
+当前模型：{{model}}
+短期记忆：{{messages}} 条消息'''
+restart_check_timeout = "代码环境校验超时，取消重启。"
+restart_check_failed = '''代码环境校验失败，取消重启。
+{{error}}'''
+restart_snapshot_failed = "快照保存后校验失败，取消重启。"
+compress_empty = "当前没有可压缩的短期记忆消息。"
+compressed = "已压缩 {{count}} 条短期记忆消息。"
+
+[tool_result.task]
+unknown_time = "未知"
+soon = "即将"
+just_now = "刚刚"
+minutes_future = "{{count}} 分钟后"
+minutes_past = "{{count}} 分钟前"
+hours_future = "{{count}} 小时后"
+hours_past = "{{count}} 小时前"
+tomorrow = "明天"
+day_after_tomorrow = "后天"
+days_future = "{{count}} 天后"
+months_future = "{{count}} 个月后"
+years_future = "{{count}} 年后"
+today = "今天"
+yesterday = "昨天"
+day_before_yesterday = "前天"
+days_past = "{{count}} 天前"
+months_past = "{{count}} 个月前"
+years_past = "{{count}} 年前"
+absolute = "{{relative}}（{{date}}）"
+times = "创建于 {{created}} / 修改于 {{updated}}"
+missing = "未找到任务 [{{id}}]"
+empty = "（任务列表为空）"
+list_title = "共 {{count}} 个任务："
+unknown_details_mode = "未知 details_update_mode: {{mode}}"
+
+[tool_result.pin]
+needs_id = "pin 操作需要提供 pin_id"
+needs_label = "pin 操作需要提供 label"
+needs_content = "pin 操作需要提供 content 或 file_path"
+read_failed = "读取文件失败: {{error}}"
+single_too_large = "pin 内容过大（约 {{tokens}} tokens，上限 {{limit}}）。请精简内容或分拆为多个 pin。"
+total_too_large = "pin 内容合计过大（新增后约 {{tokens}} tokens，上限 {{limit}}）。请先 unpin 部分内容以释放空间。"
+added = "添加"
+updated = "更新"
+saved = "已{{action}} pin「{{label}}」（pin_id: {{id}}，约 {{tokens}} tokens）。当前共 {{count}} 条 pin，合计约 {{total}} tokens。"
+unpin_needs_id = "unpin 操作需要提供 pin_id"
+current = "当前 pin：{{ids}}"
+none = "当前没有任何 pin"
+missing = "未找到 pin_id='{{id}}'。{{hint}}"
+unpinned = "已取消 pin（pin_id: {{id}}）。剩余 {{count}} 条。"
+list_title = "当前共 {{count}} 条 pin："
+source = "  来源：{{path}}"
+list_item = "- [{{id}}] {{label}}  约{{tokens}}tokens  {{time}}{{source}}"
+total = "合计约 {{tokens}} tokens"
+
+[tool_result.communicate]
+bound_participant = "此泡泡只能向已绑定的通信对象发送消息，不能改用其他 participant_id。"
+bound_conversation = "此泡泡只能向已绑定的 conversation_id 发送消息。"
+attachment_fallback = "{{prefix}}（附件）"
+extra_object = "extra 必须是对象。"
+ambiguous = '''participant_id '{{participant}}' 在多个信道中都能匹配，请使用完整 participant_id 重新调用：
+{{options}}'''
+option = "  - {{id}}（前缀：{{prefix}}）"
+websocket_sent = "消息已通过 WebSocket 发送给 {{participant}}"
+conversation_unsupported = "消息发送失败：该通信目标不支持 conversation_id；请去掉该字段后重试。"
+extra_unsupported = "消息发送失败：该通信目标不支持 extra 扩展参数。"
+attachments_unsupported = "消息发送失败：该通信目标不支持附件；请改用支持附件的信道。"
+message_empty = "message 不能为空。"
+fallback_saved = "消息发送失败，已记录在本地文件: {{path}}"
+failed = "消息发送失败: {{error}}"
+no_websocket = "当前没有活跃的 WebSocket 连接。"
+wecom_conversation_unsupported = "消息发送失败：企业微信信道不支持 conversation_id；请去掉该字段后重试。"
+wecom_extra_unsupported = "消息发送失败：企业微信信道不支持 extra 扩展参数。"
+wecom_sent = "消息已通过企业微信发送给 {{participant}}"
+wecom_failed = "消息通过企业微信发送失败: {{error}}"
+desktop_disconnected = "该通信目标未连接: {{participant}}"
+desktop_sent = "Desktop 请求已发送 request_id={{request_id}}{{conversation}}"
+desktop_conversation = "；conversation_id={{conversation}}"
+
+[tool_result.bubble]
+needs_goal = "创建泡泡需要 goal；续跑超时泡泡请提供 bubble_id。"
+unknown_provider = "未知 provider: {{provider}}"
+provider_no_model = "provider '{{provider}}' 未能解析出可用模型，请显式传入 model。"
+model_no_tools = "模型 '{{model}}' 不支持 provider '{{provider}}' 上的 tool use。"
+palaces_disabled = "未启用记忆宫殿，无法挂载 palaces。"
+none = "（无）"
+palace_missing = "记忆宫殿 '{{name}}' 不存在。可用：{{available}}"
+forked = "当前线程已经分叉为泡泡 {{id}}。"
+tool_after_fork = "工具 {{name}} 在 bubble 分叉后由主线程执行，结果不在此处。"
+fresh_context = "全新上下文（仅含 {{count}} 条 pinned 消息）"
+forked_context = "分叉上下文（{{count}} 条消息，约 {{tokens}} tokens）"
+mounted_palaces = '''
+已挂宫殿：{{names}}'''
+fast_mode = '''
+模式：非思考（快速执行）'''
+model = '''
+模型：{{provider}}/{{model}}'''
+binding = '''
+通信绑定：{{participant}}{{conversation}}（后续匹配消息会直接转交给此泡泡）'''
+conversation = " / {{conversation}}"
+transparent = '''
+通信透明标识：已启用（转交、回复和结束会向对方说明）'''
+created = '''泡泡已创建：id={{id}}
+目标：{{goal}}
+最大轮次：{{cycles}}
+{{context}}{{palaces}}{{thinking}}{{model}}{{communication}}
+使用 bubble_check('{{id}}') 查看进度，bubble_send('{{id}}', '消息') 与其通信。'''
+max_cycles_integer = "max_cycles 必须是整数。"
+resume_failed = "续跑启动失败：{{error}}"
+resume_instruction = "已附加主线续跑指令。"
+resumed = "泡泡 {{id}} 已恢复并继续执行（第 {{count}} 次续跑）。累计轮次预算 {{before}} → {{after}}（新增 {{added}} 轮）。{{instruction}}"
+brain_missing = "泡泡 {{id}} 缺少独立 brain，无法启动。"
+palace_skill = '''[宫殿:{{palace}} · skill:{{skill}}]
+{{body}}'''
+palace = '''[宫殿:{{palace}}]
+{{body}}'''
+palace_memory = "[宫殿记忆] 以下长期记忆与当前宫殿（标签：{{tags}}）和任务相关："
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+missing = "未找到泡泡 [{{id}}]"
+from_main = "[来自主线] {{message}}"
+pushed_main = "消息已推送到主线程 inbox。"
+terminal = "泡泡 {{id}} 已终止（{{status}}），无法接收消息。"
+sent = "消息已发送到泡泡 {{id}}。"
+already_terminal = "泡泡 {{id}} 已处于终态 {{status}}，无需取消。"
+cancelled = "已发送取消信号到泡泡 {{id}}。"
+none_active = "当前没有活跃的泡泡。"
+list_title = "活跃泡泡 {{count}} 个："
+done_wrong_context = "bubble_done 只能在泡泡模式中调用。"
+resume_wrong_status = "泡泡 {{id}} 当前状态为 {{status}}，只有超时泡泡可以续跑。"
+resume_ending_cleanup = "泡泡 {{id}} 正在结束清理，请稍后重试。"
+resume_still_cleanup = "泡泡 {{id}} 仍在结束清理，请稍后重试。"
+resume_missing_finished_at = "泡泡 {{id}} 缺少超时完成时间，无法安全续跑。"
+resume_disabled = "泡泡超时续跑已禁用（AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS=0）。"
+resume_expired = "泡泡 {{id}} 超时后已过去 {{elapsed}}s，超过可续跑窗口 {{window}}s。"
+resume_concurrency = "已达到最大并发泡泡数（{{max}}）。当前活跃：{{active}}。请等待或取消后再续跑。"
+create_concurrency = "已达到最大并发泡泡数（{{max}}）。当前活跃：{{active}}。请等待或取消后再创建。"
+resume_cycle_cap = "泡泡 {{id}} 已达到总轮次上限 {{cap}}，无法继续续跑。"
+check_header = '''泡泡 {{id}}
+状态：{{status}}
+目标：{{goal}}
+当前执行轮次：{{used}}/{{max}}
+运行时长：{{seconds}}s
+内部消息数：{{messages}}'''
+check_participant = "服务对象：{{participant}}"
+check_conversation = "服务会话：{{conversation}}"
+check_transparency = "通信透明标识：已启用"
+check_palaces = "挂载宫殿：{{palaces}}"
+check_model = "模型：{{provider}}/{{model}}"
+check_checkpoints = "检查点次数：{{count}}"
+check_resumes = "超时续跑次数：{{count}}"
+check_resume_disabled = "超时续跑：已禁用"
+check_resume_remaining = "超时续跑：剩余约 {{seconds}}s，可调用 bubble_spawn(bubble_id=...) 继续。"
+check_resume_expired = "超时续跑：宽限期已过"
+check_latest_checkpoint = "最近阶段结论：{{result}}"
+check_result = "结论预览：{{result}}"
+check_error = "错误：{{error}}"
+list_participant = "对象={{participant}}"
+list_conversation = "会话={{conversation}}"
+list_transparency = "透明标识=开"
+list_palaces = "宫殿={{palaces}}"
+list_model = "模型={{provider}}/{{model}}"
+list_resumes = "续跑={{count}}"
+list_item = "  [{{id}}] {{status}} | {{used}}/{{max}}轮 | {{seconds}}s{{tags}} | 目标：{{goal}}"
+sender_main = "主线"
+
+[tool_result.task_patch]
+invalid_header = "非法 hunk header: {{line}}"
+empty = "patch 为空"
+unsupported_metadata = "不支持多文件、二进制、rename 或 mode change patch"
+multi_file = "不支持多文件 patch"
+missing_plus_header = "patch 文件头缺少 +++ 行"
+missing_minus_header = "patch 文件头缺少 --- 行"
+unexpected = "patch 中出现非 hunk 内容: {{line}}"
+out_of_bounds = "hunk 位置越界或顺序错误"
+missing_prefix = "非法 patch 行：缺少前缀"
+context_mismatch = "hunk 上下文不匹配: {{value}}"
+deletion_mismatch = "hunk 删除行不匹配: {{value}}"
+invalid_prefix = "非法 patch 行前缀: {{op}}"
+count_mismatch = "hunk 行数不匹配: old {{old_seen}}/{{old_count}}, new {{new_seen}}/{{new_count}}"
+no_hunk = "patch 未包含任何 hunk"
+
+[tool_result.code]
+running = '''[运行中] job_id={{id}} timeout={{timeout}}s  cwd={{cwd}}  {{environment}}
+使用 get_code_result('{{id}}') 查询结果，任务完成时会自动通知'''
+no_output = "(no output)"
+next = "使用 get_code_result('{{id}}', offset={{offset}}) 查看后续内容"
+more = "使用 get_code_result('{{id}}', offset={{offset}}) 查看更多"
+truncated = "[输出截断] {{notice}}"
+completed = "[代码任务完成] job_id={{id}} [{{status}}] elapsed={{elapsed}}s"
+missing = "Job {{id}} not found"
+already = "Job {{id}} is already {{status}}"
+kill_failed = "Failed to kill: {{error}}"
+killed = "[killed] job_id={{id}} elapsed={{elapsed}}s"

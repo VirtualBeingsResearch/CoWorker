@@ -1,0 +1,355 @@
+[source]
+file = "文件投递"
+rest = "REST API"
+websocket = "WebSocket"
+wecom = "企业微信"
+coworker_desktop = "桌面端"
+bubble = "气泡"
+codex = "Codex"
+system = "系统"
+unknown = "未知来源"
+
+[incoming]
+system = "[系统] {{content}}"
+message = '''[来自{{source}}][{{participant}}]{{conversation}}的消息:
+{{content}}'''
+video_attachment = "视频附件"
+attachment = "附件"
+saved_attachment = "[{{kind}}: {{filename}} — 已保存至 {{path}}，可使用工具读取]"
+
+[brain.summary]
+image = "图片"
+file = "文件"
+attachment = "[{{kind}}: {{filename}}]"
+context_hint = '''背景提示: {{hint}}
+'''
+subjective_slice = '''==== 以下是即将被压缩淘汰的对话片段（只读，无需回复）====
+{{hint}}{{content}}
+==== 片段结束 ===='''
+subjective_instruction = '''请将上方对话片段从你自己的第一人称视角压缩为记忆摘要。
+格式：「我正在/已经...。关键词：A, B, C, ...」
+摘要中应密集出现人名、项目名、工具名、任务名、网页链接、账号密码等专有名词或关键信息（用作后续检索锚点）。
+直接输出纯文本，不要 JSON，不要解释，只输出摘要本身。'''
+objective_prompt = '''你是一个记忆压缩助手。请将以下对话历史压缩为高质量的纯文本摘要。
+
+⚠️ 重要原则：
+1. 摘要的首要目标是成为长期记忆的「查询锚点」——摘要中应密集出现：
+   - 人名、项目名、工具名、任务名等专有名词
+   - 已讨论的核心概念和技术术语
+   - 关键决策的主题词
+   - 未完成任务的关键词 + 状态
+2. 格式：先写第三方叙述，再跟「关键词：A, B, C, ...」
+3. 直接输出纯文本，不要 JSON 包装。'''
+objective_hint = '''
+背景提示: {{hint}}'''
+
+[brain.validation]
+active_model_unsupported = "Provider '{{provider}}' does not support active model '{{model}}'"
+max_tokens_positive = "max_tokens 必须大于 0"
+fallback_empty = "fallback 项不能为空"
+fallback_invalid = "fallback 项格式无效：{{entry}}"
+fallback_model_missing = "未指定 fallback 模型，且 provider '{{provider}}' 没有配置 default_model"
+fallback_tool_unsupported = "Fallback model '{{model}}' does not support tool use on provider '{{provider}}'"
+summary_model_missing = "未指定 summary 模型，且 provider '{{provider}}' 没有配置 default_model"
+vision_pair = "vision.provider 和 vision.model 必须同时填写或同时清空"
+vision_unsupported = "Vision model '{{model}}' does not support vision on provider '{{provider}}'"
+vision_unconfigured = "未配置视觉模型，请先设置 vision.provider 和 vision.model。"
+vision_provider_missing = "视觉 provider '{{provider}}' 未注册。"
+video_unsupported = "Vision model '{{model}}' does not support native video input on provider '{{provider}}'"
+model_missing = "未指定模型，且 provider '{{provider}}' 没有配置 default_model"
+model_tool_unsupported = "Model '{{model}}' does not support tool use on provider '{{provider}}'"
+
+[notification]
+admin_compress_hint = "管理控制台手动全量压缩"
+backup_restore_hint = "应急备份 {{name}} 内容复原"
+backup_summary = '''[应急备份恢复·摘要] {{name}}（{{count}} 条）：
+{{summary}}'''
+backup_full = "[系统通知] 已从应急备份 {{name}} 恢复 {{count}} 条消息，上下文可能再次接近上限，必要时请压缩。"
+backfill_empty = "记忆树回溯完成：无可回溯的历史内容。"
+backfill_done = "记忆树回溯完成：从原始日志重建，生成 {{leaves}} 个叶子，脊柱 {{nodes}} 节点。"
+backfill_failed = "记忆树回溯失败：{{error}}"
+profile_reminder = "[档案自述提醒] 请用 write_file 生成或更新 `{{path}}`，作为 /profile 状态页展示的模型自述。建议 {{max_chars}} 字以内；超过 {{days}} 天未更新时会再次提醒。"
+
+[channel.wecom]
+group_sender = '''[发送者 userid={{userid}}]
+'''
+quote_self = "引用自己的消息"
+quote_self_possessive = "引用自己的"
+quote_user = "引用 {{user}}"
+quote_user_possessive = "引用 {{user}} 的"
+quote = "引用"
+quote_possessive = "引用的"
+quote_text = '''[{{prefix}}: "{{content}}"]
+'''
+quote_mixed = '''[{{prefix}}: "{{content}}"{{image_hint}}]
+'''
+image_count = "（含 {{count}} 张图片）"
+image = "图片"
+file = "文件"
+video = "视频"
+named_file = '''文件 "{{name}}"'''
+quote_media = '''[{{possessive}}{{label}}{{suffix}}]
+'''
+quote_unavailable = '''[{{possessive}} {{type}} 消息（无法预览）]
+'''
+
+[channel.desktop]
+command_rejected = "命令未被接受"
+reported_error = "桌面端报告错误"
+folded = "…（内容过长已折叠，完整内容见文件：{{path}}，可用 read_file 查看）"
+error = '''[CoWorker Desktop 错误]
+{{context}}内容：{{message}}'''
+unknown_operation = "未知操作"
+permission_note = '''
+注意：此为权限请求，回复需为完整 permissions response，而非简写 decision。'''
+approval = '''[CoWorker Desktop 审批请求]
+{{context}}操作：{{tool}}
+内容：{{detail}}
+回复（批准）：communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{accept}})
+回复（拒绝）：communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{decline}}){{note}}'''
+question_title = "[CoWorker Desktop 提问请求]（AskUserQuestion）"
+answer_each = "请逐题回答："
+questions_folded = "…（问题/选项描述过长已折叠，完整内容见文件：{{path}}，可用 read_file 查看）"
+input = '''[CoWorker Desktop 输入请求]
+{{context}}内容：{{detail}}
+回复（接受）：communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{accept}})
+回复（拒绝）：communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{decline}})'''
+answer_reply = '''回复：communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{answers}})'''
+answer_decline = "拒绝回答：extra={{decline}}（用 decision 代替 answers）"
+answer_question_example = "<完整问题文本>"
+answer_value_example = "<所选 label 或自由文本>"
+context_source = "来源：{{actor}}"
+context_conversation = "会话：{{conversation}}"
+no_detail = "（无详情）"
+no_question = "（无问题文本）"
+option = "   - {{label}}：{{description}}"
+pin_label = "CoWorker Desktop 注册表"
+pin_intro = '''使用 CoWorker Desktop 前先加载 `coworker-desktop` Skill。
+participant 决定 local/codex/claude 身份，禁止跨身份复用 conversation_id。
+会话按项目展示；这里只是近期快照，完整列表用 list_conversations 查询。'''
+projects_none = "  项目：无"
+conversations = "  对话："
+unknown_project = "未识别项目"
+project = "  项目：{{name}}（{{id}}）"
+recent_none = "{{indent}}近期会话：无"
+unnamed_conversation = "未命名会话"
+conversation_details = "（{{details}}）"
+
+[attachment_fallback]
+image_name = "图片"
+document_name = "文档"
+image_saved = "，已保存至 {{path}}，可使用工具处理"
+document_saved = "，已保存至 {{path}}，可使用工具读取"
+image = "[图片附件: {{filename}} — 当前模型不支持图片预览{{saved}}]"
+document = "[PDF 附件: {{filename}} — 当前模型不支持文档预览{{saved}}]"
+unsupported_image = "[图片附件 — 不支持的图片格式]"
+unsupported_video = "[视频附件 — 当前模型不支持原生视频输入]"
+openai_pdf_note = " — OpenAI 不原生支持 PDF"
+pdf = "[PDF 附件: {{filename}}{{note}}{{saved}}]"
+
+[loop]
+backup_empty = "应急备份未创建：当前没有可备份的短期上下文"
+backup_created = "应急备份已创建：{{path}}"
+backup_failed = "应急备份创建失败（目标：{{path}}；错误：{{error}}）"
+backup_unconfigured = "应急备份未创建：未配置短期记忆快照路径"
+recovery = '''[系统恢复] 上一轮因连续 {{count}} 次执行错误而中断。
+{{backup}}。
+当前上下文已经清空重置。
+最近错误：{{error}}。'''
+system_error = "[系统错误] {{error}}"
+skill_warning_title = "[技能加载异常] 以下 skill 加载失败或不可用："
+skill_warning_tail = "请不要假设这些 skill 可用；如果当前任务依赖它们，请先修复 skill 文件或改用其他工具。"
+model_fallback = "[系统通知] 主模型调用失败，已自动降级至 {{provider}}/{{model}}。主模型恢复后可用 switch_model 手动切回。"
+model_switched = "[系统通知] 模型已切换至 {{provider}}/{{model}}"
+tool_parse_error = "工具参数 JSON 解析失败，请重新生成正确格式的参数：{{error}}"
+auto_recall_title = "[自动回忆] 以下长期记忆与当前对话相关："
+auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+recent_activity_title = "[自动回忆·历史活动回放]"
+task_reminder = "[任务提醒] 当前有未完成任务："
+task_wakeup = "[任务提醒] 有未完成任务，中断睡眠："
+task_details_hint = " has_details=true，请用 task_get 查看"
+
+[bubble]
+cancelled = "泡泡被手动取消"
+intercept_sleep = "泡泡是有轮次上限的目标线程，休眠只会白白烧光轮次。请直接推进目标，完成后调用 bubble_done(result=...)。"
+intercept_restart = "该工具会重启父线程，泡泡内不可用。请专注自身目标。"
+intercept_clear = "该工具会压缩父线程短期记忆，泡泡内不可用。"
+intercept_compress = "该工具会压缩父线程记忆，泡泡内不可用。"
+intercept_communicate = "该泡泡未绑定通信对象，不能直接对外通信。如需父线程协助，请调用 bubble_send(target='main', message=...)。"
+bound_conversation = "，会话为 {{conversation}}"
+bound = '''- 此泡泡已绑定通信对象 {{participant}}{{conversation}}。该对象的新消息会直接转交给你；需要回复时可调用 communicate(message=...)，系统会固定投递给该对象。不得借此联系其他对象。
+'''
+handoff_transparency = '''- 系统会自动标识你的直接回复，并在 Bubble 开始和结束时通知对方。
+'''
+unbound = '''- 此泡泡未绑定外部通信对象，不能直接通过通信信道联系用户；如需通知，通过 bubble_send(target='main') 转交父线程。
+'''
+identity = '''[泡泡模式]
+你现在正处在一个独立的并行思考线程（泡泡）中，泡泡 id 为 {{id}}，目标：{{goal}}。
+最多执行 {{max_cycles}} 轮，完成后调用 bubble_done(result='...') 提交结论。
+
+【重要认知】
+- 当前泡泡的所有思考过程、工具调用记录、中间结论，父线程均不可见。
+- 父线程唯一能看到的是你通过 bubble_done 提交的 result 字段，以及 bubble_send 主动发送的消息。
+- 因此 result 必须自包含、完整——包含关键数据、推导过程摘要和最终结论，不能假设父线程知道你做了什么。
+
+【通信】
+- 用 bubble_send(target='main', message=...) 向父线程发送中间进展或需要协调的内容。
+- 用 bubble_send(target='bbl_xxxx', message=...) 与其他泡泡通信。
+- 用 bubble_done(result='...', checkpoint=True) 向主线汇报阶段结论并继续执行；主线可通过 bubble_send 回复，下一轮自动注入。
+  用 bubble_done(result='...') 提交最终结论并结束。
+
+【注意事项】
+{{external}}- task_create/execute_code 等工具使用独立作业存储，不影响父线程，但文件系统共享；执行代码时建议通过 cwd 参数指定独立工作目录。若需要等待代码结果再继续，可对 execute_code 传 block=true，通常比反复 get_code_result 更省轮次。
+- 不要调用 restart_self、clear_short_term_memory、compress_memory 等影响父线程状态的工具。'''
+resume = "[系统] 泡泡此前达到轮次上限，现已第 {{count}} 次续跑。累计轮次预算已扩展至 {{max_cycles}} 轮，请基于已有上下文继续推进；若任务已完成，请调用 bubble_done(result=...) 提交最终结论。"
+nudge = "[系统] 请继续完成任务，或调用 bubble_done(result=...) 提交最终结论。"
+from_bubble = "[来自 {{sender}}] {{message}}"
+burst_warning = '''[系统预警] 泡泡即将破灭。
+请立即调用 bubble_done(result=...) 提交完整、自包含的结论。如果当前工作尚未完成或即将完成，请调用 bubble_done(result=..., checkpoint=True) 提交中间结论，然后继续推进——result 会自动转交主线，无需再用 bubble_send 重复发送。
+仅当另有需要主线立即处理且不宜放进结论的事项时，才在 bubble_done 之前先调用 bubble_send(target='main', message=...)。
+若本轮未调用 bubble_done，系统将自动摘要你的思考过程，可能丢失关键细节。'''
+checkpoint_message = '''[泡泡检查点] id={{id}} | 第{{count}}次
+阶段结论：{{result}}
+泡泡继续执行中。如需反馈可通过 bubble_send('{{id}}', ...) 发送。'''
+checkpoint_extended = "检查点已发送给主线（第{{count}}次），已自动续期 {{extension}} 轮，继续执行。"
+checkpoint_sent = "检查点已发送给主线（第{{count}}次），继续执行。"
+completed = "泡泡 {{id}} 已完成，结论已记录。"
+sent_main = "消息已发送到主线程。"
+target_missing = "目标泡泡 '{{target}}' 未找到或已完成。"
+target_terminal = "目标泡泡 '{{target}}' 已终止，无法接收消息。"
+sent_bubble = "消息已发送到泡泡 {{target}}。"
+summary_hint = "泡泡目标：{{goal}}"
+summary_failed = "（自动摘要失败：{{error}}）"
+resume_hint = "[续跑提示] 若任务仍未完成，可在 {{seconds}}s 内调用 bubble_spawn(bubble_id='{{id}}', goal='续跑指令', max_cycles=...) 保留上下文继续执行。"
+status_done = "成功完成"
+status_timeout = "达到最大轮次后摘要"
+status_error = "执行出错"
+status_cancelled = "已取消"
+merge_header = "[泡泡思考结果] id={{id}} | 状态={{status}} | 执行 {{cycles}} 轮 | 耗时 {{seconds}}s"
+merge_goal = "目标：{{goal}}"
+merge_participant = "通信对象：{{participant}}"
+merge_conversation = "通信会话：{{conversation}}"
+merge_checkpoints = "检查点次数：{{count}}"
+merge_resumes = "超时续跑次数：{{count}}"
+merge_cycle = "- 轮次{{cycle}}：调用 {{tools}}"
+merge_process = "思考过程："
+merge_more_cycles = "  ...（共 {{count}} 轮）"
+merge_partial = "阶段结论（共{{count}}个检查点）："
+merge_partial_item = "  第{{index}}次：{{result}}"
+merge_error = "错误信息：{{error}}"
+merge_result = '''结论：
+{{result}}'''
+merge_no_result = "（无结论）"
+
+[handoff]
+reply_prefix = "🫧 泡泡："
+start = "🫧 当前会话已转交给泡泡处理（ID：{{id}}）。它会直接回复；完成后将由主线继续接手。"
+resume = "🫧 当前会话已再次转交给泡泡处理（ID：{{id}}）。它会直接回复；完成后将由主线继续接手。"
+end = "🫧 本次泡泡处理已结束（ID：{{id}}），后续消息将由主线继续处理。"
+
+[subconscious]
+intercept_switch_model = "潜意识使用独立 brain，切换模型对它毫无意义。请专注当前反思任务。"
+intercept_communicate = "潜意识不可直接联系用户。如有需要通知主线的内容，请调用 bubble_send(target='main')。"
+intercept_connections = "潜意识不直接操作外部连接。"
+intercept_set_alarm = "潜意识不应在主线时间线上设置闹钟。"
+intercept_cancel_alarm = "潜意识不应取消主线闹钟。"
+intercept_list_alarms = "潜意识无需查看主线闹钟。"
+intercept_spawn = "潜意识不应再派生子泡泡，请在当前线程内完成反思。"
+intercept_bubbles = "潜意识不应管理其他泡泡。"
+intercept_write = "潜意识不需要写文件。"
+intercept_code = "潜意识不应该执行代码。"
+intercept_jobs = "潜意识不应该管理代码任务。"
+intercept_default = "潜意识不应在此模式下使用 {{name}}。"
+identity_reminder = '''
+
+[泡泡身份提醒] 你是潜意识泡泡 {{id}}（模式：{{mode}}），不是主线。此工具调用在本泡泡中不可执行。
+上文主线历史中的工具调用及其输出对你可见（只读参考），但你无法在此泡泡内发起同类操作。'''
+pre_compress_goal = "当前上下文是即将被压缩淘汰的对话片段，请从你自己的第一人称视角提炼值得长期保留的经验并存入长期记忆"
+palace = '''[宫殿:{{name}}]
+{{body}}'''
+palace_memory_title = "[宫殿记忆] 宫殿「{{name}}」标签 {{tags}} 下的领域长期记忆（共 {{count}} 条，每条带 id）："
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+garden_goal = "巡检记忆宫殿「{{name}}」（标签：{{tags}}）的领域长期记忆：剪除过期/矛盾/冗余、整合补写，并发掘可关联的相关记忆"
+none = "无"
+telemetry_title = "[潜意识遥测] 各模式近期运行情况与当前配置（供判断节奏/漂移/健康度）："
+never_run = "从未运行"
+no_recent = "（无）"
+changed_unreviewed = " ★已变更（{{time}}，meta尚未审视）"
+changed_reviewed = " （上次变更：{{time}}，已审视）"
+protected = "🔒受保护"
+retire = "⚠退休条件: {{condition}}"
+purpose = " | 目的: {{purpose}}"
+telemetry_line = "- {{name}}{{lifecycle}}{{purpose}} | trigger={{trigger}} | {{config}} | max_cycles={{max_cycles}} | 运行{{count}}次 | 上次运行：{{last_run}} | 近期产出：{{recent}}{{change}}"
+no_telemetry = "（暂无历史遥测数据，这是首次触发）"
+change_summary = "[变更摘要] 自上次 meta 审视以来，{{count}} 个模式有改动（★标记）："
+change_item = "  - {{name}}（{{time}} 修改）"
+change_advice = "→ 建议对 ★ 模式进行深度审视（逐条对比设计意图），对未变更模式可轻扫。"
+never = "从未"
+no_changes = "[变更摘要] 自上次 meta 审视（{{time}}）以来无模式改动 → 可做轻量健康检查，只在发现明显问题时创建任务。"
+goal_audit = "回顾近期行为，检查错误/遗漏/风险与自我对齐"
+goal_explore = "自由联想与发散性思考，从任意角度审视近期上下文"
+goal_introspect = "评估自身能力并审视现有技能库，发现能力缺口/技能冗余并生成成长与维护目标"
+goal_garden = "巡检记忆宫殿的领域长期记忆，剪除过期/矛盾/冗余并整合补写"
+goal_meta = "审视各潜意识模式的触发节奏、提示词漂移与配置健康度，生成 [subconscious] 改进任务"
+goal_summarize = "提炼近期对话中的经验并存入长期记忆"
+skill_anomaly = "[技能目录结构异常] 以下条目不符合「<技能名>/SKILL.md」约定、未被加载，因此不在 [SKILLS] 清单里（疑似死文件/遗留，核实后可建议清理或规整）："
+missing_skill = "{{name}}/ (缺 SKILL.md)"
+
+[pagination]
+range = "[字符 {{start}}–{{end}} / 共 {{total}}"
+remaining = "；剩余 {{remaining}}"
+end = "；已到末尾"
+out_of_range = "[offset={{offset}} 超出范围 / 共 {{total}} 字符]"
+next = "如需后续内容，请在下次调用时传 offset={{offset}}"
+
+[tools.framework]
+unknown = "Unknown tool: {{name}}"
+execution_error = "工具执行错误：{{error}}"
+
+[vision]
+image = "图片"
+video = "视频"
+resized = "已从 {{width}}x{{height}} 缩放至 {{new_width}}x{{new_height}}"
+compressed = "已从 {{before}} 字节压缩至 {{after}} 字节"
+ffmpeg_missing = "FFmpeg 未安装，无法压缩超限视频"
+ffmpeg_timeout = "FFmpeg 压缩视频超时"
+ffmpeg_failed = "FFmpeg 压缩视频失败: {{error}}"
+unknown_error = "未知错误"
+compressed_too_large = "视频压缩后 Base64 数据仍达到或超过 10 MiB"
+source_too_large_download = "视频原文件超过 100 MiB，拒绝下载"
+source_too_large_process = "视频原文件超过 100 MiB，拒绝处理"
+download_failed = "下载视觉媒体失败: {{error}}"
+file_missing = "文件不存在: {{path}}"
+not_file = "不是文件: {{path}}"
+unsupported_media = "不支持的视觉媒体类型: {{filename}}"
+unsupported_image = "不是支持的图片: {{filename}}"
+image_read_failed = "读取图片失败: {{error}}"
+image_loaded = "图片已加载: {{filename}}{{note}}"
+parenthesized_note = "（{{note}}）"
+config_missing = "未配置视觉模型，请先通过 /model_config 设置 vision.provider 和 vision.model。"
+inbox_unready = "视觉分析 inbox 未就绪。"
+preparation_note = "{{question}}（注：{{kind}}{{note}}）"
+analysis_result = '''[{{kind}}分析结果: {{path}}]
+问题：{{question}}
+
+{{answer}}'''
+analysis_failed = "[{{kind}}分析失败: {{path}}] {{error}}"
+analysis_started = "已在后台启动{{kind}}分析，完成后将通过系统消息推送结果。"
+
+[startup]
+env_python_version = "Python 版本"
+env_python_executable = "Python 解释器"
+env_os = "操作系统"
+env_machine = "架构"
+env_cwd = "工作目录"
+env_git_commit = "代码版本"
+env_item = "{{label}}：{{old}} → {{new}}"
+env_separator = "；"
+env_changed = "环境变化：{{changes}}"
+alarm_fragment = "，{{count}} 个闹钟"
+environment_fragment = " {{changes}}。"
+restart_tool_result = "重启成功。当前时间：{{time}}。已恢复 {{messages}} 条消息{{alarms}}。{{environment}}"
+sleep_interrupted = "睡眠被系统重启中断。当前时间：{{time}}。"
+system_restarted = "系统已重启。当前时间：{{time}}。"
+alarms_restored = "已恢复 {{count}} 个待触发闹钟。"
+system_started = "系统启动。当前时间：{{time}}。{{environment}}。"

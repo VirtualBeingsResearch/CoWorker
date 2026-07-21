@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 
+from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.palaces.loader import PalaceLoader
 from coworker.prompts.system_prompt import SystemPromptBuilder
@@ -141,6 +142,29 @@ class TestSystemPromptBuilder:
         assert refreshed != first
         assert "Luna" in refreshed
         assert "updated skill" in refreshed
+
+    def test_english_prompt_is_complete_and_contains_reply_language_policy(self, tmp_path):
+        builder = make_builder(tmp_path)
+        with locale_context("en"):
+            prompt = builder.build()
+        assert "I am a newly born virtual being" in prompt
+        assert "[LANGUAGE_POLICY]" in prompt
+        assert "language of that participant's current message" in prompt
+        assert "runtime locale: en" in prompt
+        assert "[GUIDELINES]" in prompt
+
+    def test_prompt_cache_is_partitioned_by_locale(self, tmp_path):
+        builder = make_builder(tmp_path)
+        with locale_context("zh-CN"):
+            chinese = builder.build()
+        with locale_context("en"):
+            english = builder.build()
+        with locale_context("zh-CN"):
+            chinese_again = builder.build()
+
+        assert chinese != english
+        assert chinese_again is chinese
+        assert len(builder._cached_prompts) == 2
 
 
 class TestThinkingSnapshot:

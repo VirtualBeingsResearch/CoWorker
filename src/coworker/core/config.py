@@ -4,7 +4,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -16,6 +16,7 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
 )
+from coworker.i18n import SupportedLocale, normalize_locale
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
@@ -150,16 +151,20 @@ class MemoryConfig(_EnvSettings):
     short_term_max_tokens: int = 80_000
     compress_threshold: float = 0.55
     compress_ratio: float = 0.25
-    compress_protected_tail: float = 0.40  # legacy 单锚点路径用；tree 启用时由 tree_tail_fraction 取代
+    compress_protected_tail: float = (
+        0.40  # legacy 单锚点路径用；tree 启用时由 tree_tail_fraction 取代
+    )
 
     # 多分辨率记忆块树（Memory Block Tree）。tree_enabled=False 回退到旧的单锚点压缩。
     tree_enabled: bool = True
-    tree_tail_fraction: float = 0.70          # 尾部保留原始消息的 token 占比
-    tree_spine_cap_fraction: float = 0.30     # 脊柱 token 上限占比；唯一预算旋钮，节点预算/K 均由它导出
-    tree_backfill_max_leaves: int = 64        # `--backfill-tree` 一次性回溯生成叶子数上限
-    tree_backfill_concurrency: int = 5        # 回溯时叶子摘要/归约合并的并发上限
-    tree_merge_reach_depth: int = 2           # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
-    log_rotation_enabled: bool = False        # 日志物理轮转（后续项）；寻址层已抗分片
+    tree_tail_fraction: float = 0.70  # 尾部保留原始消息的 token 占比
+    tree_spine_cap_fraction: float = (
+        0.30  # 脊柱 token 上限占比；唯一预算旋钮，节点预算/K 均由它导出
+    )
+    tree_backfill_max_leaves: int = 64  # `--backfill-tree` 一次性回溯生成叶子数上限
+    tree_backfill_concurrency: int = 5  # 回溯时叶子摘要/归约合并的并发上限
+    tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
+    log_rotation_enabled: bool = False  # 日志物理轮转（后续项）；寻址层已抗分片
 
     auto_recall_enabled: bool = True
     auto_recall_relevance_threshold: float = 0.5
@@ -223,6 +228,21 @@ class AdminConfig(_EnvSettings):
     config_file: str = "data/admin_config.json"
 
 
+class I18NConfig(_EnvSettings):
+    """Instance-wide runtime locale, independent from Web/Desktop UI language."""
+
+    model_config = SettingsConfigDict(env_prefix="I18N__", env_file=".env", extra="ignore")
+
+    locale: SupportedLocale = SupportedLocale.ZH_CN
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, value: object) -> SupportedLocale:
+        if isinstance(value, SupportedLocale):
+            return value
+        return normalize_locale(str(value))
+
+
 class AgentConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT__", env_file=".env", extra="ignore")
 
@@ -278,13 +298,12 @@ class WeComConfig(_EnvSettings):
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    llm: LLMConfig = Field(
-        default_factory=lambda: LLMConfig(max_tokens=DEFAULT_LLM_MAX_TOKENS)
-    )
+    llm: LLMConfig = Field(default_factory=lambda: LLMConfig(max_tokens=DEFAULT_LLM_MAX_TOKENS))
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     api: APIConfig = Field(default_factory=APIConfig)
     desktop_updates: DesktopUpdatesConfig = Field(default_factory=DesktopUpdatesConfig)
     admin: AdminConfig = Field(default_factory=AdminConfig)
+    i18n: I18NConfig = Field(default_factory=I18NConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
 

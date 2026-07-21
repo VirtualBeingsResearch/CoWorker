@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from coworker.core.ids import new_compact_id
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import AttachmentData, IncomingEvent, SummaryResult
+from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
 
 if TYPE_CHECKING:
@@ -56,6 +57,7 @@ def _remember_desktop_message_id(message_id: str) -> bool:
     while len(_seen_desktop_message_ids) > _DESKTOP_DEDUP_LIMIT:
         _seen_desktop_message_ids.popitem(last=False)
     return True
+
 
 _IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 _PDF_MEDIA_TYPES = {"application/pdf"}
@@ -149,9 +151,7 @@ class RestoreBackupPayload(BaseModel):
     mode: Literal["full", "summarize"] = "full"
 
 
-def _save_attachment(
-    att: AttachmentSchema, *, keep_inline_data: bool = True
-) -> AttachmentData:
+def _save_attachment(att: AttachmentSchema, *, keep_inline_data: bool = True) -> AttachmentData:
     raw = base64.b64decode(att.data)
     leaf = re.split(r"[\\/]+", att.filename)[-1].strip(" .")
     filename = _UNSAFE_ATTACHMENT_CHARS_RE.sub("-", leaf).strip(" .-") or "attachment"
@@ -250,8 +250,7 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
     # the boundary and pass only local references onward so base64 data never
     # enters the agent's generic short-term context.
     attachments = [
-        _save_attachment(a, keep_inline_data=not source_is_desktop)
-        for a in attachment_schemas
+        _save_attachment(a, keep_inline_data=not source_is_desktop) for a in attachment_schemas
     ]
     source: Literal["coworker_desktop", "rest"] = (
         "coworker_desktop" if source_is_desktop else "rest"
@@ -309,6 +308,7 @@ async def get_debug_tasks():
     waiting_at 指出每个 task 当前挂在哪一行 await——卡住时一眼可见元凶。
     """
     from coworker.core.diagnostics import task_snapshot
+
     snapshot = task_snapshot()
     return {
         "total": len(snapshot),
@@ -380,30 +380,38 @@ async def backfill_tree(payload: BackfillTreePayload):
     # 同步占位 running=True：让 GET 在 POST 返回后立刻看到进行中，并堵住并发重复触发的窗口
     # （检查→置位之间无 await，端点协程不让出）。_run 的 finally 与 _populate_tree 均会复位。
     stm.backfill_progress = {"running": True, "done": 0, "total": 0}
+    task_locale = capture_locale()
 
     async def _run() -> None:
-        try:
-            n = await stm.backfill_tree_online(_brain, payload.max_leaves)
-            if n == 0:
-                msg = "记忆树回溯完成：无可回溯的历史内容。"
-            else:
-                msg = (
-                    f"记忆树回溯完成：从原始日志重建，生成 {n} 个叶子，"
-                    f"脊柱 {len(stm.tree.nodes)} 节点。"
+        with locale_context(task_locale):
+            try:
+                n = await stm.backfill_tree_online(_brain, payload.max_leaves)
+                if n == 0:
+                    msg = tr("notification.backfill_empty")
+                else:
+                    msg = tr(
+                        "notification.backfill_done",
+                        leaves=n,
+                        nodes=len(stm.tree.nodes),
+                    )
+                logger.info(f"[backfill-online] {msg}")
+            except Exception as e:
+                msg = tr("notification.backfill_failed", error=e)
+                logger.error(f"[backfill-online] {msg}")
+            finally:
+                stm.backfill_progress["running"] = False
+            if _inbox is not None:
+                await _inbox.push(
+                    IncomingEvent(participant_id="system", content=msg, source="system")
                 )
-            logger.info(f"[backfill-online] {msg}")
-        except Exception as e:
-            msg = f"记忆树回溯失败：{e}"
-            logger.error(f"[backfill-online] {msg}")
-        finally:
-            stm.backfill_progress["running"] = False  # 兜底复位（含 tree 关闭等早退路径）
-        if _inbox is not None:
-            await _inbox.push(IncomingEvent(participant_id="system", content=msg, source="system"))
 
     task = asyncio.create_task(_run())
     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-    return {"status": "started", "max_leaves": payload.max_leaves,
-            "note": "后台重建记忆树，用 GET /backfill_tree 查看进度，完成后记日志并推送系统消息"}
+    return {
+        "status": "started",
+        "max_leaves": payload.max_leaves,
+        "note": "后台重建记忆树，用 GET /backfill_tree 查看进度，完成后记日志并推送系统消息",
+    }
 
 
 @router.get("/backfill_tree")
@@ -450,15 +458,18 @@ async def get_profile():
         or now - _profile_readme_last_reminded_at >= _PROFILE_README_INTERVAL
     )
     if _inbox is not None and readme_needs_update and reminder_due:
-        await _inbox.push(IncomingEvent(
-            participant_id="system",
-            content=(
-                "[档案自述提醒] 请用 write_file 生成或更新 "
-                f"`{readme_path.as_posix()}`，作为 /profile 状态页展示的模型自述。"
-                f"建议 200 字以内；超过 {_PROFILE_README_INTERVAL.days} 天未更新时会再次提醒。"
-            ),
-            source="system",
-        ))
+        await _inbox.push(
+            IncomingEvent(
+                participant_id="system",
+                content=tr(
+                    "notification.profile_reminder",
+                    path=readme_path.as_posix(),
+                    max_chars=200,
+                    days=_PROFILE_README_INTERVAL.days,
+                ),
+                source="system",
+            )
+        )
         _profile_readme_last_reminded_at = now
 
     # 最早日志时间：LogStore manifest 第一个分片的 ts_min
@@ -491,7 +502,7 @@ async def list_backups() -> dict[str, object]:
     out = []
     for p in sorted(backup_dir.glob(f"{_BACKUP_PREFIX}*.json"), reverse=True):
         item: dict = {"filename": p.name, "timestamp": None, "message_count": None}
-        ts_part = p.stem[len(_BACKUP_PREFIX):]
+        ts_part = p.stem[len(_BACKUP_PREFIX) :]
         try:
             item["timestamp"] = datetime.strptime(ts_part, "%Y%m%d_%H%M%S").isoformat()
         except ValueError:
@@ -518,8 +529,13 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
 
     name = payload.filename
     # 路径穿越防护：必须是裸文件名、符合命名前后缀、解析后仍落在备份目录内。
-    if ("/" in name or "\\" in name or ".." in name
-            or not name.startswith(_BACKUP_PREFIX) or not name.endswith(".json")):
+    if (
+        "/" in name
+        or "\\" in name
+        or ".." in name
+        or not name.startswith(_BACKUP_PREFIX)
+        or not name.endswith(".json")
+    ):
         raise HTTPException(status_code=400, detail="非法备份文件名")
     path = backup_dir / name
     if path.resolve().parent != backup_dir.resolve() or not path.is_file():
@@ -538,7 +554,10 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
 
     if payload.mode == "summarize":
         try:
-            raw = await _brain.summarize(restored, context_hint=f"应急备份 {name} 内容复原")
+            raw = await _brain.summarize(
+                restored,
+                context_hint=tr("notification.backup_restore_hint", name=name),
+            )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"摘要失败：{e}")
         summary_text = raw.content if isinstance(raw, SummaryResult) else raw
@@ -547,23 +566,39 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
         except (json.JSONDecodeError, AttributeError):
             summary = summary_text
         if _inbox is not None:
-            await _inbox.push(IncomingEvent(
-                participant_id="system",
-                content=f"[应急备份恢复·摘要] {name}（{len(restored)} 条）：\n{summary}",
-                source="system",
-            ))
-        return {"status": "restored", "mode": "summarize",
-                "message_count": len(restored), "summary": summary}
+            await _inbox.push(
+                IncomingEvent(
+                    participant_id="system",
+                    content=tr(
+                        "notification.backup_summary",
+                        name=name,
+                        count=len(restored),
+                        summary=summary,
+                    ),
+                    source="system",
+                )
+            )
+        return {
+            "status": "restored",
+            "mode": "summarize",
+            "message_count": len(restored),
+            "summary": summary,
+        }
 
     # mode == "full"：整盘引用替换（单次赋值，GIL 下原子）+ 修尾不完整 tool 链。
     stm.primary = restored
     removed = stm.cleanup_incomplete_tool_calls()
     if _inbox is not None:
-        await _inbox.push(IncomingEvent(
-            participant_id="system",
-            content=(f"[系统通知] 已从应急备份 {name} 恢复 {len(stm.primary)} 条消息，"
-                     f"上下文可能再次接近上限，必要时请压缩。"),
-            source="system",
-        ))
-    return {"status": "restored", "mode": "full",
-            "message_count": len(stm.primary), "removed_dangling": removed}
+        await _inbox.push(
+            IncomingEvent(
+                participant_id="system",
+                content=tr("notification.backup_full", name=name, count=len(stm.primary)),
+                source="system",
+            )
+        )
+    return {
+        "status": "restored",
+        "mode": "full",
+        "message_count": len(stm.primary),
+        "removed_dangling": removed,
+    }
