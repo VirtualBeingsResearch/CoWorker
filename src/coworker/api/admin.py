@@ -556,12 +556,6 @@ _INTERACTION_PREVIEW_CHARS = 480
 _INTERACTION_DETAIL_STRING_CHARS = 32_000
 _INTERACTION_DETAIL_ITEMS = 200
 _INTERACTION_DETAIL_DEPTH = 10
-_LEGACY_BUBBLE_MAX_CYCLES_PATTERNS = (
-    re.compile(r"最多执行\s*(\d+)\s*轮"),
-    re.compile(r"Maximum:\s*(\d+)\s*cycles", re.IGNORECASE),
-)
-
-
 def _interaction_logs_dir() -> Path:
     logs_dir = _config.agent.logs_dir if _config is not None else "data/logs"
     return Path(logs_dir)
@@ -747,20 +741,6 @@ def _as_float(value: object, default: float = 0.0) -> float:
         return default
 
 
-def _legacy_bubble_max_cycles(entries: list[dict[str, object]]) -> int:
-    """Recover metadata only from logs written before max_cycles was structured."""
-
-    for entry in entries:
-        if entry.get("type") != "message_in":
-            continue
-        content = str(entry.get("content") or "")
-        for pattern in _LEGACY_BUBBLE_MAX_CYCLES_PATTERNS:
-            match = pattern.search(content)
-            if match:
-                return int(match.group(1))
-    return 0
-
-
 def _bubble_log_summary(path: Path) -> JsonObject | None:
     entries = _read_bubble_log(path)
     meta = next((entry for entry in reversed(entries) if entry.get("__meta__")), None)
@@ -784,9 +764,7 @@ def _bubble_log_summary(path: Path) -> JsonObject | None:
         "provider": str(meta.get("provider") or ""),
         "model": str(meta.get("model") or ""),
         "cycles_used": _as_int(meta.get("cycles_used")),
-        "max_cycles": _as_int(
-            meta.get("max_cycles"), _legacy_bubble_max_cycles(entries)
-        ),
+        "max_cycles": _as_int(meta.get("max_cycles")),
         "participant_id": str(meta.get("participant_id") or ""),
         "conversation_id": str(meta.get("conversation_id") or ""),
         "handoff_transparency": bool(meta.get("handoff_transparency")),

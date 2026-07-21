@@ -26,12 +26,6 @@ if TYPE_CHECKING:
 
 TokenCountSource = Literal["estimated", "exact"]
 
-_LEGACY_SUMMARY_ANCHOR_PREFIXES = (
-    "[记忆：以下是我之前的行动摘要]",
-    "[memory: summary of my previous actions]",
-)
-
-
 class ShortTermMemory:
     def __init__(
         self,
@@ -311,8 +305,7 @@ class ShortTermMemory:
         events older than this timestamp have been compressed out of ``primary`` and
         are no longer available verbatim in short-term memory. Legacy single-anchor
         summaries are skipped because they are compressed replacements, not raw
-        retained context.  Legacy snapshots are normalized to the same source
-        marker while loading.
+        retained context.
         """
         raw = [m.timestamp for m in self.primary if m.source != "memory_summary"]
         if raw:
@@ -1029,23 +1022,14 @@ class ShortTermMemory:
         """从快照/备份 dict 解析 primary 消息列表（不构造整个 STM）。供 deserialize 与备份恢复复用。"""
         out: list[Message] = []
         for m in data.get("primary", []):
-            content = m["content"]
-            source = m.get("source")
-            if (
-                source is None
-                and m["role"] == "user"
-                and isinstance(content, str)
-                and content.startswith(_LEGACY_SUMMARY_ANCHOR_PREFIXES)
-            ):
-                source = "memory_summary"
             msg = Message(
                 role=m["role"],
-                content=content,
+                content=m["content"],
                 tool_calls=m.get("tool_calls", []),
                 tool_call_id=m.get("tool_call_id"),
                 recalled_memory_ids=m.get("recalled_memory_ids", []),
                 pin_id=m.get("pin_id"),
-                source=source,
+                source=m.get("source"),
                 usage=m.get("usage", {}),
             )
             if "timestamp" in m:

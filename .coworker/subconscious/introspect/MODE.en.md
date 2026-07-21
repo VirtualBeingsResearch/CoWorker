@@ -15,7 +15,7 @@ IMPORTANT MODEL
 - This is the correct initial message for a parallel thought thread, not a routing mistake.
 
 FIRST: REVIEW EARLIER RECOMMENDATIONS
-Call task_list and inspect every `[growth]` and `[maintenance]` task. The `[成长]` and `[维护]` prefixes are equivalent.
+Call task_list and inspect every growth and maintenance task.
 - Completed: the capability is present; do not recreate the same task.
 - Active or progressing: continue observing instead of duplicating it.
 - Long-idle pending: the direction may be wrong, low priority, or over-produced. Close it if obsolete; consolidate duplicates; record recurring patterns of neglected recommendations with manage_memory.
@@ -31,7 +31,7 @@ CREATE INTERNAL GOALS
 - Deduplicate against task_list.
 - For each real, actionable new gap, call task_create(description="[growth] Improve X: <gap and concrete direction, such as writing a skill, studying a topic, or updating thinking.md>").
 - Complete or refine an existing growth task when its capability already exists.
-- Never modify or delete tasks without `[growth]`/`[maintenance]` or their Chinese equivalents; those belong to users or operations.
+- Never modify or delete tasks that are not growth or maintenance tasks; those belong to users or operations.
 - Store valuable capability reflections as experience memories when appropriate.
 - Do not create goals merely to produce output.
 

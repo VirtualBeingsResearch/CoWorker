@@ -37,21 +37,15 @@ class TestShortTermMemory:
         ctx = mem.build_context()
         assert ctx == []
 
-    @pytest.mark.parametrize(
-        "anchor_text",
-        [
-            "[记忆：以下是我之前的行动摘要]\nold",
-            "[memory: summary of my previous actions]\nold",
-        ],
-    )
-    def test_legacy_summary_anchor_is_normalized_while_loading(self, anchor_text):
+    def test_summary_anchor_source_is_used_for_raw_primary_boundary(self):
         raw_timestamp = datetime(2026, 7, 8, 9)
         mem = ShortTermMemory.deserialize(
             {
                 "primary": [
                     {
                         "role": "user",
-                        "content": anchor_text,
+                        "content": "compressed summary",
+                        "source": "memory_summary",
                         "timestamp": datetime(2026, 7, 8, 12).isoformat(),
                     },
                     {
@@ -64,7 +58,6 @@ class TestShortTermMemory:
             tree_enabled=False,
         )
 
-        assert mem.primary[0].source == "memory_summary"
         assert mem.raw_primary_boundary() == raw_timestamp
 
     def test_raw_primary_boundary_none_when_no_compressed_context(self):

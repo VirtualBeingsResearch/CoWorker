@@ -357,7 +357,7 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     bubble_dir.mkdir(parents=True)
     path = bubble_dir / "bbl_260716120000.jsonl"
     entries = [
-        {"type": "message_in", "content": "最多执行 4 轮", "ts": "2026-07-16T12:00:00"},
+        {"type": "message_in", "content": "原始用户消息", "ts": "2026-07-16T12:00:00"},
         {
             "type": "tool_call",
             "name": "demo",
@@ -375,6 +375,7 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
             "goal": "核对发布",
             "status": "done",
             "cycles_used": 1,
+            "max_cycles": 4,
             "elapsed_seconds": 2,
             "participant_id": "wecom:alice",
             "conversation_id": "conv-frontend",
