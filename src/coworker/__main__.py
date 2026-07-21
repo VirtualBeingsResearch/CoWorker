@@ -349,7 +349,8 @@ async def _main() -> bool:
         # into the persistent coworker.log file.
         print(
             "\n" + "=" * 68
-            + "\nCoworker 首次启动：请用下面的初始管理员令牌打开 /admin\n\n"
+            + "\nCoworker 首次启动：请用下面的初始管理员令牌打开 "
+            + f"http://127.0.0.1:{config.api.port}/admin\n\n"
             + f"  {generated_admin_token}\n\n"
             + f"令牌已保存到 {config.admin.config_file}，完成初始化后仍可继续使用。\n"
             + "=" * 68 + "\n",

@@ -260,6 +260,8 @@ function Overview({ name }: { name: string }) {
 function Models() {
   const { data, error, loading, reload, setData } = useLoad(() => api<Json>('/api/admin/model'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
+  const [switchError, setSwitchError] = useState('');
+  const [switching, setSwitching] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
   const save = async () => {
@@ -268,15 +270,24 @@ function Models() {
     setData(next); setDraft(next);
   };
   const switchModel = async () => {
-    const next = await api<Json>('/api/admin/model/switch', { method: 'POST', body: JSON.stringify(switchTo) });
-    setData(next); setDraft(next); setSwitchTo({ provider: '', model_id: '' });
+    setSwitchError('');
+    setSwitching(true);
+    try {
+      const next = await api<Json>('/api/admin/model/switch', { method: 'POST', body: JSON.stringify(switchTo) });
+      setData(next); setDraft(next); setSwitchTo({ provider: '', model_id: '' });
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : t('切换模型失败'));
+    } finally {
+      setSwitching(false);
+    }
   };
   if (loading || !draft) return <Loading error={error} />;
   const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); n[a][b] = value; return n; });
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider} onClick={() => void switchModel()}>{t('切换模型')}</button></div>
+      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button></div>
+      {switchError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">

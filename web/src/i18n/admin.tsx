@@ -120,6 +120,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '选择 Provider': 'Select provider',
   '模型 ID（留空使用默认）': 'Model ID (leave empty for default)',
   '切换模型': 'Switch model',
+  '正在切换…': 'Switching…',
+  '切换模型失败': 'Failed to switch model',
   '摘要与压缩': 'Summarization & compression',
   '控制上下文压缩时使用的模型。': 'Controls the model used to compress context.',
   '留空时跟随主线模型': 'Follows the primary model when empty',

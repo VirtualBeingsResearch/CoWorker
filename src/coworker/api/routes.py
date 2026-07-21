@@ -449,7 +449,10 @@ async def get_profile():
         _profile_readme_last_reminded_at is None
         or now - _profile_readme_last_reminded_at >= _PROFILE_README_INTERVAL
     )
-    if _inbox is not None and readme_needs_update and reminder_due:
+    # The identity page loads this endpoint immediately. During first-run
+    # setup there is no configured model that can handle a profile update, so
+    # do not enqueue a system message that would wake the otherwise-idle loop.
+    if _inbox is not None and not _agent.state.setup_mode and readme_needs_update and reminder_due:
         await _inbox.push(IncomingEvent(
             participant_id="system",
             content=(
