@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- fix(first-run): avoid queuing profile generation before a model is configured, clarify the setup URL, and use the published container image name
+- fix(first-run): avoid queuing profile generation before a model is configured, clarify the setup URL, and default Compose to the published offline image
 - docs: reorganize documentation by functional domain and add a detailed WeCom ordering, reliability, and concurrency design
 
 ## 0.3.1 - 2026-07-20

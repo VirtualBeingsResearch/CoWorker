@@ -175,7 +175,9 @@ Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
 <details>
 <summary><strong>使用 Docker Compose</strong></summary>
 
-从仓库直接构建并启动（首次构建会下载全部依赖）：
+从仓库直接构建并启动。Compose 默认构建并使用预置 embedding 模型的严格离线镜像
+`ghcr.io/virtualbeingsresearch/coworker:offline`；首次构建会下载全部依赖和模型，
+但运行时不会访问 Hugging Face：
 
 ```bash
 docker compose up --build
@@ -187,12 +189,16 @@ docker compose up --build
 docker compose build
 ```
 
-默认镜像会在长期记忆首次启用时下载本地 embedding 模型，并将缓存保存在
-`coworker-models` Docker 卷中；重建容器不会重复下载。这个模型不是对话使用的
-大模型。
+如需使用标准运行时镜像（长期记忆首次启用时才下载本地 embedding 模型），可显式覆盖
+构建目标和镜像标签；缓存仍会保存在 `coworker-models` Docker 卷中。这个模型不是对话
+使用的大模型。
 
-如部署环境无法在运行时访问 Hugging Face，或需要消除首次下载，可额外构建并发布
-预置 embedding 模型的镜像：
+```bash
+COWORKER_BUILD_TARGET=runtime COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:latest docker compose up --build
+```
+
+如需预置 embedding 模型、但仍允许容器在运行时访问 Hugging Face，可额外构建并发布
+非严格离线镜像：
 
 ```bash
 docker build --target with-embedder -t coworker:with-embedder .

@@ -176,7 +176,10 @@ FFmpeg; FFmpeg is only used when `visual_analyze` must compress an oversized vid
 <details>
 <summary><strong>Use Docker Compose</strong></summary>
 
-Build and start directly from the repository. The first build downloads all dependencies:
+Build and start directly from the repository. Compose builds and uses the strict offline image
+with the embedding model preloaded by default, `ghcr.io/virtualbeingsresearch/coworker:offline`.
+The first build downloads all dependencies and the model, but the container does not access
+Hugging Face at runtime:
 
 ```bash
 docker compose up --build
@@ -188,13 +191,16 @@ To build the image without starting it:
 docker compose build
 ```
 
-The standard image downloads its local embedding model when long-term memory is first
-enabled and keeps the cache in the `coworker-models` Docker volume, so recreating a
-container does not download it again. This is not the model used for conversation.
+To use the standard runtime image instead, which downloads its local embedding model when
+long-term memory is first enabled, explicitly override the build target and image tag. The cache
+remains in the `coworker-models` Docker volume. This is not the model used for conversation.
 
-For deployments that cannot access Hugging Face at runtime, or that need to avoid the
-first-download delay, build and publish the optional image with the embedding model
-preloaded:
+```bash
+COWORKER_BUILD_TARGET=runtime COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:latest docker compose up --build
+```
+
+To preload the embedding model while still allowing the container to access Hugging Face at
+runtime, build and publish the optional non-strict-offline image:
 
 ```bash
 docker build --target with-embedder -t coworker:with-embedder .
