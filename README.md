@@ -143,13 +143,17 @@ flowchart LR
 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)，克隆本仓库并进入项目目录后：
 
 ```bash
-# 1. 安装依赖
+# 1. 克隆仓库并进入项目目录
+git clone https://github.com/VirtualBeingsResearch/CoWorker.git
+cd CoWorker
+
+# 2. 安装依赖
 uv sync
 
-# 2. 安装 browser 工具使用的 Chromium（只需一次）
+# 3. 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium
 
-# 3. 直接启动
+# 4. 直接启动
 uv run coworker
 # 或
 uv run python -m coworker
@@ -197,7 +201,7 @@ docker build --target with-embedder -t coworker:with-embedder .
 用 Compose 构建该变体时：
 
 ```bash
-COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=coworker:with-embedder docker compose up --build
+COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:with-embedder docker compose up --build
 ```
 
 可通过 `--build-arg EMBEDDER_MODEL=<HuggingFace 模型 ID>` 预置与
@@ -212,7 +216,7 @@ docker build --target offline -t coworker:offline .
 用 Compose 构建该变体时：
 
 ```bash
-COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=coworker:offline docker compose up --build
+COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --build
 ```
 
 该变体会在预置完成后设置 `HF_HUB_OFFLINE=1`。运行时配置的 embedding 模型必须与

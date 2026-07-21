@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: ${COWORKER_BUILD_TARGET:-runtime}
-    image: ${COWORKER_IMAGE:-coworker}
+    image: ${COWORKER_IMAGE:-ghcr.io/virtualbeingsresearch/coworker:latest}
     container_name: coworker
     restart: unless-stopped
     ports:

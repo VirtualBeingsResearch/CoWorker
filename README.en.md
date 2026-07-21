@@ -144,13 +144,17 @@ not available. Install **Python 3.13+** and [uv](https://docs.astral.sh/uv/), cl
 and run the following commands from its root:
 
 ```bash
-# 1. Install dependencies
+# 1. Clone the repository and enter it
+git clone https://github.com/VirtualBeingsResearch/CoWorker.git
+cd CoWorker
+
+# 2. Install dependencies
 uv sync
 
-# 2. Install Chromium for the browser tool (once)
+# 3. Install Chromium for the browser tool (once)
 uv run playwright install chromium
 
-# 3. Start Coworker
+# 4. Start Coworker
 uv run coworker
 # or
 uv run python -m coworker
@@ -199,7 +203,7 @@ docker build --target with-embedder -t coworker:with-embedder .
 To build that variant with Compose:
 
 ```bash
-COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=coworker:with-embedder docker compose up --build
+COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:with-embedder docker compose up --build
 ```
 
 Use `--build-arg EMBEDDER_MODEL=<HuggingFace model ID>` to preload the same model as
@@ -216,7 +220,7 @@ docker build --target offline -t coworker:offline .
 To build that variant with Compose:
 
 ```bash
-COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=coworker:offline docker compose up --build
+COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --build
 ```
 
 This variant sets `HF_HUB_OFFLINE=1` only after preloading the model. Its runtime
