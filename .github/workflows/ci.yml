@@ -209,6 +209,8 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
+      - name: Sync Python workspace
+        run: uv sync --locked --dev --python 3.13
       - name: Cache mypy state
         uses: actions/cache@v5
         with:
@@ -228,6 +230,20 @@ jobs:
         run: uv run --frozen pytest -q
       - name: Test Explore Lab
         run: uv run --project apps/explore-lab/backend --frozen pytest -q apps/explore-lab/backend/tests
+
+  python_latest:
+    name: Python install (3.14)
+    needs: web_bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync Python workspace
+        run: uv sync --locked --dev --python 3.14
 
   rust:
     name: Rust
