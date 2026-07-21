@@ -9,6 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$")
+RELEASE_TAG_RE = re.compile(
+    r"^v(?P<version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-[0-9A-Za-z.-]+)?)$"
+)
 
 
 def read_json(path: Path):
@@ -18,6 +22,17 @@ def read_json(path: Path):
 def check(label: str, actual: str, errors: list[str]) -> None:
     if actual != VERSION:
         errors.append(f"{label}: expected {VERSION}, got {actual}")
+
+
+def release_tag_version(ref_type: str, ref_name: str) -> str | None:
+    if ref_type != "tag":
+        return None
+    match = RELEASE_TAG_RE.fullmatch(ref_name)
+    if not match:
+        raise ValueError(
+            "release tag must match vX.Y.Z or vX.Y.Z-prerelease without build metadata"
+        )
+    return match.group("version")
 
 
 def match_toml_version(path: Path) -> str:
@@ -74,10 +89,15 @@ def main() -> int:
         check(f"{package}/package-lock.json", lock["version"], errors)
         check(f"{package}/package-lock.json packages root", lock["packages"][""]["version"], errors)
 
+    ref_type = os.environ.get("GITHUB_REF_TYPE", "")
     ref_name = os.environ.get("GITHUB_REF_NAME", "")
-    if ref_name.startswith("coworker-desktop-v"):
-        tag_version = ref_name.removeprefix("coworker-desktop-v")
-        check("GITHUB_REF_NAME", tag_version, errors)
+    try:
+        tag_version = release_tag_version(ref_type, ref_name)
+    except ValueError as error:
+        errors.append(f"GITHUB_REF_NAME: {error}")
+    else:
+        if tag_version is not None:
+            check("GITHUB_REF_NAME", tag_version, errors)
 
     if errors:
         for error in errors:

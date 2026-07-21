@@ -3,6 +3,30 @@ from __future__ import annotations
 from scripts import bump_version
 
 
+def test_changelog_range_matches_new_and_legacy_release_tags(tmp_path, monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_git_output(root, args):
+        assert root == tmp_path
+        calls.append(args)
+        return "v0.3.1"
+
+    monkeypatch.setattr(bump_version, "git_output", fake_git_output)
+
+    assert bump_version.changelog_range(tmp_path) == "v0.3.1..HEAD"
+    assert calls == [
+        [
+            "describe",
+            "--tags",
+            "--match",
+            "v[0-9]*",
+            "--match",
+            "coworker-desktop-v[0-9]*",
+            "--abbrev=0",
+        ]
+    ]
+
+
 def test_update_uv_lock_updates_coworker_package(tmp_path, monkeypatch) -> None:
     path = tmp_path / "uv.lock"
     path.write_text(

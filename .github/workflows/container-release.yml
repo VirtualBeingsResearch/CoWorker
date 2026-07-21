@@ -3,7 +3,7 @@ name: Publish Container Images
 on:
   push:
     tags:
-      - "coworker-desktop-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       ref:
@@ -49,7 +49,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$MANUAL_VERSION"
           else
-            version="${GITHUB_REF_NAME#coworker-desktop-v}"
+            version="${GITHUB_REF_NAME#v}"
           fi
 
           expected_version="$(tr -d '\r\n' < VERSION)"

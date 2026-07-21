@@ -88,6 +88,8 @@ def changelog_range(root: Path) -> str | None:
             "describe",
             "--tags",
             "--match",
+            "v[0-9]*",
+            "--match",
             "coworker-desktop-v[0-9]*",
             "--abbrev=0",
         ],

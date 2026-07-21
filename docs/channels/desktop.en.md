@@ -114,11 +114,11 @@ The root `VERSION` file is the single source of truth for the product version. T
 # Update VERSION and manifests/package-lock top-level versions, then add changelog entries
 uv run python scripts/bump_version.py 0.2.0
 
-# Run the same check as CI; tag builds also verify coworker-desktop-vX.Y.Z against VERSION
+# Run the same check as CI; tag builds also verify vX.Y.Z against VERSION
 uv run python scripts/check_version.py
 ```
 
-`bump_version.py` first collects commits after the most recent `coworker-desktop-vX.Y.Z` tag for `CHANGELOG.md`. If no tag exists, it falls back to commits after the last change to `VERSION`. A version section with manually written content is not overwritten. After reviewing `CHANGELOG.md`, push a `coworker-desktop-vX.Y.Z` tag to trigger the desktop build.
+`bump_version.py` first collects commits after the most recent `vX.Y.Z` tag for `CHANGELOG.md`; during the migration it also recognizes historical `coworker-desktop-vX.Y.Z` tags. If no release tag exists, it falls back to commits after the last change to `VERSION`. A version section with manually written content is not overwritten. After reviewing `CHANGELOG.md`, push a `vX.Y.Z` tag to trigger the desktop and container release workflows.
 
 Run in development:
 
@@ -169,11 +169,13 @@ The recommended path is to generate artifacts for all three platforms with GitHu
 .github/workflows/coworker-desktop-release.yml
 ```
 
-The workflow supports manual dispatch and runs when a `coworker-desktop-v*` tag is pushed:
+The workflow supports manual dispatch and runs when a `v*` tag is pushed:
 
 - `windows-latest`: Creates the NSIS installer.
 - `macos-latest`: Creates separate Apple Silicon `aarch64-apple-darwin` and Intel `x86_64-apple-darwin` `.app`, dmg, and updater artifacts. It signs and can notarize them when Apple secrets are configured.
 - `ubuntu-22.04`: Creates AppImage and deb packages.
+
+A manual dispatch creates Actions artifacts only and does not create a GitHub Release. For a tag run, the workflow creates a Release draft with GitHub-generated notes after every platform build succeeds; a maintainer reviews and publishes it manually. The draft contains the Windows EXE, both macOS dmg files, the Linux AppImage/deb packages, each platform's updater and signature, and a `SHA256SUMS.txt` covering every file. A rerun refreshes assets on a matching draft but never modifies an already-published Release.
 
 macOS signing and notarization do not require committing an Apple private key. Store the certificate and Apple credentials in GitHub Repository Secrets; the workflow imports the certificate into a temporary keychain on the macOS runner, which is destroyed with the runner after the build.
 
@@ -220,6 +222,8 @@ A Tauri release build generates updater assets and `.sig` files. Typical assets 
 - macOS Apple Silicon: `target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz` and `.sig`
 - macOS Intel x86_64: `target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz` and `.sig`
 - Linux: `*.AppImage` and `*.AppImage.sig`
+
+Tag builds attach these updater files and signatures to the GitHub Release draft for review, archival, or later upload to the Coworker update service. The GitHub draft does not rewrite the server's `latest.json` or publish an update to clients.
 
 If the updater files for both macOS architectures are named `app.tar.gz`, the upload API stores them as `darwin-aarch64-app.tar.gz` and `darwin-x86_64-app.tar.gz` to avoid collisions in the version asset directory and download URLs. Filenames that already contain an architecture identifier remain unchanged.
 
