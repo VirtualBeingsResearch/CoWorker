@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - docs: reorganize documentation by functional domain and add a detailed WeCom ordering, reliability, and concurrency design
 
 ## 0.3.1 - 2026-07-20

@@ -1,0 +1,102 @@
+name: Create CoWorker Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create (for example v0.3.2)"
+        required: true
+        type: string
+      notarize_macos:
+        description: "Attempt macOS notarization when Apple credentials are configured"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: create-coworker-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  create:
+    name: Create tag and start release workflows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        id: release
+        shell: bash
+        env:
+          GITHUB_REF_NAME: ${{ inputs.tag }}
+          GITHUB_REF_TYPE: tag
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          python scripts/check_version.py
+
+          version="${RELEASE_TAG#v}"
+          commit_sha="$(git rev-parse HEAD)"
+          {
+            echo "tag=$RELEASE_TAG"
+            echo "version=$version"
+            echo "commit_sha=$commit_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release tag
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.commit_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            existing_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            if [[ "$existing_sha" != "$RELEASE_SHA" ]]; then
+              echo "::error::Tag $RELEASE_TAG already points to $existing_sha, not $RELEASE_SHA."
+              exit 1
+            fi
+            echo "Tag $RELEASE_TAG already points to $RELEASE_SHA; reusing it."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" "$RELEASE_SHA" --message "CoWorker $VERSION"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Start desktop and container releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTARIZE_MACOS: ${{ inputs.notarize_macos }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          gh workflow run coworker-desktop-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            --field notarize_macos="$NOTARIZE_MACOS"
+          gh workflow run container-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            --field ref="$RELEASE_TAG" \
+            --field version="$VERSION"
+
+          echo "Started desktop and container release workflows for $RELEASE_TAG."
