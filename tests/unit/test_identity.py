@@ -68,7 +68,7 @@ class TestIdentity:
         identity.load()  # should not raise
         assert d.exists()
 
-    def test_english_companion_changes_prose_but_not_name(self, tmp_path):
+    def test_model_authored_prose_ignores_locale_companion(self, tmp_path):
         d = tmp_path / "identity"
         d.mkdir()
         (d / "name.txt").write_text("Luna", encoding="utf-8")
@@ -80,8 +80,8 @@ class TestIdentity:
         with locale_context("en"):
             section = identity.to_system_prompt_section()
         assert "My name is **Luna**" in section
-        assert "English personality" in section
-        assert "中文人格" not in section
+        assert "中文人格" in section
+        assert "English personality" not in section
 
     def test_ip_location_request_language_follows_runtime_locale(self, tmp_path, monkeypatch):
         captured = {}

@@ -39,8 +39,8 @@ base language, then the original file:
 - `SKILL.en.md` overrides only `description` and the body;
 - `PALACE.en.md` overrides only `when_to_attach` and the body;
 - `MODE.en.md` overrides only `goal`, `purpose`, `retire_after`, and the body;
-- Identity prose such as `personality.en.md` can override matching prose. Model-authored
-  `data/thinking.md` always reads the original file and never resolves a companion.
+- Model-authored Identity prose and `data/thinking.md` always read the original files and never
+  resolve companions.
 
 Names, stable IDs, tags, scheduling fields, and other operational metadata always come from the
 original file. A missing companion falls back silently; malformed content or mismatched placeholders

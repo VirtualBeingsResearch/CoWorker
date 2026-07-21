@@ -37,8 +37,7 @@ Coworker 使用实例级 locale 渲染模型可见的自有框架文案。首发
 - `SKILL.en.md` 只覆盖 `description` 和正文；
 - `PALACE.en.md` 只覆盖 `when_to_attach` 和正文；
 - `MODE.en.md` 只覆盖 `goal`、`purpose`、`retire_after` 和正文；
-- 身份 prose 文件（如 `personality.en.md`）可覆盖对应正文；模型自己维护的
-  `data/thinking.md` 始终读取原文件，不查找 companion。
+- 模型自己维护的 Identity prose 与 `data/thinking.md` 始终读取原文件，不查找 companion。
 
 姓名、稳定 ID、标签、调度参数和其他运行配置始终来自原文件。companion 缺失时静默回退；
 格式或占位符不匹配时记录加载警告并回退，原资产仍然可用。系统不会迁移或翻译已有快照、

@@ -5,7 +5,6 @@ from pathlib import Path
 from loguru import logger
 
 from coworker.i18n import tr
-from coworker.i18n.resources import read_localized_text
 from coworker.i18n.runtime import browser_locale
 
 
@@ -27,10 +26,15 @@ class Identity:
         name_file = self._dir / "name.txt"
         if name_file.exists():
             self.name = name_file.read_text(encoding="utf-8").strip()
-        self.personality = read_localized_text(self._dir / "personality.md")
-        self.goals = read_localized_text(self._dir / "goals.md")
-        self.life_story = read_localized_text(self._dir / "life_story.md")
-        self.current_location = read_localized_text(self._dir / "current_location.txt")
+        for attribute, filename in (
+            ("personality", "personality.md"),
+            ("goals", "goals.md"),
+            ("life_story", "life_story.md"),
+            ("current_location", "current_location.txt"),
+        ):
+            path = self._dir / filename
+            if path.is_file():
+                setattr(self, attribute, path.read_text(encoding="utf-8").strip())
         logger.info(f"Identity loaded: name='{self.name}'")
 
     def detect_location(self) -> None:
@@ -64,19 +68,13 @@ class Identity:
     def to_system_prompt_section(self) -> str:
         if not self.is_initialized:
             return tr("identity.uninitialized")
-        personality = read_localized_text(self._dir / "personality.md") or self.personality
-        goals = read_localized_text(self._dir / "goals.md") or self.goals
-        life_story = read_localized_text(self._dir / "life_story.md") or self.life_story
-        current_location = (
-            read_localized_text(self._dir / "current_location.txt") or self.current_location
-        )
         parts = [tr("identity.name", name=self.name)]
-        if current_location:
-            parts.append(tr("identity.location", location=current_location))
-        if personality:
-            parts.append(personality)
-        if goals:
-            parts.append(tr("identity.goals", goals=goals))
-        if life_story:
-            parts.append(tr("identity.life_story", life_story=life_story[:500]))
+        if self.current_location:
+            parts.append(tr("identity.location", location=self.current_location))
+        if self.personality:
+            parts.append(self.personality)
+        if self.goals:
+            parts.append(tr("identity.goals", goals=self.goals))
+        if self.life_story:
+            parts.append(tr("identity.life_story", life_story=self.life_story[:500]))
         return "\n\n".join(parts)

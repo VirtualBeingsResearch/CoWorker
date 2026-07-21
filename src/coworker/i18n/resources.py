@@ -52,16 +52,6 @@ def resolve_localized_path(
     return Path(original)
 
 
-def read_localized_text(
-    original: str | Path,
-    locale: str | SupportedLocale | None = None,
-) -> str:
-    path = resolve_localized_path(original, locale)
-    if not path.is_file():
-        return ""
-    return path.read_text(encoding="utf-8").strip()
-
-
 def _format_placeholders(text: str) -> frozenset[str]:
     return frozenset(first or second for first, second in _FORMAT_PLACEHOLDER_RE.findall(text))
 
