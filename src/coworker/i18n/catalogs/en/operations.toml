@@ -10,7 +10,7 @@ mode_invalid_trigger = "MODE file {{path}} has invalid trigger='{{value}}'; fall
 mode_invalid_context_builder = "MODE file {{path}} has invalid context_builder='{{value}}'; falling back to 'short_term'."
 
 [cli]
-first_run_token = '''Coworker is starting for the first time. Open /admin with this initial administrator token:
+first_run_token = '''Coworker is starting for the first time. Open {{admin_url}} with this initial administrator token:
 
   {{token}}
 

@@ -383,6 +383,7 @@ async def _main() -> bool:
             + "\n"
             + tr(
                 "cli.first_run_token",
+                admin_url=f"http://127.0.0.1:{config.api.port}/admin",
                 token=generated_admin_token,
                 path=config.admin.config_file,
             )

@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: ${COWORKER_BUILD_TARGET:-runtime}
-    image: ${COWORKER_IMAGE:-coworker}
+      target: ${COWORKER_BUILD_TARGET:-offline}
+    image: ${COWORKER_IMAGE:-ghcr.io/virtualbeingsresearch/coworker:offline}
     container_name: coworker
     restart: unless-stopped
     ports:
@@ -21,8 +21,8 @@ services:
         target: /root
         volume:
           nocopy: true
-      # An empty volume is populated from a preloaded image on first use; otherwise
-      # it keeps the model downloaded lazily at runtime across container recreation.
+      # The default offline image populates an empty volume with its preloaded model.
+      # Override the build target to runtime to download the model lazily instead.
       - type: volume
         source: coworker-models
         target: /opt/huggingface

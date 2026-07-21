@@ -143,13 +143,17 @@ flowchart LR
 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)，克隆本仓库并进入项目目录后：
 
 ```bash
-# 1. 安装依赖
+# 1. 克隆仓库并进入项目目录
+git clone https://github.com/VirtualBeingsResearch/CoWorker.git
+cd CoWorker
+
+# 2. 安装依赖
 uv sync
 
-# 2. 安装 browser 工具使用的 Chromium（只需一次）
+# 3. 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium
 
-# 3. 直接启动
+# 4. 直接启动
 uv run coworker
 # 或
 uv run python -m coworker
@@ -171,7 +175,9 @@ Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
 <details>
 <summary><strong>使用 Docker Compose</strong></summary>
 
-从仓库直接构建并启动（首次构建会下载全部依赖）：
+从仓库直接构建并启动。Compose 默认构建并使用预置 embedding 模型的严格离线镜像
+`ghcr.io/virtualbeingsresearch/coworker:offline`；首次构建会下载全部依赖和模型，
+但运行时不会访问 Hugging Face：
 
 ```bash
 docker compose up --build
@@ -183,12 +189,16 @@ docker compose up --build
 docker compose build
 ```
 
-默认镜像会在长期记忆首次启用时下载本地 embedding 模型，并将缓存保存在
-`coworker-models` Docker 卷中；重建容器不会重复下载。这个模型不是对话使用的
-大模型。
+如需使用标准运行时镜像（长期记忆首次启用时才下载本地 embedding 模型），可显式覆盖
+构建目标和镜像标签；缓存仍会保存在 `coworker-models` Docker 卷中。这个模型不是对话
+使用的大模型。
 
-如部署环境无法在运行时访问 Hugging Face，或需要消除首次下载，可额外构建并发布
-预置 embedding 模型的镜像：
+```bash
+COWORKER_BUILD_TARGET=runtime COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:latest docker compose up --build
+```
+
+如需预置 embedding 模型、但仍允许容器在运行时访问 Hugging Face，可额外构建并发布
+非严格离线镜像：
 
 ```bash
 docker build --target with-embedder -t coworker:with-embedder .
@@ -197,7 +207,7 @@ docker build --target with-embedder -t coworker:with-embedder .
 用 Compose 构建该变体时：
 
 ```bash
-COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=coworker:with-embedder docker compose up --build
+COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:with-embedder docker compose up --build
 ```
 
 可通过 `--build-arg EMBEDDER_MODEL=<HuggingFace 模型 ID>` 预置与
@@ -212,7 +222,7 @@ docker build --target offline -t coworker:offline .
 用 Compose 构建该变体时：
 
 ```bash
-COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=coworker:offline docker compose up --build
+COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --build
 ```
 
 该变体会在预置完成后设置 `HF_HUB_OFFLINE=1`。运行时配置的 embedding 模型必须与
