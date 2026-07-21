@@ -358,6 +358,21 @@ class TestLabCommunicate:
         assert snapshot["outbound_messages"][0]["participant_id"] == "explore_lab"
         assert snapshot["outbound_messages"][0]["message"] == "hello"
 
+    async def test_communicate_typo_suggests_virtual_connection(self, tmp_path):
+        controller = _make_controller(tmp_path)
+        tool_call = ToolCall(
+            id="tc-communicate-typo",
+            name="communicate",
+            arguments={"participant_id": "explore_lad", "message": "hello"},
+        )
+
+        result = await controller.runtime.base_registry.execute(tool_call)
+
+        assert result.is_error is True
+        assert "explore_lab" in result.content
+        assert "本次消息未发送" in result.content
+        assert controller.state_snapshot()["outbound_messages"] == []
+
     async def test_patch_config_replaces_virtual_ws_connections(self, tmp_path):
         controller = _make_controller(tmp_path)
 

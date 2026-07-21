@@ -57,6 +57,8 @@ custom instructions；mem0、模型 Provider 等第三方库内部 prompt 不复
 - 通信工具：`communicate`、`list_ws_connections`
 - 技能与任务：`get_skill`、`task_board`
 
+当 `communicate` 的目标 ID 与在线 WS/SSE 连接或信道参与者目录中的已知 `participant_id` 高度相似时，它不会发送消息，而会返回最多三个候选 ID，供模型核对后使用正确的完整 ID 重试。参与者目录也可以暴露裸 ID 等别名，因此企业微信等非流式信道同样支持误写提示。
+
 `visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：
 
 - `visual_analyze`：对图片或视频进行视觉分析与推理，支持本地路径和 HTTP(S) URL；视频要求视觉模型支持原生视频输入，Base64 Data URL 必须小于 10 MiB，超限时尝试用 FFmpeg 压缩

@@ -9,6 +9,12 @@
 
 WeCom messaging is currently provided by the WeCom WebSocket adapter. For its queueing, ordering, and concurrency boundaries—and the proposed evolution toward per-conversation ordering, idempotency, durable inbox/outbox processing, and exact reply correlation—see [WeCom message ordering, reliability, and concurrency design](wecom-message-ordering-and-concurrency.en.md).
 
+## `communicate` target resolution
+
+Outbound channels register a unified `CommunicationChannel` descriptor containing their prefix, sender, capabilities, and optional participant resolver and participant directory. Each directory entry contains a canonical `participant_id` and optional aliases. For example, WeCom exposes locally known contacts as `wecom:single:<userid>` or `wecom:group:<chatid>` and uses the bare ID as an alias.
+
+`communicate` first selects the channel with the longest matching prefix and then resolves exact aliases. A bare ID that matches multiple channels must be retried as a full ID. When there is no exact match but the target closely resembles a live connection or a channel-directory entry, the tool returns up to three candidates without sending the message. A dissimilar full channel target is still passed to the channel, preserving proactive delivery to valid addresses that have not appeared in the local directory. Network, permission, and capability failures during delivery remain channel-owned errors.
+
 ## REST API
 
 ```bash

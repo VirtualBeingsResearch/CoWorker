@@ -4,6 +4,7 @@
 
 - docs: reorganize documentation by functional domain and add a detailed WeCom ordering, reliability, and concurrency design
 - feat(i18n): add instance-wide `zh-CN`/`en` runtime localization for prompts, tools, memory, Bubbles, subconscious modes, vision, notifications, and localized user-asset companions
+- fix(agent): add channel-owned participant directories and suggest similar communicate targets across streaming and non-streaming channels
 
 ## 0.3.1 - 2026-07-20
 

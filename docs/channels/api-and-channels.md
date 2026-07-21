@@ -9,6 +9,12 @@
 
 企业微信当前的消息接收与回复能力由 WeCom WebSocket 适配器提供。关于现状中的排队、乱序和并发边界，以及按会话有序、幂等、持久 Inbox/Outbox 和精确回复关联的演进方案，见[企微消息时序、可靠性与并发控制设计](wecom-message-ordering-and-concurrency.md)。
 
+## `communicate` 目标解析
+
+出站信道通过统一的 `CommunicationChannel` 描述注册前缀、发送器、能力，以及可选的参与者解析器和参与者目录。目录中的每一项包含规范 `participant_id` 和可选别名；例如企业微信会把本地已知联系人暴露为 `wecom:single:<userid>` 或 `wecom:group:<chatid>`，并把裸 ID 作为别名。
+
+`communicate` 先按最长前缀选择信道，再解析精确别名；裸 ID 同时命中多个信道时会要求使用完整 ID。没有精确命中但与在线连接或信道目录中的目标高度相似时，它会返回最多三个候选且不发送本次消息。相似度不足的完整信道目标仍交给信道发送，因此不会阻止向尚未出现在本地目录中的有效地址主动发送。发送阶段的网络、权限和能力错误继续由各信道返回。
+
 ## REST API
 
 ```bash

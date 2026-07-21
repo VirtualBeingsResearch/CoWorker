@@ -126,6 +126,12 @@ extra_object = "extra 必须是对象。"
 ambiguous = '''participant_id '{{participant}}' 在多个信道中都能匹配，请使用完整 participant_id 重新调用：
 {{options}}'''
 option = "  - {{id}}（前缀：{{prefix}}）"
+resolver_failed = "信道 '{{prefix}}' 解析 participant_id '{{participant}}' 失败: {{error}}"
+invalid_channel_target = "信道 '{{prefix}}' 返回了不属于该信道的 participant_id: {{participant}}"
+similar_target = '''participant_id '{{participant}}' 与以下已知通信 ID 相近，可能存在拼写错误：
+{{options}}
+本次消息未发送；请核对并使用正确的完整 participant_id 重新调用 communicate。'''
+suggestion_option = "  - {{id}}"
 websocket_sent = "消息已通过 WebSocket 发送给 {{participant}}"
 conversation_unsupported = "消息发送失败：该通信目标不支持 conversation_id；请去掉该字段后重试。"
 extra_unsupported = "消息发送失败：该通信目标不支持 extra 扩展参数。"

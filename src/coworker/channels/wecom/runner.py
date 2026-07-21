@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.registry import ChannelParticipant
 from coworker.channels.wecom import adapter
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
@@ -311,6 +312,21 @@ class WeComRunner:
         return media_id
 
     # ── adapter for CommunicateTool ──────────────────────────────────────
+
+    def list_communication_participants(self) -> list[ChannelParticipant]:
+        """Expose learned WeCom chats as canonical targets with model-friendly aliases."""
+        participants: list[ChannelParticipant] = []
+        for chat_id, raw_chat_type in sorted(self._contacts.items()):
+            chat_type = _normalize_chat_type(raw_chat_type)
+            if chat_type is None:
+                continue
+            participants.append(
+                ChannelParticipant(
+                    participant_id=f"wecom:{chat_type}:{chat_id}",
+                    aliases=(chat_id, f"{chat_type}:{chat_id}"),
+                )
+            )
+        return participants
 
     def checker(self, participant_id: str) -> str | None:
         """若 participant_id 是已知的 WeCom chat_id，返回带前缀的规范化 ID；否则返回 None。"""

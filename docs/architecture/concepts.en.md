@@ -63,6 +63,8 @@ The following tools are registered by default at startup:
 - Communication tools: `communicate`, `list_ws_connections`
 - Skills and tasks: `get_skill`, `task_board`
 
+When the target passed to `communicate` closely resembles a known `participant_id` from a live WS/SSE connection or a channel participant directory, the tool does not send the message. It returns up to three candidate IDs so the model can verify the recipient and retry with the correct full ID. Directories may expose aliases such as bare IDs, so non-streaming channels such as WeCom receive the same typo protection.
+
 `visual_analyze` is registered by default and is visible to both text and vision main models. It becomes available after `LLM__VISION_PROVIDER` and `LLM__VISION_MODEL` are configured:
 
 - `visual_analyze`: Performs visual analysis and reasoning over images or videos from local paths or HTTP(S) URLs. Video requires native video support from the vision model, and the Base64 data URL must remain below 10 MiB; Coworker tries FFmpeg compression when it exceeds the limit.

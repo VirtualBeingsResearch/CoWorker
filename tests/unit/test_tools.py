@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.channels.registry import ChannelParticipant, CommunicationChannel
 from coworker.core.types import (
     AgentState,
     CommunicateRequest,
@@ -15,6 +16,7 @@ from coworker.core.types import (
     ToolCall,
     ToolResult,
 )
+from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.base import Tool, ToolDefinition
 from coworker.tools.communicate_tool import CommunicateTool
@@ -1346,6 +1348,7 @@ class TestCommunicateToolCheckers:
     async def test_no_prefix_no_match_falls_back_to_outbox(self, tmp_path):
         outbox = tmp_path / "outbox"
         tool = CommunicateTool(str(outbox))
+        tool.register_ws("alice", asyncio.Queue())
 
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
@@ -1355,6 +1358,90 @@ class TestCommunicateToolCheckers:
         assert not result.is_error
         files = list(outbox.glob("*unknown_user*"))
         assert files
+
+    @pytest.mark.asyncio
+    async def test_close_unknown_id_suggests_connected_target_without_sending(self, tmp_path):
+        outbox = tmp_path / "outbox"
+        tool = CommunicateTool(str(outbox))
+        queue: asyncio.Queue = asyncio.Queue()
+        tool.register_ws("coworker-desktop:d:local:abcd1234", queue)
+
+        result = await tool.execute(
+            message="hello",
+            participant_id="coworker-desktop:d:local:abcd1235",
+        )
+
+        assert result.is_error
+        assert "可能存在拼写错误" in result.content
+        assert "coworker-desktop:d:local:abcd1234" in result.content
+        assert "本次消息未发送" in result.content
+        assert queue.empty()
+        assert not outbox.exists()
+
+    @pytest.mark.asyncio
+    async def test_close_unknown_id_suggestion_uses_active_locale(self, tmp_path):
+        tool = CommunicateTool(str(tmp_path / "outbox"))
+        tool.register_ws("desktop:agent:abcd1234", asyncio.Queue())
+
+        with locale_context("en"):
+            result = await tool.execute(
+                message="hello",
+                participant_id="desktop:agent:abcd1235",
+            )
+
+        assert result.is_error
+        assert "may contain a typo" in result.content
+        assert "The message was not sent" in result.content
+        assert "desktop:agent:abcd1234" in result.content
+
+    @pytest.mark.asyncio
+    async def test_prefixed_typo_is_rejected_before_registered_sender_runs(self, tmp_path):
+        tool = CommunicateTool(str(tmp_path / "outbox"))
+        sent: list[str] = []
+
+        async def sender(request: CommunicateRequest):
+            sent.append(request.participant_id)
+            return ToolResult(tool_call_id="", content="ok")
+
+        tool.register_sender("desktop:", sender)
+        tool.register_ws("desktop:agent:abcd1234", asyncio.Queue())
+
+        result = await tool.execute(
+            message="hello",
+            participant_id="desktop:agent:abcd1235",
+        )
+
+        assert result.is_error
+        assert "desktop:agent:abcd1234" in result.content
+        assert sent == []
+
+    @pytest.mark.asyncio
+    async def test_channel_directory_resolves_alias_and_suggests_known_target(self, tmp_path):
+        outbox = tmp_path / "outbox"
+        tool = CommunicateTool(str(outbox))
+        sent: list[str] = []
+
+        async def sender(request: CommunicateRequest):
+            sent.append(request.participant_id)
+            return ToolResult(tool_call_id="", content="ok")
+
+        tool.register_channel(
+            CommunicationChannel(
+                prefix="chan:",
+                sender=sender,
+                participants=lambda: [
+                    ChannelParticipant("chan:single:alice", aliases=("alice",))
+                ],
+            )
+        )
+
+        assert tool.resolve_participant_id("alice") == "chan:single:alice"
+        result = await tool.execute(message="hello", participant_id="alixe")
+
+        assert result.is_error
+        assert "chan:single:alice" in result.content
+        assert sent == []
+        assert not outbox.exists()
 
     @pytest.mark.asyncio
     async def test_connected_ws_target_receives_structured_payload(self, tmp_path):

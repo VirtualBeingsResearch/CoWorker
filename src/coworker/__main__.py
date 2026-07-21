@@ -35,6 +35,7 @@ from coworker.channels.desktop import (
     DesktopDispatcher,
     DesktopRegistry,
 )
+from coworker.channels.registry import CommunicationChannel
 from coworker.channels.wecom import WeComRunner
 from coworker.core.config import Config, LLMConfig, apply_admin_config_file, ensure_admin_token
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
@@ -799,7 +800,13 @@ async def _main() -> bool:
     api_app.set_collector(event_collector)
 
     desktop_sender = DesktopCommunicateSender(communicate)
-    communicate.register_sender(DESKTOP_PREFIX, desktop_sender.send, supports_extra=True)
+    communicate.register_channel(
+        CommunicationChannel(
+            prefix=DESKTOP_PREFIX,
+            sender=desktop_sender.send,
+            supports_extra=True,
+        )
+    )
 
     wecom_runner: WeComRunner | None = None
     if config.wecom.enabled:
@@ -812,7 +819,13 @@ async def _main() -> bool:
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
             )
-            communicate.register_sender("wecom:", wecom_runner.sender, wecom_runner.checker)
+            communicate.register_channel(
+                CommunicationChannel(
+                    prefix="wecom:",
+                    sender=wecom_runner.sender,
+                    participants=wecom_runner.list_communication_participants,
+                )
+            )
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
 
     # 写入实例状态文件（新旧交接标记）

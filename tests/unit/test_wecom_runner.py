@@ -4,9 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.channels.registry import ChannelParticipant, CommunicationChannel
 from coworker.channels.wecom.runner import WeComRunner, _split_markdown
 from coworker.core.config import WeComConfig
 from coworker.core.types import CommunicateRequest
+from coworker.tools.communicate_tool import CommunicateTool
 
 
 def _frame_single() -> dict:
@@ -43,6 +45,68 @@ def test_checker_normalizes_legacy_numeric_chat_type(tmp_path):
     runner._contacts["U123"] = 1
 
     assert runner.checker("U123") == "wecom:single:U123"
+
+
+def test_communication_participants_expose_canonical_ids_and_aliases(tmp_path):
+    runner = _make_runner(tmp_path)
+    runner._contacts.update({"U123": "single", "CHATX": "group"})
+
+    assert runner.list_communication_participants() == [
+        ChannelParticipant(
+            "wecom:group:CHATX",
+            aliases=("CHATX", "group:CHATX"),
+        ),
+        ChannelParticipant(
+            "wecom:single:U123",
+            aliases=("U123", "single:U123"),
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "mistyped_id",
+    ["U124", "wecom:single:U124", "wecm:single:U123"],
+)
+@pytest.mark.asyncio
+async def test_channel_directory_suggests_known_wecom_target(tmp_path, mistyped_id):
+    runner = _make_runner(tmp_path)
+    runner._contacts["U123"] = "single"
+    tool = CommunicateTool(str(tmp_path / "outbox"))
+    tool.register_channel(
+        CommunicationChannel(
+            prefix="wecom:",
+            sender=runner.sender,
+            participants=runner.list_communication_participants,
+        )
+    )
+
+    assert tool.resolve_participant_id("U123") == "wecom:single:U123"
+    result = await tool.execute(participant_id=mistyped_id, message="hi")
+
+    assert result.is_error is True
+    assert "wecom:single:U123" in result.content
+    assert "本次消息未发送" in result.content
+    runner._client.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_channel_directory_does_not_block_dissimilar_full_wecom_target(tmp_path):
+    runner = _make_runner(tmp_path)
+    runner._contacts["U123"] = "single"
+    tool = CommunicateTool(str(tmp_path / "outbox"))
+    tool.register_channel(
+        CommunicationChannel(
+            prefix="wecom:",
+            sender=runner.sender,
+            participants=runner.list_communication_participants,
+        )
+    )
+
+    result = await tool.execute(participant_id="wecom:single:U999", message="hi")
+
+    assert result.is_error is False
+    runner._client.send_message.assert_awaited_once()
+    assert runner._client.send_message.call_args.args[0] == "U999"
 
 
 def test_load_contacts_normalizes_legacy_numeric_values(tmp_path):

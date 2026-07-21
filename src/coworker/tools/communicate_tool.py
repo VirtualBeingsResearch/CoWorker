@@ -4,29 +4,34 @@ import asyncio
 import json
 import re
 import uuid
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.registry import (
+    ChannelResolution,
+    ChannelSender,
+    CommunicationChannel,
+    CommunicationChannelRegistry,
+    ParticipantIdResolutionError,
+    ParticipantProvider,
+    ParticipantResolver,
+)
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRegistration, CommunicateRequest, ToolResult
 from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 # 接受裸 participant_id（无前缀），返回规范化的完整 participant_id；若无法处理则返回 None
-Checker = Callable[[str], "str | None"]
-Sender = Callable[[CommunicateRequest], Awaitable[ToolResult]]
+Checker = ParticipantResolver
+Sender = ChannelSender
 ConnectionListener = Callable[[], None]
 
 _UNSAFE_OUTBOX_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _SAFE_PARTICIPANT_CHARS_RE = re.compile(r"[^a-zA-Z0-9_.:-]+")
-
-
-class ParticipantIdResolutionError(ValueError):
-    """Raised when a shorthand participant ID cannot be resolved unambiguously."""
 
 
 if TYPE_CHECKING:
@@ -138,9 +143,7 @@ class CommunicateTool(Tool):
         self._registrations_path = self._outbox.parent / "communicate_registrations.json"
         self._ws_connections: dict[str, asyncio.Queue] = {}
         self._stream_transports: dict[str, str] = {}
-        self._senders: dict[str, Sender] = {}
-        self._checkers: dict[str, Checker] = {}
-        self._extra_capable_senders: set[str] = set()
+        self._channels = CommunicationChannelRegistry()
         self._connection_listeners: list[ConnectionListener] = []
 
     def add_connection_listener(self, listener: ConnectionListener) -> None:
@@ -220,25 +223,32 @@ class CommunicateTool(Tool):
         checker: Checker | None = None,
         *,
         supports_extra: bool = False,
+        participant_provider: ParticipantProvider | None = None,
     ) -> None:
-        """注册一个按 participant_id 前缀路由的发送器（如 wecom: → 企微 runner.sender）。
-        可选传入 checker：当 participant_id 无前缀时，用于判断该信道能否处理并返回规范化 ID。
-        supports_extra 表示该发送器能消费结构化 extra；默认关闭，避免系统元数据使纯文本信道拒绝消息。
+        """Backward-compatible helper for registering an outbound channel.
+
+        New channels should use :meth:`register_channel` so routing, target
+        discovery, aliases, and capabilities live in one descriptor.
         """
-        self._senders[prefix] = sender
-        if checker is not None:
-            self._checkers[prefix] = checker
-        if supports_extra:
-            self._extra_capable_senders.add(prefix)
-        else:
-            self._extra_capable_senders.discard(prefix)
+        self.register_channel(
+            CommunicationChannel(
+                prefix=prefix,
+                sender=sender,
+                resolver=checker,
+                participants=participant_provider,
+                supports_extra=supports_extra,
+            )
+        )
+
+    def register_channel(self, channel: CommunicationChannel) -> None:
+        self._channels.register(channel)
 
     def supports_message_extra(self, participant_id: str) -> bool:
         """Whether the participant's selected transport accepts structured ``extra``."""
-        canonical_id, sender_prefix = self._resolve_participant_id(participant_id)
-        if sender_prefix is not None:
-            return sender_prefix in self._extra_capable_senders
-        return canonical_id in self._ws_connections
+        resolution = self._resolve_participant_id(participant_id)
+        if resolution.channel is not None:
+            return resolution.channel.supports_extra
+        return resolution.participant_id in self._ws_connections
 
     def resolve_participant_id(self, participant_id: str) -> str:
         """Expand a shorthand participant ID without sending a message.
@@ -248,35 +258,10 @@ class CommunicateTool(Tool):
         way as :meth:`execute`, so callers such as ``bubble_spawn`` cannot bind
         an ambiguous recipient.
         """
-        canonical_id, _ = self._resolve_participant_id(participant_id)
-        return canonical_id
+        return self._resolve_participant_id(participant_id).participant_id
 
-    def _resolve_participant_id(self, participant_id: str) -> tuple[str, str | None]:
-        for prefix in sorted(self._senders, key=len, reverse=True):
-            if participant_id.startswith(prefix):
-                return participant_id, prefix
-
-        resolved: dict[str, str] = {}
-        for prefix, checker in self._checkers.items():
-            canonical = checker(participant_id)
-            if canonical is not None:
-                resolved[prefix] = canonical
-        if len(resolved) == 1:
-            prefix, canonical_id = next(iter(resolved.items()))
-            return canonical_id, prefix
-        if len(resolved) > 1:
-            options = "\n".join(
-                tr("tool_result.communicate.option", id=cid, prefix=p)
-                for p, cid in resolved.items()
-            )
-            raise ParticipantIdResolutionError(
-                tr(
-                    "tool_result.communicate.ambiguous",
-                    participant=participant_id,
-                    options=options,
-                )
-            )
-        return participant_id, None
+    def _resolve_participant_id(self, participant_id: str) -> ChannelResolution:
+        return self._channels.resolve(participant_id)
 
     @property
     def definition(self) -> ToolDefinition:
@@ -334,6 +319,25 @@ class CommunicateTool(Tool):
 
     def list_connected(self) -> list[str]:
         return list(self._ws_connections.keys())
+
+    @staticmethod
+    def _participant_id_suggestion_error(
+        participant_id: str,
+        suggestions: list[str],
+    ) -> ToolResult:
+        options = "\n".join(
+            tr("tool_result.communicate.suggestion_option", id=candidate)
+            for candidate in suggestions
+        )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.similar_target",
+                participant=participant_id,
+                options=options,
+            ),
+            is_error=True,
+        )
 
     def _notify_connection_listeners(self) -> None:
         for listener in list(self._connection_listeners):
@@ -477,10 +481,21 @@ class CommunicateTool(Tool):
                 is_error=True,
             )
 
+        requested_participant_id = participant_id
         try:
-            participant_id, sender_prefix = self._resolve_participant_id(participant_id)
+            resolution = self._resolve_participant_id(participant_id)
         except ParticipantIdResolutionError as error:
             return ToolResult(tool_call_id="", content=str(error), is_error=True)
+
+        suggestions = self._channels.suggest(
+            requested_participant_id,
+            resolution,
+            connected_ids=self.list_connected(),
+        )
+        if suggestions:
+            return self._participant_id_suggestion_error(requested_participant_id, suggestions)
+
+        participant_id = resolution.participant_id
 
         request = CommunicateRequest(
             participant_id=participant_id,
@@ -489,8 +504,8 @@ class CommunicateTool(Tool):
             attachments=attachments,
             extra=extra,
         )
-        if sender_prefix is not None:
-            return await self._senders[sender_prefix](request)
+        if resolution.channel is not None:
+            return await resolution.channel.sender(request)
 
         try:
             if participant_id in self._ws_connections:

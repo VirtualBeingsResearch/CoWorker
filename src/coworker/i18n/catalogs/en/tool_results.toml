@@ -126,6 +126,12 @@ extra_object = "extra must be an object."
 ambiguous = '''participant_id '{{participant}}' matches multiple channels. Call again with a complete participant_id:
 {{options}}'''
 option = "  - {{id}} (prefix: {{prefix}})"
+resolver_failed = "Channel '{{prefix}}' failed to resolve participant_id '{{participant}}': {{error}}"
+invalid_channel_target = "Channel '{{prefix}}' returned an out-of-channel participant_id: {{participant}}"
+similar_target = '''participant_id '{{participant}}' resembles these known communication IDs and may contain a typo:
+{{options}}
+The message was not sent. Verify the recipient and call communicate again with the correct full participant_id.'''
+suggestion_option = "  - {{id}}"
 websocket_sent = "Message sent to {{participant}} through WebSocket"
 conversation_unsupported = "Message delivery failed: this target does not support conversation_id. Remove it and retry."
 extra_unsupported = "Message delivery failed: this target does not support extra parameters."
