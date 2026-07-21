@@ -1,0 +1,36 @@
+name: Warm mypy cache
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-mypy-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Mypy cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      # Pull request and merge queue caches are isolated by ref. A cache
+      # created on main provides the shared baseline both can restore.
+      - name: Restore mypy state
+        uses: actions/cache@v5
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+      - name: Type-check Python
+        run: uv run --frozen mypy src
