@@ -11,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
+from coworker.i18n import tr
 
 _AGENT_USER_ID = "agent"
 _DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
@@ -49,7 +50,9 @@ class LongTermMemory:
 
     async def initialize(self) -> None:
         from mem0 import AsyncMemory
+
         config = {
+            "custom_instructions": tr("mem0.custom_instructions"),
             "llm": {
                 "provider": self._llm_provider,
                 "config": {"model": self._llm_model, "api_key": self._llm_api_key},
@@ -101,18 +104,13 @@ class LongTermMemory:
         if usage is None:
             return None
         input_tokens = (
-            getattr(usage, "input_tokens", None)
-            or getattr(usage, "prompt_tokens", None)
-            or 0
+            getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None) or 0
         )
         output_tokens = (
-            getattr(usage, "output_tokens", None)
-            or getattr(usage, "completion_tokens", None)
-            or 0
+            getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None) or 0
         )
-        token_details = (
-            getattr(usage, "input_tokens_details", None)
-            or getattr(usage, "prompt_tokens_details", None)
+        token_details = getattr(usage, "input_tokens_details", None) or getattr(
+            usage, "prompt_tokens_details", None
         )
         cached_tokens = (
             getattr(token_details, "cached_tokens", 0)
@@ -191,13 +189,16 @@ class LongTermMemory:
                     "cached_tokens": 0,
                 }
                 usage_source = "estimated"
-            self._notify_usage_listeners({
-                "provider": self._llm_provider,
-                "model": getattr(getattr(llm, "config", None), "model", None) or self._llm_model,
-                "usage": usage,
-                "usage_source": usage_source,
-                "operation": "generate_response",
-            })
+            self._notify_usage_listeners(
+                {
+                    "provider": self._llm_provider,
+                    "model": getattr(getattr(llm, "config", None), "model", None)
+                    or self._llm_model,
+                    "usage": usage,
+                    "usage_source": usage_source,
+                    "operation": "generate_response",
+                }
+            )
             return response
 
         setattr(llm, "generate_response", tracked_generate_response)
@@ -299,13 +300,15 @@ class LongTermMemory:
         for m in messages:
             if m.role in ("user", "assistant"):
                 parts = []
-                text = m.content_text() if hasattr(m, "content_text") else (
-                    m.content if isinstance(m.content, str) else ""
+                text = (
+                    m.content_text()
+                    if hasattr(m, "content_text")
+                    else (m.content if isinstance(m.content, str) else "")
                 )
                 if text.strip():
                     ts = m.timestamp.strftime("%Y-%m-%d %H:%M") if hasattr(m, "timestamp") else ""
                     parts.append(f"[{ts}] {text}" if ts else text)
-                for tc in (m.tool_calls or []):
+                for tc in m.tool_calls or []:
                     func = tc.get("function", {})
                     name = func.get("name", "")
                     args = func.get("arguments", "")
@@ -314,12 +317,21 @@ class LongTermMemory:
                             args = json.loads(args)
                         except Exception:
                             pass
-                    args_str = json.dumps(args, ensure_ascii=False)[:200] if isinstance(args, dict) else str(args)[:200]
-                    parts.append(f"[调用工具] {name}({args_str})")
+                    args_str = (
+                        json.dumps(args, ensure_ascii=False)[:200]
+                        if isinstance(args, dict)
+                        else str(args)[:200]
+                    )
+                    parts.append(tr("mem0.tool_call", name=name, arguments=args_str))
                 if parts:
                     formatted.append({"role": m.role, "content": "\n".join(parts)})
             elif m.role == "tool" and isinstance(m.content, str) and m.content.strip():
-                formatted.append({"role": "user", "content": f"[工具结果] {m.content[:500]}"})
+                formatted.append(
+                    {
+                        "role": "user",
+                        "content": tr("mem0.tool_result", content=m.content[:500]),
+                    }
+                )
         if not formatted:
             return
         async with self._write_lock:
@@ -359,9 +371,7 @@ class LongTermMemory:
             md["source_timestamp"] = source_timestamp
         return md
 
-    async def update(
-        self, memory_id: str, content: str, *, tags: list[str] | None = None
-    ) -> None:
+    async def update(self, memory_id: str, content: str, *, tags: list[str] | None = None) -> None:
         if self._mem is None:
             raise RuntimeError("LongTermMemory not initialized")
         # 取回原 metadata 一并回填，否则 mem0 的全置换会抹掉 category/tags/source_timestamp。
@@ -388,16 +398,18 @@ class LongTermMemory:
         if self._mem is None:
             raise RuntimeError("LongTermMemory not initialized")
         if not tags:
-            raise ValueError("associate_tags 需要非空 tags")
+            raise ValueError(tr("memory.manage.associate_tags_empty"))
         existing = await self._read_memory(memory_id)
         if existing is None:
-            raise ValueError(f"记忆不存在：{memory_id}")
+            raise ValueError(tr("memory.manage.missing", id=memory_id))
         merged = list(existing["tags"])
         added = [t for t in tags if t not in merged]
         if not added:
             return merged  # 已含全部目标标签，无需写
         merged.extend(added)
-        metadata = self._metadata_payload(existing["category"], merged, existing["source_timestamp"])
+        metadata = self._metadata_payload(
+            existing["category"], merged, existing["source_timestamp"]
+        )
         async with self._write_lock:
             await self._mem.update(memory_id=memory_id, data=existing["content"], metadata=metadata)
         logger.debug(f"Memory tags associated [{memory_id}]: +{added} → {merged}")
@@ -427,32 +439,38 @@ class LongTermMemory:
         if category:
             filters["metadata.category"] = category
         # 标签需后置过滤，会筛掉一部分，故预取更多以保证过滤后仍有足量结果。
-        top_k = max(limit * 6, 30) if (start is not None or end is not None) else (
-            max(limit * 4, 20) if tags else limit
+        top_k = (
+            max(limit * 6, 30)
+            if (start is not None or end is not None)
+            else (max(limit * 4, 20) if tags else limit)
         )
-        results = await self._mem.search(
-            query=query_text, filters=filters, top_k=top_k
-        )
+        results = await self._mem.search(query=query_text, filters=filters, top_k=top_k)
         memories = []
         for item in results.get("results", []):
             meta = item.get("metadata") or {}
-            memories.append({
-                "id": item.get("id", ""),
-                "content": item.get("memory", ""),
-                "category": meta.get("category", "general"),
-                "tags": json.loads(meta.get("tags", "[]")),
-                "timestamp": meta.get("source_timestamp") or item.get("created_at", ""),
-                "relevance": round(item.get("score", 1.0), 4),
-            })
+            memories.append(
+                {
+                    "id": item.get("id", ""),
+                    "content": item.get("memory", ""),
+                    "category": meta.get("category", "general"),
+                    "tags": json.loads(meta.get("tags", "[]")),
+                    "timestamp": meta.get("source_timestamp") or item.get("created_at", ""),
+                    "relevance": round(item.get("score", 1.0), 4),
+                }
+            )
         if tags:
             tag_set = set(tags)
             memories = [m for m in memories if tag_set.intersection(m.get("tags") or [])]
         if start is not None or end is not None:
-            memories = [m for m in memories if self._timestamp_in_range(m.get("timestamp"), start, end)]
+            memories = [
+                m for m in memories if self._timestamp_in_range(m.get("timestamp"), start, end)
+            ]
         return memories[:limit]
 
     @staticmethod
-    def _timestamp_in_range(value: str | None, start: datetime | None, end: datetime | None) -> bool:
+    def _timestamp_in_range(
+        value: str | None, start: datetime | None, end: datetime | None
+    ) -> bool:
         if not value:
             return False
         try:

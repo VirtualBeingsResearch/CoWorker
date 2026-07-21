@@ -9,6 +9,7 @@ from typing import Any, Literal
 from loguru import logger
 
 from coworker.core.types import Message, SummaryResult, estimate_content_tokens
+from coworker.i18n import tr
 
 # (text_to_summarize, context_hint) -> summary text
 SummaryLike = str | SummaryResult
@@ -156,7 +157,8 @@ class MemoryBlockTree:
         self._spine_cap_tokens = spine_cap_tokens
         self._leaf_budget_override = leaf_budget_tokens
         self._leaf_budget = (
-            leaf_budget_tokens if leaf_budget_tokens is not None
+            leaf_budget_tokens
+            if leaf_budget_tokens is not None
             else self._derive_leaf_budget(spine_cap_tokens)
         )
         self._reach_depth = max(1, reach_depth)
@@ -174,6 +176,7 @@ class MemoryBlockTree:
         只是粒度不同），还需再定一维：**取最细粒度（最大 K）而每节点摘要仍 ≥ ``_LEAF_BUDGET_FLOOR``
         的那个峰**。于是 leaf 落在 ~400–600 可读区间、脊柱吃满 cap，K 随 cap 增大而自然增大。
         """
+
         def peak(k: int) -> int:
             return spine_cap_tokens // (MemoryBlockTree._fib(k + 3) - 1) - _HEADER_TOKENS
 
@@ -204,7 +207,8 @@ class MemoryBlockTree:
         if leaf_budget_tokens is not None:
             self._leaf_budget_override = leaf_budget_tokens
         self._leaf_budget = (
-            self._leaf_budget_override if self._leaf_budget_override is not None
+            self._leaf_budget_override
+            if self._leaf_budget_override is not None
             else self._derive_leaf_budget(self._spine_cap_tokens)
         )
 
@@ -232,7 +236,7 @@ class MemoryBlockTree:
 
     @staticmethod
     def _empty_summary_fallback() -> str:
-        return "接续：该时间段的旧摘要为空且缺少可重建材料，需要下钻原始日志确认。"
+        return tr("memory.tree.empty_fallback")
 
     def _prune(self, node: MemoryNode, depth: int) -> MemoryNode:
         """复制 ``node``，仅保留其向下 ``depth`` 层的后代子树（更深的丢弃）。
@@ -267,29 +271,24 @@ class MemoryBlockTree:
         t_start = min(min(s.t_start, s.t_end) for s in sources)
         t_end = max(max(s.t_start, s.t_end) for s in sources)
         msg_count = sum(s.msg_count for s in sources)
-        span = f"{t_start.isoformat()} 至 {t_end.isoformat()}"
+        span = tr("memory.tree.span", start=t_start.isoformat(), end=t_end.isoformat())
 
         reach = self._reach_depth - 1
         inputs: list[str] = []
         for s in sources:
             inputs.extend(self._descend_summaries(s, reach))
         combined = "\n\n".join(
-            f"概要片段 {i + 1}：\n{text}" for i, text in enumerate(inputs)
+            tr("memory.tree.summary_piece", index=i + 1, text=text) for i, text in enumerate(inputs)
         )
-        hint = (
-            f"将以下相邻时间（{span}）的若干概要合并为一段更高层次的连续记忆。"
-            f"目标约 {target} tokens，硬上限 {budget} tokens。"
-            "先合并重复和过时状态，保留最终结论；冲突时写最新状态。"
-            "数量/编号降噪：BUG、case、commit、traceId、任务数量默认概括为"
-            "多个/一批/多轮/若干，不逐条罗列；只保留未闭环、阻塞、验收依据、"
-            "用户明确引用或后续追查必需的具体编号。"
-            "优先保留任务主线、因果关系、关键决定、状态变化、未闭环事项、"
-            "下一步接续点、阻塞和风险。最后一句必须给出“接续：...”"
-            "说明当前状态/下一步/若已完成则写清已完成。关键锚点只保留高信号的人名、"
-            "项目名、文件/接口、URL、账号/凭证、时间承诺、任务名；不要堆砌普通关键词，"
-            "不要输出“关键词：”列表，不要空白。"
+        hint = tr(
+            "memory.tree.merge_hint",
+            span=span,
+            target=target,
+            budget=budget,
         )
-        summary, token_count, token_source = await self._summarize_with_budget(combined, hint, budget, summarize)
+        summary, token_count, token_source = await self._summarize_with_budget(
+            combined, hint, budget, summarize
+        )
 
         return MemoryNode(
             level=level,
@@ -315,7 +314,7 @@ class MemoryBlockTree:
     @staticmethod
     def _clamp_summary(summary: str, budget_tokens: int) -> str:
         cap = budget_tokens * _SUMMARY_CHARS_PER_TOKEN
-        return summary if len(summary) <= cap else summary[:cap] + "…(超预算截断)"
+        return summary if len(summary) <= cap else summary[:cap] + tr("memory.tree.truncated")
 
     @staticmethod
     def _clamp_summary_to_estimate(summary: str, budget_tokens: int) -> str:
@@ -324,7 +323,7 @@ class MemoryBlockTree:
         if estimate_content_tokens(summary) <= budget_tokens:
             return summary
 
-        suffix = "…(超预算截断)"
+        suffix = tr("memory.tree.truncated")
         suffix_tokens = estimate_content_tokens(suffix)
         if suffix_tokens >= budget_tokens:
             lo, hi = 0, len(summary)
@@ -364,23 +363,19 @@ class MemoryBlockTree:
             if not self._summary_is_empty(last) and last_tokens <= budget:
                 return last, last_tokens, last_source
             if self._summary_is_empty(last):
-                prompt = (
-                    f"{hint}\n\n"
-                    "上一版摘要为空或不可用。请根据输入重新生成一段非空连续记忆；"
-                    f"目标约 {self._summary_target_tokens(budget)} tokens，硬上限 {budget} tokens。"
-                    "必须保留主线、最新状态和接续点，最后一句必须是接续状态；"
-                    "不要解释，不要输出空白。"
+                prompt = tr(
+                    "memory.retry_empty",
+                    context=hint,
+                    target=self._summary_target_tokens(budget),
+                    budget=budget,
                 )
                 continue
-            prompt = (
-                f"{hint}\n\n"
-                f"上一版摘要约 {last_tokens} tokens，超过 {budget} token 预算。"
-                f"请重新压缩到 {budget} tokens 以内，目标约 {self._summary_target_tokens(budget)} tokens；"
-                "优先保留连续主线、关键决定、最新状态、未闭环事项、下一步接续点、阻塞/风险。"
-                "删掉重复背景、过程流水账、普通关键词和“关键词：”列表，只保留最关键的检索锚点。"
-                "BUG/case/commit/traceId/任务数量默认概括为多个/一批/多轮/若干；"
-                "只有未闭环、阻塞、验收依据或后续追查必需时才保留具体编号。"
-                "最后一句必须是接续状态；不要解释，不要追加格式说明，不要空白。"
+            prompt = tr(
+                "memory.retry_over",
+                context=hint,
+                last_tokens=last_tokens,
+                budget=budget,
+                target=self._summary_target_tokens(budget),
             )
         logger.warning(
             f"Memory tree summary remained over budget after retries: {last_tokens}>{budget} tokens"
@@ -401,7 +396,9 @@ class MemoryBlockTree:
         """把单个旧节点重新压到当前 node_budget，保留其时间窗与子摘要树。"""
         budget = self.node_budget()
         target = self._summary_target_tokens(budget)
-        inputs = self._descend_summaries(node, self._reach_depth) if node.children else [node.summary]
+        inputs = (
+            self._descend_summaries(node, self._reach_depth) if node.children else [node.summary]
+        )
         inputs = [text for text in inputs if not self._summary_is_empty(text)]
         if not inputs:
             summary = self._empty_summary_fallback()
@@ -411,21 +408,16 @@ class MemoryBlockTree:
                 token_estimate=estimate_content_tokens(summary),
             )
         combined = "\n\n".join(
-            f"记忆片段 {i + 1}：\n{text}" for i, text in enumerate(inputs)
+            tr("memory.tree.memory_piece", index=i + 1, text=text) for i, text in enumerate(inputs)
         )
-        hint = (
-            f"重新压缩这段已有短期记忆节点，目标约 {target} tokens，硬上限 {budget} tokens；"
-            "宁可少写，不要贴满预算。"
-            "不要丢失连续主线：保留当时在做什么、为什么、关键决定、状态变化、"
-            "数量/编号降噪：BUG、case、commit、traceId、任务数量默认概括为"
-            "多个/一批/多轮/若干，不逐条罗列；只保留未闭环、阻塞、验收依据、"
-            "用户明确引用或后续追查必需的具体编号。"
-            "未闭环事项、下一步接续点、阻塞/风险。最后一句必须给出“接续：...”"
-            "说明当前状态/下一步/若已完成则写清已完成。关键锚点只保留高信号的人名、"
-            "项目名、文件/接口、URL、账号/凭证、时间承诺、任务名；不要堆砌普通关键词，"
-            "不要输出“关键词：”列表，不要空白。"
+        hint = tr(
+            "memory.tree.resummarize_hint",
+            target=target,
+            budget=budget,
         )
-        summary, token_count, token_source = await self._summarize_with_budget(combined, hint, budget, summarize)
+        summary, token_count, token_source = await self._summarize_with_budget(
+            combined, hint, budget, summarize
+        )
         return replace(
             node,
             summary=summary,
@@ -525,7 +517,7 @@ class MemoryBlockTree:
             merged = await self._merge(self.nodes[i], self.nodes[i + 1], summarize)
             if merged.level > K:
                 merged.level = K  # 顶层封顶：最古 blob 吸收溢出，level 不越过 K
-            self.nodes[i:i + 2] = [merged]
+            self.nodes[i : i + 2] = [merged]
             guard += 1
             if guard > 4096:  # 防御性兜底，正常永不触达
                 logger.error("MemoryBlockTree._fib_carry exceeded guard, stopping")
@@ -563,7 +555,10 @@ class MemoryBlockTree:
             self._spine_cap_tokens,
             self._leaf_budget_override,
             self._leaf_budget,
-            [(n.level, n.msg_count, n.t_start, n.t_end, n.token_estimate, n.summary) for n in self.nodes],
+            [
+                (n.level, n.msg_count, n.t_start, n.t_end, n.token_estimate, n.summary)
+                for n in self.nodes
+            ],
         )
         self._set_budget(spine_cap_tokens, leaf_budget_tokens)
 
@@ -580,7 +575,10 @@ class MemoryBlockTree:
             self._spine_cap_tokens,
             self._leaf_budget_override,
             self._leaf_budget,
-            [(n.level, n.msg_count, n.t_start, n.t_end, n.token_estimate, n.summary) for n in self.nodes],
+            [
+                (n.level, n.msg_count, n.t_start, n.t_end, n.token_estimate, n.summary)
+                for n in self.nodes
+            ],
         )
         return new_signature != old_signature
 
@@ -599,7 +597,7 @@ class MemoryBlockTree:
                 if i is None:
                     break
                 a, b = plan[i], plan[i + 1]
-                plan[i:i + 2] = [[min(max(a[0], b[0]) + 1, K), a[1], b[2]]]
+                plan[i : i + 2] = [[min(max(a[0], b[0]) + 1, K), a[1], b[2]]]
                 guard += 1
                 if guard > 4096:  # 防御性兜底，正常永不触达
                     break
@@ -629,15 +627,13 @@ class MemoryBlockTree:
         sem = asyncio.Semaphore(max(1, concurrency))
 
         async def _materialize(level: int, lo: int, hi: int) -> MemoryNode:
-            group = leaves[lo:hi + 1]
+            group = leaves[lo : hi + 1]
             if len(group) == 1:
                 return group[0]  # 单叶子原样保留，无需 summarize
             async with sem:
                 return await self._summarize_span(group, level, summarize)
 
-        self.nodes = list(await asyncio.gather(
-            *(_materialize(lv, lo, hi) for lv, lo, hi in plan)
-        ))
+        self.nodes = list(await asyncio.gather(*(_materialize(lv, lo, hi) for lv, lo, hi in plan)))
 
     # ---- 渲染与度量 ------------------------------------------------------
 
@@ -652,8 +648,13 @@ class MemoryBlockTree:
         """
         out: list[Message] = []
         for n in self.nodes:
-            flag = "" if n.raw_available else " · 仅摘要"
-            header = f"[记忆 {n.span_label()} · {n.msg_count}条{flag}]"
+            flag = "" if n.raw_available else tr("memory.tree.summary_only")
+            header = tr(
+                "memory.tree.header",
+                span=n.span_label(),
+                count=n.msg_count,
+                flag=flag,
+            )
             out.append(Message(role="system", content=f"{header}\n{n.summary}"))
         return out
 

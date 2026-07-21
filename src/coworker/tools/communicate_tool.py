@@ -13,6 +13,7 @@ from loguru import logger
 
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRegistration, CommunicateRequest, ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 # 接受裸 participant_id（无前缀），返回规范化的完整 participant_id；若无法处理则返回 None
@@ -64,9 +65,7 @@ class _BoundCommunicateTool(Tool):
                 name for name in base.parameters.get("required", []) if name != "participant_id"
             ],
         }
-        conversation_note = (
-            f"，会话固定为 {self._conversation_id}" if self._conversation_id else ""
-        )
+        conversation_note = f"，会话固定为 {self._conversation_id}" if self._conversation_id else ""
         return ToolDefinition(
             name=base.name,
             description=(
@@ -89,17 +88,19 @@ class _BoundCommunicateTool(Tool):
         if requested_participant and requested_participant != self._participant_id:
             return ToolResult(
                 tool_call_id="",
-                content="此泡泡只能向已绑定的通信对象发送消息，不能改用其他 participant_id。",
+                content=tr("tool_result.communicate.bound_participant"),
                 is_error=True,
             )
 
         requested_conversation = conversation_id.strip() if isinstance(conversation_id, str) else ""
-        if self._conversation_id and requested_conversation and (
-            requested_conversation != self._conversation_id
+        if (
+            self._conversation_id
+            and requested_conversation
+            and (requested_conversation != self._conversation_id)
         ):
             return ToolResult(
                 tool_call_id="",
-                content="此泡泡只能向已绑定的 conversation_id 发送消息。",
+                content=tr("tool_result.communicate.bound_conversation"),
                 is_error=True,
             )
 
@@ -109,10 +110,17 @@ class _BoundCommunicateTool(Tool):
                 if not outgoing_message.startswith(self._message_prefix):
                     outgoing_message = f"{self._message_prefix}{outgoing_message}"
             elif attachments:
-                outgoing_message = f"{self._message_prefix}（附件）"
+                outgoing_message = tr(
+                    "tool_result.communicate.attachment_fallback",
+                    prefix=self._message_prefix,
+                )
 
         if extra is not None and not isinstance(extra, dict):
-            return ToolResult(tool_call_id="", content="extra 必须是对象。", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.communicate.extra_object"),
+                is_error=True,
+            )
         outgoing_extra = dict(extra or {})
         outgoing_extra.update(self._message_extra)
         return await self._delegate.execute(
@@ -257,10 +265,16 @@ class CommunicateTool(Tool):
             prefix, canonical_id = next(iter(resolved.items()))
             return canonical_id, prefix
         if len(resolved) > 1:
-            options = "\n".join(f"  - {cid}（前缀：{p}）" for p, cid in resolved.items())
+            options = "\n".join(
+                tr("tool_result.communicate.option", id=cid, prefix=p)
+                for p, cid in resolved.items()
+            )
             raise ParticipantIdResolutionError(
-                f"participant_id '{participant_id}' 在多个信道中都能匹配，"
-                f"请使用完整 participant_id 重新调用：\n{options}"
+                tr(
+                    "tool_result.communicate.ambiguous",
+                    participant=participant_id,
+                    options=options,
+                )
             )
         return participant_id, None
 
@@ -457,7 +471,11 @@ class CommunicateTool(Tool):
         attachments = attachments or []
         extra = extra or {}
         if not isinstance(extra, dict):
-            return ToolResult(tool_call_id="", content="extra 必须是对象。", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.communicate.extra_object"),
+                is_error=True,
+            )
 
         try:
             participant_id, sender_prefix = self._resolve_participant_id(participant_id)
@@ -479,33 +497,33 @@ class CommunicateTool(Tool):
                 await self._ws_connections[participant_id].put(request)
                 return ToolResult(
                     tool_call_id="",
-                    content=f"消息已通过WebSocket发送给 {participant_id}",
+                    content=tr(
+                        "tool_result.communicate.websocket_sent",
+                        participant=participant_id,
+                    ),
                 )
             if conversation_id:
                 return ToolResult(
                     tool_call_id="",
-                    content=(
-                        "消息发送失败：该通信目标不支持 conversation_id；"
-                        "请去掉该字段后重试。"
-                    ),
+                    content=tr("tool_result.communicate.conversation_unsupported"),
                     is_error=True,
                 )
             if extra:
                 return ToolResult(
                     tool_call_id="",
-                    content="消息发送失败：该通信目标不支持 extra 扩展参数。",
+                    content=tr("tool_result.communicate.extra_unsupported"),
                     is_error=True,
                 )
             if attachments:
                 return ToolResult(
                     tool_call_id="",
-                    content="消息发送失败：该通信目标不支持附件；请改用支持附件的信道。",
+                    content=tr("tool_result.communicate.attachments_unsupported"),
                     is_error=True,
                 )
             if not message:
                 return ToolResult(
                     tool_call_id="",
-                    content="message 不能为空。",
+                    content=tr("tool_result.communicate.message_empty"),
                     is_error=True,
                 )
 
@@ -520,10 +538,15 @@ class CommunicateTool(Tool):
             logger.debug(f"No active WS for {participant_id}, message written to outbox only")
 
             return ToolResult(
-                tool_call_id="", content=f"消息发送失败, 已记录在本地文件: {out_file}"
+                tool_call_id="",
+                content=tr("tool_result.communicate.fallback_saved", path=out_file),
             )
         except Exception as e:
-            return ToolResult(tool_call_id="", content=f"消息发送失败: {e}", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.communicate.failed", error=e),
+                is_error=True,
+            )
 
 
 class ListWSConnectionsTool(Tool):
@@ -545,5 +568,5 @@ class ListWSConnectionsTool(Tool):
     async def execute(self, **_) -> ToolResult:
         connected = self._communicate.list_connected()
         if not connected:
-            return ToolResult(tool_call_id="", content="当前没有活跃的 WebSocket 连接。")
+            return ToolResult(tool_call_id="", content=tr("tool_result.communicate.no_websocket"))
         return ToolResult(tool_call_id="", content="\n".join(connected))

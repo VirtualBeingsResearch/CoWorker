@@ -3,6 +3,7 @@ from __future__ import annotations
 from loguru import logger
 
 from coworker.core.types import ToolCall, ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import Tool
 
 
@@ -49,7 +50,7 @@ class ToolRegistry:
         if not tool:
             return ToolResult(
                 tool_call_id=tool_call.id,
-                content=f"Unknown tool: {tool_call.name}",
+                content=tr("tools.framework.unknown", name=tool_call.name),
                 is_error=True,
             )
         try:
@@ -58,7 +59,7 @@ class ToolRegistry:
             logger.error(f"Tool '{tool_call.name}' raised: {e}")
             return ToolResult(
                 tool_call_id=tool_call.id,
-                content=f"Tool execution error: {e}",
+                content=tr("tools.framework.execution_error", error=e),
                 is_error=True,
             )
 

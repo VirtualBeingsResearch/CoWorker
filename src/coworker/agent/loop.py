@@ -13,6 +13,7 @@ from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
+from coworker.i18n import tr
 from coworker.memory.recent_activity import render_recent_activity_replay
 from coworker.tools.reasoning_tools import format_task_times
 
@@ -112,25 +113,25 @@ class AgentLoop:
 
                 if self._consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
                     # 连续错误时先保存完整上下文，再清空短期记忆以重新开始。
-                    backup_status = "应急备份未创建：当前没有可备份的短期上下文"
+                    backup_status = tr("loop.backup_empty")
                     if self._short_term.primary and self._snapshot_path:
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         backup_path = (
-                            self._snapshot_path.parent
-                            / f"emergency_backup_{timestamp}.json"
+                            self._snapshot_path.parent / f"emergency_backup_{timestamp}.json"
                         )
                         try:
                             self._short_term.save_to_file(backup_path)
                             logger.warning(f"Emergency backup saved to {backup_path}")
-                            backup_status = f"应急备份已创建：{backup_path}"
+                            backup_status = tr("loop.backup_created", path=backup_path)
                         except Exception as backup_err:
                             logger.error(f"Failed to save emergency backup: {backup_err}")
-                            backup_status = (
-                                f"应急备份创建失败（目标：{backup_path}；"
-                                f"错误：{type(backup_err).__name__}: {str(backup_err)[:200]}）"
+                            backup_status = tr(
+                                "loop.backup_failed",
+                                path=backup_path,
+                                error=f"{type(backup_err).__name__}: {str(backup_err)[:200]}",
                             )
                     elif self._short_term.primary:
-                        backup_status = "应急备份未创建：未配置短期记忆快照路径"
+                        backup_status = tr("loop.backup_unconfigured")
 
                     self._short_term.primary.clear()
                     # 添加恢复通知
@@ -138,11 +139,11 @@ class AgentLoop:
                         Message(
                             role="user",
                             source="system_recovery",
-                            content=(
-                                f"[系统恢复] 上一轮因连续 {self._consecutive_errors} 次执行错误而中断。\n"
-                                f"{backup_status}。\n"
-                                f"当前上下文已经清空重置。\n"
-                                f"最近错误：{type(e).__name__}: {str(e)[:200]}。"
+                            content=tr(
+                                "loop.recovery",
+                                count=self._consecutive_errors,
+                                backup=backup_status,
+                                error=f"{type(e).__name__}: {str(e)[:200]}",
                             ),
                         )
                     )
@@ -150,20 +151,23 @@ class AgentLoop:
                     await asyncio.sleep(_RECOVERY_COOLDOWN_SECONDS)
                 else:
                     # 轻度错误处理：只添加简短错误信息，不重复累加
-                    error_msg = f"[系统错误] {type(e).__name__}: {str(e)[:200]}"
+                    error_msg = tr(
+                        "loop.system_error",
+                        error=f"{type(e).__name__}: {str(e)[:200]}",
+                    )
                     # 如果最后一条已经是同类错误，替换而不是追加，避免膨胀
                     if (
                         self._short_term.primary
                         and self._short_term.primary[-1].role == "user"
-                        and str(self._short_term.primary[-1].content).startswith("[系统错误]")
+                        and self._short_term.primary[-1].source == "system_error"
                     ):
                         self._short_term.primary[-1] = Message(
                             role="user", content=error_msg, source="system_error"
                         )
                     else:
-                        self._short_term.primary.append(Message(
-                            role="user", content=error_msg, source="system_error"
-                        ))
+                        self._short_term.primary.append(
+                            Message(role="user", content=error_msg, source="system_error")
+                        )
                     # 使用指数退避，避免快速循环
                     wait_time = min(2 ** (self._consecutive_errors - 1), 60)
                     await asyncio.sleep(wait_time)
@@ -207,10 +211,12 @@ class AgentLoop:
             return
         reinjected_pins = self._short_term.reinject_missing_pins()
         if reinjected_pins and self._ilog:
-            self._ilog.log_pin_reinjected([
-                {"pin_id": item.pin_id, "label": item.label, "content": item.content}
-                for item in reinjected_pins
-            ])
+            self._ilog.log_pin_reinjected(
+                [
+                    {"pin_id": item.pin_id, "label": item.label, "content": item.content}
+                    for item in reinjected_pins
+                ]
+            )
         events = await self._inbox.get_pending()
 
         if events:
@@ -253,7 +259,8 @@ class AgentLoop:
                 await self._subconscious.notify_pre_compress(self._short_term.compress_preview())
             _compress_system_prompt = self._prompt_builder.build()
             await self._short_term.compress_if_needed(
-                self._brain, self._snapshot_path,
+                self._brain,
+                self._snapshot_path,
                 agent_system_prompt=_compress_system_prompt,
             )
             await self._task_reminder()
@@ -270,15 +277,12 @@ class AgentLoop:
         system_prompt = self._prompt_builder.build()
         skill_load_warnings = self._prompt_builder.consume_skill_load_warnings()
         if skill_load_warnings:
-            lines = ["[技能加载异常] 以下 skill 加载失败或不可用："]
+            lines = [tr("loop.skill_warning_title")]
             lines.extend(f"- {warning}" for warning in skill_load_warnings)
-            lines.append(
-                "请不要假设这些 skill 可用；如果当前任务依赖它们，"
-                "请先修复 skill 文件或改用其他工具。"
+            lines.append(tr("loop.skill_warning_tail"))
+            self._short_term.primary.append(
+                Message(role="user", content="\n".join(lines), source="skill_warning")
             )
-            self._short_term.primary.append(Message(
-                role="user", content="\n".join(lines), source="skill_warning"
-            ))
             logger.warning(
                 f"Injected {len(skill_load_warnings)} skill load warning(s) into model context"
             )
@@ -288,9 +292,13 @@ class AgentLoop:
         last_assistant = next(
             (m for m in reversed(self._short_term.primary) if m.role == "assistant"), None
         )
-        if self.state.tick and not events and not reinjected_pins and (
-            not last_assistant or last_assistant.stop_reason != "tool_use"
-        ) and self._short_term.primary[-1].role != "user":
+        if (
+            self.state.tick
+            and not events
+            and not reinjected_pins
+            and (not last_assistant or last_assistant.stop_reason != "tool_use")
+            and self._short_term.primary[-1].role != "user"
+        ):
             tick_content = f"<{TICK_TAG}>"
             message = Message(role="user", content=tick_content, source="tick")
             self._short_term.primary.append(message)
@@ -305,19 +313,20 @@ class AgentLoop:
             self.state.current_model = self._brain.current_model
             # 区分「失败降级」与「主动切换」：降级用更明确的措辞，提示模型这是被动容错。
             if self._brain.consume_fallback_switch():
-                notice = (
-                    f"[系统通知] 主模型调用失败，已自动降级至"
-                    f" {self.state.current_provider}/{self.state.current_model}。"
-                    f"主模型恢复后可用 switch_model 手动切回。"
+                notice = tr(
+                    "loop.model_fallback",
+                    provider=self.state.current_provider,
+                    model=self.state.current_model,
                 )
             else:
-                notice = (
-                    f"[系统通知] 模型已切换至"
-                    f" {self.state.current_provider}/{self.state.current_model}"
+                notice = tr(
+                    "loop.model_switched",
+                    provider=self.state.current_provider,
+                    model=self.state.current_model,
                 )
-            self._short_term.primary.append(Message(
-                role="user", content=notice, source="model_switch"
-            ))
+            self._short_term.primary.append(
+                Message(role="user", content=notice, source="model_switch")
+            )
 
         messages = self._short_term.build_context()
         if self._ilog:
@@ -328,9 +337,7 @@ class AgentLoop:
         response = await self._brain.think(
             messages,
             system_prompt,
-            self._tools.get_schemas(
-                model_has_vision=self._brain.current_model_has_vision
-            ),
+            self._tools.get_schemas(model_has_vision=self._brain.current_model_has_vision),
         )
         try:
             input_tokens = max(0, int(response.usage.get("input_tokens", 0) or 0))
@@ -362,8 +369,7 @@ class AgentLoop:
             role="assistant",
             content=response.content,
             source=(
-                f"{self._brain.current_provider_name}/"
-                f"{response.model or self._brain.current_model}"
+                f"{self._brain.current_provider_name}/{response.model or self._brain.current_model}"
             ),
             reasoning_content=response.reasoning_content,
             tool_calls=[
@@ -418,9 +424,9 @@ class AgentLoop:
             if "__parse_error__" in tc.arguments:
                 result = ToolResult(
                     tool_call_id=tc.id,
-                    content=(
-                        "工具参数 JSON 解析失败，请重新生成正确格式的参数："
-                        f"{tc.arguments['__parse_error__']}"
+                    content=tr(
+                        "loop.tool_parse_error",
+                        error=tc.arguments["__parse_error__"],
                     ),
                     is_error=True,
                 )
@@ -430,9 +436,7 @@ class AgentLoop:
             results.append(result)
             if self._ilog:
                 content_str = (
-                    result.content
-                    if isinstance(result.content, str)
-                    else str(result.content)
+                    result.content if isinstance(result.content, str) else str(result.content)
                 )
                 self._ilog.log_tool_result(tc.id, tc.name, content_str, result.is_error)
             if isinstance(result.content, str):
@@ -465,23 +469,31 @@ class AgentLoop:
                 logger.debug("Long-term auto-recall query failed, skipping")
                 results = []
             new = [
-                m for m in results
-                if m["id"] not in excluded
-                and m["relevance"] >= cfg.auto_recall_relevance_threshold
+                m
+                for m in results
+                if m["id"] not in excluded and m["relevance"] >= cfg.auto_recall_relevance_threshold
             ]
             if new:
-                lines = ["[自动回忆] 以下长期记忆与当前对话相关："]
+                lines = [tr("loop.auto_recall_title")]
                 for i, m in enumerate(new, 1):
                     lines.append(
-                        f"{i}. id={m['id']} [{m['category']}] "
-                        f"{m['content']}（相关度：{m['relevance']:.2f}）"
+                        tr(
+                            "loop.auto_recall_item",
+                            index=i,
+                            id=m["id"],
+                            category=m["category"],
+                            content=m["content"],
+                            relevance=f"{m['relevance']:.2f}",
+                        )
                     )
-                self._short_term.primary.append(Message(
-                    role="user",
-                    content="\n".join(lines),
-                    recalled_memory_ids=[m["id"] for m in new],
-                    source="auto_recall",
-                ))
+                self._short_term.primary.append(
+                    Message(
+                        role="user",
+                        content="\n".join(lines),
+                        recalled_memory_ids=[m["id"] for m in new],
+                        source="auto_recall",
+                    )
+                )
                 excluded.update(m["id"] for m in new)
                 if self._ilog:
                     self._ilog.log_auto_recall(query_text, new)
@@ -505,23 +517,24 @@ class AgentLoop:
             return
         replay = render_recent_activity_replay(
             fresh,
-            title="[自动回忆·历史活动回放]",
+            title=tr("loop.recent_activity_title"),
             include_evidence=False,
         )
-        self._short_term.primary.append(Message(
-            role="user",
-            content=replay,
-            recalled_memory_ids=[m["id"] for m in fresh],
-            source="recent_activity_auto_recall",
-        ))
+        self._short_term.primary.append(
+            Message(
+                role="user",
+                content=replay,
+                recalled_memory_ids=[m["id"] for m in fresh],
+                source="recent_activity_auto_recall",
+            )
+        )
         logger.debug(f"Auto-recalled {len(fresh)} recent activities")
 
     async def _task_reminder(self) -> None:
         if self._task_store is None:
             return
         cycle_ok = (
-            self.state.cycle_count - self._last_task_reminder_cycle
-            >= self._task_reminder_interval
+            self.state.cycle_count - self._last_task_reminder_cycle >= self._task_reminder_interval
         )
         time_ok = time.monotonic() - self._last_task_reminder_time >= self._task_reminder_seconds
         if not (cycle_ok or time_ok):
@@ -534,15 +547,15 @@ class AgentLoop:
         active = [t for t in self._task_store.list() if t.status in ("pending", "in_progress")]
         if not active:
             return
-        lines = ["[任务提醒] 当前有未完成任务："]
+        lines = [tr("loop.task_reminder")]
         for t in active:
-            suffix = " has_details=true，请用 task_get 查看" if t.details.strip() else ""
+            suffix = tr("loop.task_details_hint") if t.details.strip() else ""
             lines.append(
                 f"- [{t.id}] [{t.status}] [{format_task_times(t)}] {t.description}{suffix} "
             )
-        self._short_term.primary.append(Message(
-            role="user", content="\n".join(lines), source="task_reminder"
-        ))
+        self._short_term.primary.append(
+            Message(role="user", content="\n".join(lines), source="task_reminder")
+        )
         if self._ilog:
             self._ilog.log_task_reminder(
                 [
@@ -572,25 +585,23 @@ class AgentLoop:
                 pass
             if not self.state.is_sleeping:
                 continue
-            active = [
-                t for t in task_store.list()
-                if t.status in ("pending", "in_progress")
-            ]
+            active = [t for t in task_store.list() if t.status in ("pending", "in_progress")]
             if not active:
                 continue
-            lines = ["[任务提醒] 有未完成任务，中断睡眠："]
+            lines = [tr("loop.task_wakeup")]
             for t in active:
-                suffix = " has_details=true，请用 task_get 查看" if t.details.strip() else ""
+                suffix = tr("loop.task_details_hint") if t.details.strip() else ""
                 lines.append(
-                    f"- [{t.id}] [{t.status}] {t.description}{suffix} "
-                    f"{format_task_times(t)}"
+                    f"- [{t.id}] [{t.status}] {t.description}{suffix} {format_task_times(t)}"
                 )
-            await self._inbox.push(IncomingEvent(
-                participant_id="system",
-                content="\n".join(lines),
-                source="task_reminder",
-                timestamp=datetime.now(),
-            ))
+            await self._inbox.push(
+                IncomingEvent(
+                    participant_id="system",
+                    content="\n".join(lines),
+                    source="task_reminder",
+                    timestamp=datetime.now(),
+                )
+            )
             if self._ilog:
                 self._ilog.log_task_reminder(
                     [

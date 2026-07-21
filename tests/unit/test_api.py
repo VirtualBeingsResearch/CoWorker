@@ -18,6 +18,7 @@ from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
 from coworker.core.config import APIConfig
 from coworker.core.types import AgentState, CommunicateRequest
+from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.communicate_tool import CommunicateTool
 from tests.conftest import MockProvider
@@ -908,10 +909,12 @@ class TestBackfillTree:
         mock_agent._short_term.backfill_tree_online = AsyncMock(return_value=3)
         mock_agent._short_term.tree.nodes = []
         setup_routes(mock_inbox, mock_agent, MagicMock())
-        resp = client.post("/backfill_tree", json={"max_leaves": 8})
+        with locale_context("en"):
+            resp = client.post("/backfill_tree", json={"max_leaves": 8})
         assert resp.status_code == 200
         assert resp.json()["status"] == "started"
         assert resp.json()["max_leaves"] == 8
+        assert resp.json()["note"].startswith("The memory tree is rebuilding")
 
     def test_returns_409_when_already_running(self, client):
         mock_inbox = MagicMock()

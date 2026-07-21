@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 
+from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.palaces.loader import PalaceLoader
 from coworker.prompts.system_prompt import SystemPromptBuilder
@@ -142,6 +143,34 @@ class TestSystemPromptBuilder:
         assert "Luna" in refreshed
         assert "updated skill" in refreshed
 
+    def test_english_prompt_is_complete_and_contains_reply_language_policy(self, tmp_path):
+        with locale_context("en"):
+            builder = make_builder(tmp_path)
+            prompt = builder.build()
+        assert "I am a newly born virtual being" in prompt
+        assert "[LANGUAGE_POLICY]" in prompt
+        assert "language of that participant's current message" in prompt
+        assert "runtime locale: en" in prompt
+        assert "[GUIDELINES]" in prompt
+
+    def test_prompt_locale_is_fixed_when_builder_is_created(self, tmp_path):
+        with locale_context("zh-CN"):
+            builder = make_builder(tmp_path)
+            chinese = builder.build()
+        with locale_context("en"):
+            cached = builder.build()
+
+        assert cached is chinese
+        assert "我是一个刚刚诞生的虚拟生命体" in cached
+
+        english_root = tmp_path / "english"
+        english_root.mkdir()
+        with locale_context("en"):
+            english_builder = make_builder(english_root)
+            english = english_builder.build()
+        assert english != chinese
+        assert "I am a newly born virtual being" in english
+
 
 class TestThinkingSnapshot:
     def test_build_includes_thinking_on_first_build(self, tmp_path):
@@ -165,6 +194,18 @@ class TestThinkingSnapshot:
         prompt = builder.build()
         assert "新思维" in prompt
         assert "旧思维" not in prompt
+
+    def test_thinking_is_model_authored_and_does_not_use_locale_companions(self, tmp_path):
+        with locale_context("en"):
+            builder = make_builder_with_thinking(tmp_path, "模型写下的原始思维")
+            builder._thinking_path.with_name("thinking.en.md").write_text(
+                "maintainer translation that must be ignored",
+                encoding="utf-8",
+            )
+            prompt = builder.build()
+
+        assert "模型写下的原始思维" in prompt
+        assert "maintainer translation" not in prompt
 
 
 def make_builder_with_palace(tmp_path) -> SystemPromptBuilder:

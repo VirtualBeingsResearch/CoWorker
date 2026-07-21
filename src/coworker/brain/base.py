@@ -6,6 +6,30 @@ from typing import Any
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.token_utils import estimate_content_tokens
 from coworker.core.types import LLMResponse, Message
+from coworker.i18n import tr
+
+
+def unsupported_image_fallback() -> str:
+    return tr("attachment_fallback.unsupported_image")
+
+
+def unsupported_video_fallback() -> str:
+    return tr("attachment_fallback.unsupported_video")
+
+
+def pdf_attachment_fallback(
+    filename: object,
+    saved_path: object = "",
+    *,
+    note: str = "",
+) -> str:
+    saved = tr("attachment_fallback.document_saved", path=saved_path) if saved_path else ""
+    return tr(
+        "attachment_fallback.pdf",
+        filename=filename,
+        note=note,
+        saved=saved,
+    )
 
 
 class BaseLLMProvider(ABC):
@@ -41,32 +65,26 @@ class BaseLLMProvider(ABC):
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
     def set_model(self, model_id: str) -> None:
         """Select the model used by the next provider request."""
         raise NotImplementedError
 
     @abstractmethod
-    def list_models(self) -> list[str]:
-        ...
+    def list_models(self) -> list[str]: ...
 
     @abstractmethod
-    def supports_tool_use(self, model_id: str) -> bool:
-        ...
+    def supports_tool_use(self, model_id: str) -> bool: ...
 
     @abstractmethod
-    def supports_vision(self, model_id: str) -> bool:
-        ...
+    def supports_vision(self, model_id: str) -> bool: ...
 
     def supports_video(self, model_id: str) -> bool:
         """Whether the model accepts native video input blocks."""
         return False
 
-    def estimate_content_tokens(
-        self, content: str | list[dict[str, Any]], model_id: str
-    ) -> int:
+    def estimate_content_tokens(self, content: str | list[dict[str, Any]], model_id: str) -> int:
         """Estimate token cost for content under the given model.
 
         Calls _adapt_content first so that images degraded to text on non-vision
@@ -99,20 +117,16 @@ class BaseLLMProvider(ABC):
         for block in content:
             btype = block.get("type")
             if btype == "image":
-                fname = block.get("_filename", "图片")
+                fname = block.get("_filename", tr("attachment_fallback.image_name"))
                 path = block.get("_saved_path", "")
-                text = f"[图片附件: {fname} — 当前模型不支持图片预览"
-                if path:
-                    text += f"，已保存至 {path}，可使用工具处理"
-                text += "]"
+                saved = tr("attachment_fallback.image_saved", path=path) if path else ""
+                text = tr("attachment_fallback.image", filename=fname, saved=saved)
                 result.append({"type": "text", "text": text})
             elif btype == "document":
-                fname = block.get("_filename", "文档")
+                fname = block.get("_filename", tr("attachment_fallback.document_name"))
                 path = block.get("_saved_path", "")
-                text = f"[PDF 附件: {fname} — 当前模型不支持文档预览"
-                if path:
-                    text += f"，已保存至 {path}，可使用工具读取"
-                text += "]"
+                saved = tr("attachment_fallback.document_saved", path=path) if path else ""
+                text = tr("attachment_fallback.document", filename=fname, saved=saved)
                 result.append({"type": "text", "text": text})
             else:
                 result.append({k: v for k, v in block.items() if not k.startswith("_")})

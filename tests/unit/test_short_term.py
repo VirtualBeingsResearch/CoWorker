@@ -37,15 +37,28 @@ class TestShortTermMemory:
         ctx = mem.build_context()
         assert ctx == []
 
-    def test_raw_primary_boundary_ignores_legacy_summary_anchor(self):
-        mem = ShortTermMemory(tree_enabled=False)
-        anchor = Message(role="user", content="[记忆：以下是我之前的行动摘要]\nold")
-        anchor.timestamp = datetime(2026, 7, 8, 12)
-        raw = Message(role="assistant", content="still raw")
-        raw.timestamp = datetime(2026, 7, 8, 9)
-        mem.primary.extend([anchor, raw])
+    def test_summary_anchor_source_is_used_for_raw_primary_boundary(self):
+        raw_timestamp = datetime(2026, 7, 8, 9)
+        mem = ShortTermMemory.deserialize(
+            {
+                "primary": [
+                    {
+                        "role": "user",
+                        "content": "compressed summary",
+                        "source": "memory_summary",
+                        "timestamp": datetime(2026, 7, 8, 12).isoformat(),
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "still raw",
+                        "timestamp": raw_timestamp.isoformat(),
+                    },
+                ]
+            },
+            tree_enabled=False,
+        )
 
-        assert mem.raw_primary_boundary() == raw.timestamp
+        assert mem.raw_primary_boundary() == raw_timestamp
 
     def test_raw_primary_boundary_none_when_no_compressed_context(self):
         mem = ShortTermMemory()

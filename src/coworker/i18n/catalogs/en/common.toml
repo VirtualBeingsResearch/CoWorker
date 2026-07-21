@@ -1,0 +1,23 @@
+[assets]
+companion_invalid = "Localized companion {{path}} is invalid ({{reason}}); the original file was used."
+frontmatter_missing = "YAML frontmatter is missing"
+frontmatter_incomplete = "YAML frontmatter is incomplete"
+frontmatter_not_mapping = "YAML frontmatter must be a mapping"
+placeholder_mismatch = "body placeholders do not match the original file"
+field_not_string = "field {{field}} must be a string"
+field_placeholder_mismatch = "placeholders in field {{field}} do not match the original file"
+duplicate = "Duplicate {{kind}} name '{{name}}' in {{path}}; the definition loaded first was retained."
+read_failed = "Failed to read {{kind}} file {{path}}: {{error_type}}: {{error}}"
+asset_frontmatter_missing = "{{kind}} file {{path}} has no frontmatter and was skipped."
+asset_frontmatter_incomplete = "{{kind}} file {{path}} has incomplete frontmatter and was skipped."
+yaml_failed = "Failed to parse YAML frontmatter in {{kind}} file {{path}}: {{error}}"
+name_missing = "{{kind}} file {{path}} has no name field and was skipped."
+
+[calendar]
+monday = "Monday"
+tuesday = "Tuesday"
+wednesday = "Wednesday"
+thursday = "Thursday"
+friday = "Friday"
+saturday = "Saturday"
+sunday = "Sunday"

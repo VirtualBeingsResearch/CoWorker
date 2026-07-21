@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from coworker.core.types import ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 
@@ -30,5 +31,5 @@ class BreatheTool(Tool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         return ToolResult(
             tool_call_id=kwargs.get("tool_call_id", ""),
-            content="🌬️ 呼吸。刚才做了什么？接下来想做什么？继续。",
+            content=tr("tool_result.common.breathe"),
         )

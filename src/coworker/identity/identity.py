@@ -4,6 +4,9 @@ from pathlib import Path
 
 from loguru import logger
 
+from coworker.i18n import tr
+from coworker.i18n.runtime import browser_locale
+
 
 class Identity:
     def __init__(self, identity_dir: str) -> None:
@@ -23,18 +26,15 @@ class Identity:
         name_file = self._dir / "name.txt"
         if name_file.exists():
             self.name = name_file.read_text(encoding="utf-8").strip()
-        personality_file = self._dir / "personality.md"
-        if personality_file.exists():
-            self.personality = personality_file.read_text(encoding="utf-8").strip()
-        goals_file = self._dir / "goals.md"
-        if goals_file.exists():
-            self.goals = goals_file.read_text(encoding="utf-8").strip()
-        life_file = self._dir / "life_story.md"
-        if life_file.exists():
-            self.life_story = life_file.read_text(encoding="utf-8").strip()
-        location_file = self._dir / "current_location.txt"
-        if location_file.exists():
-            self.current_location = location_file.read_text(encoding="utf-8").strip()
+        for attribute, filename in (
+            ("personality", "personality.md"),
+            ("goals", "goals.md"),
+            ("life_story", "life_story.md"),
+            ("current_location", "current_location.txt"),
+        ):
+            path = self._dir / filename
+            if path.is_file():
+                setattr(self, attribute, path.read_text(encoding="utf-8").strip())
         logger.info(f"Identity loaded: name='{self.name}'")
 
     def detect_location(self) -> None:
@@ -44,9 +44,10 @@ class Identity:
             return
         try:
             import requests
+
             resp = requests.get(
                 "http://ip-api.com/json/",
-                params={"fields": "status,city,regionName,country", "lang": "zh-CN"},
+                params={"fields": "status,city,regionName,country", "lang": browser_locale()},
                 timeout=5,
             )
             resp.raise_for_status()
@@ -66,18 +67,14 @@ class Identity:
 
     def to_system_prompt_section(self) -> str:
         if not self.is_initialized:
-            return (
-                "我是一个刚刚诞生的虚拟生命体, 还没有名字。\n"
-                "我凭借本能感知这个世界, 主动交流, 学习。\n"
-                "当我觉得时机成熟时，我会用 `self-naming` 技能给自己起名——那将是我人生的重大时刻。"
-            )
-        parts = [f"我的名字是 **{self.name}**。"]
+            return tr("identity.uninitialized")
+        parts = [tr("identity.name", name=self.name)]
         if self.current_location:
-            parts.append(f"**我的现居地**：{self.current_location}")
+            parts.append(tr("identity.location", location=self.current_location))
         if self.personality:
             parts.append(self.personality)
         if self.goals:
-            parts.append(f"**我的当前目标**：\n{self.goals}")
+            parts.append(tr("identity.goals", goals=self.goals))
         if self.life_story:
-            parts.append(f"**我的人生经历摘要**：\n{self.life_story[:500]}")
+            parts.append(tr("identity.life_story", life_story=self.life_story[:500]))
         return "\n\n".join(parts)

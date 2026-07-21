@@ -9,6 +9,8 @@ from typing import Any
 
 from loguru import logger
 
+from coworker.i18n import tr
+
 # 进入 digest 的条目类型（对话实质）；system_prompt / auto_recall / palace_injection
 # 等体量大或非叙事的条目跳过，避免摘要被噪声淹没。
 _DIGEST_TYPES = {
@@ -462,9 +464,7 @@ class LogStore:
                 if not exhausted and next_offset is not None:
                     next_cursor = LogPageCursor(shard.path.name, next_offset, before_seq)
                     return LogPage(entries, next_cursor, True, scanned_bytes)
-                next_cursor = self._history_cursor_for_next_shard(
-                    shards, index + 1, before_seq
-                )
+                next_cursor = self._history_cursor_for_next_shard(shards, index + 1, before_seq)
                 return LogPage(entries, next_cursor, next_cursor is not None, scanned_bytes)
 
             if scanned_bytes >= scan_budget and index + 1 < len(shards):
@@ -654,9 +654,7 @@ class LogStore:
                             entry_seq = int(entry.get("seq", -1))
                         except (TypeError, ValueError, OverflowError):
                             entry_seq = -1
-                        if entry_seq >= 0 and (
-                            consumed_seq is None or entry_seq < consumed_seq
-                        ):
+                        if entry_seq >= 0 and (consumed_seq is None or entry_seq < consumed_seq):
                             consumed_seq = entry_seq
                         if before_seq is not None and entry_seq >= before_seq:
                             continue
@@ -673,7 +671,11 @@ class LogStore:
                             return entries, last_consumed_start, consumed_seq, scanned_bytes, False
 
                     end = start
-                    if scanned_bytes >= max_scan_bytes and end > 0 and last_consumed_start is not None:
+                    if (
+                        scanned_bytes >= max_scan_bytes
+                        and end > 0
+                        and last_consumed_start is not None
+                    ):
                         return entries, last_consumed_start, consumed_seq, scanned_bytes, False
         except OSError:
             return [], None, before_seq, 0, True
@@ -738,9 +740,9 @@ class LogStore:
         entries, _ = self.read_all()
         cutoff = before.isoformat() if before is not None else None
         conv = [
-            e for e in entries
-            if e.get("type") in _DIGEST_TYPES
-            and (cutoff is None or str(e.get("ts", "")) < cutoff)
+            e
+            for e in entries
+            if e.get("type") in _DIGEST_TYPES and (cutoff is None or str(e.get("ts", "")) < cutoff)
         ]
         if not conv:
             return []
@@ -769,7 +771,11 @@ class LogStore:
     @staticmethod
     def _truncate(s: str) -> str:
         s = s if isinstance(s, str) else str(s)
-        return s if len(s) <= _MAX_ENTRY_CHARS else s[:_MAX_ENTRY_CHARS] + "…(截断)"
+        return (
+            s
+            if len(s) <= _MAX_ENTRY_CHARS
+            else s[:_MAX_ENTRY_CHARS] + tr("recent_activity.digest_truncated")
+        )
 
     def _entry_to_text(self, e: dict[str, Any]) -> str:
         t = e.get("type")
@@ -781,18 +787,42 @@ class LogStore:
             parts = []
             content = e.get("content") or ""
             if content:
-                parts.append(f"[助手] {self._truncate(content)}")
+                parts.append(
+                    tr(
+                        "recent_activity.digest_assistant",
+                        content=self._truncate(content),
+                    )
+                )
             for tc in e.get("tool_calls", []) or []:
                 args = self._truncate(json.dumps(tc.get("arguments", {}), ensure_ascii=False))
-                parts.append(f"  →调用 {tc.get('name', '?')}({args})")
+                parts.append(
+                    tr(
+                        "recent_activity.digest_tool_call",
+                        name=tc.get("name", "?"),
+                        arguments=args,
+                    )
+                )
             return "\n".join(parts)
         if t == "tool_call":
-            return f"  →调用 {e.get('name', '?')}"
+            return tr("recent_activity.digest_tool_call_bare", name=e.get("name", "?"))
         if t == "tool_result":
-            tag = "错误" if e.get("is_error") else "结果"
-            return f"  ←{e.get('name', '?')} {tag}: {self._truncate(e.get('content', ''))}"
+            status = tr(
+                "recent_activity.digest_error"
+                if e.get("is_error")
+                else "recent_activity.digest_result"
+            )
+            return tr(
+                "recent_activity.digest_tool_result",
+                name=e.get("name", "?"),
+                status=status,
+                content=self._truncate(e.get("content", "")),
+            )
         if t == "task_reminder":
-            return f"[任务提醒] {len(e.get('tasks', []))} 个任务"
+            return tr("recent_activity.digest_task_reminder", count=len(e.get("tasks", [])))
         if t == "subconscious_done":
-            return f"[潜意识·{e.get('mode', '?')}] {self._truncate(e.get('result', ''))}"
+            return tr(
+                "recent_activity.digest_subconscious",
+                mode=e.get("mode", "?"),
+                result=self._truncate(e.get("result", "")),
+            )
         return ""

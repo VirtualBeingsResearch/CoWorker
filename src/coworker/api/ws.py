@@ -11,6 +11,7 @@ from fastapi import WebSocket
 from loguru import logger
 
 from coworker.core.types import CommunicateRequest
+from coworker.i18n import tr
 
 # 关闭哨兵：往出站队列塞这个值即可唤醒阻塞在 queue.get() 的 SSE/WS 发送循环，
 # 让其立即跳出、释放连接，避免拖住 uvicorn 的优雅关闭。命名空间化，几乎不可能与真实消息撞。
@@ -32,21 +33,26 @@ def serialize_outbound_message(message: Any) -> str:
 
 def _encode_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:
     if len(attachments) > _MAX_ATTACHMENT_COUNT:
-        raise ValueError(f"附件数量超过限制: {_MAX_ATTACHMENT_COUNT}")
+        raise ValueError(tr("api.attachment.count_exceeded", limit=_MAX_ATTACHMENT_COUNT))
     encoded: list[dict[str, str]] = []
     for item in attachments:
         if not isinstance(item, dict):
-            raise ValueError("attachments 中每一项都必须是对象。")
+            raise ValueError(tr("api.attachment.item_not_object"))
         raw_path = item.get("path")
         if not isinstance(raw_path, str) or not raw_path:
-            raise ValueError("attachments[].path 必须是非空字符串。")
+            raise ValueError(tr("api.attachment.path_required"))
         path = Path(raw_path)
         if not path.is_file():
-            raise ValueError(f"附件不存在: {path}")
+            raise ValueError(tr("api.attachment.missing", path=path))
         size = path.stat().st_size
         if size > _MAX_ATTACHMENT_BYTES:
             raise ValueError(
-                f"附件 {path.name} ({size} bytes) 超过限制 {_MAX_ATTACHMENT_BYTES} bytes"
+                tr(
+                    "api.attachment.too_large",
+                    name=path.name,
+                    size=size,
+                    limit=_MAX_ATTACHMENT_BYTES,
+                )
             )
         filename = str(item.get("filename") or path.name)
         media_type = str(
@@ -76,7 +82,9 @@ class ConnectionPool:
         queue: asyncio.Queue | None = None,
     ) -> asyncio.Queue:
         if participant_id in self._connections:
-            raise ValueError(f"participant_id already connected: {participant_id}")
+            raise ValueError(
+                tr("api.attachment.participant_connected", participant=participant_id)
+            )
         await ws.accept()
         self._connections[participant_id] = ws
         queue = queue or asyncio.Queue()

@@ -7,6 +7,7 @@ from coworker.agent.bubble_handoff import (
     BubbleHandoffMatcher,
 )
 from coworker.core.types import ToolResult
+from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
@@ -195,13 +196,11 @@ class BubbleSpawnTool(Tool):
         if not goal.strip():
             return ToolResult(
                 tool_call_id="",
-                content="创建泡泡需要 goal；续跑超时泡泡请提供 bubble_id。",
+                content=tr("tool_result.bubble.needs_goal"),
                 is_error=True,
             )
 
-        resolved_participant_id = (
-            participant_id.strip() if isinstance(participant_id, str) else ""
-        )
+        resolved_participant_id = participant_id.strip() if isinstance(participant_id, str) else ""
         if resolved_participant_id and self._communicate is not None:
             try:
                 resolved_participant_id = self._communicate.resolve_participant_id(
@@ -216,19 +215,19 @@ class BubbleSpawnTool(Tool):
         if provider_obj is None:
             return ToolResult(
                 tool_call_id="",
-                content=f"未知 provider: {provider}",
+                content=tr("tool_result.bubble.unknown_provider", provider=provider),
                 is_error=True,
             )
         if not model:
             return ToolResult(
                 tool_call_id="",
-                content=f"provider '{provider}' 未能解析出可用模型，请显式传入 model。",
+                content=tr("tool_result.bubble.provider_no_model", provider=provider),
                 is_error=True,
             )
         if not provider_obj.supports_tool_use(model):
             return ToolResult(
                 tool_call_id="",
-                content=f"模型 '{model}' 不支持 provider '{provider}' 上的 tool use。",
+                content=tr("tool_result.bubble.model_no_tools", model=model, provider=provider),
                 is_error=True,
             )
 
@@ -237,15 +236,23 @@ class BubbleSpawnTool(Tool):
         if palaces:
             if self._palace_loader is None:
                 return ToolResult(
-                    tool_call_id="", content="未启用记忆宫殿，无法挂载 palaces。", is_error=True
+                    tool_call_id="",
+                    content=tr("tool_result.bubble.palaces_disabled"),
+                    is_error=True,
                 )
             for pname in palaces:
                 palace = self._palace_loader.get(pname)
                 if palace is None:
-                    available = ", ".join(self._palace_loader.list_names()) or "（无）"
+                    available = ", ".join(self._palace_loader.list_names()) or tr(
+                        "tool_result.bubble.none"
+                    )
                     return ToolResult(
                         tool_call_id="",
-                        content=f"记忆宫殿 '{pname}' 不存在。可用：{available}",
+                        content=tr(
+                            "tool_result.bubble.palace_missing",
+                            name=pname,
+                            available=available,
+                        ),
                         is_error=True,
                     )
                 resolved_palaces.append(palace)
@@ -276,9 +283,7 @@ class BubbleSpawnTool(Tool):
         bubble.forked_tree = forked_tree
         bubble.participant_id = resolved_participant_id
         bubble.conversation_id = conversation_id.strip() if isinstance(conversation_id, str) else ""
-        bubble.handoff_transparency = self._should_use_handoff_transparency(
-            bubble.participant_id
-        )
+        bubble.handoff_transparency = self._should_use_handoff_transparency(bubble.participant_id)
         bubble.palaces = [p.name for p in resolved_palaces]
 
         if not fresh_start:
@@ -289,20 +294,23 @@ class BubbleSpawnTool(Tool):
             primary = self._short_term.primary
             if primary and primary[-1].role == "assistant" and primary[-1].tool_calls:
                 from coworker.core.types import Message as _Msg
+
                 for tc in primary[-1].tool_calls:
                     tc_name = tc.get("function", {}).get("name", "")
                     tc_id = tc.get("id", "")
                     if tc_name == "bubble_spawn" and goal in tc.get("function", {}).get(
                         "arguments", ""
                     ):
-                        content = f"当前线程已经分叉为泡泡 {bubble.id}。"
+                        content = tr("tool_result.bubble.forked", id=bubble.id)
                     else:
-                        content = f"工具 {tc_name} 在 bubble 分叉后由主线程执行，结果不在此处。"
-                    bubble.forked_context.append(_Msg(
-                        role="tool",
-                        content=content,
-                        tool_call_id=tc_id,
-                    ))
+                        content = tr("tool_result.bubble.tool_after_fork", name=tc_name)
+                    bubble.forked_context.append(
+                        _Msg(
+                            role="tool",
+                            content=content,
+                            tool_call_id=tc_id,
+                        )
+                    )
 
         # 注入宫殿：关键 skill body + 领域速记卡 + 按标签召回的长期记忆。
         # 放在结构已完整的 forked_context 末尾，作为泡泡启动前最新、最显著的上下文
@@ -317,40 +325,55 @@ class BubbleSpawnTool(Tool):
             thinking=thinking,
         )
         bubble.brain = bubble_brain
-        forked_tokens = sum(
-            estimate_content_tokens(m.content) for m in bubble.forked_context
-        )
+        forked_tokens = sum(estimate_content_tokens(m.content) for m in bubble.forked_context)
         self.start_existing(bubble)
 
-        context_desc = (
-            f"全新上下文（仅含 {len(bubble.forked_context)} 条 pinned 消息）"
+        context_desc = tr(
+            "tool_result.bubble.fresh_context"
             if fresh_start
-            else f"分叉上下文（{len(bubble.forked_context)} 条消息，约 {forked_tokens} tokens）"
+            else "tool_result.bubble.forked_context",
+            count=len(bubble.forked_context),
+            **({} if fresh_start else {"tokens": forked_tokens}),
         )
         palace_desc = (
-            f"\n已挂宫殿：{', '.join(p.name for p in resolved_palaces)}"
+            tr(
+                "tool_result.bubble.mounted_palaces",
+                names=", ".join(p.name for p in resolved_palaces),
+            )
             if resolved_palaces
             else ""
         )
-        thinking_desc = "" if thinking else "\n模式：非思考（快速执行）"
-        model_desc = f"\n模型：{bubble.provider}/{bubble.model}"
+        thinking_desc = "" if thinking else tr("tool_result.bubble.fast_mode")
+        model_desc = tr("tool_result.bubble.model", provider=bubble.provider, model=bubble.model)
         communication_desc = ""
         if bubble.participant_id:
-            communication_desc = f"\n通信绑定：{bubble.participant_id}"
-            if bubble.conversation_id:
-                communication_desc += f" / {bubble.conversation_id}"
-            communication_desc += "（后续匹配消息会直接转交给此泡泡）"
+            conversation = (
+                tr(
+                    "tool_result.bubble.conversation",
+                    conversation=bubble.conversation_id,
+                )
+                if bubble.conversation_id
+                else ""
+            )
+            communication_desc = tr(
+                "tool_result.bubble.binding",
+                participant=bubble.participant_id,
+                conversation=conversation,
+            )
             if bubble.handoff_transparency:
-                communication_desc += "\n通信透明标识：已启用（转交、回复和结束会向对方说明）"
+                communication_desc += tr("tool_result.bubble.transparent")
         return ToolResult(
             tool_call_id="",
-            content=(
-                f"泡泡已创建：id={bubble.id}\n"
-                f"目标：{goal}\n"
-                f"最大轮次：{max_cycles}\n"
-                f"{context_desc}{palace_desc}{thinking_desc}{model_desc}{communication_desc}\n"
-                f"使用 bubble_check('{bubble.id}') 查看进度，"
-                f"bubble_send('{bubble.id}', '消息') 与其通信。"
+            content=tr(
+                "tool_result.bubble.created",
+                id=bubble.id,
+                goal=goal,
+                cycles=max_cycles,
+                context=context_desc,
+                palaces=palace_desc,
+                thinking=thinking_desc,
+                model=model_desc,
+                communication=communication_desc,
             ),
         )
 
@@ -368,7 +391,7 @@ class BubbleSpawnTool(Tool):
         except (TypeError, ValueError):
             return ToolResult(
                 tool_call_id="",
-                content="max_cycles 必须是整数。",
+                content=tr("tool_result.bubble.max_cycles_integer"),
                 is_error=True,
             )
         requested_cycles = max(1, min(requested_cycles, BubbleMiniLoop._CYCLES_HARD_CAP))
@@ -385,7 +408,7 @@ class BubbleSpawnTool(Tool):
         bubble = result
 
         if continuation.strip():
-            await bubble.inbox.put(("主线", continuation.strip()))
+            await bubble.inbox.put((tr("tool_result.bubble.sender_main"), continuation.strip()))
         try:
             bubble.handoff_transparency = (
                 bubble.handoff_transparency
@@ -395,18 +418,22 @@ class BubbleSpawnTool(Tool):
         except Exception as e:
             # A failed startup must not leave a record that appears to be running.
             bubble.status = "error"
-            bubble.error = f"续跑启动失败：{e}"
+            bubble.error = tr("tool_result.bubble.resume_failed", error=e)
             self._store.mark_done(bubble)
             return ToolResult(tool_call_id="", content=bubble.error, is_error=True)
 
         added_cycles = bubble.max_cycles - previous_max_cycles
-        instruction = "已附加主线续跑指令。" if continuation.strip() else ""
+        instruction = tr("tool_result.bubble.resume_instruction") if continuation.strip() else ""
         return ToolResult(
             tool_call_id="",
-            content=(
-                f"泡泡 {bubble.id} 已恢复并继续执行（第 {bubble.resume_count} 次续跑）。"
-                f"累计轮次预算 {previous_max_cycles} → {bubble.max_cycles}（新增 {added_cycles} 轮）。"
-                f"{instruction}"
+            content=tr(
+                "tool_result.bubble.resumed",
+                id=bubble.id,
+                count=bubble.resume_count,
+                before=previous_max_cycles,
+                after=bubble.max_cycles,
+                added=added_cycles,
+                instruction=instruction,
             ),
         )
 
@@ -417,7 +444,7 @@ class BubbleSpawnTool(Tool):
         from coworker.agent.bubble_loop import BubbleMiniLoop
 
         if bubble.brain is None:
-            raise RuntimeError(f"泡泡 {bubble.id} 缺少独立 brain，无法启动。")
+            raise RuntimeError(tr("tool_result.bubble.brain_missing", id=bubble.id))
         mini_loop = BubbleMiniLoop(
             bubble=bubble,
             brain=bubble.brain,
@@ -432,7 +459,7 @@ class BubbleSpawnTool(Tool):
             long_term=self._long_term,
             communicate=self._communicate,
         )
-        bubble.task = asyncio.create_task(mini_loop.run(), name=f"bubble-{bubble.id}")
+        bubble.task = asyncio.create_task(bind_locale(mini_loop.run), name=f"bubble-{bubble.id}")
 
     def _should_use_handoff_transparency(self, participant_id: str) -> bool:
         stream_transport = (
@@ -475,16 +502,25 @@ class BubbleSpawnTool(Tool):
                     if skill is None:
                         continue
                     crit_loaded.append(sname)
-                    bubble.forked_context.append(_Msg(
-                        role="system",
-                        content=f"[宫殿:{palace.name} · skill:{sname}]\n{skill.body}",
-                    ))
+                    bubble.forked_context.append(
+                        _Msg(
+                            role="system",
+                            content=tr(
+                                "tool_result.bubble.palace_skill",
+                                palace=palace.name,
+                                skill=sname,
+                                body=skill.body,
+                            ),
+                        )
+                    )
 
             # 2. 宫殿速记卡
-            bubble.forked_context.append(_Msg(
-                role="system",
-                content=f"[宫殿:{palace.name}]\n{palace.body}",
-            ))
+            bubble.forked_context.append(
+                _Msg(
+                    role="system",
+                    content=tr("tool_result.bubble.palace", palace=palace.name, body=palace.body),
+                )
+            )
 
         bubble.palace_tags = all_tags
 
@@ -523,9 +559,18 @@ class BubbleSpawnTool(Tool):
             return None, []
         if not matched:
             return None, []
-        lines = [f"[宫殿记忆] 以下长期记忆与当前宫殿（标签：{', '.join(tags)}）和任务相关："]
+        lines = [tr("tool_result.bubble.palace_memory", tags=", ".join(tags))]
         for i, m in enumerate(matched, 1):
-            lines.append(f"{i}. id={m['id']} [{m['category']}] {m['content']}（相关度：{m['relevance']:.2f}）")
+            lines.append(
+                tr(
+                    "tool_result.bubble.memory_item",
+                    index=i,
+                    id=m["id"],
+                    category=m["category"],
+                    content=m["content"],
+                    relevance=f"{m['relevance']:.2f}",
+                )
+            )
         msg = _Msg(
             role="system",
             content="\n".join(lines),
@@ -555,51 +600,68 @@ class BubbleCheckTool(Tool):
     async def execute(self, bubble_id: str, **_) -> ToolResult:
         bubble = self._store.get(bubble_id)
         if not bubble:
-            return ToolResult(tool_call_id="", content=f"未找到泡泡 [{bubble_id}]", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.bubble.missing", id=bubble_id),
+                is_error=True,
+            )
         lines = [
-            f"泡泡 {bubble.id}",
-            f"状态：{bubble.status}",
-            f"目标：{bubble.goal}",
-            f"当前执行轮次：{bubble.cycles_used}/{bubble.max_cycles}",
-            f"运行时长：{bubble.elapsed_seconds():.1f}s",
-            f"内部消息数：{len(bubble.inner_messages)}",
+            tr(
+                "tool_result.bubble.check_header",
+                id=bubble.id,
+                status=bubble.status,
+                goal=bubble.goal,
+                used=bubble.cycles_used,
+                max=bubble.max_cycles,
+                seconds=f"{bubble.elapsed_seconds():.1f}",
+                messages=len(bubble.inner_messages),
+            )
         ]
         if bubble.participant_id:
-            lines.append(f"服务对象：{bubble.participant_id}")
+            lines.append(
+                tr("tool_result.bubble.check_participant", participant=bubble.participant_id)
+            )
         if bubble.conversation_id:
-            lines.append(f"服务会话：{bubble.conversation_id}")
+            lines.append(
+                tr("tool_result.bubble.check_conversation", conversation=bubble.conversation_id)
+            )
         if bubble.handoff_transparency:
-            lines.append("通信透明标识：已启用")
+            lines.append(tr("tool_result.bubble.check_transparency"))
         if bubble.palaces:
-            lines.append(f"挂载宫殿：{', '.join(bubble.palaces)}")
+            lines.append(tr("tool_result.bubble.check_palaces", palaces=", ".join(bubble.palaces)))
         if bubble.provider or bubble.model:
-            lines.append(f"模型：{bubble.provider}/{bubble.model}")
+            lines.append(
+                tr("tool_result.bubble.check_model", provider=bubble.provider, model=bubble.model)
+            )
         if bubble.checkpoint_count > 0:
-            lines.append(f"检查点次数：{bubble.checkpoint_count}")
+            lines.append(tr("tool_result.bubble.check_checkpoints", count=bubble.checkpoint_count))
         if bubble.resume_count > 0:
-            lines.append(f"超时续跑次数：{bubble.resume_count}")
+            lines.append(tr("tool_result.bubble.check_resumes", count=bubble.resume_count))
         if bubble.status == "timeout" and bubble.finished_at is not None:
             window = self._store.timeout_resume_seconds
-            remaining = window - max(
-                0.0, (datetime.now() - bubble.finished_at).total_seconds()
-            )
+            remaining = window - max(0.0, (datetime.now() - bubble.finished_at).total_seconds())
             if window <= 0:
-                lines.append("超时续跑：已禁用")
+                lines.append(tr("tool_result.bubble.check_resume_disabled"))
             elif remaining > 0:
                 lines.append(
-                    f"超时续跑：剩余约 {remaining:.0f}s，可调用 bubble_spawn(bubble_id=...) 继续。"
+                    tr("tool_result.bubble.check_resume_remaining", seconds=f"{remaining:.0f}")
                 )
             else:
-                lines.append("超时续跑：宽限期已过")
+                lines.append(tr("tool_result.bubble.check_resume_expired"))
         if bubble.partial_results:
             last = bubble.partial_results[-1]
             preview = last[:300] + ("..." if len(last) > 300 else "")
-            lines.append(f"最近阶段结论：{preview}")
+            lines.append(tr("tool_result.bubble.check_latest_checkpoint", result=preview))
         if bubble.result:
             preview = bubble.result[:500]
-            lines.append(f"结论预览：{preview}{'...' if len(bubble.result) > 500 else ''}")
+            lines.append(
+                tr(
+                    "tool_result.bubble.check_result",
+                    result=preview + ("..." if len(bubble.result) > 500 else ""),
+                )
+            )
         if bubble.error:
-            lines.append(f"错误：{bubble.error}")
+            lines.append(tr("tool_result.bubble.check_error", error=bubble.error))
         return ToolResult(tool_call_id="", content="\n".join(lines))
 
 
@@ -636,24 +698,30 @@ class BubbleSendTool(Tool):
         from coworker.core.types import IncomingEvent
 
         if target == "main":
-            await self._inbox.push(IncomingEvent(
-                participant_id="system",
-                content=f"[来自主线] {message}",
-                source="system",
-            ))
-            return ToolResult(tool_call_id="", content="消息已推送到主线程 inbox。")
+            await self._inbox.push(
+                IncomingEvent(
+                    participant_id="system",
+                    content=tr("tool_result.bubble.from_main", message=message),
+                    source="system",
+                )
+            )
+            return ToolResult(tool_call_id="", content=tr("tool_result.bubble.pushed_main"))
 
         bubble = self._store.get(target)
         if not bubble:
-            return ToolResult(tool_call_id="", content=f"未找到泡泡 [{target}]", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.bubble.missing", id=target),
+                is_error=True,
+            )
         if bubble.is_terminal():
             return ToolResult(
                 tool_call_id="",
-                content=f"泡泡 {target} 已终止（{bubble.status}），无法接收消息。",
+                content=tr("tool_result.bubble.terminal", id=target, status=bubble.status),
                 is_error=True,
             )
-        await bubble.inbox.put(("主线", message))
-        return ToolResult(tool_call_id="", content=f"消息已发送到泡泡 {target}。")
+        await bubble.inbox.put((tr("tool_result.bubble.sender_main"), message))
+        return ToolResult(tool_call_id="", content=tr("tool_result.bubble.sent", id=target))
 
 
 class BubbleCancelTool(Tool):
@@ -677,15 +745,23 @@ class BubbleCancelTool(Tool):
     async def execute(self, bubble_id: str, **_) -> ToolResult:
         bubble = self._store.get(bubble_id)
         if not bubble:
-            return ToolResult(tool_call_id="", content=f"未找到泡泡 [{bubble_id}]", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.bubble.missing", id=bubble_id),
+                is_error=True,
+            )
         if bubble.is_terminal():
             return ToolResult(
                 tool_call_id="",
-                content=f"泡泡 {bubble_id} 已处于终态 {bubble.status}，无需取消。",
+                content=tr(
+                    "tool_result.bubble.already_terminal",
+                    id=bubble_id,
+                    status=bubble.status,
+                ),
             )
         if bubble.task:
             bubble.task.cancel()
-        return ToolResult(tool_call_id="", content=f"已发送取消信号到泡泡 {bubble_id}。")
+        return ToolResult(tool_call_id="", content=tr("tool_result.bubble.cancelled", id=bubble_id))
 
 
 class BubbleListTool(Tool):
@@ -703,26 +779,36 @@ class BubbleListTool(Tool):
     async def execute(self, **_) -> ToolResult:
         active = self._store.list_active()
         if not active:
-            return ToolResult(tool_call_id="", content="当前没有活跃的泡泡。")
-        lines = [f"活跃泡泡 {len(active)} 个："]
+            return ToolResult(tool_call_id="", content=tr("tool_result.bubble.none_active"))
+        lines = [tr("tool_result.bubble.list_title", count=len(active))]
         for b in active:
             tags = []
             if b.participant_id:
-                tags.append(f"对象={b.participant_id}")
+                tags.append(tr("tool_result.bubble.list_participant", participant=b.participant_id))
             if b.conversation_id:
-                tags.append(f"会话={b.conversation_id}")
+                tags.append(
+                    tr("tool_result.bubble.list_conversation", conversation=b.conversation_id)
+                )
             if b.handoff_transparency:
-                tags.append("透明标识=开")
+                tags.append(tr("tool_result.bubble.list_transparency"))
             if b.palaces:
-                tags.append(f"宫殿={','.join(b.palaces)}")
+                tags.append(tr("tool_result.bubble.list_palaces", palaces=",".join(b.palaces)))
             if b.provider or b.model:
-                tags.append(f"模型={b.provider}/{b.model}")
+                tags.append(tr("tool_result.bubble.list_model", provider=b.provider, model=b.model))
             if b.resume_count > 0:
-                tags.append(f"续跑={b.resume_count}")
+                tags.append(tr("tool_result.bubble.list_resumes", count=b.resume_count))
             tag_str = f" | {' '.join(tags)}" if tags else ""
             lines.append(
-                f"  [{b.id}] {b.status} | {b.cycles_used}/{b.max_cycles}轮 "
-                f"| {b.elapsed_seconds():.0f}s{tag_str} | 目标：{b.goal[:60]}"
+                tr(
+                    "tool_result.bubble.list_item",
+                    id=b.id,
+                    status=b.status,
+                    used=b.cycles_used,
+                    max=b.max_cycles,
+                    seconds=f"{b.elapsed_seconds():.0f}",
+                    tags=tag_str,
+                    goal=b.goal[:60],
+                )
             )
         return ToolResult(tool_call_id="", content="\n".join(lines))
 
@@ -767,6 +853,6 @@ class BubbleDoneTool(Tool):
     async def execute(self, result: str = "", **_) -> ToolResult:
         return ToolResult(
             tool_call_id="",
-            content="bubble_done 只能在泡泡模式中调用。",
+            content=tr("tool_result.bubble.done_wrong_context"),
             is_error=True,
         )

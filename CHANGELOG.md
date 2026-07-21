@@ -6,6 +6,7 @@
 - fix(admin): show model-switch errors in the management console
 - fix(first-run): avoid queuing profile generation before a model is configured, clarify the setup URL, and default Compose to the published offline image
 - docs: reorganize documentation by functional domain and add a detailed WeCom ordering, reliability, and concurrency design
+- feat(i18n): add instance-wide `zh-CN`/`en` runtime localization for prompts, complete tool schemas, memory, Bubbles, subconscious modes, vision, notifications, Coworker-owned API messages, cataloged operational notices, and localized user-asset companions; locale changes are announced after restart
 
 ## 0.3.1 - 2026-07-20
 

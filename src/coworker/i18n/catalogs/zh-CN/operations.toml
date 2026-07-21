@@ -1,0 +1,17 @@
+[log]
+provider_skipped = "跳过 provider {{provider}}：{{error}}"
+backfill_start = "[backfill] 开始从原始日志全史回溯记忆树……"
+backfill_complete = "[backfill] 完成：生成 {{leaves}} 个叶子，脊柱 {{nodes}} 个节点，已写回快照。"
+backfill_empty = "[backfill] 无可回溯的历史内容"
+backfill_summarizing = "[backfill] 开始：{{count}} 块，并行摘要为叶子……"
+backfill_reducing = "[backfill] {{count}} 个叶子完成，平衡归约建脊柱……"
+shutdown_tasks_stuck = "后台任务 10s 内未停止，强制取消以继续退出/重启；卡住的 task：{{tasks}}"
+mode_invalid_trigger = "MODE 文件 {{path}} 的 trigger='{{value}}' 无效，回退为 'periodic'。"
+mode_invalid_context_builder = "MODE 文件 {{path}} 的 context_builder='{{value}}' 无效，回退为 'short_term'。"
+
+[cli]
+first_run_token = '''Coworker 首次启动：请用下面的初始管理员令牌打开 {{admin_url}}
+
+  {{token}}
+
+令牌已保存到 {{path}}，完成初始化后仍可继续使用。'''

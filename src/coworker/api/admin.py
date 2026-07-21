@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import Config, _deep_merge, load_admin_overrides
+from coworker.i18n import capture_locale, locale_context, tr
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -163,7 +164,15 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
 ) -> None:
-    global _agent, _brain, _config, _alarms, _skill_loader, _palace_loader, _mode_loader, _pending_restart
+    global \
+        _agent, \
+        _brain, \
+        _config, \
+        _alarms, \
+        _skill_loader, \
+        _palace_loader, \
+        _mode_loader, \
+        _pending_restart
     _agent = agent
     _brain = brain
     _config = config
@@ -176,39 +185,39 @@ def setup_admin(
 
 def _require_agent() -> AgentLoop:
     if _agent is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     return _agent
 
 
 def _require_brain() -> Brain:
     if _brain is None:
-        raise HTTPException(status_code=503, detail="Brain not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.brain_not_ready"))
     return _brain
 
 
 def _require_config() -> Config:
     if _config is None:
-        raise HTTPException(status_code=503, detail="Config not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.config_not_ready"))
     return _config
 
 
 def _require_alarms() -> AlarmManager:
     if _alarms is None:
-        raise HTTPException(status_code=503, detail="Alarm manager not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.alarm_manager_not_ready"))
     return _alarms
 
 
 def _require_task_store() -> TaskStore:
     store = _require_agent()._task_store
     if store is None:
-        raise HTTPException(status_code=503, detail="Task store not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.task_store_not_ready"))
     return store
 
 
 def _require_bubble_store() -> BubbleStore:
     store = _require_agent()._bubble_store
     if store is None:
-        raise HTTPException(status_code=503, detail="Bubble store not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.bubble_store_not_ready"))
     return store
 
 
@@ -227,11 +236,14 @@ def _admin_message_content(content: object) -> object:
         if block_type in {"text", "input_text", "output_text"}:
             safe.append({"type": block_type, "text": str(block.get("text") or "")})
         else:
-            safe.append({
-                key: block[key]
-                for key in ("type", "media_type", "filename", "name")
-                if key in block
-            } or {"type": block_type})
+            safe.append(
+                {
+                    key: block[key]
+                    for key in ("type", "media_type", "filename", "name")
+                    if key in block
+                }
+                or {"type": block_type}
+            )
     return safe
 
 
@@ -242,10 +254,7 @@ def _admin_tool_arguments(value: object) -> object:
         except (TypeError, ValueError):
             return value
     if isinstance(value, dict):
-        return {
-            str(key): _admin_tool_arguments(item)
-            for key, item in value.items()
-        }
+        return {str(key): _admin_tool_arguments(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_admin_tool_arguments(item) for item in value]
     return value
@@ -284,11 +293,11 @@ async def require_admin(
 ) -> None:
     token = _token()
     if not token:
-        raise HTTPException(status_code=503, detail="ADMIN__TOKEN 未配置")
+        raise HTTPException(status_code=503, detail=tr("api.auth.admin_token_unconfigured"))
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="缺少管理员令牌")
+        raise HTTPException(status_code=401, detail=tr("api.auth.admin_token_missing"))
     if not secrets.compare_digest(authorization[7:], token):
-        raise HTTPException(status_code=403, detail="管理员令牌无效")
+        raise HTTPException(status_code=403, detail=tr("api.auth.admin_token_invalid"))
 
 
 def _audit_path() -> Path:
@@ -329,10 +338,10 @@ def _set_path(data: JsonObject, dotted: str, value: JsonValue) -> None:
         elif isinstance(node, list) and part.isdigit():
             item_index = int(part)
             if item_index >= len(node):
-                raise ValueError(f"配置路径无效：{dotted}")
+                raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
             child = node[item_index]
         else:
-            raise ValueError(f"配置路径无效：{dotted}")
+            raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
         node = child
     last = parts[-1]
     if isinstance(node, dict):
@@ -340,7 +349,7 @@ def _set_path(data: JsonObject, dotted: str, value: JsonValue) -> None:
     elif isinstance(node, list) and last.isdigit() and int(last) < len(node):
         node[int(last)] = value
     else:
-        raise ValueError(f"配置路径无效：{dotted}")
+        raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
 
 
 def _get_path(data: JsonObject, dotted: str, default: JsonValue = None) -> JsonValue:
@@ -446,7 +455,11 @@ async def _apply_hot_config(
     changed_paths: set[str],
 ) -> tuple[list[str], list[str]]:
     applied: list[str] = []
-    restart = sorted(path for path in changed_paths if path not in _HOT_CONFIG_PATHS and not path.startswith("llm.managed_providers"))
+    restart = sorted(
+        path
+        for path in changed_paths
+        if path not in _HOT_CONFIG_PATHS and not path.startswith("llm.managed_providers")
+    )
     brain = _require_brain()
 
     if "llm.max_tokens" in changed_paths:
@@ -461,7 +474,8 @@ async def _apply_hot_config(
         current_specs = {spec.name: spec for spec in current.llm.resolved_providers()}
         desired_specs = {spec.name: spec for spec in desired.llm.resolved_providers()}
         changed_names = {
-            name for name in current_specs.keys() | desired_specs.keys()
+            name
+            for name in current_specs.keys() | desired_specs.keys()
             if current_specs.get(name) != desired_specs.get(name)
         }
         for name, spec in desired_specs.items():
@@ -493,9 +507,12 @@ async def _apply_hot_config(
 
 
 def _require_name_confirmation(name: str) -> None:
-    expected = _require_agent()._identity.name or "未命名"
+    expected = _require_agent()._identity.name or tr("api.admin.unnamed")
     if name.strip() != expected:
-        raise HTTPException(status_code=400, detail=f"请输入 Coworker 名称“{expected}”以确认")
+        raise HTTPException(
+            status_code=400,
+            detail=tr("api.admin.confirm_name", name=expected),
+        )
 
 
 def _task_dict(task: Task) -> JsonObject:
@@ -539,8 +556,6 @@ _INTERACTION_PREVIEW_CHARS = 480
 _INTERACTION_DETAIL_STRING_CHARS = 32_000
 _INTERACTION_DETAIL_ITEMS = 200
 _INTERACTION_DETAIL_DEPTH = 10
-
-
 def _interaction_logs_dir() -> Path:
     logs_dir = _config.agent.logs_dir if _config is not None else "data/logs"
     return Path(logs_dir)
@@ -581,7 +596,7 @@ def _decode_interaction_cursor(value: str | None) -> LogPageCursor | None:
     if not value:
         return None
     if len(value) > 512:
-        raise HTTPException(status_code=400, detail="日志游标无效")
+        raise HTTPException(status_code=400, detail=tr("api.admin.invalid_log_cursor"))
     try:
         padded = value + "=" * (-len(value) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
@@ -589,7 +604,9 @@ def _decode_interaction_cursor(value: str | None) -> LogPageCursor | None:
         offset = payload["o"]
         before_seq = payload.get("s")
     except (binascii.Error, KeyError, TypeError, ValueError, UnicodeDecodeError):
-        raise HTTPException(status_code=400, detail="日志游标无效") from None
+        raise HTTPException(
+            status_code=400, detail=tr("api.admin.invalid_log_cursor")
+        ) from None
     if (
         not isinstance(path, str)
         or not path
@@ -598,7 +615,7 @@ def _decode_interaction_cursor(value: str | None) -> LogPageCursor | None:
         or offset < 0
         or (before_seq is not None and (type(before_seq) is not int or before_seq < 0))
     ):
-        raise HTTPException(status_code=400, detail="日志游标无效")
+        raise HTTPException(status_code=400, detail=tr("api.admin.invalid_log_cursor"))
     return LogPageCursor(path=path, offset=offset, before_seq=before_seq)
 
 
@@ -624,19 +641,24 @@ def _interaction_preview(entry: Mapping[str, object]) -> str:
     if name:
         suffix = _interaction_text(arguments, 300) if arguments not in (None, "", {}, []) else ""
         return f"{name}{' · ' + suffix if suffix else ''}"
-    details = {
-        str(key): value
-        for key, value in entry.items()
-        if key not in {"seq", "ts", "type"}
-    }
+    details = {str(key): value for key, value in entry.items() if key not in {"seq", "ts", "type"}}
     return _interaction_text(details) if details else "—"
 
 
 def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
     meta: JsonObject = {}
     for key in (
-        "name", "source", "participant_id", "provider", "model", "cycle", "mode",
-        "operation", "stop_reason", "is_error", "thinking",
+        "name",
+        "source",
+        "participant_id",
+        "provider",
+        "model",
+        "cycle",
+        "mode",
+        "operation",
+        "stop_reason",
+        "is_error",
+        "thinking",
     ):
         value = entry.get(key)
         if value not in (None, ""):
@@ -654,13 +676,13 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
 def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0) -> JsonValue:
     if depth >= _INTERACTION_DETAIL_DEPTH:
         state[0] = True
-        return "…（嵌套内容已截断）"
+        return tr("api.admin.nested_truncated")
     if value is None or isinstance(value, bool | int | float):
         return cast(JsonValue, value)
     if isinstance(value, str):
         if len(value) > _INTERACTION_DETAIL_STRING_CHARS:
             state[0] = True
-            return value[:_INTERACTION_DETAIL_STRING_CHARS] + "…（字段已截断）"
+            return value[:_INTERACTION_DETAIL_STRING_CHARS] + tr("api.admin.field_truncated")
         return value
     if isinstance(value, list):
         items = value[:_INTERACTION_DETAIL_ITEMS]
@@ -672,7 +694,7 @@ def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0)
         for index, (key, item) in enumerate(value.items()):
             if index >= _INTERACTION_DETAIL_ITEMS:
                 state[0] = True
-                result["…"] = "更多字段已截断"
+                result["…"] = tr("api.admin.more_fields_truncated")
                 break
             result[str(key)] = _bounded_interaction_value(item, state, depth + 1)
         return result
@@ -680,9 +702,7 @@ def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0)
 
 
 @lru_cache(maxsize=512)
-def _read_bubble_log_cached(
-    path: str, _mtime_ns: int, _size: int
-) -> list[dict[str, object]]:
+def _read_bubble_log_cached(path: str, _mtime_ns: int, _size: int) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     try:
         for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -730,11 +750,7 @@ def _bubble_log_summary(path: Path) -> JsonObject | None:
     bubble_id = str(meta.get("id") or path.stem)
     mode = path.stem[len(bubble_id) + 1 :] if path.stem.startswith(f"{bubble_id}_") else ""
     result = ""
-    max_cycles = 0
     for entry in entries:
-        if entry.get("type") == "message_in" and not max_cycles:
-            match = re.search(r"最多执行\s*(\d+)\s*轮", str(entry.get("content") or ""))
-            max_cycles = int(match.group(1)) if match else 0
         if entry.get("type") == "tool_call" and entry.get("name") == "bubble_done":
             arguments = entry.get("arguments")
             if isinstance(arguments, dict) and not arguments.get("checkpoint"):
@@ -743,12 +759,12 @@ def _bubble_log_summary(path: Path) -> JsonObject | None:
         "id": bubble_id,
         "log_id": path.stem,
         "mode": mode,
-        "goal": str(meta.get("goal") or "目标未记录"),
+        "goal": str(meta.get("goal") or tr("api.admin.goal_unrecorded")),
         "status": str(meta.get("status") or "done"),
         "provider": str(meta.get("provider") or ""),
         "model": str(meta.get("model") or ""),
         "cycles_used": _as_int(meta.get("cycles_used")),
-        "max_cycles": _as_int(meta.get("max_cycles"), max_cycles),
+        "max_cycles": _as_int(meta.get("max_cycles")),
         "participant_id": str(meta.get("participant_id") or ""),
         "conversation_id": str(meta.get("conversation_id") or ""),
         "handoff_transparency": bool(meta.get("handoff_transparency")),
@@ -774,9 +790,9 @@ def _bubble_snapshot(bubble: Bubble) -> dict[str, object]:
         "handoff_transparency": bool(getattr(bubble, "handoff_transparency", False)),
         "resume_count": _as_int(getattr(bubble, "resume_count", 0)),
         "content": (
-            "详细日志尚未写入，刷新后可重试。"
+            tr("api.admin.detail_log_pending")
             if bubble.status == "running"
-            else "该条历史未保留详细日志，当前显示内存快照。"
+            else tr("api.admin.detail_log_unavailable")
         ),
         "ts": bubble.created_at.isoformat(),
     }
@@ -817,7 +833,7 @@ async def complete_bootstrap(
     config = _require_config()
     brain = _require_brain()
     if brain.active_provider is not None:
-        raise HTTPException(status_code=409, detail="初始化已完成，请在运行设置中修改模型连接")
+        raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
 
     from coworker.brain.factory import build_provider
 
@@ -835,7 +851,11 @@ async def complete_bootstrap(
     if not provider.supports_tool_use(model):
         raise HTTPException(
             status_code=422,
-            detail=f"模型 {model!r} 不在 {provider_type} 的可用工具模型列表中",
+            detail=tr(
+                "api.admin.unsupported_tool_model",
+                model=repr(model),
+                provider=provider_type,
+            ),
         )
 
     path = Path(config.admin.config_file)
@@ -844,13 +864,15 @@ async def complete_bootstrap(
         "llm": {
             "default_provider": provider_type,
             "default_model": model,
-            "managed_providers": [{
-                "name": provider_type,
-                "type": provider_type,
-                "api_key": api_key,
-                "base_url": base_url,
-                "default_model": model,
-            }],
+            "managed_providers": [
+                {
+                    "name": provider_type,
+                    "type": provider_type,
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "default_model": model,
+                }
+            ],
         },
         "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
     }
@@ -949,7 +971,10 @@ async def patch_config(
         if secret_path not in _SECRET_PATHS and not re.fullmatch(
             r"llm\.managed_providers\.\d+\.api_key", secret_path
         ):
-            raise HTTPException(status_code=400, detail=f"不可写的密钥路径：{secret_path}")
+            raise HTTPException(
+                status_code=400,
+                detail=tr("api.admin.secret_not_writable", path=secret_path),
+            )
         _set_path(next_overrides, secret_path, value or "")
 
     # Blank managed-provider keys preserve only the previous Admin overlay key.
@@ -975,10 +1000,15 @@ async def patch_config(
     )
     try:
         applied_now, requires_restart = await _apply_hot_config(
-            config, desired_config, changed_paths,
+            config,
+            desired_config,
+            changed_paths,
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"运行时应用失败：{e}") from e
+        raise HTTPException(
+            status_code=400,
+            detail=tr("api.admin.runtime_apply_failed", error=e),
+        ) from e
     _write_json_atomic(path, next_overrides)
     _pending_restart = _pending_restart or bool(requires_restart)
     _audit(
@@ -1087,7 +1117,7 @@ async def update_task(
         task_id, description=payload.description, details=payload.details, status=payload.status
     )
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.task_missing"))
     _audit(request, "task.update", task_id)
     return _task_dict(task)
 
@@ -1100,7 +1130,7 @@ async def delete_task(
 ) -> ApiResponse:
     task = _require_task_store().update(task_id, status="deleted")
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.task_missing"))
     _audit(request, "task.delete", task_id)
     return {"deleted": True}
 
@@ -1145,12 +1175,14 @@ async def get_bubble_history(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     if not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
-        raise HTTPException(status_code=404, detail="Bubble 记录不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.bubble_record_missing"))
     path = _bubble_logs_dir() / f"{bubble_id}.jsonl"
     if not path.is_file():
         bubble = _require_bubble_store().get(bubble_id)
         if bubble is None:
-            raise HTTPException(status_code=404, detail="Bubble 记录不存在")
+            raise HTTPException(
+                status_code=404, detail=tr("api.admin.bubble_record_missing")
+            )
         return {"bubble_id": bubble_id, "events": [_bubble_snapshot(bubble)]}
     return {"bubble_id": bubble_id, "events": _read_bubble_log(path)}
 
@@ -1194,7 +1226,9 @@ async def get_subconscious_history(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     if not _SAFE_BUBBLE_ID.fullmatch(log_id):
-        raise HTTPException(status_code=404, detail="潜意识记录不存在")
+        raise HTTPException(
+            status_code=404, detail=tr("api.admin.subconscious_record_missing")
+        )
     path = _subconscious_logs_dir() / f"{log_id}.jsonl"
     if not path.is_file():
         scheduler = getattr(_require_agent(), "_subconscious", None)
@@ -1208,7 +1242,9 @@ async def get_subconscious_history(
             None,
         )
         if bubble is None:
-            raise HTTPException(status_code=404, detail="潜意识记录不存在")
+            raise HTTPException(
+                status_code=404, detail=tr("api.admin.subconscious_record_missing")
+            )
         return {"bubble_id": log_id, "events": [_bubble_snapshot(bubble)]}
     return {"bubble_id": log_id, "events": _read_bubble_log(path)}
 
@@ -1221,9 +1257,9 @@ async def cancel_bubble(
 ) -> JsonObject:
     bubble = _require_bubble_store().get(bubble_id)
     if bubble is None:
-        raise HTTPException(status_code=404, detail="Bubble 不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.bubble_missing"))
     if bubble.is_terminal():
-        raise HTTPException(status_code=409, detail="Bubble 已结束")
+        raise HTTPException(status_code=409, detail=tr("api.admin.bubble_finished"))
     if bubble.task and not bubble.task.done():
         bubble.task.cancel()
         try:
@@ -1337,7 +1373,7 @@ async def create_pinned_context(
     agent = _require_agent()
     label, content = payload.label.strip(), payload.content.strip()
     if not label or not content:
-        raise HTTPException(status_code=422, detail="标题和内容不能为空")
+        raise HTTPException(status_code=422, detail=tr("api.admin.pin_content_required"))
     pin_id = f"admin-{secrets.token_hex(6)}"
     agent._short_term.pin(pin_id, label, content)
     snapshot_path = getattr(agent, "_snapshot_path", None)
@@ -1355,7 +1391,7 @@ async def delete_pinned_context(
 ) -> ApiResponse:
     agent = _require_agent()
     if not agent._short_term.unpin(pin_id):
-        raise HTTPException(status_code=404, detail="固定上下文不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.pin_missing"))
     snapshot_path = getattr(agent, "_snapshot_path", None)
     if snapshot_path is not None:
         agent._short_term.save_to_file(snapshot_path)
@@ -1370,11 +1406,7 @@ async def search_memories(
     limit: int = Query(default=20, ge=1, le=100),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    return {
-        "memories": await _require_agent()._long_term.query(
-            q, category=category, limit=limit
-        )
-    }
+    return {"memories": await _require_agent()._long_term.query(q, category=category, limit=limit)}
 
 
 @router.patch("/memories/{memory_id}")
@@ -1413,7 +1445,7 @@ async def compress_memory(
     agent = _require_agent()
     compressed, saved = await agent._short_term.compress_all_now(
         _require_brain(),
-        context_hint="管理控制台手动全量压缩",
+        context_hint=tr("notification.admin_compress_hint"),
         agent_system_prompt=agent._prompt_builder.build(),
     )
     _audit(
@@ -1434,14 +1466,16 @@ async def backfill_memory(
     stm = _require_agent()._short_term
     brain = _require_brain()
     if stm.backfill_progress.get("running"):
-        raise HTTPException(status_code=409, detail="记忆树回溯正在进行")
+        raise HTTPException(status_code=409, detail=tr("api.admin.backfill_running"))
     stm.backfill_progress = {"running": True, "done": 0, "total": 0}
+    task_locale = capture_locale()
 
     async def run() -> None:
-        try:
-            await stm.backfill_tree_online(brain, max_leaves)
-        finally:
-            stm.backfill_progress["running"] = False
+        with locale_context(task_locale):
+            try:
+                await stm.backfill_tree_online(brain, max_leaves)
+            finally:
+                stm.backfill_progress["running"] = False
 
     asyncio.create_task(run(), name="admin-memory-backfill")
     _audit(request, "memory.backfill", "memory_tree", detail=f"max_leaves={max_leaves}")
@@ -1500,7 +1534,7 @@ async def cancel_alarm(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     if not _require_alarms().cancel(alarm_id):
-        raise HTTPException(status_code=404, detail="闹钟不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.alarm_missing"))
     _audit(request, "alarm.cancel", alarm_id)
     return {"cancelled": True}
 
@@ -1524,7 +1558,7 @@ async def get_interaction_history(
     single admin request can scan the whole lifetime log.
     """
     if seq_start is not None and seq_end is not None and seq_start > seq_end:
-        raise HTTPException(status_code=400, detail="起始序列不能大于结束序列")
+        raise HTTPException(status_code=400, detail=tr("api.admin.invalid_seq_range"))
     needle = q.strip().casefold()
     selected_type = (event_type or "").strip()
 
@@ -1553,7 +1587,9 @@ async def get_interaction_history(
     page = store.read_history_page(
         limit=limit,
         cursor=_decode_interaction_cursor(cursor),
-        match=matches if selected_type or needle or seq_start is not None or seq_end is not None else None,
+        match=matches
+        if selected_type or needle or seq_start is not None or seq_end is not None
+        else None,
         max_scan_bytes=_INTERACTION_PAGE_SCAN_BYTES,
         seq_start=seq_start,
         seq_end=seq_end,
@@ -1574,12 +1610,12 @@ async def get_interaction_detail(
 ) -> ApiResponse:
     """Fetch one expanded record only when an administrator asks to inspect it."""
     if seq < 0:
-        raise HTTPException(status_code=404, detail="日志记录不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
     store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
     entries, _complete = store.read_seq_range(seq, seq)
     entry = next((item for item in entries if item.get("seq") == seq), None)
     if entry is None:
-        raise HTTPException(status_code=404, detail="日志记录不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
     state = [False]
     return {
         "entry": _bounded_interaction_value(entry, state),
@@ -1655,7 +1691,10 @@ def _content_loader(kind: str) -> ContentLoader:
         "subconscious": _mode_loader,
     }[kind]
     if loader is None:
-        raise HTTPException(status_code=503, detail=f"{kind} loader not ready")
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.state.loader_not_ready", kind=kind),
+        )
     return loader
 
 
@@ -1665,19 +1704,41 @@ def _content_filename(kind: str) -> str:
 
 def _content_path(kind: str, slug: str) -> Path:
     if kind not in _CONTENT_TYPES or not _SAFE_SLUG.fullmatch(slug) or slug in (".", ".."):
-        raise HTTPException(status_code=400, detail="内容类型或名称无效")
+        raise HTTPException(
+            status_code=400, detail=tr("api.admin.content_identity_invalid")
+        )
     loader = _content_loader(kind)
     root = Path(loader._dir).resolve()
     path = (root / slug / _content_filename(kind)).resolve()
     if root not in path.parents:
-        raise HTTPException(status_code=400, detail="内容路径无效")
+        raise HTTPException(status_code=400, detail=tr("api.admin.content_path_invalid"))
     return path
 
 
 _EDITABLE_CONTENT_SUFFIXES = {
-    ".md", ".txt", ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".ps1",
-    ".bat", ".css", ".html", ".xml", ".sql", ".csv",
+    ".md",
+    ".txt",
+    ".py",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".sh",
+    ".ps1",
+    ".bat",
+    ".css",
+    ".html",
+    ".xml",
+    ".sql",
+    ".csv",
 }
 _MAX_CONTENT_FILE_BYTES = 1_000_000
 
@@ -1691,12 +1752,14 @@ def _content_file_path(kind: str, slug: str, relative: str) -> Path:
     normalized = relative.replace("\\", "/").strip("/")
     parts = normalized.split("/") if normalized else []
     if not parts or any(part in ("", ".", "..") for part in parts):
-        raise HTTPException(status_code=400, detail="文件路径无效")
+        raise HTTPException(status_code=400, detail=tr("api.admin.file_path_invalid"))
     path = (root / normalized).resolve()
     if root not in path.parents:
-        raise HTTPException(status_code=400, detail="文件路径超出能力目录")
+        raise HTTPException(status_code=400, detail=tr("api.admin.file_outside_root"))
     if path.suffix.lower() not in _EDITABLE_CONTENT_SUFFIXES:
-        raise HTTPException(status_code=415, detail="该文件类型不支持在线编辑")
+        raise HTTPException(
+            status_code=415, detail=tr("api.admin.file_type_unsupported")
+        )
     return path
 
 
@@ -1716,14 +1779,17 @@ def _content_files(kind: str, slug: str) -> list[JsonObject]:
         except OSError:
             continue
         relative = path.relative_to(root).as_posix()
-        files.append({
-            "path": relative,
-            "name": path.name,
-            "size_bytes": stat.st_size,
-            "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "editable": path.suffix.lower() in _EDITABLE_CONTENT_SUFFIXES and stat.st_size <= _MAX_CONTENT_FILE_BYTES,
-            "primary": relative == _content_filename(kind),
-        })
+        files.append(
+            {
+                "path": relative,
+                "name": path.name,
+                "size_bytes": stat.st_size,
+                "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "editable": path.suffix.lower() in _EDITABLE_CONTENT_SUFFIXES
+                and stat.st_size <= _MAX_CONTENT_FILE_BYTES,
+                "primary": relative == _content_filename(kind),
+            }
+        )
     files.sort(key=lambda item: (not bool(item["primary"]), str(item["path"]).casefold()))
     return files
 
@@ -1767,19 +1833,21 @@ async def list_content(
                     summary = ""
                     metadata = {}
                 stat = path.stat()
-                items.append({
-                    "id": directory.name,
-                    "path": str(path),
-                    "raw": path.read_text(encoding="utf-8"),
-                    "name": parsed.name if parsed is not None else directory.name,
-                    "summary": summary,
-                    "valid": parsed is not None,
-                    "warning": warning or "",
-                    "metadata": metadata,
-                    "size_bytes": stat.st_size,
-                    "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "files": _content_files(kind, directory.name),
-                })
+                items.append(
+                    {
+                        "id": directory.name,
+                        "path": str(path),
+                        "raw": path.read_text(encoding="utf-8"),
+                        "name": parsed.name if parsed is not None else directory.name,
+                        "summary": summary,
+                        "valid": parsed is not None,
+                        "warning": warning or "",
+                        "metadata": metadata,
+                        "size_bytes": stat.st_size,
+                        "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "files": _content_files(kind, directory.name),
+                    }
+                )
     return {"items": items}
 
 
@@ -1799,7 +1867,10 @@ async def put_content(
     parsed, warning = loader._parse(tmp)
     if parsed is None:
         tmp.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=warning or "内容格式无效")
+        raise HTTPException(
+            status_code=422,
+            detail=warning or tr("api.admin.content_format_invalid"),
+        )
     tmp.replace(path)
     loader.load_all()
     _audit(request, f"content.{kind}.save", slug)
@@ -1814,7 +1885,7 @@ async def list_content_files(
 ) -> ApiResponse:
     directory = _content_directory(kind, slug)
     if not directory.is_dir():
-        raise HTTPException(status_code=404, detail="能力目录不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.content_root_missing"))
     return {"files": _content_files(kind, slug)}
 
 
@@ -1827,13 +1898,13 @@ async def get_content_file(
 ) -> ApiResponse:
     path = _content_file_path(kind, slug, file_path)
     if not path.is_file() or path.is_symlink():
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.file_missing"))
     if path.stat().st_size > _MAX_CONTENT_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="文件超过 1 MB，无法在线编辑")
+        raise HTTPException(status_code=413, detail=tr("api.admin.file_too_large"))
     try:
         content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as e:
-        raise HTTPException(status_code=415, detail="该文件不是 UTF-8 文本") from e
+        raise HTTPException(status_code=415, detail=tr("api.admin.file_not_utf8")) from e
     return {"path": file_path, "content": content}
 
 
@@ -1849,7 +1920,7 @@ async def put_content_file(
     path = _content_file_path(kind, slug, file_path)
     encoded = payload.content.encode("utf-8")
     if len(encoded) > _MAX_CONTENT_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="文件超过 1 MB，无法在线编辑")
+        raise HTTPException(status_code=413, detail=tr("api.admin.file_too_large"))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(encoded)
@@ -1858,7 +1929,10 @@ async def put_content_file(
         parsed, warning = _content_loader(kind)._parse(tmp)
         if parsed is None:
             tmp.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail=warning or "内容格式无效")
+            raise HTTPException(
+                status_code=422,
+                detail=warning or tr("api.admin.content_format_invalid"),
+            )
     tmp.replace(path)
     if primary:
         _content_loader(kind).load_all()
@@ -1876,9 +1950,12 @@ async def delete_content_file(
 ) -> ApiResponse:
     path = _content_file_path(kind, slug, file_path)
     if path.name == _content_filename(kind) and path.parent == _content_directory(kind, slug):
-        raise HTTPException(status_code=409, detail="主定义文件不能在文件树中删除")
+        raise HTTPException(
+            status_code=409,
+            detail=tr("api.admin.main_file_delete_forbidden"),
+        )
     if not path.is_file() or path.is_symlink():
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.file_missing"))
     path.unlink()
     parent = path.parent
     root = _content_directory(kind, slug)
@@ -1903,12 +1980,18 @@ async def delete_content(
     if kind == "subconscious" and path.is_file():
         mode_loader = _mode_loader
         if mode_loader is None:
-            raise HTTPException(status_code=503, detail="subconscious loader not ready")
+            raise HTTPException(
+                status_code=503,
+                detail=tr("api.state.loader_not_ready", kind="subconscious"),
+            )
         parsed, _warning = mode_loader._parse(path)
         if parsed and parsed.protected:
-            raise HTTPException(status_code=409, detail="受保护的潜意识模式不可删除")
+            raise HTTPException(
+                status_code=409,
+                detail=tr("api.admin.protected_mode_delete_forbidden"),
+            )
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="内容不存在")
+        raise HTTPException(status_code=404, detail=tr("api.admin.content_missing"))
     shutil.rmtree(path.parent)
     _content_loader(kind).load_all()
     _audit(request, f"content.{kind}.delete", slug)

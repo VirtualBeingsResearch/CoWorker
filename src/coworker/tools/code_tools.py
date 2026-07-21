@@ -18,6 +18,12 @@ from typing import TYPE_CHECKING, Literal
 import psutil
 
 from coworker.core.types import IncomingEvent, ToolResult
+from coworker.i18n import (
+    SupportedLocale,
+    capture_locale,
+    locale_context,
+    tr,
+)
 from coworker.tools.base import PAGE_CHAR_LIMIT, PAGE_CHAR_MAX, Tool, ToolDefinition, paginate_text
 
 # 用于在 shell 输出 header 里展示实际使用的 shell
@@ -26,10 +32,10 @@ _SHELL = shutil.which("bash") or os.environ.get("COMSPEC", "cmd.exe")
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
 
-_OUTPUT_LIMIT = PAGE_CHAR_LIMIT   # execute_code 直接返回的输出字符上限（默认页大小）
-_JOB_TTL = 1800         # job 完成后保留 30 分钟
+_OUTPUT_LIMIT = PAGE_CHAR_LIMIT  # execute_code 直接返回的输出字符上限（默认页大小）
+_JOB_TTL = 1800  # job 完成后保留 30 分钟
 _CLEANUP_INTERVAL = 60  # 每分钟扫描一次过期 job
-_QUICK_WAIT = 2.0       # 快速等待窗口：任务在此之内完成则直接返回结果，否则返回 job_id
+_QUICK_WAIT = 2.0  # 快速等待窗口：任务在此之内完成则直接返回结果，否则返回 job_id
 
 
 @dataclass
@@ -44,6 +50,7 @@ class CodeJob:
     process: Process | None = None
     notification_sent: bool = False
     notification_event_id: str | None = None
+    locale: SupportedLocale = field(default_factory=capture_locale)
 
 
 class BackgroundJobStore:
@@ -72,11 +79,13 @@ class BackgroundJobStore:
     def _purge_expired(self) -> None:
         now = time.monotonic()
         expired = [
-            jid for jid, job in self._jobs.items()
+            jid
+            for jid, job in self._jobs.items()
             if job.end_time is not None and now - job.end_time > _JOB_TTL
         ]
         for jid in expired:
             del self._jobs[jid]
+
 
 def _kill_tree(pid: int) -> None:
     """Kill a process and all its descendants."""
@@ -216,8 +225,7 @@ class ExecuteCodeTool(Tool):
                     "timeout": {
                         "type": "integer",
                         "description": (
-                            f"超时秒数（最大 {self._hard_timeout}s）；"
-                            "不设则使用硬超时"
+                            f"超时秒数（最大 {self._hard_timeout}s）；不设则使用硬超时"
                         ),
                     },
                     "cwd": {
@@ -265,8 +273,12 @@ class ExecuteCodeTool(Tool):
         job = store.create(language)
         job.process = proc
 
-        effective_timeout = min(timeout, self._hard_timeout) if timeout is not None else self._hard_timeout
-        bg_task = asyncio.create_task(_run_job(job, proc, timeout=effective_timeout, cleanup=cleanup))
+        effective_timeout = (
+            min(timeout, self._hard_timeout) if timeout is not None else self._hard_timeout
+        )
+        bg_task = asyncio.create_task(
+            _run_job(job, proc, timeout=effective_timeout, cleanup=cleanup)
+        )
 
         try:
             if should_block:
@@ -290,10 +302,12 @@ class ExecuteCodeTool(Tool):
                 )
             return ToolResult(
                 tool_call_id="",
-                content=(
-                    f"[运行中] job_id={job.job_id} timeout={effective_timeout}s"
-                    f"  cwd={effective_cwd}  {env_tag}\n"
-                    f"使用 get_code_result('{job.job_id}') 查询结果，任务完成时会自动通知"
+                content=tr(
+                    "tool_result.code.running",
+                    id=job.job_id,
+                    timeout=effective_timeout,
+                    cwd=effective_cwd,
+                    environment=env_tag,
                 ),
             )
 
@@ -302,7 +316,7 @@ class ExecuteCodeTool(Tool):
         # process cleanup has definitely completed before we return a "done" result.
         await bg_task
         elapsed = (job.end_time or time.monotonic()) - job.start_time
-        full_output = job.output or "(no output)"
+        full_output = job.output or tr("tool_result.code.no_output")
         total = len(full_output)
         content = f"[{job.status}] elapsed={elapsed:.1f}s  job_id={job.job_id}  cwd={effective_cwd}  {env_tag}\n{full_output}"
         if total > output_limit:
@@ -310,12 +324,12 @@ class ExecuteCodeTool(Tool):
                 full_output,
                 0,
                 output_limit,
-                next_hint=f"使用 get_code_result('{job.job_id}', offset={{offset}}) 查看后续内容",
+                next_hint=tr("tool_result.code.next", id=job.job_id, offset="{offset}"),
             )
             page_notice, _separator, preview = page.partition("\n")
             content = (
                 f"[{job.status}] elapsed={elapsed:.1f}s  job_id={job.job_id}  cwd={effective_cwd}  {env_tag}\n"
-                f"[输出截断] {page_notice}\n"
+                f"{tr('tool_result.code.truncated', notice=page_notice)}\n"
                 f"{preview}"
             )
         return ToolResult(
@@ -333,34 +347,44 @@ class ExecuteCodeTool(Tool):
         )
 
     async def _notify_completion(self, job: CodeJob, output_limit: int) -> None:
-        target = self._inbox
-        if target is None or job.notification_sent:
-            return
-        job.notification_sent = True
-        elapsed = (job.end_time or time.monotonic()) - job.start_time
-        full_output = job.output or "(no output)"
-        total = len(full_output)
-        preview = full_output
-        lines = [f"[代码任务完成] job_id={job.job_id} [{job.status}] elapsed={elapsed:.1f}s"]
-        if total > output_limit:
-            page = paginate_text(
-                full_output,
-                0,
-                output_limit,
-                next_hint=f"使用 get_code_result('{job.job_id}', offset={{offset}}) 查看更多",
+        with locale_context(job.locale):
+            target = self._inbox
+            if target is None or job.notification_sent:
+                return
+            job.notification_sent = True
+            elapsed = (job.end_time or time.monotonic()) - job.start_time
+            full_output = job.output or tr("tool_result.code.no_output")
+            total = len(full_output)
+            preview = full_output
+            lines = [
+                tr(
+                    "tool_result.code.completed",
+                    id=job.job_id,
+                    status=job.status,
+                    elapsed=f"{elapsed:.1f}",
+                )
+            ]
+            if total > output_limit:
+                page = paginate_text(
+                    full_output,
+                    0,
+                    output_limit,
+                    next_hint=tr("tool_result.code.more", id=job.job_id, offset="{offset}"),
+                )
+                page_notice, _, preview = page.partition("\n")
+                lines.append(tr("tool_result.code.truncated", notice=page_notice))
+            lines.append(preview)
+            event = IncomingEvent(
+                participant_id="code_job",
+                content="\n".join(lines),
+                timestamp=datetime.now(),
+                source="code_job",
             )
-            page_notice, _, preview = page.partition("\n")
-            lines.append(f"[输出截断] {page_notice}")
-        lines.append(preview)
-        event = IncomingEvent(
-            participant_id="code_job",
-            content="\n".join(lines),
-            timestamp=datetime.now(),
-            source="code_job",
-        )
-        job.notification_event_id = await target.push(event)
+            job.notification_event_id = await target.push(event)
 
-    async def _start_process(self, code: str, language: str, cwd: str | None) -> tuple[Process, Callable | None]:
+    async def _start_process(
+        self, code: str, language: str, cwd: str | None
+    ) -> tuple[Process, Callable | None]:
         if language == "python":
             with tempfile.NamedTemporaryFile(
                 suffix=".py", mode="w", encoding="utf-8", delete=False
@@ -368,7 +392,8 @@ class ExecuteCodeTool(Tool):
                 f.write(code)
                 tmp = f.name
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, tmp,
+                sys.executable,
+                tmp,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -427,13 +452,19 @@ class GetCodeResultTool(Tool):
     def fork(self, scope) -> GetCodeResultTool:
         return GetCodeResultTool(store=scope.job_store, inbox=scope.inbox)
 
-    async def execute(self, job_id: str, offset: int = 0, limit: int | None = None, **_) -> ToolResult:
+    async def execute(
+        self, job_id: str, offset: int = 0, limit: int | None = None, **_
+    ) -> ToolResult:
         job = self._store.get(job_id)
         if job is None:
-            return ToolResult(tool_call_id="", content=f"Job {job_id} not found", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.code.missing", id=job_id),
+                is_error=True,
+            )
 
         elapsed = (job.end_time or time.monotonic()) - job.start_time
-        full_output = job.output or "(no output)"
+        full_output = job.output or tr("tool_result.code.no_output")
 
         if job.done_event.is_set():
             job.notification_sent = True  # 防止尚未触发的 callback 再发通知
@@ -474,19 +505,27 @@ class KillCodeJobTool(Tool):
     async def execute(self, job_id: str, **_) -> ToolResult:
         job = self._store.get(job_id)
         if job is None:
-            return ToolResult(tool_call_id="", content=f"Job {job_id} not found", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.code.missing", id=job_id),
+                is_error=True,
+            )
 
         if job.status != "running":
             return ToolResult(
                 tool_call_id="",
-                content=f"Job {job_id} is already {job.status}",
+                content=tr("tool_result.code.already", id=job_id, status=job.status),
             )
 
         try:
             if job.process is not None:
                 _kill_tree(job.process.pid)
         except Exception as e:
-            return ToolResult(tool_call_id="", content=f"Failed to kill: {e}", is_error=True)
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.code.kill_failed", error=e),
+                is_error=True,
+            )
 
         job.status = "killed"
         job.notification_sent = True  # suppress any pending callback
@@ -496,5 +535,5 @@ class KillCodeJobTool(Tool):
         elapsed = job.end_time - job.start_time
         return ToolResult(
             tool_call_id="",
-            content=f"[killed] job_id={job_id} elapsed={elapsed:.1f}s",
+            content=tr("tool_result.code.killed", id=job_id, elapsed=f"{elapsed:.1f}"),
         )

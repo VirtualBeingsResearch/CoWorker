@@ -9,6 +9,7 @@ from loguru import logger
 
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
+from coworker.i18n import tr
 
 if TYPE_CHECKING:
     from wecom_aibot_sdk import WSClient
@@ -64,7 +65,7 @@ def _sender_prefix(frame: dict[str, Any]) -> str:
     body = frame["body"]
     if body.get("chattype", "single") != "group":
         return ""
-    return f"[发送者 userid={body['from']['userid']}]\n"
+    return tr("channel.wecom.group_sender", userid=body["from"]["userid"])
 
 
 def _guess_media_type(filename: str | None, fallback: str) -> str:
@@ -178,10 +179,10 @@ def _truncate(text: str) -> str:
     return text if len(text) <= _QUOTE_CONTENT_MAX_LEN else text[:_QUOTE_CONTENT_MAX_LEN] + "..."
 
 
-_MEDIA_TYPE_ZH: dict[str, str] = {
-    "image": "图片",
-    "file": "文件",
-    "video": "视频",
+_MEDIA_TYPE_KEYS: dict[str, str] = {
+    "image": "channel.wecom.image",
+    "file": "channel.wecom.file",
+    "video": "channel.wecom.video",
 }
 
 
@@ -192,19 +193,19 @@ def _quote_prefix(body: dict[str, Any], bot_id: str = "") -> str:
     qtype = quote.get("msgtype", "")
     from_user = quote.get("from_userid", "")
     if from_user and from_user == bot_id:
-        prefix = "引用自己的消息"
-        possessive = "引用自己的"
+        prefix = tr("channel.wecom.quote_self")
+        possessive = tr("channel.wecom.quote_self_possessive")
     elif from_user:
-        prefix = f"引用 {from_user}"
-        possessive = f"引用 {from_user} 的"
+        prefix = tr("channel.wecom.quote_user", user=from_user)
+        possessive = tr("channel.wecom.quote_user_possessive", user=from_user)
     else:
-        prefix = "引用"
-        possessive = "引用的"
+        prefix = tr("channel.wecom.quote")
+        possessive = tr("channel.wecom.quote_possessive")
     if qtype in ("text", "voice"):
         content = quote.get(qtype, {}).get("content", "")
         if not content:
             return ""
-        return f'[{prefix}: "{_truncate(content)}"]\n'
+        return tr("channel.wecom.quote_text", prefix=prefix, content=_truncate(content))
     elif qtype == "mixed":
         items = quote.get("mixed", {}).get("msg_item", [])
         parts = [
@@ -214,20 +215,34 @@ def _quote_prefix(body: dict[str, Any], bot_id: str = "") -> str:
         ]
         content = "\n".join(p for p in parts if p)
         image_count = sum(1 for item in items if item.get("msgtype") == "image")
-        image_hint = f"（含 {image_count} 张图片）" if image_count else ""
+        image_hint = tr("channel.wecom.image_count", count=image_count) if image_count else ""
         if not content:
             return ""
-        return f'[{prefix}: "{_truncate(content)}"{image_hint}]\n'
-    elif qtype in _MEDIA_TYPE_ZH:
+        return tr(
+            "channel.wecom.quote_mixed",
+            prefix=prefix,
+            content=_truncate(content),
+            image_hint=image_hint,
+        )
+    elif qtype in _MEDIA_TYPE_KEYS:
         payload = quote.get(qtype, {})
         url = payload.get("url", "")
         name = payload.get("name") or payload.get("filename") or ""
-        zh_label = _MEDIA_TYPE_ZH[qtype]
-        label = f'{zh_label} "{name}"' if (qtype == "file" and name) else zh_label
+        localized_label = tr(_MEDIA_TYPE_KEYS[qtype])
+        label = (
+            tr("channel.wecom.named_file", name=name)
+            if qtype == "file" and name
+            else localized_label
+        )
         suffix = f": {url}" if url else ""
-        return f"[{possessive}{label}{suffix}]\n"
+        return tr(
+            "channel.wecom.quote_media",
+            possessive=possessive,
+            label=label,
+            suffix=suffix,
+        )
     elif qtype:
-        return f"[{possessive} {qtype} 消息（无法预览）]\n"
+        return tr("channel.wecom.quote_unavailable", possessive=possessive, type=qtype)
     return ""
 
 

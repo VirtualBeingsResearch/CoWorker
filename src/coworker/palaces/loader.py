@@ -5,6 +5,9 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
+from coworker.i18n import tr
+from coworker.i18n.resources import load_markdown_companion
+
 
 def _as_str_list(value: object) -> list[str]:
     """Normalize a frontmatter field into a list of non-empty strings.
@@ -71,9 +74,11 @@ class PalaceLoader:
                 if palace:
                     existing = self._palaces.get(palace.name)
                     if existing is not None:
-                        warnings[f"duplicate:{palace.name}:{palace_file}"] = (
-                            f"Palace '{palace.name}' 重名，文件 {palace_file} 被跳过；"
-                            f"已保留先加载的定义。"
+                        warnings[f"duplicate:{palace.name}:{palace_file}"] = tr(
+                            "assets.duplicate",
+                            kind="Palace",
+                            name=palace.name,
+                            path=palace_file,
                         )
                         logger.warning(warnings[f"duplicate:{palace.name}:{palace_file}"])
                         continue
@@ -85,37 +90,52 @@ class PalaceLoader:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception as e:
-            warning = f"Palace 文件 {path} 读取失败：{type(e).__name__}: {e}"
+            warning = tr(
+                "assets.read_failed",
+                kind="Palace",
+                path=path,
+                error_type=type(e).__name__,
+                error=e,
+            )
             logger.warning(warning)
             return None, warning
         if not text.startswith("---"):
-            warning = f"Palace 文件 {path} 缺少 frontmatter，已跳过。"
+            warning = tr("assets.asset_frontmatter_missing", kind="Palace", path=path)
             logger.warning(warning)
             return None, warning
         parts = text.split("---", 2)
         if len(parts) < 3:
-            warning = f"Palace 文件 {path} 的 frontmatter 结构不完整，已跳过。"
+            warning = tr("assets.asset_frontmatter_incomplete", kind="Palace", path=path)
             logger.warning(warning)
             return None, warning
         try:
             fm: dict = yaml.safe_load(parts[1]) or {}
         except yaml.YAMLError as e:
-            warning = f"Palace 文件 {path} 的 YAML frontmatter 解析失败：{e}"
+            warning = tr("assets.yaml_failed", kind="Palace", path=path, error=e)
             logger.warning(warning)
             return None, warning
         name = fm.get("name", "")
         if not name:
-            warning = f"Palace 文件 {path} 缺少 name 字段，已跳过。"
+            warning = tr("assets.name_missing", kind="Palace", path=path)
             logger.warning(warning)
             return None, warning
+        base_body = parts[2].strip()
+        localized = load_markdown_companion(
+            path,
+            base_fields=fm,
+            base_body=base_body,
+            localizable_fields=("when_to_attach",),
+        )
+        if localized.warning:
+            logger.warning(localized.warning)
         return Palace(
             name=str(name),
-            when_to_attach=str(fm.get("when_to_attach", "")),
-            body=parts[2].strip(),
+            when_to_attach=localized.fields["when_to_attach"],
+            body=localized.body,
             critical_skills=_as_str_list(fm.get("critical_skills")),
             related_skills=_as_str_list(fm.get("related_skills")),
             memory_tags=_as_str_list(fm.get("memory_tags")),
-        ), None
+        ), localized.warning
 
     def _refresh_load_warnings(self, warnings: dict[str, str]) -> None:
         self._pending_load_warnings = [
@@ -148,6 +168,4 @@ class PalaceLoader:
         self.load_all()
         if not self._palaces:
             return ""
-        return "\n".join(
-            f"- {p.name}: {p.when_to_attach}" for p in self._palaces.values()
-        )
+        return "\n".join(f"- {p.name}: {p.when_to_attach}" for p in self._palaces.values())
