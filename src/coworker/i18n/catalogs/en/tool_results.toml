@@ -1,0 +1,258 @@
+[tool_result.alarm]
+overdue = "fired {{seconds}} seconds late"
+display = "{{message}} ({{note}})"
+reminder = "[alarm reminder] {{id}}: {{message}}"
+invalid_time = "Invalid time format; use YYYY-MM-DD HH:MM:SS"
+past_time = "The specified time {{time}} has already passed"
+repeat_set = "repeats every {{seconds}} seconds"
+repeat_list = "every {{seconds}} seconds"
+once = "one-time"
+set = "Alarm set: [{{id}}] will fire at {{time}} (in {{delay}} seconds), {{mode}}"
+none = "There are no pending alarms"
+title = "Pending alarms:"
+cancelled = "Alarm [{{id}}] cancelled"
+missing = "Alarm [{{id}}] not found"
+
+[tool_result.common]
+breathe = "🌬️ Breathe. What just happened? What comes next? Continue."
+unknown_action = "Unknown action: {{action}}"
+
+[tool_result.browser]
+screenshot_saved = "Screenshot saved: {{path}}"
+navigated = "Navigated to {{url}}"
+clicked = "Clicked {{selector}}"
+typed = "Entered text in {{selector}}"
+selected = "Selected {{value}} in {{selector}}"
+hovered = "Hovered over {{selector}}"
+pressed = "Pressed {{value}} in {{selector}}"
+script_timeout = "Script execution timed out"
+content_truncated = "[content truncated: {{total}} characters total; showing {{start}}~{{end}}. Continue with start={{end}}]"
+closed = "Session {{id}} closed"
+pages = "Session pages:"
+view = "Browser screenshot session={{id}} url={{url}}{{note}}"
+none = "There are no active browser sessions"
+
+[tool_result.file]
+read_truncated = "(content truncated: {{total}} lines total; showing approximately the first {{shown}} lines. Use offset/limit to continue.)"
+patch_needs_new = "Patch mode also requires new_string"
+patch_not_found = "Patch failed: old_string was not found in the file"
+patch_ambiguous = "Patch failed: old_string occurs {{count}} times and is ambiguous. Include more context to make it unique, or pass replace_all=true."
+replaced = "Replaced {{count}} occurrence(s) in {{path}}"
+needs_content = "Provide content or old_string"
+written = "Written to {{path}}"
+path_missing = "Path not found: {{path}}"
+not_directory = "Not a directory: {{path}}"
+directory = "Directory: {{path}}"
+directory_entry = "[directory]  {{name}}/"
+file_entry = "[file]  {{name}}  ({{size}})"
+root_missing = "Root directory not found: {{path}}"
+find_none = "No files matched '{{pattern}}'"
+find_header = "Found {{count}} result(s) for '{{pattern}}' under {{root}}:"
+result_limit = "(result limit {{limit}} reached; more may exist)"
+scan_limit = "(stopped after scanning {{limit}} files; more may exist)"
+grep_none = "No content matched '{{pattern}}'"
+grep_header = "Found {{count}} match(es) for '{{pattern}}':"
+grep_output_limit = "(output reached the {{limit}}-character limit; narrow the scope or use a more specific file_pattern)"
+grep_match_limit = "(match limit {{limit}} reached; more may exist)"
+regex_error = "Invalid regular expression: {{error}}"
+
+[tool_result.system]
+sleep_zero = "sleep(0) will not wait here. Use sleep(N) to specify a duration. Current time: {{time}}."
+sleep_woken = "A new message arrived, ending sleep early. Current time: {{time}}."
+sleep_no_channel = "Passive waiting ended immediately because no external channel is available. Current time: {{time}}."
+slept = "Slept for {{seconds}} seconds; resuming. Current time: {{time}}."
+context = '''Current time: {{time}}
+Runtime cycles: {{cycles}}
+Current model: {{model}}
+Short-term memory: {{messages}} messages'''
+restart_check_timeout = "Code-environment validation timed out; restart cancelled."
+restart_check_failed = '''Code-environment validation failed; restart cancelled.
+{{error}}'''
+restart_snapshot_failed = "Snapshot validation failed after saving; restart cancelled."
+compress_empty = "There are no short-term memory messages to compress."
+compressed = "Compressed {{count}} short-term memory messages."
+
+[tool_result.task]
+unknown_time = "unknown"
+soon = "soon"
+just_now = "just now"
+minutes_future = "in {{count}} minutes"
+minutes_past = "{{count}} minutes ago"
+hours_future = "in {{count}} hours"
+hours_past = "{{count}} hours ago"
+tomorrow = "tomorrow"
+day_after_tomorrow = "the day after tomorrow"
+days_future = "in {{count}} days"
+months_future = "in {{count}} months"
+years_future = "in {{count}} years"
+today = "today"
+yesterday = "yesterday"
+day_before_yesterday = "the day before yesterday"
+days_past = "{{count}} days ago"
+months_past = "{{count}} months ago"
+years_past = "{{count}} years ago"
+absolute = "{{relative}} ({{date}})"
+times = "created {{created}} / updated {{updated}}"
+missing = "Task [{{id}}] not found"
+empty = "(task list is empty)"
+list_title = "{{count}} task(s):"
+unknown_details_mode = "Unknown details_update_mode: {{mode}}"
+
+[tool_result.pin]
+needs_id = "The pin action requires pin_id"
+needs_label = "The pin action requires label"
+needs_content = "The pin action requires content or file_path"
+read_failed = "Failed to read file: {{error}}"
+single_too_large = "Pin content is too large (about {{tokens}} tokens; limit {{limit}}). Shorten it or split it into multiple pins."
+total_too_large = "Total pin content would be too large (about {{tokens}} tokens; limit {{limit}}). Unpin content first to free space."
+added = "added"
+updated = "updated"
+saved = "Pin “{{label}}” {{action}} (pin_id: {{id}}, about {{tokens}} tokens). There are now {{count}} pins totaling about {{total}} tokens."
+unpin_needs_id = "The unpin action requires pin_id"
+current = "Current pins: {{ids}}"
+none = "There are no pins"
+missing = "pin_id='{{id}}' was not found. {{hint}}"
+unpinned = "Pin removed (pin_id: {{id}}). {{count}} remain."
+list_title = "{{count}} pin(s):"
+source = "  source: {{path}}"
+list_item = "- [{{id}}] {{label}}  about {{tokens}} tokens  {{time}}{{source}}"
+total = "About {{tokens}} tokens total"
+
+[tool_result.communicate]
+bound_participant = "This bubble can message only its bound participant; participant_id cannot be changed."
+bound_conversation = "This bubble can message only its bound conversation_id."
+attachment_fallback = "{{prefix}} (attachment)"
+extra_object = "extra must be an object."
+ambiguous = '''participant_id '{{participant}}' matches multiple channels. Call again with a complete participant_id:
+{{options}}'''
+option = "  - {{id}} (prefix: {{prefix}})"
+websocket_sent = "Message sent to {{participant}} through WebSocket"
+conversation_unsupported = "Message delivery failed: this target does not support conversation_id. Remove it and retry."
+extra_unsupported = "Message delivery failed: this target does not support extra parameters."
+attachments_unsupported = "Message delivery failed: this target does not support attachments. Use a channel that does."
+message_empty = "message must not be empty."
+fallback_saved = "Message delivery failed and was recorded in the local file: {{path}}"
+failed = "Message delivery failed: {{error}}"
+no_websocket = "There are no active WebSocket connections."
+wecom_conversation_unsupported = "Message delivery failed: the WeCom channel does not support conversation_id. Remove it and retry."
+wecom_extra_unsupported = "Message delivery failed: the WeCom channel does not support extra parameters."
+wecom_sent = "Message sent to {{participant}} through WeCom"
+wecom_failed = "WeCom message delivery failed: {{error}}"
+desktop_disconnected = "Communication target is not connected: {{participant}}"
+desktop_sent = "Desktop request sent with request_id={{request_id}}{{conversation}}"
+desktop_conversation = "; conversation_id={{conversation}}"
+
+[tool_result.bubble]
+needs_goal = "Creating a bubble requires goal; provide bubble_id to resume a timed-out bubble."
+unknown_provider = "Unknown provider: {{provider}}"
+provider_no_model = "Provider '{{provider}}' did not resolve to a usable model; provide model explicitly."
+model_no_tools = "Model '{{model}}' does not support tool use through provider '{{provider}}'."
+palaces_disabled = "Memory palaces are disabled, so palaces cannot be mounted."
+none = "(none)"
+palace_missing = "Memory palace '{{name}}' does not exist. Available: {{available}}"
+forked = "The current thread has forked into bubble {{id}}."
+tool_after_fork = "Tool {{name}} runs in the main thread after the bubble fork; its result is not available here."
+fresh_context = "fresh context ({{count}} pinned messages only)"
+forked_context = "forked context ({{count}} messages, about {{tokens}} tokens)"
+mounted_palaces = '''
+Mounted palaces: {{names}}'''
+fast_mode = '''
+Mode: non-thinking (fast execution)'''
+model = '''
+Model: {{provider}}/{{model}}'''
+binding = '''
+Communication binding: {{participant}}{{conversation}} (subsequent matching messages go directly to this bubble)'''
+conversation = " / {{conversation}}"
+transparent = '''
+Transparent communication labels: enabled (handoff, replies, and completion are disclosed to the participant)'''
+created = '''Bubble created: id={{id}}
+Goal: {{goal}}
+Maximum cycles: {{cycles}}
+{{context}}{{palaces}}{{thinking}}{{model}}{{communication}}
+Use bubble_check('{{id}}') for progress and bubble_send('{{id}}', 'message') to communicate.'''
+max_cycles_integer = "max_cycles must be an integer."
+resume_failed = "Failed to start resumed bubble: {{error}}"
+resume_instruction = "A continuation instruction from the main thread was attached."
+resumed = "Bubble {{id}} resumed (resume {{count}}). Its cumulative cycle budget changed from {{before}} to {{after}} ({{added}} added). {{instruction}}"
+brain_missing = "Bubble {{id}} has no independent brain and cannot start."
+palace_skill = '''[palace:{{palace}} · skill:{{skill}}]
+{{body}}'''
+palace = '''[palace:{{palace}}]
+{{body}}'''
+palace_memory = "[palace memory] These long-term memories relate to the current palaces (tags: {{tags}}) and task:"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+missing = "Bubble [{{id}}] not found"
+from_main = "[from main] {{message}}"
+pushed_main = "Message pushed to the main-thread inbox."
+terminal = "Bubble {{id}} has terminated ({{status}}) and cannot receive messages."
+sent = "Message sent to bubble {{id}}."
+already_terminal = "Bubble {{id}} is already terminal ({{status}}); no cancellation is needed."
+cancelled = "Cancellation signal sent to bubble {{id}}."
+none_active = "There are no active bubbles."
+list_title = "{{count}} active bubble(s):"
+done_wrong_context = "bubble_done can be called only in bubble mode."
+resume_wrong_status = "Bubble {{id}} is {{status}}; only timed-out bubbles can be resumed."
+resume_ending_cleanup = "Bubble {{id}} is finishing cleanup; try again shortly."
+resume_still_cleanup = "Bubble {{id}} is still finishing cleanup; try again shortly."
+resume_missing_finished_at = "Bubble {{id}} has no timeout completion time and cannot be resumed safely."
+resume_disabled = "Timed-out bubble resumption is disabled (AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS=0)."
+resume_expired = "Bubble {{id}} timed out {{elapsed}}s ago, beyond the {{window}}s resume window."
+resume_concurrency = "The maximum of {{max}} concurrent bubbles has been reached. Active: {{active}}. Wait or cancel one before resuming."
+create_concurrency = "The maximum of {{max}} concurrent bubbles has been reached. Active: {{active}}. Wait or cancel one before creating another."
+resume_cycle_cap = "Bubble {{id}} has reached the total cycle limit of {{cap}} and cannot be resumed again."
+check_header = '''Bubble {{id}}
+Status: {{status}}
+Goal: {{goal}}
+Current cycle: {{used}}/{{max}}
+Elapsed: {{seconds}}s
+Internal messages: {{messages}}'''
+check_participant = "Participant: {{participant}}"
+check_conversation = "Conversation: {{conversation}}"
+check_transparency = "Transparent communication labels: enabled"
+check_palaces = "Mounted palaces: {{palaces}}"
+check_model = "Model: {{provider}}/{{model}}"
+check_checkpoints = "Checkpoints: {{count}}"
+check_resumes = "Timeout resumes: {{count}}"
+check_resume_disabled = "Timeout resume: disabled"
+check_resume_remaining = "Timeout resume: about {{seconds}}s remaining; call bubble_spawn(bubble_id=...) to continue."
+check_resume_expired = "Timeout resume: grace period expired"
+check_latest_checkpoint = "Latest checkpoint: {{result}}"
+check_result = "Result preview: {{result}}"
+check_error = "Error: {{error}}"
+list_participant = "participant={{participant}}"
+list_conversation = "conversation={{conversation}}"
+list_transparency = "transparent=on"
+list_palaces = "palaces={{palaces}}"
+list_model = "model={{provider}}/{{model}}"
+list_resumes = "resumes={{count}}"
+list_item = "  [{{id}}] {{status}} | {{used}}/{{max}} cycles | {{seconds}}s{{tags}} | goal: {{goal}}"
+sender_main = "main thread"
+
+[tool_result.task_patch]
+invalid_header = "Invalid hunk header: {{line}}"
+empty = "patch must not be empty"
+unsupported_metadata = "Multi-file, binary, rename, and mode-change patches are unsupported"
+multi_file = "Multi-file patches are unsupported"
+missing_plus_header = "Patch file header is missing the +++ line"
+missing_minus_header = "Patch file header is missing the --- line"
+unexpected = "Unexpected non-hunk content in patch: {{line}}"
+out_of_bounds = "Hunk position is out of bounds or out of order"
+missing_prefix = "Invalid patch line: missing prefix"
+context_mismatch = "Hunk context does not match: {{value}}"
+deletion_mismatch = "Hunk deletion does not match: {{value}}"
+invalid_prefix = "Invalid patch line prefix: {{op}}"
+count_mismatch = "Hunk line count mismatch: old {{old_seen}}/{{old_count}}, new {{new_seen}}/{{new_count}}"
+no_hunk = "Patch contains no hunks"
+
+[tool_result.code]
+running = '''[running] job_id={{id}} timeout={{timeout}}s  cwd={{cwd}}  {{environment}}
+Use get_code_result('{{id}}') to check the result; completion will be reported automatically.'''
+no_output = "(no output)"
+next = "Use get_code_result('{{id}}', offset={{offset}}) to view subsequent output"
+more = "Use get_code_result('{{id}}', offset={{offset}}) to view more"
+truncated = "[output truncated] {{notice}}"
+completed = "[code job completed] job_id={{id}} [{{status}}] elapsed={{elapsed}}s"
+missing = "Job {{id}} not found"
+already = "Job {{id}} is already {{status}}"
+kill_failed = "Failed to kill: {{error}}"
+killed = "[killed] job_id={{id}} elapsed={{elapsed}}s"

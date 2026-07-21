@@ -19,11 +19,13 @@ class _Identity:
 
 
 def _client(tmp_path, *, providers_file: str = ""):
-    config = Config.model_validate({
-        "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
-        "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
-        "agent": {"logs_dir": str(tmp_path / "logs")},
-    })
+    config = Config.model_validate(
+        {
+            "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
+            "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
+            "agent": {"logs_dir": str(tmp_path / "logs")},
+        }
+    )
     agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda: None)
     brain = SimpleNamespace(
         active_provider=object(),
@@ -50,12 +52,13 @@ def _client(tmp_path, *, providers_file: str = ""):
 def test_admin_requires_bearer_token(tmp_path):
     client, _ = _client(tmp_path)
     assert client.post("/api/admin/session/verify").status_code == 401
-    assert client.post(
-        "/api/admin/session/verify", headers={"Authorization": "Bearer wrong"}
-    ).status_code == 403
-    response = client.post(
-        "/api/admin/session/verify", headers={"Authorization": "Bearer secret"}
+    assert (
+        client.post(
+            "/api/admin/session/verify", headers={"Authorization": "Bearer wrong"}
+        ).status_code
+        == 403
     )
+    response = client.post("/api/admin/session/verify", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["name"] == "Luna"
 
@@ -90,11 +93,18 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
 
 def test_config_response_separates_external_and_managed_providers(tmp_path):
     providers_file = tmp_path / "providers.json"
-    providers_file.write_text(json.dumps([{
-        "name": "external-zhipu",
-        "type": "zhipu",
-        "api_key": "zk-external",
-    }]), encoding="utf-8")
+    providers_file.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "external-zhipu",
+                    "type": "zhipu",
+                    "api_key": "zk-external",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     client, _ = _client(tmp_path, providers_file=str(providers_file))
     headers = {"Authorization": "Bearer secret"}
 
@@ -102,7 +112,8 @@ def test_config_response_separates_external_and_managed_providers(tmp_path):
     body = response.json()
     assert body["config"]["llm"]["managed_providers"] == []
     assert [provider["name"] for provider in body["effective_providers"]] == [
-        "openai", "external-zhipu",
+        "openai",
+        "external-zhipu",
     ]
     assert all(provider["api_key"] == "" for provider in body["effective_providers"])
     assert all(provider["managed"] is False for provider in body["effective_providers"])
@@ -160,7 +171,8 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     assert built == ["admin-a", "admin-b", "admin-a"]
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert [provider["api_key"] for provider in saved["llm"]["managed_providers"]] == [
-        "sk-a", "sk-b",
+        "sk-a",
+        "sk-b",
     ]
 
 
@@ -192,13 +204,39 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert body["config"]["i18n"] == {"locale": "zh-CN"}
+    assert "i18n.locale" not in body["hot_reloadable"]
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"i18n": {"locale": "en-US"}}, "secrets": {}},
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == []
+    assert response.json()["requires_restart"] == ["i18n.locale"]
+    assert config.i18n.locale.value == "zh-CN"
+
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["i18n"]["locale"] == "en-US"
+    desired = client.get("/api/admin/config", headers=headers).json()
+    assert desired["config"]["i18n"]["locale"] == "en"
+
+
 def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
     path = tmp_path / "admin_config.json"
     path.write_text(json.dumps({"agent": {"idle_sleep_seconds": 7}}), encoding="utf-8")
-    config = Config.model_validate({
-        "admin": {"config_file": str(path)},
-        "agent": {"idle_sleep_seconds": 30},
-    })
+    config = Config.model_validate(
+        {
+            "admin": {"config_file": str(path)},
+            "agent": {"idle_sleep_seconds": 30},
+        }
+    )
     loaded = apply_admin_config_file(config)
     assert loaded.agent.idle_sleep_seconds == 7
     assert loaded.admin.config_file == str(path)
@@ -207,10 +245,12 @@ def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
 def test_first_run_admin_token_is_generated_and_preserves_overrides(tmp_path):
     path = tmp_path / "admin_config.json"
     path.write_text(json.dumps({"agent": {"tick": False}}), encoding="utf-8")
-    config = Config.model_validate({
-        "admin": {"token": "", "config_file": str(path)},
-        "desktop_updates": {"admin_token": ""},
-    })
+    config = Config.model_validate(
+        {
+            "admin": {"token": "", "config_file": str(path)},
+            "desktop_updates": {"admin_token": ""},
+        }
+    )
 
     token = ensure_admin_token(config)
 
@@ -293,9 +333,7 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
         mode_loader=None,
     )
 
-    response = client.get(
-        "/api/admin/overview", headers={"Authorization": "Bearer secret"}
-    )
+    response = client.get("/api/admin/overview", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["memory"]["max_tokens"] == 12_345
 
@@ -322,15 +360,15 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
             "__meta__": True,
             "id": "bbl_260716120000",
             "goal": "核对发布",
-                "status": "done",
-                "cycles_used": 1,
-                "elapsed_seconds": 2,
-                "participant_id": "wecom:alice",
-                "conversation_id": "conv-frontend",
-                "handoff_transparency": True,
-                "resume_count": 1,
-                "ts": "2026-07-16T12:00:02",
-            },
+            "status": "done",
+            "cycles_used": 1,
+            "elapsed_seconds": 2,
+            "participant_id": "wecom:alice",
+            "conversation_id": "conv-frontend",
+            "handoff_transparency": True,
+            "resume_count": 1,
+            "ts": "2026-07-16T12:00:02",
+        },
     ]
     path.write_text(
         "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries),
@@ -377,9 +415,7 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     response = client.get("/api/admin/subconscious", headers=headers)
     assert response.status_code == 200
     assert response.json()["bubbles"][0]["mode"] == "audit"
-    response = client.get(
-        "/api/admin/subconscious/bbl_260716120000_audit/history", headers=headers
-    )
+    response = client.get("/api/admin/subconscious/bbl_260716120000_audit/history", headers=headers)
     assert response.status_code == 200
     assert len(response.json()["events"]) == 5
 
@@ -448,8 +484,13 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
         current_model="gpt-5.2",
     )
     admin.setup_admin(
-        agent=agent, brain=brain, config=config, alarm_manager=None,
-        skill_loader=None, palace_loader=None, mode_loader=None,
+        agent=agent,
+        brain=brain,
+        config=config,
+        alarm_manager=None,
+        skill_loader=None,
+        palace_loader=None,
+        mode_loader=None,
     )
 
     body = client.get(
@@ -460,8 +501,7 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
     assert body["token_watermark"]["source"] == "estimated"
     assert body["token_watermark"]["tokens"] > 0
     assert (
-        body["token_watermark"]["tokens"]
-        == body["token_watermark"]["estimated_short_term_tokens"]
+        body["token_watermark"]["tokens"] == body["token_watermark"]["estimated_short_term_tokens"]
     )
 
 
@@ -568,18 +608,24 @@ def test_content_folder_text_files_can_be_managed_safely(tmp_path):
     )
     (skill_dir / "scripts" / "check.py").write_text("print('old')\n", encoding="utf-8")
     admin.setup_admin(
-        agent=SimpleNamespace(_identity=_Identity()), brain=SimpleNamespace(), config=config,
-        alarm_manager=None, skill_loader=SkillLoader(str(skills_dir)), palace_loader=None,
+        agent=SimpleNamespace(_identity=_Identity()),
+        brain=SimpleNamespace(),
+        config=config,
+        alarm_manager=None,
+        skill_loader=SkillLoader(str(skills_dir)),
+        palace_loader=None,
         mode_loader=None,
     )
     headers = {"Authorization": "Bearer secret"}
 
     response = client.get("/api/admin/content/skills/browser/files", headers=headers)
     assert [item["path"] for item in response.json()["files"]] == [
-        "SKILL.md", "scripts/check.py",
+        "SKILL.md",
+        "scripts/check.py",
     ]
     response = client.get(
-        "/api/admin/content/skills/browser/files/scripts/check.py", headers=headers,
+        "/api/admin/content/skills/browser/files/scripts/check.py",
+        headers=headers,
     )
     assert response.json()["content"] == "print('old')\n"
 
@@ -591,14 +637,23 @@ def test_content_folder_text_files_can_be_managed_safely(tmp_path):
     assert response.status_code == 200
     assert (skill_dir / "scripts" / "check.py").read_text(encoding="utf-8") == "print('new')\n"
     assert client.get(
-        "/api/admin/content/skills/browser/files/../outside.py", headers=headers,
+        "/api/admin/content/skills/browser/files/../outside.py",
+        headers=headers,
     ).status_code in (400, 404)
-    assert client.delete(
-        "/api/admin/content/skills/browser/files/SKILL.md", headers=headers,
-    ).status_code == 409
-    assert client.delete(
-        "/api/admin/content/skills/browser", headers=headers,
-    ).status_code == 200
+    assert (
+        client.delete(
+            "/api/admin/content/skills/browser/files/SKILL.md",
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.delete(
+            "/api/admin/content/skills/browser",
+            headers=headers,
+        ).status_code
+        == 200
+    )
     assert not skill_dir.exists()
 
 
@@ -612,7 +667,13 @@ def test_admin_interaction_history_pages_every_shard_and_loads_detail(tmp_path):
         {"type": "tool_call", "seq": 2, "ts": "2026-07-01T09:02:00", "name": "read_file"},
     ]
     active = [
-        {"type": "tool_result", "seq": 3, "ts": "2026-07-01T09:03:00", "name": "read_file", "content": "ok"},
+        {
+            "type": "tool_result",
+            "seq": 3,
+            "ts": "2026-07-01T09:03:00",
+            "name": "read_file",
+            "content": "ok",
+        },
         {"type": "llm_response", "seq": 4, "ts": "2026-07-01T09:04:00", "content": "现在"},
     ]
     (logs_dir / "interactions-000001.jsonl").write_text(
@@ -664,11 +725,19 @@ def test_admin_interaction_history_can_jump_to_a_sequence_range(tmp_path):
     logs_dir = Path(config.agent.logs_dir)
     logs_dir.mkdir(parents=True)
     (logs_dir / "interactions-000001.jsonl").write_text(
-        "\n".join(json.dumps({"seq": seq, "ts": f"2026-07-01T09:0{seq}:00", "type": "message_in"}) for seq in range(3)) + "\n",
+        "\n".join(
+            json.dumps({"seq": seq, "ts": f"2026-07-01T09:0{seq}:00", "type": "message_in"})
+            for seq in range(3)
+        )
+        + "\n",
         encoding="utf-8",
     )
     (logs_dir / "interactions.jsonl").write_text(
-        "\n".join(json.dumps({"seq": seq, "ts": f"2026-07-01T09:0{seq}:00", "type": "tool_result"}) for seq in range(3, 5)) + "\n",
+        "\n".join(
+            json.dumps({"seq": seq, "ts": f"2026-07-01T09:0{seq}:00", "type": "tool_result"})
+            for seq in range(3, 5)
+        )
+        + "\n",
         encoding="utf-8",
     )
     headers = {"Authorization": "Bearer secret"}
@@ -681,10 +750,13 @@ def test_admin_interaction_history_can_jump_to_a_sequence_range(tmp_path):
     assert response.status_code == 200
     assert [item["seq"] for item in response.json()["events"]] == [3, 2, 1]
     assert response.json()["has_more"] is False
-    assert client.get(
-        "/api/admin/interactions?seq_start=4&seq_end=3",
-        headers=headers,
-    ).status_code == 400
+    assert (
+        client.get(
+            "/api/admin/interactions?seq_start=4&seq_end=3",
+            headers=headers,
+        ).status_code
+        == 400
+    )
 
 
 def test_legacy_admin_logs_endpoint_is_not_available(tmp_path):

@@ -6,11 +6,16 @@ import json
 import openai
 from loguru import logger
 
-from coworker.brain.base import BaseLLMProvider
+from coworker.brain.base import (
+    BaseLLMProvider,
+    pdf_attachment_fallback,
+    unsupported_image_fallback,
+)
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
 from coworker.core.types import LLMResponse, Message, ToolCall
+from coworker.i18n import tr
 
 
 def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
@@ -19,6 +24,7 @@ def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse tool call arguments for '{tool_name}': {raw!r}")
         return {"__parse_error__": str(e), "__raw_arguments__": raw}
+
 
 _TOOL_USE_MODELS = {
     # GPT-5.x series (current flagship and variants)
@@ -160,16 +166,14 @@ class OpenAIProvider(BaseLLMProvider):
                     data_url = f"data:{src['media_type']};base64,{src['data']}"
                     result.append({"type": "image_url", "image_url": data_url})
                 else:
-                    result.append(
-                        {"type": "text", "text": "[图片附件 — 不支持的图片格式]"}
-                    )
+                    result.append({"type": "text", "text": unsupported_image_fallback()})
             elif btype == "document":
-                fname = block.get("_filename", "文档")
-                path = block.get("_saved_path", "")
-                text = f"[PDF 附件: {fname} — OpenAI 不原生支持 PDF"
-                if path:
-                    text += f"，已保存至 {path}，可使用工具读取"
-                text += "]"
+                fname = block.get("_filename", tr("attachment_fallback.document_name"))
+                text = pdf_attachment_fallback(
+                    fname,
+                    block.get("_saved_path", ""),
+                    note=tr("attachment_fallback.openai_pdf_note"),
+                )
                 result.append({"type": "text", "text": text})
             else:
                 result.append({k: v for k, v in block.items() if not k.startswith("_")})
@@ -207,12 +211,14 @@ class OpenAIProvider(BaseLLMProvider):
     def _to_responses_tools(self, tools: list[dict]) -> list[dict]:
         result: list[dict] = []
         for tool in tools:
-            result.append({
-                "type": "function",
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
-            })
+            result.append(
+                {
+                    "type": "function",
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
+                }
+            )
         return result
 
     @staticmethod
@@ -300,9 +306,7 @@ class OpenAIProvider(BaseLLMProvider):
             reasoning_content=reasoning_content,
         )
 
-    def _to_responses_input(
-        self, messages: list[Message], model_id: str
-    ) -> tuple[list[dict], str]:
+    def _to_responses_input(self, messages: list[Message], model_id: str) -> tuple[list[dict], str]:
         """Convert conversation history to Responses API input items."""
         instructions = ""
         input_items: list[dict] = []
@@ -322,29 +326,39 @@ class OpenAIProvider(BaseLLMProvider):
             if m.role == "assistant":
                 if m.reasoning_content:
                     rc_id = "rs_" + hashlib.sha256(m.reasoning_content.encode()).hexdigest()[:24]
-                    input_items.append({
-                        "type": "reasoning",
-                        "id": rc_id,
-                        "summary": [{"type": "summary_text", "text": m.reasoning_content}],
-                    })
+                    input_items.append(
+                        {
+                            "type": "reasoning",
+                            "id": rc_id,
+                            "summary": [{"type": "summary_text", "text": m.reasoning_content}],
+                        }
+                    )
                 if m.content:
-                    input_items.append({
-                        "role": "assistant",
-                        "content": self._to_responses_content_blocks(m.content, m.role, model_id),
-                    })
+                    input_items.append(
+                        {
+                            "role": "assistant",
+                            "content": self._to_responses_content_blocks(
+                                m.content, m.role, model_id
+                            ),
+                        }
+                    )
                 for tc in m.tool_calls:
                     function = tc.get("function", {})
-                    input_items.append({
-                        "type": "function_call",
-                        "call_id": tc.get("id", ""),
-                        "name": function.get("name", ""),
-                        "arguments": function.get("arguments", "{}"),
-                    })
+                    input_items.append(
+                        {
+                            "type": "function_call",
+                            "call_id": tc.get("id", ""),
+                            "name": function.get("name", ""),
+                            "arguments": function.get("arguments", "{}"),
+                        }
+                    )
                 continue
-            input_items.append({
-                "role": "user",
-                "content": self._to_responses_content_blocks(m.content, m.role, model_id),
-            })
+            input_items.append(
+                {
+                    "role": "user",
+                    "content": self._to_responses_content_blocks(m.content, m.role, model_id),
+                }
+            )
         return input_items, instructions
 
     async def count_tokens(self, messages: list[Message], model_id: str) -> int:

@@ -69,6 +69,8 @@ npm --prefix apps/coworker-desktop/desktop run build
 - 行为变更需要新增或更新测试。
 - 命令、配置或公开行为发生变化时，更新 README 或示例。
 - `docs/` 中的成对文档使用 `<name>.md` 表示中文、`<name>.en.md` 表示英文。修改时同时更新两个版本，并保持命令、配置名和产品术语一致。
+- Python 运行时翻译按领域放在 `src/coworker/i18n/catalogs/<locale>/` 的 TOML catalog 中；所有 locale 的语义 key 与 `{{placeholder}}` 集合必须一致，不翻译协议名、ID、枚举值、用户内容或第三方原文。
+- 用户资产本地化使用 companion 文件（`SKILL.en.md`、`PALACE.en.md`、`MODE.en.md`、`thinking.en.md` 或 `personality.en.md` 等身份 prose）；只覆盖约定的 prose 字段，稳定元数据保留在原文件。
 - 用户可见的变更需要在 `CHANGELOG.md` 中添加简短记录。
 - 明确说明迁移、兼容性破坏、安全影响以及未能运行的检查。
 

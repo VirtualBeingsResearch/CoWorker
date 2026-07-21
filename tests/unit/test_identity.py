@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 
 
@@ -66,3 +67,39 @@ class TestIdentity:
         identity = Identity(str(d))
         identity.load()  # should not raise
         assert d.exists()
+
+    def test_english_companion_changes_prose_but_not_name(self, tmp_path):
+        d = tmp_path / "identity"
+        d.mkdir()
+        (d / "name.txt").write_text("Luna", encoding="utf-8")
+        (d / "personality.md").write_text("中文人格", encoding="utf-8")
+        (d / "personality.en.md").write_text("English personality", encoding="utf-8")
+        identity = Identity(str(d))
+        identity.load()
+
+        with locale_context("en"):
+            section = identity.to_system_prompt_section()
+        assert "My name is **Luna**" in section
+        assert "English personality" in section
+        assert "中文人格" not in section
+
+    def test_ip_location_request_language_follows_runtime_locale(self, tmp_path, monkeypatch):
+        captured = {}
+
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"status": "success", "city": "Paris", "regionName": "", "country": "France"}
+
+        def fake_get(url, *, params, timeout):
+            captured.update({"url": url, "params": params, "timeout": timeout})
+            return Response()
+
+        monkeypatch.setattr("requests.get", fake_get)
+        identity = Identity(str(tmp_path / "identity"))
+        identity.load()
+        with locale_context("en"):
+            identity.detect_location()
+        assert captured["params"]["lang"] == "en-US"

@@ -18,6 +18,37 @@
 - **Memory palaces (Memory Block Tree)**: Loads domain packages from `.coworker/palaces` through `PALACE.md`. Each palace is a domain composition layer: a thin orientation card plus pointers to skills (procedures) and long-term memories (facts). Only a compact registry—name plus attachment condition—stays in the system prompt. The full palace is injected on demand into the task's bubble: critical skills are loaded in full, related skill names are listed for optional loading, and long-term memories are recalled by `memory_tags`. When a bubble finishes successfully, its conclusions are written back to long-term memory under the palace tags, allowing the palace to keep growing through use.
 - **Identity system**: Loads a name and personality from `data/identity`. On first startup, Coworker may begin in an unnamed newborn state.
 
+## Runtime i18n and prompt localization
+
+Coworker renders its own model-visible framework text using an instance-wide locale. The first
+release supports `zh-CN` and `en`, defaulting to `zh-CN`. The locale lives in an async-safe context;
+prompt caches are partitioned by locale, and background model tasks inherit and retain the locale
+present when they are created. It also drives weekday names, message-source labels, IP geolocation
+request language, and the browser's default locale, while time zones and ISO date formats remain
+unchanged.
+
+Built-in text lives under `src/coworker/i18n/catalogs/<locale>/` in domain-specific TOML catalogs,
+using semantic keys and `{{variable}}` placeholders. Startup and tests strictly require identical
+keys, non-empty values, and placeholder sets across locales. An unknown locale or incomplete
+built-in catalog fails closed, so a missing key never leaks to a model. Tool names, parameter names,
+enum values, IDs, tags, actual data, and original third-party exception text remain unchanged.
+
+User-maintained Markdown assets may provide localized companion files. Lookup order is exact locale,
+base language, then the original file:
+
+- `SKILL.en.md` overrides only `description` and the body;
+- `PALACE.en.md` overrides only `when_to_attach` and the body;
+- `MODE.en.md` overrides only `goal`, `purpose`, `retire_after`, and the body;
+- `thinking.en.md` and identity prose such as `personality.en.md` override the matching prose.
+
+Names, stable IDs, tags, scheduling fields, and other operational metadata always come from the
+original file. A missing companion falls back silently; malformed content or mismatched placeholders
+emit a load warning and fall back without invalidating the original asset. Existing snapshots,
+memories, tasks, alarms, logs, and user assets are neither migrated nor translated. For mem0,
+Coworker localizes only its own wrappers and custom instructions that require preserving source
+language; prompts owned internally by mem0, model providers, or other third-party libraries are not
+copied or monkey-patched.
+
 ## Main tools
 
 The following tools are registered by default at startup:

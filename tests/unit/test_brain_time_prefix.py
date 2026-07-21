@@ -8,6 +8,7 @@ import pytest
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.core.types import LLMResponse, Message
+from coworker.i18n import locale_context
 
 _PREFIX_RE = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 周[一二三四五六日]\] ")
 
@@ -65,6 +66,17 @@ async def test_user_message_gets_timestamp_prefix() -> None:
     assert user_msg.role == "user"
     assert _PREFIX_RE.match(user_msg.content)
     assert user_msg.content == "[2026-06-01 14:30:05 周一] hello"
+
+
+@pytest.mark.asyncio
+async def test_english_locale_uses_english_weekday() -> None:
+    provider = _CapturingProvider()
+    brain = _make_brain(provider, prefix=True)
+
+    with locale_context("en"):
+        await brain.think(_messages(), "sys", [])
+
+    assert provider.seen[0].content == "[2026-06-01 14:30:05 Monday] hello"
 
 
 @pytest.mark.asyncio

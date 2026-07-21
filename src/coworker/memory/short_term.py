@@ -17,6 +17,7 @@ from coworker.core.types import (
     SummaryResult,
     estimate_content_tokens,
 )
+from coworker.i18n import bind_locale, tr
 from coworker.memory.memory_tree import MemoryBlockTree, MemoryNode
 
 if TYPE_CHECKING:
@@ -61,7 +62,9 @@ class ShortTermMemory:
         self._tree_enabled = tree_enabled
         self._log_store = log_store
         # tree_enabled 时尾部保护比例改由 tree_tail_fraction 决定（取代 legacy compress_protected_tail）
-        self._protected_tail_fraction = tree_tail_fraction if tree_enabled else compress_protected_tail
+        self._protected_tail_fraction = (
+            tree_tail_fraction if tree_enabled else compress_protected_tail
+        )
         self.tree = MemoryBlockTree(
             spine_cap_tokens=int(max_tokens * tree_spine_cap_fraction),
             reach_depth=tree_merge_reach_depth,
@@ -91,7 +94,9 @@ class ShortTermMemory:
             # 新 pin 只写入 pinned_items，不立即插入 primary，
             # 避免在 tool_use→tool_result 之间注入 user 消息破坏对话结构。
             # reinject_missing_pins() 会在下一个 cycle 开头将其补入。
-            self.pinned_items.append(PinnedItem(pin_id=pin_id, label=label, content=content, file_path=file_path))
+            self.pinned_items.append(
+                PinnedItem(pin_id=pin_id, label=label, content=content, file_path=file_path)
+            )
 
     def unpin(self, pin_id: str) -> bool:
         before = len(self.pinned_items)
@@ -109,12 +114,14 @@ class ShortTermMemory:
         result = []
         for item in self.pinned_items:
             content = self._load_pin_content(item)
-            result.append(Message(
-                role="user",
-                content=f"[{item.label}]\n{content}",
-                pin_id=item.pin_id,
-                source="pinned_context",
-            ))
+            result.append(
+                Message(
+                    role="user",
+                    content=f"[{item.label}]\n{content}",
+                    pin_id=item.pin_id,
+                    source="pinned_context",
+                )
+            )
         return result
 
     def clear(self) -> int:
@@ -139,15 +146,19 @@ class ShortTermMemory:
         for item in self.pinned_items:
             if item.pin_id not in current_pin_ids:
                 content = self._load_pin_content(item)
-                self.primary.append(Message(
-                    role="user",
-                    content=f"[{item.label}]\n{content}",
-                    pin_id=item.pin_id,
-                    source="pinned_context",
-                ))
+                self.primary.append(
+                    Message(
+                        role="user",
+                        content=f"[{item.label}]\n{content}",
+                        pin_id=item.pin_id,
+                        source="pinned_context",
+                    )
+                )
                 reinjected.append(item)
         if reinjected:
-            logger.debug(f"Reinjected {len(reinjected)} pinned message(s): {[item.pin_id for item in reinjected]}")
+            logger.debug(
+                f"Reinjected {len(reinjected)} pinned message(s): {[item.pin_id for item in reinjected]}"
+            )
         return reinjected
 
     def _load_pin_content(self, item: PinnedItem) -> str:
@@ -155,11 +166,14 @@ class ShortTermMemory:
             return item.content
         try:
             from pathlib import Path
+
             new_content = Path(item.file_path).read_text(encoding="utf-8")
             item.content = new_content
             return new_content
         except Exception as e:
-            logger.warning(f"Pin '{item.pin_id}': failed to re-read {item.file_path}: {e}, using cached content")
+            logger.warning(
+                f"Pin '{item.pin_id}': failed to re-read {item.file_path}: {e}, using cached content"
+            )
             return item.content
 
     def build_context(self) -> list[Message]:
@@ -194,9 +208,8 @@ class ShortTermMemory:
         （clear / unpin / 重启恢复截断 / cleanup_incomplete_tool_calls）。splice 用的是
         索引，若前缀已变，`primary[:cutoff]=...` 会误删/错配。故按对象身份核验：只有当
         primary 头部仍是我们摘要过的那批对象时才允许 splice，否则放弃本次压缩。"""
-        return (
-            len(self.primary) >= cutoff
-            and all(self.primary[i] is to_compress[i] for i in range(len(to_compress)))
+        return len(self.primary) >= cutoff and all(
+            self.primary[i] is to_compress[i] for i in range(len(to_compress))
         )
 
     def estimate_tokens(self, brain: Brain | None = None) -> int:
@@ -209,7 +222,7 @@ class ShortTermMemory:
     async def _do_compress(
         self,
         brain: Brain,
-        context_hint: str = "自主思考记录",
+        context_hint: str | None = None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
         """Execute compression. Returns (messages_compressed, memories_saved).
@@ -217,6 +230,7 @@ class ShortTermMemory:
         memories_saved is always 0: the compressor only produces the summary anchor;
         long-term extraction is owned by the subconscious (pre-compress + periodic).
         """
+        context_hint = context_hint or tr("memory.autonomous_context")
         if self._compressing or len(self.primary) < 4:
             return 0, 0
         # 关键：_compressing 必须在任何 await 之前同步置位，否则「检查→获取锁」之间的窗口
@@ -266,7 +280,7 @@ class ShortTermMemory:
         # 压进切片、却把它的部分 tool_result 留在保留侧开头，形成「孤儿 tool_result」
         # （无父 tool_use），下一次 build_context 会被 provider 拒绝。宁可多压一点也要保链完整。
         n = len(self.primary)
-        while cutoff < n and self.primary[cutoff].role == 'tool':
+        while cutoff < n and self.primary[cutoff].role == "tool":
             cutoff += 1
         return cutoff
 
@@ -287,10 +301,12 @@ class ShortTermMemory:
 
     @staticmethod
     def _is_legacy_summary_anchor(message: Message) -> bool:
-        return (
-            message.role == "user"
-            and isinstance(message.content, str)
-            and message.content.startswith("[记忆：以下是我之前的行动摘要]")
+        return message.role == "user" and (
+            message.source == "memory_summary"
+            or (
+                isinstance(message.content, str)
+                and message.content.startswith("[记忆：以下是我之前的行动摘要]")
+            )
         )
 
     def raw_primary_boundary(self) -> datetime | None:
@@ -321,7 +337,9 @@ class ShortTermMemory:
             return raw
 
     @staticmethod
-    def _summary_text_tokens_and_source(raw: str | SummaryResult) -> tuple[str, int, TokenCountSource]:
+    def _summary_text_tokens_and_source(
+        raw: str | SummaryResult,
+    ) -> tuple[str, int, TokenCountSource]:
         if isinstance(raw, SummaryResult):
             summary = ShortTermMemory._parse_summary(raw.content)
             tokens = raw.output_tokens
@@ -337,6 +355,7 @@ class ShortTermMemory:
         agent_system_prompt: str = "",
     ) -> Callable[[str, str], Awaitable[str | SummaryResult]]:
         """Adapt brain.summarize into the (text, hint)->summary callable the tree expects."""
+
         async def _fn(text: str, hint: str) -> str | SummaryResult:
             raw = await brain.summarize(
                 [Message(role="user", content=text)],
@@ -351,6 +370,7 @@ class ShortTermMemory:
                     usage=raw.usage,
                 )
             return self._parse_summary(raw)
+
         return _fn
 
     @staticmethod
@@ -360,17 +380,11 @@ class ShortTermMemory:
     @staticmethod
     def _tree_leaf_context_hint(context_hint: str, budget: int) -> str:
         target = ShortTermMemory._tree_summary_target_tokens(budget)
-        return (
-            f"{context_hint}。将这段活动总结为连续记忆概要，目标约 {target} tokens，"
-            f"硬上限 {budget} tokens。"
-            "优先保留任务主线、因果关系、关键决定、状态变化、未闭环事项、"
-            "数量/编号降噪：BUG、case、commit、traceId、任务数量默认概括为"
-            "多个/一批/多轮/若干，不逐条罗列；只保留未闭环、阻塞、验收依据、"
-            "用户明确引用或后续追查必需的具体编号。"
-            "下一步接续点、阻塞/风险。最后一句必须给出“接续：...”"
-            "说明当前状态/下一步/若已完成则写清已完成。关键锚点只保留高信号的人名、"
-            "项目名、文件/接口、URL、账号/凭证、时间承诺、任务名；不要堆砌普通关键词，"
-            "不要输出“关键词：”列表，不要空白。"
+        return tr(
+            "memory.leaf_hint",
+            context=context_hint,
+            target=target,
+            budget=budget,
         )
 
     @staticmethod
@@ -382,23 +396,18 @@ class ShortTermMemory:
         empty: bool = False,
     ) -> str:
         if empty:
-            return (
-                f"{context_hint}\n\n"
-                "上一版摘要为空或不可用。请根据输入重新生成一段非空连续记忆；"
-                f"目标约 {ShortTermMemory._tree_summary_target_tokens(budget)} tokens，"
-                f"硬上限 {budget} tokens。必须保留主线、最新状态和接续点，"
-                "最后一句必须是接续状态；不要解释，不要输出空白。"
+            return tr(
+                "memory.retry_empty",
+                context=context_hint,
+                target=ShortTermMemory._tree_summary_target_tokens(budget),
+                budget=budget,
             )
-        return (
-            f"{context_hint}\n\n"
-            f"上一版摘要约 {last_tokens} tokens，超过 {budget} token 预算。"
-            f"请重新压缩到 {budget} tokens 以内，目标约 "
-            f"{ShortTermMemory._tree_summary_target_tokens(budget)} tokens；"
-            "优先保留连续主线、关键决定、最新状态、未闭环事项、下一步接续点、阻塞/风险。"
-            "删掉重复背景、过程流水账、普通关键词和“关键词：”列表，只保留最关键的检索锚点。"
-            "BUG/case/commit/traceId/任务数量默认概括为多个/一批/多轮/若干；"
-            "只有未闭环、阻塞、验收依据或后续追查必需时才保留具体编号。"
-            "最后一句必须是接续状态；不要解释，不要追加格式说明，不要空白。"
+        return tr(
+            "memory.retry_over",
+            context=context_hint,
+            last_tokens=last_tokens,
+            budget=budget,
+            target=ShortTermMemory._tree_summary_target_tokens(budget),
         )
 
     async def _summarize_messages_to_tree_budget(
@@ -436,7 +445,7 @@ class ShortTermMemory:
         )
         if last.strip():
             return last, last_tokens, last_source
-        fallback = "接续：该时间段摘要生成为空，需要根据原始消息重新确认。"
+        fallback = tr("memory.empty_messages")
         return fallback, estimate_content_tokens(fallback), "estimated"
 
     @staticmethod
@@ -466,7 +475,7 @@ class ShortTermMemory:
         )
         if last.strip():
             return last, last_tokens, last_source
-        fallback = "接续：该时间段摘要生成为空，需要根据原始日志重新确认。"
+        fallback = tr("memory.empty_logs")
         return fallback, estimate_content_tokens(fallback), "estimated"
 
     async def _do_compress_inner(
@@ -495,11 +504,13 @@ class ShortTermMemory:
         if not self._promoted_slice_intact(to_compress, cutoff):
             logger.warning("Compress aborted: primary prefix changed during summarize")
             return 0, 0
-        self.primary[:cutoff] = [Message(
-            role="user",
-            content=f"[记忆：以下是我之前的行动摘要]\n{summary_text}",
-            source="memory_summary",
-        )]
+        self.primary[:cutoff] = [
+            Message(
+                role="user",
+                content=tr("memory.legacy_anchor", summary=summary_text),
+                source="memory_summary",
+            )
+        ]
         self.compress_generation += 1
         logger.info(f"Compressed {len(to_compress)} messages to summary anchor")
         return len(to_compress), 0
@@ -524,7 +535,11 @@ class ShortTermMemory:
 
         logger.info(f"Promoting {len(to_compress)} messages into memory tree")
         stm_context = self.tree.render() if agent_system_prompt else None
-        leaf_summary, leaf_tokens, leaf_token_source = await self._summarize_messages_to_tree_budget(
+        (
+            leaf_summary,
+            leaf_tokens,
+            leaf_token_source,
+        ) = await self._summarize_messages_to_tree_budget(
             brain,
             to_compress,
             context_hint=context_hint,
@@ -573,10 +588,11 @@ class ShortTermMemory:
     async def _do_compress_all(
         self,
         brain: Brain,
-        context_hint: str = "手动全量短期记忆压缩",
+        context_hint: str | None = None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
         """Compress every currently live primary message except an active tool_use tail."""
+        context_hint = context_hint or tr("memory.manual_context")
         if self._compressing:
             return 0, 0
         self._compressing = True
@@ -611,11 +627,13 @@ class ShortTermMemory:
         if not self._promoted_slice_intact(to_compress, cutoff):
             logger.warning("Full compression aborted: primary prefix changed during summarize")
             return 0, 0
-        self.primary[:cutoff] = [Message(
-            role="user",
-            content=f"[记忆：以下是我之前的行动摘要]\n{summary_text}",
-            source="memory_summary",
-        )]
+        self.primary[:cutoff] = [
+            Message(
+                role="user",
+                content=tr("memory.legacy_anchor", summary=summary_text),
+                source="memory_summary",
+            )
+        ]
         self.compress_generation += 1
         logger.info(f"Compressed all {len(to_compress)} live messages to summary anchor")
         return len(to_compress), 0
@@ -630,7 +648,11 @@ class ShortTermMemory:
     ) -> tuple[int, int]:
         logger.info(f"Promoting all {len(to_compress)} live messages into memory tree")
         stm_context = self.tree.render() if agent_system_prompt else None
-        leaf_summary, leaf_tokens, leaf_token_source = await self._summarize_messages_to_tree_budget(
+        (
+            leaf_summary,
+            leaf_tokens,
+            leaf_token_source,
+        ) = await self._summarize_messages_to_tree_budget(
             brain,
             to_compress,
             context_hint=context_hint,
@@ -688,7 +710,9 @@ class ShortTermMemory:
         if token_count < threshold:
             return
         self._compress_task = asyncio.create_task(
-            self._do_compress_and_snapshot(brain, snapshot_path, agent_system_prompt)
+            bind_locale(
+                lambda: self._do_compress_and_snapshot(brain, snapshot_path, agent_system_prompt)
+            )
         )
         self._compress_task.add_done_callback(self._on_compress_done)
 
@@ -722,7 +746,9 @@ class ShortTermMemory:
             return False
 
         self._tree_rebalance_task = asyncio.create_task(
-            self._rebalance_tree_and_snapshot(brain, snapshot_path, agent_system_prompt),
+            bind_locale(
+                lambda: self._rebalance_tree_and_snapshot(brain, snapshot_path, agent_system_prompt)
+            ),
             name="memory-tree-rebalance",
         )
         self._tree_rebalance_task.add_done_callback(self._on_tree_rebalance_done)
@@ -749,7 +775,7 @@ class ShortTermMemory:
     async def compress_now(
         self,
         brain: Brain,
-        context_hint: str = "自主思考记录",
+        context_hint: str | None = None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
         """Force compress regardless of threshold. Returns (messages_compressed, memories_saved)."""
@@ -758,7 +784,7 @@ class ShortTermMemory:
     async def compress_all_now(
         self,
         brain: Brain,
-        context_hint: str = "手动全量短期记忆压缩",
+        context_hint: str | None = None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
         """Force-compress all live primary messages while preserving an active tool_use tail."""
@@ -824,19 +850,17 @@ class ShortTermMemory:
                 if digest:
                     async with sem:
                         budget = tree.node_budget()
-                        summary, summary_tokens, summary_token_source = await self._summarize_text_to_tree_budget(
+                        (
+                            summary,
+                            summary_tokens,
+                            summary_token_source,
+                        ) = await self._summarize_text_to_tree_budget(
                             summarize,
                             digest,
-                            (
-                                f"历史回溯：将这段活动总结为连续记忆概要，目标约 "
-                                f"{self._tree_summary_target_tokens(budget)} tokens，硬上限 {budget} tokens。"
-                                "优先保留任务主线、关键决定、未闭环事项、下一步接续点、阻塞/风险；"
-                                "数量/编号降噪：BUG、case、commit、traceId、任务数量默认概括为"
-                                "多个/一批/多轮/若干，不逐条罗列；只保留未闭环、阻塞、验收依据、"
-                                "用户明确引用或后续追查必需的具体编号。"
-                                "关键锚点只保留高信号的人名、项目名、文件/接口、URL、账号/凭证、"
-                                "时间承诺、任务名。最后一句必须给出“接续：...”；"
-                                "不要输出“关键词：”列表，不要空白。"
+                            tr(
+                                "memory.backfill_hint",
+                                target=self._tree_summary_target_tokens(budget),
+                                budget=budget,
                             ),
                             budget,
                         )
@@ -860,9 +884,7 @@ class ShortTermMemory:
             logger.info(f"[backfill] {len(leaves)} 叶子完成，平衡归约建脊柱…")
 
             # 2) 平衡两两归约（绝不塌成单节点；归约合并走 summary-of-summaries，不重读日志）
-            await tree.build_balanced(
-                leaves, summarize, concurrency=self._backfill_concurrency
-            )
+            await tree.build_balanced(leaves, summarize, concurrency=self._backfill_concurrency)
             return len(leaves)
         finally:
             self.backfill_progress["running"] = False
@@ -1011,13 +1033,16 @@ class ShortTermMemory:
         """从快照/备份 dict 解析 primary 消息列表（不构造整个 STM）。供 deserialize 与备份恢复复用。"""
         out: list[Message] = []
         for m in data.get("primary", []):
-            msg = Message(role=m["role"], content=m["content"],
-                          tool_calls=m.get("tool_calls", []),
-                          tool_call_id=m.get("tool_call_id"),
-                          recalled_memory_ids=m.get("recalled_memory_ids", []),
-                          pin_id=m.get("pin_id"),
-                          source=m.get("source"),
-                          usage=m.get("usage", {}))
+            msg = Message(
+                role=m["role"],
+                content=m["content"],
+                tool_calls=m.get("tool_calls", []),
+                tool_call_id=m.get("tool_call_id"),
+                recalled_memory_ids=m.get("recalled_memory_ids", []),
+                pin_id=m.get("pin_id"),
+                source=m.get("source"),
+                usage=m.get("usage", {}),
+            )
             if "timestamp" in m:
                 msg.timestamp = datetime.fromisoformat(m["timestamp"])
             out.append(msg)
@@ -1043,7 +1068,9 @@ class ShortTermMemory:
 
     def save_to_file(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.serialize(), ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(self.serialize(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     @classmethod
     def load_from_file(cls, path: Path, **kwargs) -> ShortTermMemory:
@@ -1060,7 +1087,7 @@ class ShortTermMemory:
                 expected_ids = {tc["id"] for tc in msg.tool_calls}
                 returned_ids = {
                     m.tool_call_id
-                    for m in self.primary[i + 1:]
+                    for m in self.primary[i + 1 :]
                     if m.role == "tool" and m.tool_call_id
                 }
                 if not expected_ids.issubset(returned_ids):

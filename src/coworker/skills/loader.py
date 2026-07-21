@@ -5,6 +5,9 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
+from coworker.i18n import tr
+from coworker.i18n.resources import load_markdown_companion
+
 
 class Skill:
     def __init__(
@@ -46,9 +49,11 @@ class SkillLoader:
                 if skill:
                     existing = self._skills.get(skill.name)
                     if existing is not None:
-                        warnings[f"duplicate:{skill.name}:{skill_file}"] = (
-                            f"Skill '{skill.name}' 重名，文件 {skill_file} 被跳过；"
-                            f"已保留先加载的定义。"
+                        warnings[f"duplicate:{skill.name}:{skill_file}"] = tr(
+                            "assets.duplicate",
+                            kind="Skill",
+                            name=skill.name,
+                            path=skill_file,
                         )
                         logger.warning(warnings[f"duplicate:{skill.name}:{skill_file}"])
                         continue
@@ -60,36 +65,51 @@ class SkillLoader:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception as e:
-            warning = f"Skill 文件 {path} 读取失败：{type(e).__name__}: {e}"
+            warning = tr(
+                "assets.read_failed",
+                kind="Skill",
+                path=path,
+                error_type=type(e).__name__,
+                error=e,
+            )
             logger.warning(warning)
             return None, warning
         if not text.startswith("---"):
-            warning = f"Skill 文件 {path} 缺少 frontmatter，已跳过。"
+            warning = tr("assets.asset_frontmatter_missing", kind="Skill", path=path)
             logger.warning(warning)
             return None, warning
         parts = text.split("---", 2)
         if len(parts) < 3:
-            warning = f"Skill 文件 {path} 的 frontmatter 结构不完整，已跳过。"
+            warning = tr("assets.asset_frontmatter_incomplete", kind="Skill", path=path)
             logger.warning(warning)
             return None, warning
         try:
             fm: dict = yaml.safe_load(parts[1]) or {}
         except yaml.YAMLError as e:
-            warning = f"Skill 文件 {path} 的 YAML frontmatter 解析失败：{e}"
+            warning = tr("assets.yaml_failed", kind="Skill", path=path, error=e)
             logger.warning(warning)
             return None, warning
         name = fm.get("name", "")
         if not name:
-            warning = f"Skill 文件 {path} 缺少 name 字段，已跳过。"
+            warning = tr("assets.name_missing", kind="Skill", path=path)
             logger.warning(warning)
             return None, warning
+        base_body = parts[2].strip()
+        localized = load_markdown_companion(
+            path,
+            base_fields=fm,
+            base_body=base_body,
+            localizable_fields=("description",),
+        )
+        if localized.warning:
+            logger.warning(localized.warning)
         return Skill(
             name=str(name),
-            description=str(fm.get("description", "")),
-            body=parts[2].strip(),
+            description=localized.fields["description"],
+            body=localized.body,
             version=fm.get("version") or (fm.get("metadata") or {}).get("version"),
             metadata=fm.get("metadata") or {},
-        ), None
+        ), localized.warning
 
     def _refresh_skill_load_warnings(self, warnings: dict[str, str]) -> None:
         self._pending_skill_load_warnings = [

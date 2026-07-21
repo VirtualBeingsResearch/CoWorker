@@ -18,6 +18,31 @@
 - **记忆宫殿（Memory Block Tree）**：从 `.coworker/palaces` 加载 `PALACE.md` 领域包。每个宫殿是一个领域的「组合层」——一张薄薄的领域速记卡，加上指向 skill（程序）和长期记忆（事实）的指针。系统提示中只常驻薄注册表（名字 + 何时挂载），完整宫殿在执行任务的「泡泡」里按需注入：关键 skill 强加载、相关 skill 列名待按需加载、按 `memory_tags` 召回相关长期记忆。泡泡成功收尾时，其结论会按宫殿标签自动写回长期记忆，使宫殿随任务执行持续「生长」。
 - **身份系统**：从 `data/identity` 加载名字和人格；首次启动时可以处于未命名的新生状态。
 
+## 运行时 i18n 与 Prompt 国际化
+
+Coworker 使用实例级 locale 渲染模型可见的自有框架文案。首发支持 `zh-CN` 与 `en`，
+默认 `zh-CN`；locale 存在异步安全的上下文中，Prompt 缓存按 locale 隔离，后台模型任务
+在创建时继承并固定当前 locale。星期名、消息来源标签、IP 定位请求语言和浏览器默认
+locale 也由它驱动；时区与 ISO 日期格式不变。
+
+内置文案位于 `src/coworker/i18n/catalogs/<locale>/`，按领域拆分为 TOML，使用语义 key
+与 `{{variable}}` 占位符。启动和测试会严格验证各语言 key、非空值和占位符集合一致；
+未知 locale 或不完整内置 catalog 直接报错，不会把缺失 key 传给模型。工具名、参数名、
+枚举值、ID、标签、实际数据和第三方异常原文保持不变。
+
+用户维护的 Markdown 资产可以提供本地化 companion，加载顺序为「精确 locale → 基础语言
+→ 原文件」：
+
+- `SKILL.en.md` 只覆盖 `description` 和正文；
+- `PALACE.en.md` 只覆盖 `when_to_attach` 和正文；
+- `MODE.en.md` 只覆盖 `goal`、`purpose`、`retire_after` 和正文；
+- `thinking.en.md` 与身份 prose 文件（如 `personality.en.md`）覆盖对应正文。
+
+姓名、稳定 ID、标签、调度参数和其他运行配置始终来自原文件。companion 缺失时静默回退；
+格式或占位符不匹配时记录加载警告并回退，原资产仍然可用。系统不会迁移或翻译已有快照、
+记忆、任务、闹钟、日志或用户资产。mem0 只接收本地化的 Coworker 包装和要求保留源语言的
+custom instructions；mem0、模型 Provider 等第三方库内部 prompt 不复制、不 monkey-patch。
+
 ## 主要工具
 
 启动时默认注册：

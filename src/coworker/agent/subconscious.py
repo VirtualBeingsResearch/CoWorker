@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from coworker.agent.bubble_loop import _BUBBLE_BASE_INTERCEPTS, BubbleMiniLoop
+from coworker.agent.bubble_loop import BubbleMiniLoop, _bubble_base_intercepts
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+from coworker.i18n import bind_locale, tr
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -31,21 +32,26 @@ if TYPE_CHECKING:
 
 # Built-in intercepts applied to every subconscious bubble, regardless of mode.
 # Modes with empty extra_intercepts (the default) inherit the full set below.
-_SUBCONSCIOUS_EXTRA_INTERCEPTS: dict[str, str] = {
-    "switch_model": "潜意识使用独立 brain，切换模型对它毫无意义。请专注当前反思任务。",
-    "communicate": "潜意识不可直接联系用户。如有需要通知主线的内容，请调用 bubble_send(target='main')。",
-    "list_ws_connections": "潜意识不直接操作外部连接。",
-    "set_alarm": "潜意识不应在主线时间线上设置闹钟。",
-    "cancel_alarm": "潜意识不应取消主线闹钟。",
-    "list_alarms": "潜意识无需查看主线闹钟。",
-    "bubble_spawn": "潜意识不应再派生子泡泡，请在当前线程内完成反思。",
-    "bubble_cancel": "潜意识不应管理其他泡泡。",
-    "bubble_list": "潜意识不应管理其他泡泡。",
-    "bubble_check": "潜意识不应管理其他泡泡。",
-    "write_file": "潜意识不需要写文件",
-    "execute_code": "潜意识不应该执行代码",
-    "kill_code_job": "潜意识不应该管理代码任务",
-}
+def _subconscious_extra_intercepts() -> dict[str, str]:
+    return {
+        "switch_model": tr("subconscious.intercept_switch_model"),
+        "communicate": tr("subconscious.intercept_communicate"),
+        "list_ws_connections": tr("subconscious.intercept_connections"),
+        "set_alarm": tr("subconscious.intercept_set_alarm"),
+        "cancel_alarm": tr("subconscious.intercept_cancel_alarm"),
+        "list_alarms": tr("subconscious.intercept_list_alarms"),
+        "bubble_spawn": tr("subconscious.intercept_spawn"),
+        "bubble_cancel": tr("subconscious.intercept_bubbles"),
+        "bubble_list": tr("subconscious.intercept_bubbles"),
+        "bubble_check": tr("subconscious.intercept_bubbles"),
+        "write_file": tr("subconscious.intercept_write"),
+        "execute_code": tr("subconscious.intercept_code"),
+        "kill_code_job": tr("subconscious.intercept_jobs"),
+    }
+
+
+# Backward-compatible import for callers/tests; runtime paths rebuild it in the active locale.
+_SUBCONSCIOUS_EXTRA_INTERCEPTS = _subconscious_extra_intercepts()
 
 # How often to reload mode files from disk (seconds). Large enough that test-set
 # in-memory modes are never inadvertently cleared; small enough that production
@@ -55,14 +61,27 @@ _MODE_RELOAD_INTERVAL = 60.0
 
 def _mode_hash(mode: SubconsciousMode) -> str:
     """Stable content fingerprint for a mode — body + all scheduling/behavior/lifecycle fields."""
-    parts = "|".join([
-        mode.body,
-        str(mode.trigger), str(mode.context_builder), str(mode.enabled),
-        str(mode.every_n_cycles), str(mode.every_seconds), str(mode.every_n_tool_calls),
-        str(mode.cold_floor_seconds), str(mode.use_threshold), str(mode.min_interval_seconds),
-        str(mode.max_cycles), str(mode.grants_task_store), str(mode.inject_skill_anomalies),
-        str(mode.inject_telemetry), str(mode.purpose), str(mode.retire_after), str(mode.protected),
-    ])
+    parts = "|".join(
+        [
+            mode.body,
+            str(mode.trigger),
+            str(mode.context_builder),
+            str(mode.enabled),
+            str(mode.every_n_cycles),
+            str(mode.every_seconds),
+            str(mode.every_n_tool_calls),
+            str(mode.cold_floor_seconds),
+            str(mode.use_threshold),
+            str(mode.min_interval_seconds),
+            str(mode.max_cycles),
+            str(mode.grants_task_store),
+            str(mode.inject_skill_anomalies),
+            str(mode.inject_telemetry),
+            str(mode.purpose),
+            str(mode.retire_after),
+            str(mode.protected),
+        ]
+    )
     return hashlib.md5(parts.encode()).hexdigest()[:12]
 
 
@@ -76,11 +95,11 @@ class SubconsciousMiniLoop(BubbleMiniLoop):
         self._intercepts = intercepts
 
     def _tool_intercepts(self) -> dict[str, str]:
-        base = {**_BUBBLE_BASE_INTERCEPTS, **self._intercepts}
-        reminder = (
-            f"\n\n[泡泡身份提醒] 你是潜意识泡泡 {self._bubble.id}（模式：{self._mode}），不是主线。"
-            f"此工具调用在本泡泡中不可执行。\n"
-            f"上文主线历史中的工具调用及其输出对你可见（只读参考），但你无法在此泡泡内发起同类操作。"
+        base = {**_bubble_base_intercepts(), **self._intercepts}
+        reminder = tr(
+            "subconscious.identity_reminder",
+            id=self._bubble.id,
+            mode=self._mode,
         )
         return {name: reason + reminder for name, reason in base.items()}
 
@@ -88,7 +107,11 @@ class SubconsciousMiniLoop(BubbleMiniLoop):
         return f"{bubble.id}_{self._mode}.jsonl"
 
     def _build_identity_content(self, bubble: Bubble) -> str:
-        return self._identity_body.replace("{bubble_id}", bubble.id).replace("{goal}", bubble.goal).replace("{max_cycles}", str(bubble.max_cycles))
+        return (
+            self._identity_body.replace("{bubble_id}", bubble.id)
+            .replace("{goal}", bubble.goal)
+            .replace("{max_cycles}", str(bubble.max_cycles))
+        )
 
     async def _auto_merge(self) -> None:
         self._store.mark_done(self._bubble)
@@ -207,13 +230,17 @@ class SubconsciousScheduler:
             logger.debug("Subconscious pre-compress summarize skipped: already running")
             return
         if not short_term_snapshot:
-            logger.debug("Subconscious pre-compress summarize skipped: nothing to be compressed yet")
+            logger.debug(
+                "Subconscious pre-compress summarize skipped: nothing to be compressed yet"
+            )
             return
         mode = self._mode_loader.get("summarize")
         if mode is None:
-            logger.warning("Subconscious pre-compress summarize skipped: 'summarize' mode not loaded")
+            logger.warning(
+                "Subconscious pre-compress summarize skipped: 'summarize' mode not loaded"
+            )
             return
-        goal = "当前上下文是即将被压缩淘汰的对话片段，请从你自己的第一人称视角提炼值得长期保留的经验并存入长期记忆"
+        goal = tr("subconscious.pre_compress_goal")
         await self._spawn(mode, short_term_snapshot, goal_override=goal)
         # Don't update _last_* so the periodic timer still fires normally.
 
@@ -350,7 +377,10 @@ class SubconsciousScheduler:
             usage_logs_root=self._logs_dir,
             task_store=self._task_store if mode.grants_task_store else None,
         )
-        task = asyncio.create_task(mini_loop.run(), name=f"subconscious-{mode.name}-{bubble.id}")
+        task = asyncio.create_task(
+            bind_locale(mini_loop.run),
+            name=f"subconscious-{mode.name}-{bubble.id}",
+        )
         bubble.task = task
         self._active_by_mode[mode.name] = bubble.id
         task.add_done_callback(lambda t: self._on_done(mode.name, bubble.id, t))
@@ -366,11 +396,10 @@ class SubconsciousScheduler:
         (or a generic fallback reason for unknown names).
         """
         if not mode.extra_intercepts:
-            return dict(_SUBCONSCIOUS_EXTRA_INTERCEPTS)
+            return _subconscious_extra_intercepts()
+        builtins = _subconscious_extra_intercepts()
         return {
-            name: _SUBCONSCIOUS_EXTRA_INTERCEPTS.get(
-                name, f"潜意识不应在此模式下使用 {name}。"
-            )
+            name: builtins.get(name, tr("subconscious.intercept_default", name=name))
             for name in mode.extra_intercepts
         }
 
@@ -442,8 +471,11 @@ class SubconsciousScheduler:
             return last is None or now - last >= s
 
         if threshold > 0:
-            due = [p for p in palaces
-                   if self._palace_use_counts.get(p.name, 0) >= threshold and not in_cooldown(p)]
+            due = [
+                p
+                for p in palaces
+                if self._palace_use_counts.get(p.name, 0) >= threshold and not in_cooldown(p)
+            ]
             if due:
                 due.sort(key=lambda p: self._palace_use_counts.get(p.name, 0), reverse=True)
                 return due[0]
@@ -478,7 +510,10 @@ class SubconsciousScheduler:
         self._palace_last_garden_time[palace.name] = now
 
         ctx: list[Message] = [
-            Message(role="system", content=f"[宫殿:{palace.name}]\n{palace.body}")
+            Message(
+                role="system",
+                content=tr("subconscious.palace", name=palace.name, body=palace.body),
+            )
         ]
         mem_count = 0
         if palace.memory_tags:
@@ -491,21 +526,35 @@ class SubconsciousScheduler:
             mem_count = len(mems)
             if mems:
                 lines = [
-                    f"[宫殿记忆] 宫殿「{palace.name}」标签 {', '.join(palace.memory_tags)} "
-                    f"下的领域长期记忆（共 {mem_count} 条，每条带 id）："
+                    tr(
+                        "subconscious.palace_memory_title",
+                        name=palace.name,
+                        tags=", ".join(palace.memory_tags),
+                        count=mem_count,
+                    )
                 ]
                 for i, m in enumerate(mems, 1):
                     lines.append(
-                        f"{i}. id={m['id']} [{m['category']}] {m['content']}（相关度：{m['relevance']:.2f}）"
+                        tr(
+                            "subconscious.memory_item",
+                            index=i,
+                            id=m["id"],
+                            category=m["category"],
+                            content=m["content"],
+                            relevance=f"{m['relevance']:.2f}",
+                        )
                     )
                 ctx.append(Message(role="system", content="\n".join(lines)))
 
         if mem_count == 0:
-            logger.debug(f"Subconscious garden '{palace.name}': no tagged memories yet, spawning for discovery")
+            logger.debug(
+                f"Subconscious garden '{palace.name}': no tagged memories yet, spawning for discovery"
+            )
 
-        goal = (
-            f"巡检记忆宫殿「{palace.name}」（标签：{', '.join(palace.memory_tags) or '无'}）的"
-            f"领域长期记忆：剪除过期/矛盾/冗余、整合补写，并发掘可关联的相关记忆"
+        goal = tr(
+            "subconscious.garden_goal",
+            name=palace.name,
+            tags=", ".join(palace.memory_tags) or tr("subconscious.none"),
         )
         await self._spawn(garden, ctx, goal_override=goal)
         return True
@@ -519,7 +568,7 @@ class SubconsciousScheduler:
 
         meta_last_run = self._mode_last_run_wall.get("meta")
 
-        lines = ["[潜意识遥测] 各模式近期运行情况与当前配置（供判断节奏/漂移/健康度）："]
+        lines = [tr("subconscious.telemetry_title")]
         changed_since_meta: list[tuple[str, float]] = []
 
         for mode in self._mode_loader.list_all():
@@ -527,20 +576,21 @@ class SubconsciousScheduler:
             last_run_wall = self._mode_last_run_wall.get(mode.name)
             last_run_str = (
                 datetime.fromtimestamp(last_run_wall).strftime("%Y-%m-%d %H:%M")
-                if last_run_wall is not None else "从未运行"
+                if last_run_wall is not None
+                else tr("subconscious.never_run")
             )
             recent = self._mode_recent_results.get(mode.name, [])
-            recent_str = "; ".join(recent[-3:]) if recent else "（无）"
+            recent_str = "; ".join(recent[-3:]) if recent else tr("subconscious.no_recent")
 
             # Change status relative to last meta review.
             changed_wall = self._mode_last_changed_wall.get(mode.name)
             if changed_wall is not None and mode.name != "meta":
                 changed_str = datetime.fromtimestamp(changed_wall).strftime("%Y-%m-%d %H:%M")
                 if meta_last_run is None or changed_wall > meta_last_run:
-                    change_tag = f" ★已变更（{changed_str}，meta尚未审视）"
+                    change_tag = tr("subconscious.changed_unreviewed", time=changed_str)
                     changed_since_meta.append((mode.name, changed_wall))
                 else:
-                    change_tag = f" （上次变更：{changed_str}，已审视）"
+                    change_tag = tr("subconscious.changed_reviewed", time=changed_str)
             else:
                 change_tag = ""
 
@@ -564,39 +614,45 @@ class SubconsciousScheduler:
             max_c = mode.max_cycles or "default"
             lifecycle_tags = []
             if mode.protected:
-                lifecycle_tags.append("🔒受保护")
+                lifecycle_tags.append(tr("subconscious.protected"))
             if mode.retire_after:
-                lifecycle_tags.append(f"⚠退休条件: {mode.retire_after}")
+                lifecycle_tags.append(tr("subconscious.retire", condition=mode.retire_after))
             lifecycle_str = f" [{', '.join(lifecycle_tags)}]" if lifecycle_tags else ""
-            purpose_str = f" | 目的: {mode.purpose}" if mode.purpose else ""
+            purpose_str = tr("subconscious.purpose", purpose=mode.purpose) if mode.purpose else ""
             lines.append(
-                f"- {mode.name}{lifecycle_str}{purpose_str} | trigger={mode.trigger} | "
-                f"{cfg_str} | max_cycles={max_c} | 运行{run_count}次 | "
-                f"上次运行：{last_run_str} | 近期产出：{recent_str}{change_tag}"
+                tr(
+                    "subconscious.telemetry_line",
+                    name=mode.name,
+                    lifecycle=lifecycle_str,
+                    purpose=purpose_str,
+                    trigger=mode.trigger,
+                    config=cfg_str,
+                    max_cycles=max_c,
+                    count=run_count,
+                    last_run=last_run_str,
+                    recent=recent_str,
+                    change=change_tag,
+                )
             )
 
         if len(lines) == 1:
-            lines.append("（暂无历史遥测数据，这是首次触发）")
+            lines.append(tr("subconscious.no_telemetry"))
 
         # Change summary — the key signal for variable-depth review.
         lines.append("")
         if changed_since_meta:
-            lines.append(
-                f"[变更摘要] 自上次 meta 审视以来，{len(changed_since_meta)} 个模式有改动（★标记）："
-            )
+            lines.append(tr("subconscious.change_summary", count=len(changed_since_meta)))
             for name, wall in sorted(changed_since_meta, key=lambda x: -x[1]):
                 when = datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M")
-                lines.append(f"  - {name}（{when} 修改）")
-            lines.append("→ 建议对 ★ 模式进行深度审视（逐条对比设计意图），对未变更模式可轻扫。")
+                lines.append(tr("subconscious.change_item", name=name, time=when))
+            lines.append(tr("subconscious.change_advice"))
         else:
             meta_last_str = (
                 datetime.fromtimestamp(meta_last_run).strftime("%Y-%m-%d %H:%M")
-                if meta_last_run else "从未"
+                if meta_last_run
+                else tr("subconscious.never")
             )
-            lines.append(
-                f"[变更摘要] 自上次 meta 审视（{meta_last_str}）以来无模式改动 → 可做轻量健康检查，"
-                f"只在发现明显问题时创建任务。"
-            )
+            lines.append(tr("subconscious.no_changes", time=meta_last_str))
 
         return _Msg(role="system", content="\n".join(lines))
 
@@ -647,16 +703,16 @@ class SubconsciousScheduler:
 
     def _build_goal(self, mode_name: str) -> str:
         if mode_name == "audit":
-            return "回顾近期行为，检查错误/遗漏/风险与自我对齐"
+            return tr("subconscious.goal_audit")
         if mode_name == "explore":
-            return "自由联想与发散性思考，从任意角度审视近期上下文"
+            return tr("subconscious.goal_explore")
         if mode_name == "introspect":
-            return "评估自身能力并审视现有技能库，发现能力缺口/技能冗余并生成成长与维护目标"
+            return tr("subconscious.goal_introspect")
         if mode_name == "garden":
-            return "巡检记忆宫殿的领域长期记忆，剪除过期/矛盾/冗余并整合补写"
+            return tr("subconscious.goal_garden")
         if mode_name == "meta":
-            return "审视各潜意识模式的触发节奏、提示词漂移与配置健康度，生成[潜意识]改进任务"
-        return "提炼近期对话中的经验并存入长期记忆"
+            return tr("subconscious.goal_meta")
+        return tr("subconscious.goal_summarize")
 
     def _build_skill_anomaly_message(self):
         from coworker.core.types import Message
@@ -664,10 +720,7 @@ class SubconsciousScheduler:
         anomalies = self._scan_skill_anomalies()
         if not anomalies:
             return None
-        lines = [
-            "[技能目录结构异常] 以下条目不符合「<技能名>/SKILL.md」约定、未被加载，"
-            "因此不在 [SKILLS] 清单里（疑似死文件/遗留，核实后可建议清理或规整）："
-        ]
+        lines = [tr("subconscious.skill_anomaly")]
         lines.extend(f"- {a}" for a in anomalies)
         return Message(role="system", content="\n".join(lines))
 
@@ -683,7 +736,7 @@ class SubconsciousScheduler:
             if entry.is_file() and entry.suffix == ".md":
                 out.append(entry.name)
             elif entry.is_dir() and not (entry / "SKILL.md").exists():
-                out.append(f"{entry.name}/ (缺 SKILL.md)")
+                out.append(tr("subconscious.missing_skill", name=entry.name))
         return out
 
     def _create_brain(self) -> Brain:
@@ -745,8 +798,7 @@ class SubconsciousScheduler:
             "garden_index": self._garden_index,
             "palace_use_counts": self._palace_use_counts,
             "palace_last_garden_wall": {
-                name: now_wall - (now_mono - t)
-                for name, t in self._palace_last_garden_time.items()
+                name: now_wall - (now_mono - t) for name, t in self._palace_last_garden_time.items()
             },
             "modes": modes_data,
         }

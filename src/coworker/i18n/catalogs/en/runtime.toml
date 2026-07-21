@@ -1,0 +1,355 @@
+[source]
+file = "file drop"
+rest = "REST API"
+websocket = "WebSocket"
+wecom = "WeCom"
+coworker_desktop = "desktop"
+bubble = "bubble"
+codex = "Codex"
+system = "system"
+unknown = "unknown source"
+
+[incoming]
+system = "[system] {{content}}"
+message = '''[from {{source}}][{{participant}}]{{conversation}} message:
+{{content}}'''
+video_attachment = "video attachment"
+attachment = "attachment"
+saved_attachment = "[{{kind}}: {{filename}} — saved to {{path}}; use a tool to read it]"
+
+[brain.summary]
+image = "image"
+file = "file"
+attachment = "[{{kind}}: {{filename}}]"
+context_hint = '''Context hint: {{hint}}
+'''
+subjective_slice = '''==== Conversation segment about to be compressed (read-only; do not reply) ====
+{{hint}}{{content}}
+==== End of segment ===='''
+subjective_instruction = '''Compress the conversation segment above into a first-person memory summary from your own perspective.
+Format: “I am/have ... Keywords: A, B, C, ...”
+Include names of people, projects, tools, tasks, web links, credentials, and other proper nouns or critical details densely so they remain useful retrieval anchors.
+Output plain text only, with no JSON or explanation.'''
+objective_prompt = '''You are a memory compression assistant. Compress the following conversation history into a high-quality plain-text summary.
+
+Important principles:
+1. The summary's primary purpose is to act as a long-term-memory retrieval anchor. Include densely:
+   - names of people, projects, tools, tasks, and other proper nouns
+   - core concepts and technical terms discussed
+   - topic words for key decisions
+   - keywords and status for unfinished tasks
+2. Format: third-person narrative followed by “Keywords: A, B, C, ...”
+3. Output plain text only, without a JSON wrapper.'''
+objective_hint = '''
+Context hint: {{hint}}'''
+
+[brain.validation]
+active_model_unsupported = "Provider '{{provider}}' does not support the active model '{{model}}'"
+max_tokens_positive = "max_tokens must be greater than 0"
+fallback_empty = "A fallback entry must not be empty"
+fallback_invalid = "Invalid fallback entry: {{entry}}"
+fallback_model_missing = "No fallback model was specified and provider '{{provider}}' has no default_model"
+fallback_tool_unsupported = "Fallback model '{{model}}' does not support tool use through provider '{{provider}}'"
+summary_model_missing = "No summary model was specified and provider '{{provider}}' has no default_model"
+vision_pair = "vision.provider and vision.model must both be set or both be empty"
+vision_unsupported = "Vision model '{{model}}' does not support vision through provider '{{provider}}'"
+vision_unconfigured = "No vision model is configured. Set vision.provider and vision.model first."
+vision_provider_missing = "Vision provider '{{provider}}' is not registered."
+video_unsupported = "Vision model '{{model}}' does not support native video input through provider '{{provider}}'"
+model_missing = "No model was specified and provider '{{provider}}' has no default_model"
+model_tool_unsupported = "Model '{{model}}' does not support tool use through provider '{{provider}}'"
+
+[notification]
+admin_compress_hint = "manual full compression from the management console"
+backup_restore_hint = "restore content from emergency backup {{name}}"
+backup_summary = '''[emergency backup restored · summary] {{name}} ({{count}} messages):
+{{summary}}'''
+backup_full = "[system notice] Restored {{count}} messages from emergency backup {{name}}. The context may be close to its limit again; compress it if needed."
+backfill_empty = "Memory-tree backfill completed: no historical content was available."
+backfill_done = "Memory-tree backfill completed from raw logs: {{leaves}} leaves and {{nodes}} spine nodes were generated."
+backfill_failed = "Memory-tree backfill failed: {{error}}"
+profile_reminder = "[profile reminder] Use write_file to create or update `{{path}}` as the model-authored description shown on /profile. Keep it within {{max_chars}} characters; another reminder is sent after {{days}} days without an update."
+
+[channel.wecom]
+group_sender = '''[sender userid={{userid}}]
+'''
+quote_self = "quoting your own message"
+quote_self_possessive = "quoted own "
+quote_user = "quoting {{user}}"
+quote_user_possessive = "quoted from {{user}}: "
+quote = "quote"
+quote_possessive = "quoted "
+quote_text = '''[{{prefix}}: "{{content}}"]
+'''
+quote_mixed = '''[{{prefix}}: "{{content}}"{{image_hint}}]
+'''
+image_count = " (includes {{count}} images)"
+image = "image"
+file = "file"
+video = "video"
+named_file = '''file "{{name}}"'''
+quote_media = '''[{{possessive}}{{label}}{{suffix}}]
+'''
+quote_unavailable = '''[{{possessive}}{{type}} message (preview unavailable)]
+'''
+
+[channel.desktop]
+command_rejected = "Command was not accepted"
+reported_error = "Desktop reported an error"
+folded = "… (content folded because it is too long; read the complete file at {{path}} with read_file)"
+error = '''[CoWorker Desktop error]
+{{context}}Content: {{message}}'''
+unknown_operation = "unknown operation"
+permission_note = '''
+Note: this is a permission request. Reply with a complete permissions response, not an abbreviated decision.'''
+approval = '''[CoWorker Desktop approval request]
+{{context}}Operation: {{tool}}
+Content: {{detail}}
+Reply (approve): communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{accept}})
+Reply (decline): communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{decline}}){{note}}'''
+question_title = "[CoWorker Desktop question request] (AskUserQuestion)"
+answer_each = "Answer each question:"
+questions_folded = "… (question or option descriptions folded because they are too long; read the complete file at {{path}} with read_file)"
+input = '''[CoWorker Desktop input request]
+{{context}}Content: {{detail}}
+Reply (accept): communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{accept}})
+Reply (decline): communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{decline}})'''
+answer_reply = '''Reply: communicate(participant_id="{{participant}}", conversation_id="{{conversation}}", extra={{answers}})'''
+answer_decline = "Decline to answer: extra={{decline}} (use decision instead of answers)"
+answer_question_example = "<complete question text>"
+answer_value_example = "<selected label or free text>"
+context_source = "Source: {{actor}}"
+context_conversation = "Conversation: {{conversation}}"
+no_detail = "(no details)"
+no_question = "(no question text)"
+option = "   - {{label}}: {{description}}"
+pin_label = "CoWorker Desktop registry"
+pin_intro = '''Load the `coworker-desktop` Skill before using CoWorker Desktop.
+participant selects the local/codex/claude identity; never reuse a conversation_id across identities.
+Conversations are grouped by project. This is only a recent snapshot; use list_conversations for the complete list.'''
+projects_none = "  Projects: none"
+conversations = "  Conversations:"
+unknown_project = "unrecognized project"
+project = "  Project: {{name}} ({{id}})"
+recent_none = "{{indent}}Recent conversations: none"
+unnamed_conversation = "unnamed conversation"
+conversation_details = "({{details}})"
+
+[attachment_fallback]
+image_name = "image"
+document_name = "document"
+image_saved = "; saved to {{path}}, where a tool can process it"
+document_saved = "; saved to {{path}}, where a tool can read it"
+image = "[image attachment: {{filename}} — the current model cannot preview images{{saved}}]"
+document = "[PDF attachment: {{filename}} — the current model cannot preview documents{{saved}}]"
+unsupported_image = "[image attachment — unsupported image format]"
+unsupported_video = "[video attachment — the current model does not support native video input]"
+openai_pdf_note = " — OpenAI does not support PDF natively"
+pdf = "[PDF attachment: {{filename}}{{note}}{{saved}}]"
+
+[loop]
+backup_empty = "Emergency backup not created: there is no short-term context to back up"
+backup_created = "Emergency backup created: {{path}}"
+backup_failed = "Emergency backup failed (target: {{path}}; error: {{error}})"
+backup_unconfigured = "Emergency backup not created: no short-term snapshot path is configured"
+recovery = '''[system recovery] The previous cycle stopped after {{count}} consecutive execution errors.
+{{backup}}.
+The current context has been cleared and reset.
+Most recent error: {{error}}.'''
+system_error = "[system error] {{error}}"
+skill_warning_title = "[skill loading warning] The following skills failed to load or are unavailable:"
+skill_warning_tail = "Do not assume these skills are available. If the current task depends on them, repair the skill files first or use other tools."
+model_fallback = "[system notice] The primary model failed and automatically fell back to {{provider}}/{{model}}. When the primary model recovers, use switch_model to switch back manually."
+model_switched = "[system notice] The model was switched to {{provider}}/{{model}}"
+tool_parse_error = "Tool argument JSON could not be parsed. Generate valid arguments and try again: {{error}}"
+auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
+auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+recent_activity_title = "[automatic recall · recent activity replay]"
+task_reminder = "[task reminder] There are unfinished tasks:"
+task_wakeup = "[task reminder] Unfinished tasks interrupted sleep:"
+task_details_hint = " has_details=true; use task_get to view details"
+
+[bubble]
+cancelled = "The bubble was cancelled manually"
+intercept_sleep = "A bubble is a goal-directed thread with a limited cycle budget. Sleeping only wastes cycles. Advance the goal directly and call bubble_done(result=...) when finished."
+intercept_restart = "This tool restarts the parent thread and is unavailable inside a bubble. Focus on the bubble goal."
+intercept_clear = "This tool compresses the parent thread's short-term memory and is unavailable inside a bubble."
+intercept_compress = "This tool compresses the parent thread's memory and is unavailable inside a bubble."
+intercept_communicate = "This bubble is not bound to a participant and cannot communicate externally. Ask the parent thread for help with bubble_send(target='main', message=...)."
+bound_conversation = ", conversation {{conversation}}"
+bound = '''- This bubble is bound to participant {{participant}}{{conversation}}. New messages from that participant are routed directly to you. Reply with communicate(message=...), which is fixed to that participant; do not use it to contact anyone else.
+'''
+handoff_transparency = '''- The system labels your direct replies and notifies the participant when the Bubble starts and ends.
+'''
+unbound = '''- This bubble is not bound to an external participant and cannot contact users through a communication channel. Send anything that must be surfaced through bubble_send(target='main').
+'''
+identity = '''[BUBBLE MODE]
+You are in an independent parallel thought thread (a bubble), with id {{id}} and goal: {{goal}}.
+You may execute at most {{max_cycles}} cycles. When finished, call bubble_done(result='...') to submit your conclusion.
+
+IMPORTANT MODEL
+- The parent thread cannot see this bubble's reasoning, tool calls, or intermediate conclusions.
+- The parent can see only the result submitted through bubble_done and messages sent explicitly through bubble_send.
+- Therefore result must be complete and self-contained, including critical data, a concise derivation, and the final conclusion. Never assume the parent knows what you did.
+
+COMMUNICATION
+- Use bubble_send(target='main', message=...) for progress or coordination with the parent.
+- Use bubble_send(target='bbl_xxxx', message=...) to communicate with another bubble.
+- Use bubble_done(result='...', checkpoint=True) to send an intermediate conclusion and continue. The parent may reply through bubble_send, which is injected next cycle.
+  Use bubble_done(result='...') to submit the final conclusion and stop.
+
+CAUTIONS
+{{external}}- Tools such as task_create and execute_code use independent job storage and do not affect the parent, but the filesystem is shared. Prefer a separate cwd for execute_code. When waiting for code output, block=true usually uses fewer cycles than repeatedly calling get_code_result.
+- Do not call restart_self, clear_short_term_memory, compress_memory, or other tools that alter parent-thread state.'''
+resume = "[system] This bubble previously reached its cycle limit and is now resuming for the {{count}} time. Its cumulative budget is now {{max_cycles}} cycles. Continue from the existing context; if the task is complete, call bubble_done(result=...)."
+nudge = "[system] Continue the task, or call bubble_done(result=...) to submit the final conclusion."
+from_bubble = "[from {{sender}}] {{message}}"
+burst_warning = '''[system warning] This bubble is about to end.
+Call bubble_done(result=...) now with a complete, self-contained conclusion. If the work is unfinished or nearly finished, call bubble_done(result=..., checkpoint=True) with an intermediate conclusion and then continue. The result is forwarded to the parent automatically; do not duplicate it with bubble_send.
+Only call bubble_send(target='main', message=...) first for a separate matter that the parent must handle immediately and that does not belong in the conclusion.
+If bubble_done is not called this cycle, the system will summarize the thought process automatically and may lose critical details.'''
+checkpoint_message = '''[bubble checkpoint] id={{id}} | checkpoint {{count}}
+Interim conclusion: {{result}}
+The bubble is still running. Send feedback with bubble_send('{{id}}', ...).'''
+checkpoint_extended = "Checkpoint {{count}} was sent to the parent; the budget was extended by {{extension}} cycles. Continue."
+checkpoint_sent = "Checkpoint {{count}} was sent to the parent. Continue."
+completed = "Bubble {{id}} is complete and its conclusion was recorded."
+sent_main = "Message sent to the main thread."
+target_missing = "Target bubble '{{target}}' was not found or has completed."
+target_terminal = "Target bubble '{{target}}' has terminated and cannot receive messages."
+sent_bubble = "Message sent to bubble {{target}}."
+summary_hint = "Bubble goal: {{goal}}"
+summary_failed = "(automatic summary failed: {{error}})"
+resume_hint = "[resume hint] If the task is unfinished, within {{seconds}}s call bubble_spawn(bubble_id='{{id}}', goal='resume instructions', max_cycles=...) to continue with the existing context."
+status_done = "completed successfully"
+status_timeout = "summarized after reaching the cycle limit"
+status_error = "execution error"
+status_cancelled = "cancelled"
+merge_header = "[bubble result] id={{id}} | status={{status}} | {{cycles}} cycles | {{seconds}}s elapsed"
+merge_goal = "Goal: {{goal}}"
+merge_participant = "Participant: {{participant}}"
+merge_conversation = "Conversation: {{conversation}}"
+merge_checkpoints = "Checkpoints: {{count}}"
+merge_resumes = "Timeout resumes: {{count}}"
+merge_cycle = "- Cycle {{cycle}}: called {{tools}}"
+merge_process = "Thought process:"
+merge_more_cycles = "  ... ({{count}} cycles total)"
+merge_partial = "Interim conclusions ({{count}} checkpoints):"
+merge_partial_item = "  Checkpoint {{index}}: {{result}}"
+merge_error = "Error: {{error}}"
+merge_result = '''Conclusion:
+{{result}}'''
+merge_no_result = "(no conclusion)"
+
+[handoff]
+reply_prefix = "🫧 Bubble: "
+start = "🫧 This conversation has been handed to a bubble (ID: {{id}}). It will reply directly; the main thread will resume control when it finishes."
+resume = "🫧 This conversation has been handed back to the bubble (ID: {{id}}). It will reply directly; the main thread will resume control when it finishes."
+end = "🫧 Bubble handling has ended (ID: {{id}}). The main thread will handle subsequent messages."
+
+[subconscious]
+intercept_switch_model = "The subconscious uses an independent brain, so switching the model here has no effect. Focus on the current reflection task."
+intercept_communicate = "The subconscious cannot contact users directly. Send anything the main thread should know with bubble_send(target='main')."
+intercept_connections = "The subconscious does not operate external connections directly."
+intercept_set_alarm = "The subconscious must not set alarms on the main thread's timeline."
+intercept_cancel_alarm = "The subconscious must not cancel main-thread alarms."
+intercept_list_alarms = "The subconscious does not need to inspect main-thread alarms."
+intercept_spawn = "The subconscious must not derive another bubble. Complete the reflection in this thread."
+intercept_bubbles = "The subconscious must not manage other bubbles."
+intercept_write = "The subconscious does not need to write files."
+intercept_code = "The subconscious must not execute code."
+intercept_jobs = "The subconscious must not manage code jobs."
+intercept_default = "The subconscious must not use {{name}} in this mode."
+identity_reminder = '''
+
+[bubble identity reminder] You are subconscious bubble {{id}} (mode: {{mode}}), not the main thread. This tool call cannot run in this bubble.
+Tool calls and outputs from the main thread's history above are visible as read-only reference, but you cannot initiate the same operation in this bubble.'''
+pre_compress_goal = "The current context is a conversation segment about to be compressed. From your own first-person perspective, extract experiences worth preserving and store them in long-term memory."
+palace = '''[palace:{{name}}]
+{{body}}'''
+palace_memory_title = "[palace memory] Domain long-term memories under tags {{tags}} for palace “{{name}}” ({{count}} entries, each with an id):"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+garden_goal = "Inspect the domain long-term memory for palace “{{name}}” (tags: {{tags}}): remove stale, contradictory, or redundant items; consolidate and supplement it; and discover related memories that should be associated."
+none = "none"
+telemetry_title = "[subconscious telemetry] Recent execution and current configuration for each mode, for assessing cadence, drift, and health:"
+never_run = "never run"
+no_recent = "(none)"
+changed_unreviewed = " ★ changed at {{time}}; not yet reviewed by meta"
+changed_reviewed = " (last changed at {{time}}; reviewed)"
+protected = "🔒 protected"
+retire = "⚠ retirement condition: {{condition}}"
+purpose = " | purpose: {{purpose}}"
+telemetry_line = "- {{name}}{{lifecycle}}{{purpose}} | trigger={{trigger}} | {{config}} | max_cycles={{max_cycles}} | {{count}} runs | last run: {{last_run}} | recent output: {{recent}}{{change}}"
+no_telemetry = "(No telemetry history; this is the first trigger.)"
+change_summary = "[change summary] {{count}} modes changed since the last meta review (marked ★):"
+change_item = "  - {{name}} (changed {{time}})"
+change_advice = "→ Review ★ modes deeply against their design intent; a light scan is enough for unchanged modes."
+never = "never"
+no_changes = "[change summary] No mode changed since the last meta review ({{time}}). Perform a lightweight health check and create a task only for a clear issue."
+goal_audit = "Review recent behavior for errors, omissions, risks, and alignment with self"
+goal_explore = "Think freely and divergently about the recent context from any useful angle"
+goal_introspect = "Assess capabilities and the skill library, identify capability gaps or redundant skills, and create growth and maintenance goals"
+goal_garden = "Inspect domain long-term memory in a memory palace; remove stale, contradictory, or redundant items and consolidate useful knowledge"
+goal_meta = "Review the cadence, prompt drift, and configuration health of subconscious modes, and create [subconscious] improvement tasks"
+goal_summarize = "Extract experiences from recent conversation and store them in long-term memory"
+skill_anomaly = "[skill directory anomaly] The following entries do not follow `<skill-name>/SKILL.md`, were not loaded, and therefore do not appear in [SKILLS]. They may be dead or legacy files; verify before suggesting cleanup or normalization:"
+missing_skill = "{{name}}/ (missing SKILL.md)"
+
+[pagination]
+range = "[characters {{start}}–{{end}} / {{total}} total"
+remaining = "; {{remaining}} remaining"
+end = "; end reached"
+out_of_range = "[offset={{offset}} is out of range / {{total}} characters total]"
+next = "For more content, pass offset={{offset}} in the next call"
+
+[tools.framework]
+unknown = "Unknown tool: {{name}}"
+execution_error = "Tool execution error: {{error}}"
+
+[vision]
+image = "image"
+video = "video"
+resized = "resized from {{width}}x{{height}} to {{new_width}}x{{new_height}}"
+compressed = "compressed from {{before}} bytes to {{after}} bytes"
+ffmpeg_missing = "FFmpeg is not installed, so the oversized video cannot be compressed"
+ffmpeg_timeout = "FFmpeg timed out while compressing the video"
+ffmpeg_failed = "FFmpeg failed to compress the video: {{error}}"
+unknown_error = "unknown error"
+compressed_too_large = "The Base64 data is still at least 10 MiB after video compression"
+source_too_large_download = "The source video exceeds 100 MiB; download refused"
+source_too_large_process = "The source video exceeds 100 MiB; processing refused"
+download_failed = "Failed to download visual media: {{error}}"
+file_missing = "File not found: {{path}}"
+not_file = "Not a file: {{path}}"
+unsupported_media = "Unsupported visual media type: {{filename}}"
+unsupported_image = "Not a supported image: {{filename}}"
+image_read_failed = "Failed to read image: {{error}}"
+image_loaded = "Image loaded: {{filename}}{{note}}"
+parenthesized_note = " ({{note}})"
+config_missing = "No vision model is configured. Set vision.provider and vision.model through /model_config first."
+inbox_unready = "The visual-analysis inbox is not ready."
+preparation_note = "{{question}} (note: the {{kind}} was {{note}})"
+analysis_result = '''[{{kind}} analysis result: {{path}}]
+Question: {{question}}
+
+{{answer}}'''
+analysis_failed = "[{{kind}} analysis failed: {{path}}] {{error}}"
+analysis_started = "{{kind}} analysis started in the background. The result will arrive as a system message."
+
+[startup]
+env_python_version = "Python version"
+env_python_executable = "Python executable"
+env_os = "operating system"
+env_machine = "architecture"
+env_cwd = "working directory"
+env_git_commit = "code revision"
+env_item = "{{label}}: {{old}} → {{new}}"
+env_separator = "; "
+env_changed = "Environment changed: {{changes}}"
+alarm_fragment = ", {{count}} alarms"
+environment_fragment = " {{changes}}."
+restart_tool_result = "Restart complete. Current time: {{time}}. Restored {{messages}} messages{{alarms}}.{{environment}}"
+sleep_interrupted = "Sleep was interrupted by a system restart. Current time: {{time}}."
+system_restarted = "The system restarted. Current time: {{time}}."
+alarms_restored = "Restored {{count}} pending alarms."
+system_started = "The system started. Current time: {{time}}. {{environment}}."

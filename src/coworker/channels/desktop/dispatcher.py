@@ -39,6 +39,7 @@ from pydantic import BaseModel, ValidationError
 
 from coworker.channels.desktop.registry import DesktopRegistry
 from coworker.core.types import IncomingEvent
+from coworker.i18n import tr
 
 _DETAIL_LIMIT = 240
 
@@ -110,12 +111,12 @@ class DesktopDispatcher:
         if event_type == "desktop.command.result":
             if payload.get("ok") is True:
                 return True
-            event.content = self._render_error(envelope, "命令未被接受")
+            event.content = self._render_error(envelope, tr("channel.desktop.command_rejected"))
             return False
         if event_type == "desktop.server_request.resolved":
             return True
         if event_type == "desktop.error":
-            event.content = self._render_error(envelope, "桌面端报告错误")
+            event.content = self._render_error(envelope, tr("channel.desktop.reported_error"))
             return False
         if event_type == "desktop.approval.requested":
             event.content = self._render_approval(envelope, event)
@@ -146,27 +147,25 @@ class DesktopDispatcher:
             return text
         path = self._registry.write_detail(key, text)
         head = _head_lines(text, _FOLD_HEAD_CHARS)
-        return (
-            f"{head}\n"
-            f"…（内容过长已折叠，完整内容见文件：{path}，可用 read_file 查看）"
-        )
+        return f"{head}\n{tr('channel.desktop.folded', path=path)}"
 
     def _render_error(self, envelope: DesktopEnvelope, fallback: str) -> str:
         payload = envelope.payload or {}
         message = (
-            payload.get("message")
-            or payload.get("error")
-            or payload.get("reason")
-            or fallback
+            payload.get("message") or payload.get("error") or payload.get("reason") or fallback
         )
         context = self._context_line(envelope)
-        text = f"[CoWorker Desktop 错误]\n{context}内容：{message}"
+        text = tr("channel.desktop.error", context=context, message=message)
         return self._maybe_fold(text, _detail_key(envelope))
 
     def _render_approval(self, envelope: DesktopEnvelope, event: IncomingEvent) -> str:
         payload = envelope.payload or {}
         actor, id_field, id_value = self._approval_identity(payload)
-        tool = payload.get("tool_name") or payload.get("method") or "未知操作"
+        tool = (
+            payload.get("tool_name")
+            or payload.get("method")
+            or tr("channel.desktop.unknown_operation")
+        )
         detail = self._summarize_detail(payload.get("input"), payload.get("params"))
         conversation_id = self._conversation_id(envelope, payload)
         context = self._context_line(envelope, actor=actor, conversation_id=conversation_id)
@@ -176,18 +175,18 @@ class DesktopDispatcher:
         note = ""
         method = payload.get("method")
         if isinstance(method, str) and method == "item/permissions/requestApproval":
-            note = "\n注意：此为权限请求，回复需为完整 permissions response，而非简写 decision。"
+            note = tr("channel.desktop.permission_note")
 
-        return (
-            "[CoWorker Desktop 审批请求]\n"
-            f"{context}"
-            f"操作：{tool}\n"
-            f"内容：{detail}\n"
-            f"回复（批准）：communicate(participant_id=\"{event.participant_id}\", "
-            f"conversation_id=\"{conversation_id}\", extra={extra_accept})\n"
-            f"回复（拒绝）：communicate(participant_id=\"{event.participant_id}\", "
-            f"conversation_id=\"{conversation_id}\", extra={extra_decline})"
-            f"{note}"
+        return tr(
+            "channel.desktop.approval",
+            context=context,
+            tool=tool,
+            detail=detail,
+            participant=event.participant_id,
+            conversation=conversation_id,
+            accept=extra_accept,
+            decline=extra_decline,
+            note=note,
         )
 
     def _render_user_input(self, envelope: DesktopEnvelope, event: IncomingEvent) -> str:
@@ -202,17 +201,13 @@ class DesktopDispatcher:
             # ``user_input_request_id`` (carrying the stored request_id) + answers.
             id_field = "user_input_request_id"
             header = [
-                "[CoWorker Desktop 提问请求]（AskUserQuestion）",
+                tr("channel.desktop.question_title"),
                 context,
-                "请逐题回答：",
+                tr("channel.desktop.answer_each"),
             ]
-            reply_lines = self._user_input_reply_lines(
-                event, conversation_id, id_field, id_value
-            )
+            reply_lines = self._user_input_reply_lines(event, conversation_id, id_field, id_value)
             full_text = "\n".join(
-                header
-                + _render_question_lines(questions, with_descriptions=True)
-                + reply_lines
+                header + _render_question_lines(questions, with_descriptions=True) + reply_lines
             )
             if len(full_text) <= _FOLD_THRESHOLD:
                 return full_text
@@ -220,14 +215,9 @@ class DesktopDispatcher:
             # to answer) and stash the full listing for `read_file`.
             path = self._registry.write_detail(_detail_key(envelope), full_text)
             compact_text = "\n".join(
-                header
-                + _render_question_lines(questions, with_descriptions=False)
-                + reply_lines
+                header + _render_question_lines(questions, with_descriptions=False) + reply_lines
             )
-            return (
-                f"{compact_text}\n"
-                f"…（问题/选项描述过长已折叠，完整内容见文件：{path}，可用 read_file 查看）"
-            )
+            return f"{compact_text}\n{tr('channel.desktop.questions_folded', path=path)}"
 
         # Non-AskUserQuestion input request (e.g. Codex requestUserInput): the
         # bridge routes it through the approval path, so reply with decision.
@@ -236,14 +226,14 @@ class DesktopDispatcher:
         detail = self._summarize_detail(payload.get("input"), payload.get("params"))
         extra_accept = _json_extra({id_field: id_value, "decision": "accept"})
         extra_decline = _json_extra({id_field: id_value, "decision": "decline"})
-        return (
-            "[CoWorker Desktop 输入请求]\n"
-            f"{context}"
-            f"内容：{detail}\n"
-            f"回复（接受）：communicate(participant_id=\"{event.participant_id}\", "
-            f"conversation_id=\"{conversation_id}\", extra={extra_accept})\n"
-            f"回复（拒绝）：communicate(participant_id=\"{event.participant_id}\", "
-            f"conversation_id=\"{conversation_id}\", extra={extra_decline})"
+        return tr(
+            "channel.desktop.input",
+            context=context,
+            detail=detail,
+            participant=event.participant_id,
+            conversation=conversation_id,
+            accept=extra_accept,
+            decline=extra_decline,
         )
 
     @staticmethod
@@ -251,13 +241,24 @@ class DesktopDispatcher:
         event: IncomingEvent, conversation_id: str, id_field: str, id_value: str
     ) -> list[str]:
         answers_example = _json_extra(
-            {id_field: id_value, "answers": {"<完整问题文本>": "<所选 label 或自由文本>"}}
+            {
+                id_field: id_value,
+                "answers": {
+                    tr("channel.desktop.answer_question_example"): tr(
+                        "channel.desktop.answer_value_example"
+                    )
+                },
+            }
         )
         decline = _json_extra({id_field: id_value, "decision": "decline"})
         return [
-            f"回复：communicate(participant_id=\"{event.participant_id}\", "
-            f"conversation_id=\"{conversation_id}\", extra={answers_example})",
-            f"拒绝回答：extra={decline}（用 decision 代替 answers）",
+            tr(
+                "channel.desktop.answer_reply",
+                participant=event.participant_id,
+                conversation=conversation_id,
+                answers=answers_example,
+            ),
+            tr("channel.desktop.answer_decline", decline=decline),
         ]
 
     # ------------------------------------------------------------------ helpers
@@ -291,10 +292,10 @@ class DesktopDispatcher:
     ) -> str:
         parts = []
         if actor:
-            parts.append(f"来源：{actor}")
+            parts.append(tr("channel.desktop.context_source", actor=actor))
         cid = conversation_id if conversation_id is not None else envelope.conversation_id
         if cid:
-            parts.append(f"会话：{cid}")
+            parts.append(tr("channel.desktop.context_conversation", conversation=cid))
         return (" ".join(parts) + "\n") if parts else ""
 
     @staticmethod
@@ -311,7 +312,7 @@ class DesktopDispatcher:
                         return f"{key}={_truncate(value)}"
                 return _truncate(json.dumps(candidate, ensure_ascii=False))
             return _truncate(json.dumps(candidate, ensure_ascii=False))
-        return "（无详情）"
+        return tr("channel.desktop.no_detail")
 
 
 def _extract_questions(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -328,7 +329,8 @@ def _render_question_lines(
 ) -> list[str]:
     lines: list[str] = []
     for index, question in enumerate(questions, start=1):
-        lines.append(f"{index}. {question.get('question') or '(无问题文本)'}")
+        question_text = question.get("question") or tr("channel.desktop.no_question")
+        lines.append(f"{index}. {question_text}")
         options = question.get("options")
         if isinstance(options, list):
             for option in options:
@@ -336,7 +338,8 @@ def _render_question_lines(
                     label = option.get("label", "")
                     if with_descriptions:
                         desc = option.get("description", "")
-                        lines.append(f"   - {label}：{desc}".rstrip("："))
+                        rendered = tr("channel.desktop.option", label=label, description=desc)
+                        lines.append(rendered.rstrip(":："))
                     else:
                         lines.append(f"   - {label}")
     return lines

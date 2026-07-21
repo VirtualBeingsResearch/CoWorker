@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import Config, _deep_merge, load_admin_overrides
+from coworker.i18n import capture_locale, locale_context, tr
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -163,7 +164,15 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
 ) -> None:
-    global _agent, _brain, _config, _alarms, _skill_loader, _palace_loader, _mode_loader, _pending_restart
+    global \
+        _agent, \
+        _brain, \
+        _config, \
+        _alarms, \
+        _skill_loader, \
+        _palace_loader, \
+        _mode_loader, \
+        _pending_restart
     _agent = agent
     _brain = brain
     _config = config
@@ -227,11 +236,14 @@ def _admin_message_content(content: object) -> object:
         if block_type in {"text", "input_text", "output_text"}:
             safe.append({"type": block_type, "text": str(block.get("text") or "")})
         else:
-            safe.append({
-                key: block[key]
-                for key in ("type", "media_type", "filename", "name")
-                if key in block
-            } or {"type": block_type})
+            safe.append(
+                {
+                    key: block[key]
+                    for key in ("type", "media_type", "filename", "name")
+                    if key in block
+                }
+                or {"type": block_type}
+            )
     return safe
 
 
@@ -242,10 +254,7 @@ def _admin_tool_arguments(value: object) -> object:
         except (TypeError, ValueError):
             return value
     if isinstance(value, dict):
-        return {
-            str(key): _admin_tool_arguments(item)
-            for key, item in value.items()
-        }
+        return {str(key): _admin_tool_arguments(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_admin_tool_arguments(item) for item in value]
     return value
@@ -446,7 +455,11 @@ async def _apply_hot_config(
     changed_paths: set[str],
 ) -> tuple[list[str], list[str]]:
     applied: list[str] = []
-    restart = sorted(path for path in changed_paths if path not in _HOT_CONFIG_PATHS and not path.startswith("llm.managed_providers"))
+    restart = sorted(
+        path
+        for path in changed_paths
+        if path not in _HOT_CONFIG_PATHS and not path.startswith("llm.managed_providers")
+    )
     brain = _require_brain()
 
     if "llm.max_tokens" in changed_paths:
@@ -461,7 +474,8 @@ async def _apply_hot_config(
         current_specs = {spec.name: spec for spec in current.llm.resolved_providers()}
         desired_specs = {spec.name: spec for spec in desired.llm.resolved_providers()}
         changed_names = {
-            name for name in current_specs.keys() | desired_specs.keys()
+            name
+            for name in current_specs.keys() | desired_specs.keys()
             if current_specs.get(name) != desired_specs.get(name)
         }
         for name, spec in desired_specs.items():
@@ -624,19 +638,24 @@ def _interaction_preview(entry: Mapping[str, object]) -> str:
     if name:
         suffix = _interaction_text(arguments, 300) if arguments not in (None, "", {}, []) else ""
         return f"{name}{' · ' + suffix if suffix else ''}"
-    details = {
-        str(key): value
-        for key, value in entry.items()
-        if key not in {"seq", "ts", "type"}
-    }
+    details = {str(key): value for key, value in entry.items() if key not in {"seq", "ts", "type"}}
     return _interaction_text(details) if details else "—"
 
 
 def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
     meta: JsonObject = {}
     for key in (
-        "name", "source", "participant_id", "provider", "model", "cycle", "mode",
-        "operation", "stop_reason", "is_error", "thinking",
+        "name",
+        "source",
+        "participant_id",
+        "provider",
+        "model",
+        "cycle",
+        "mode",
+        "operation",
+        "stop_reason",
+        "is_error",
+        "thinking",
     ):
         value = entry.get(key)
         if value not in (None, ""):
@@ -680,9 +699,7 @@ def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0)
 
 
 @lru_cache(maxsize=512)
-def _read_bubble_log_cached(
-    path: str, _mtime_ns: int, _size: int
-) -> list[dict[str, object]]:
+def _read_bubble_log_cached(path: str, _mtime_ns: int, _size: int) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     try:
         for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -844,13 +861,15 @@ async def complete_bootstrap(
         "llm": {
             "default_provider": provider_type,
             "default_model": model,
-            "managed_providers": [{
-                "name": provider_type,
-                "type": provider_type,
-                "api_key": api_key,
-                "base_url": base_url,
-                "default_model": model,
-            }],
+            "managed_providers": [
+                {
+                    "name": provider_type,
+                    "type": provider_type,
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "default_model": model,
+                }
+            ],
         },
         "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
     }
@@ -975,7 +994,9 @@ async def patch_config(
     )
     try:
         applied_now, requires_restart = await _apply_hot_config(
-            config, desired_config, changed_paths,
+            config,
+            desired_config,
+            changed_paths,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"运行时应用失败：{e}") from e
@@ -1370,11 +1391,7 @@ async def search_memories(
     limit: int = Query(default=20, ge=1, le=100),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    return {
-        "memories": await _require_agent()._long_term.query(
-            q, category=category, limit=limit
-        )
-    }
+    return {"memories": await _require_agent()._long_term.query(q, category=category, limit=limit)}
 
 
 @router.patch("/memories/{memory_id}")
@@ -1413,7 +1430,7 @@ async def compress_memory(
     agent = _require_agent()
     compressed, saved = await agent._short_term.compress_all_now(
         _require_brain(),
-        context_hint="管理控制台手动全量压缩",
+        context_hint=tr("notification.admin_compress_hint"),
         agent_system_prompt=agent._prompt_builder.build(),
     )
     _audit(
@@ -1436,12 +1453,14 @@ async def backfill_memory(
     if stm.backfill_progress.get("running"):
         raise HTTPException(status_code=409, detail="记忆树回溯正在进行")
     stm.backfill_progress = {"running": True, "done": 0, "total": 0}
+    task_locale = capture_locale()
 
     async def run() -> None:
-        try:
-            await stm.backfill_tree_online(brain, max_leaves)
-        finally:
-            stm.backfill_progress["running"] = False
+        with locale_context(task_locale):
+            try:
+                await stm.backfill_tree_online(brain, max_leaves)
+            finally:
+                stm.backfill_progress["running"] = False
 
     asyncio.create_task(run(), name="admin-memory-backfill")
     _audit(request, "memory.backfill", "memory_tree", detail=f"max_leaves={max_leaves}")
@@ -1553,7 +1572,9 @@ async def get_interaction_history(
     page = store.read_history_page(
         limit=limit,
         cursor=_decode_interaction_cursor(cursor),
-        match=matches if selected_type or needle or seq_start is not None or seq_end is not None else None,
+        match=matches
+        if selected_type or needle or seq_start is not None or seq_end is not None
+        else None,
         max_scan_bytes=_INTERACTION_PAGE_SCAN_BYTES,
         seq_start=seq_start,
         seq_end=seq_end,
@@ -1675,9 +1696,29 @@ def _content_path(kind: str, slug: str) -> Path:
 
 
 _EDITABLE_CONTENT_SUFFIXES = {
-    ".md", ".txt", ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".ps1",
-    ".bat", ".css", ".html", ".xml", ".sql", ".csv",
+    ".md",
+    ".txt",
+    ".py",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".sh",
+    ".ps1",
+    ".bat",
+    ".css",
+    ".html",
+    ".xml",
+    ".sql",
+    ".csv",
 }
 _MAX_CONTENT_FILE_BYTES = 1_000_000
 
@@ -1716,14 +1757,17 @@ def _content_files(kind: str, slug: str) -> list[JsonObject]:
         except OSError:
             continue
         relative = path.relative_to(root).as_posix()
-        files.append({
-            "path": relative,
-            "name": path.name,
-            "size_bytes": stat.st_size,
-            "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "editable": path.suffix.lower() in _EDITABLE_CONTENT_SUFFIXES and stat.st_size <= _MAX_CONTENT_FILE_BYTES,
-            "primary": relative == _content_filename(kind),
-        })
+        files.append(
+            {
+                "path": relative,
+                "name": path.name,
+                "size_bytes": stat.st_size,
+                "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "editable": path.suffix.lower() in _EDITABLE_CONTENT_SUFFIXES
+                and stat.st_size <= _MAX_CONTENT_FILE_BYTES,
+                "primary": relative == _content_filename(kind),
+            }
+        )
     files.sort(key=lambda item: (not bool(item["primary"]), str(item["path"]).casefold()))
     return files
 
@@ -1767,19 +1811,21 @@ async def list_content(
                     summary = ""
                     metadata = {}
                 stat = path.stat()
-                items.append({
-                    "id": directory.name,
-                    "path": str(path),
-                    "raw": path.read_text(encoding="utf-8"),
-                    "name": parsed.name if parsed is not None else directory.name,
-                    "summary": summary,
-                    "valid": parsed is not None,
-                    "warning": warning or "",
-                    "metadata": metadata,
-                    "size_bytes": stat.st_size,
-                    "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "files": _content_files(kind, directory.name),
-                })
+                items.append(
+                    {
+                        "id": directory.name,
+                        "path": str(path),
+                        "raw": path.read_text(encoding="utf-8"),
+                        "name": parsed.name if parsed is not None else directory.name,
+                        "summary": summary,
+                        "valid": parsed is not None,
+                        "warning": warning or "",
+                        "metadata": metadata,
+                        "size_bytes": stat.st_size,
+                        "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "files": _content_files(kind, directory.name),
+                    }
+                )
     return {"items": items}
 
 

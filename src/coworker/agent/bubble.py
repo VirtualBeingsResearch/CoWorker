@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from coworker.i18n import tr
+
 if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.core.types import Message, PinnedItem
@@ -92,9 +94,10 @@ class BubbleStore:
     ) -> Bubble | str:
         if len(self._active) >= self.max_concurrent:
             active_ids = ", ".join(self._active.keys())
-            return (
-                f"已达到最大并发泡泡数（{self.max_concurrent}）。"
-                f"当前活跃：{active_ids}。请等待或取消后再创建。"
+            return tr(
+                "tool_result.bubble.create_concurrency",
+                max=self.max_concurrent,
+                active=active_ids,
             )
         ts = datetime.now().strftime("%y%m%d%H%M%S")
         bubble_id = f"bbl_{ts}"
@@ -142,11 +145,7 @@ class BubbleStore:
             return None
 
         if conversation_id:
-            exact = [
-                bubble
-                for bubble in candidates
-                if bubble.conversation_id == conversation_id
-            ]
+            exact = [bubble for bubble in candidates if bubble.conversation_id == conversation_id]
             if len(exact) == 1:
                 return exact[0]
             if len(exact) > 1:
@@ -178,36 +177,43 @@ class BubbleStore:
         """
         bubble = self.get(bubble_id)
         if bubble is None:
-            return f"未找到泡泡 [{bubble_id}]"
+            return tr("tool_result.bubble.missing", id=bubble_id)
         if bubble.status != "timeout":
-            return f"泡泡 {bubble_id} 当前状态为 {bubble.status}，只有超时泡泡可以续跑。"
+            return tr(
+                "tool_result.bubble.resume_wrong_status",
+                id=bubble_id,
+                status=bubble.status,
+            )
         if bubble.id in self._active:
-            return f"泡泡 {bubble_id} 正在结束清理，请稍后重试。"
+            return tr("tool_result.bubble.resume_ending_cleanup", id=bubble_id)
         if bubble.task is not None and not bubble.task.done():
-            return f"泡泡 {bubble_id} 仍在结束清理，请稍后重试。"
+            return tr("tool_result.bubble.resume_still_cleanup", id=bubble_id)
         if bubble.finished_at is None:
-            return f"泡泡 {bubble_id} 缺少超时完成时间，无法安全续跑。"
+            return tr("tool_result.bubble.resume_missing_finished_at", id=bubble_id)
         if self.timeout_resume_seconds <= 0:
-            return "泡泡超时续跑已禁用（AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS=0）。"
+            return tr("tool_result.bubble.resume_disabled")
 
         now = datetime.now()
         elapsed = max(0.0, (now - bubble.finished_at).total_seconds())
         if elapsed > self.timeout_resume_seconds:
-            return (
-                f"泡泡 {bubble_id} 超时后已过去 {elapsed:.0f}s，"
-                f"超过可续跑窗口 {self.timeout_resume_seconds}s。"
+            return tr(
+                "tool_result.bubble.resume_expired",
+                id=bubble_id,
+                elapsed=f"{elapsed:.0f}",
+                window=self.timeout_resume_seconds,
             )
         if len(self._active) >= self.max_concurrent:
             active_ids = ", ".join(self._active.keys())
-            return (
-                f"已达到最大并发泡泡数（{self.max_concurrent}）。"
-                f"当前活跃：{active_ids}。请等待或取消后再续跑。"
+            return tr(
+                "tool_result.bubble.resume_concurrency",
+                max=self.max_concurrent,
+                active=active_ids,
             )
 
         requested_cycles = max(1, additional_cycles)
         next_max_cycles = min(max_cycles_cap, bubble.max_cycles + requested_cycles)
         if next_max_cycles <= bubble.cycles_used:
-            return f"泡泡 {bubble_id} 已达到总轮次上限 {max_cycles_cap}，无法继续续跑。"
+            return tr("tool_result.bubble.resume_cycle_cap", id=bubble_id, cap=max_cycles_cap)
 
         self._history = [item for item in self._history if item is not bubble]
         self._active[bubble.id] = bubble

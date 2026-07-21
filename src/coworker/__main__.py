@@ -42,6 +42,7 @@ from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundErr
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.types import AgentState, IncomingEvent, Message
+from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
 from coworker.memory.long_term import LongTermMemory
 from coworker.memory.recent_activity import RecentActivityMemory
@@ -108,10 +109,19 @@ from coworker.tools.web_tools import FetchURLTool, SearchWebTool
 def _setup_logging(logs_dir: str) -> None:
     Path(logs_dir).mkdir(parents=True, exist_ok=True)
     logger.remove()
-    logger.add(sys.stderr, level="INFO", colorize=True,
-               format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}")
-    logger.add(f"{logs_dir}/coworker.log", rotation="10 MB", retention="7 days",
-               level="DEBUG", encoding="utf-8")
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        colorize=True,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}",
+    )
+    logger.add(
+        f"{logs_dir}/coworker.log",
+        rotation="10 MB",
+        retention="7 days",
+        level="DEBUG",
+        encoding="utf-8",
+    )
     intercept_standard_logging()
 
 
@@ -126,7 +136,9 @@ def _get_env_snapshot() -> dict:
     try:
         r = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if r.returncode == 0:
             snapshot["git_commit"] = r.stdout.strip()
@@ -137,19 +149,23 @@ def _get_env_snapshot() -> dict:
 
 def _diff_env(old: dict, new: dict) -> str | None:
     _LABELS = {
-        "python_version": "Python 版本",
-        "python_executable": "Python 解释器",
-        "os": "操作系统",
-        "machine": "架构",
-        "cwd": "工作目录",
-        "git_commit": "代码版本",
+        "python_version": "startup.env_python_version",
+        "python_executable": "startup.env_python_executable",
+        "os": "startup.env_os",
+        "machine": "startup.env_machine",
+        "cwd": "startup.env_cwd",
+        "git_commit": "startup.env_git_commit",
     }
     changes = []
-    for key, label in _LABELS.items():
+    for key, label_key in _LABELS.items():
         ov, nv = old.get(key), new.get(key)
         if ov is not None and nv is not None and ov != nv:
-            changes.append(f"{label}：{ov} → {nv}")
-    return ("环境变化：" + "；".join(changes)) if changes else None
+            changes.append(tr("startup.env_item", label=tr(label_key), old=ov, new=nv))
+    return (
+        tr("startup.env_changed", changes=tr("startup.env_separator").join(changes))
+        if changes
+        else None
+    )
 
 
 def _find_pending_tool_call(messages: list, tool_name: str) -> dict | None:
@@ -161,8 +177,7 @@ def _find_pending_tool_call(messages: list, tool_name: str) -> dict | None:
                 if tc.get("function", {}).get("name") == tool_name:
                     tc_id = tc.get("id", "")
                     has_result = any(
-                        m.role == "tool" and m.tool_call_id == tc_id
-                        for m in messages[i + 1:]
+                        m.role == "tool" and m.tool_call_id == tc_id for m in messages[i + 1 :]
                     )
                     if not has_result:
                         return {"id": tc_id}
@@ -184,11 +199,13 @@ def _append_recovered_tool_result(
     if not pending:
         return False
 
-    short_term.primary.append(Message(
-        role="tool",
-        content=content,
-        tool_call_id=pending["id"],
-    ))
+    short_term.primary.append(
+        Message(
+            role="tool",
+            content=content,
+            tool_call_id=pending["id"],
+        )
+    )
     interaction_log.log_tool_result(pending["id"], tool_name, content, is_error=False)
     return True
 
@@ -204,19 +221,22 @@ def _pick_api_key(llm_cfg: LLMConfig, provider: str) -> str:
 def _register_providers(brain: Brain, config: Config) -> None:
     for spec in config.llm.resolved_providers():
         try:
-            brain.register_provider(build_provider(
-                spec.type,
-                spec.api_key,
-                base_url=spec.base_url or None,
-                name=spec.name,
-                default_model=spec.default_model,
-            ))
+            brain.register_provider(
+                build_provider(
+                    spec.type,
+                    spec.api_key,
+                    base_url=spec.base_url or None,
+                    name=spec.name,
+                    default_model=spec.default_model,
+                )
+            )
         except ValueError as e:
             logger.error(f"跳过 provider {spec.name!r}：{e}")
 
 
 def _load_config() -> Config:
     config = apply_admin_config_file(Config())
+    configure_locale(config.i18n.locale)
     apply_runtime_model_config_file(config.llm)
     return config
 
@@ -348,11 +368,13 @@ async def _main() -> bool:
         # Deliberately bypass loguru: the one-time credential must not be copied
         # into the persistent coworker.log file.
         print(
-            "\n" + "=" * 68
+            "\n"
+            + "=" * 68
             + "\nCoworker 首次启动：请用下面的初始管理员令牌打开 /admin\n\n"
             + f"  {generated_admin_token}\n\n"
             + f"令牌已保存到 {config.admin.config_file}，完成初始化后仍可继续使用。\n"
-            + "=" * 68 + "\n",
+            + "=" * 68
+            + "\n",
             file=sys.stderr,
             flush=True,
         )
@@ -406,7 +428,9 @@ async def _main() -> bool:
         except Exception:
             pass
     env_diff = _diff_env(prev_env, current_env) if prev_env else None
-    env_snapshot_path.write_text(json.dumps(current_env, ensure_ascii=False, indent=2), encoding="utf-8")
+    env_snapshot_path.write_text(
+        json.dumps(current_env, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     if env_diff:
         logger.info(f"Environment changed since last run: {env_diff}")
 
@@ -431,12 +455,15 @@ async def _main() -> bool:
                     alarm_count = len(json.loads(alarm_persist_path.read_text(encoding="utf-8")))
                 except Exception:
                     pass
-            content = f"重启成功。当前时间：{now_str}。已恢复 {len(short_term.primary)} 条消息"
-            if alarm_count:
-                content += f"，{alarm_count} 个闹钟"
-            content += "。"
-            if env_diff:
-                content += f" {env_diff}。"
+            content = tr(
+                "startup.restart_tool_result",
+                time=now_str,
+                messages=len(short_term.primary),
+                alarms=(tr("startup.alarm_fragment", count=alarm_count) if alarm_count else ""),
+                environment=(
+                    tr("startup.environment_fragment", changes=env_diff) if env_diff else ""
+                ),
+            )
             _append_recovered_tool_result(
                 short_term,
                 interaction_log,
@@ -444,7 +471,7 @@ async def _main() -> bool:
                 content=content,
             )
 
-        sleep_content = f"睡眠被系统重启中断。当前时间：{now_str}。"
+        sleep_content = tr("startup.sleep_interrupted", time=now_str)
         _append_recovered_tool_result(
             short_term,
             interaction_log,
@@ -488,9 +515,13 @@ async def _main() -> bool:
     if short_term.active_provider and short_term.active_model:
         try:
             await brain.switch_model(short_term.active_provider, short_term.active_model)
-            logger.info(f"Restored model from snapshot: {short_term.active_provider}/{short_term.active_model}")
+            logger.info(
+                f"Restored model from snapshot: {short_term.active_provider}/{short_term.active_model}"
+            )
         except (ProviderNotFoundError, ModelNotSupportedError) as e:
-            logger.warning(f"Could not restore previous model ({short_term.active_provider}/{short_term.active_model}): {e}")
+            logger.warning(
+                f"Could not restore previous model ({short_term.active_provider}/{short_term.active_model}): {e}"
+            )
 
     if is_restart:
         short_term.schedule_tree_rebalance_if_needed(brain, snapshot_path=snapshot_path)
@@ -524,6 +555,7 @@ async def _main() -> bool:
     usage_stats.load_bubble_history(config.agent.logs_dir)
     interaction_log.add_listener(event_collector.on_entry)
     interaction_log.add_listener(usage_stats.on_entry)
+
     def log_mem0_usage(entry: dict[str, Any]) -> None:
         usage = entry.get("usage")
         interaction_log.log_mem0_llm_response(
@@ -585,13 +617,24 @@ async def _main() -> bool:
     registry.register(BrowserGetContentTool(browser_store))
     registry.register(BrowserCloseTool(browser_store))
     registry.register(BrowserListSessionsTool(browser_store))
-    registry.register(BrowserViewTool(browser_store, max_dimension=config.agent.image_max_dimension))
-    registry.register(ExecuteCodeTool(store=job_store, hard_timeout=config.agent.code_hard_timeout, inbox=inbox_watcher))
+    registry.register(
+        BrowserViewTool(browser_store, max_dimension=config.agent.image_max_dimension)
+    )
+    registry.register(
+        ExecuteCodeTool(
+            store=job_store, hard_timeout=config.agent.code_hard_timeout, inbox=inbox_watcher
+        )
+    )
     registry.register(GetCodeResultTool(job_store, inbox=inbox_watcher))
     registry.register(KillCodeJobTool(job_store))
-    registry.register(QueryMemoryTool(
-        long_term, short_term, brain, recent_activity=recent_activity,
-    ))
+    registry.register(
+        QueryMemoryTool(
+            long_term,
+            short_term,
+            brain,
+            recent_activity=recent_activity,
+        )
+    )
     registry.register(ManageMemoryTool(long_term))
     registry.register(SleepTool(inbox_watcher, config=config))
     registry.register(BreatheTool())
@@ -609,10 +652,22 @@ async def _main() -> bool:
     registry.register(RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path))
 
     from coworker.tools.vision_tools import ViewImageTool, VisualAnalysisTool
-    registry.register(VisualAnalysisTool(brain, inbox=inbox_watcher, max_dimension=config.agent.image_max_dimension))
+
+    registry.register(
+        VisualAnalysisTool(
+            brain, inbox=inbox_watcher, max_dimension=config.agent.image_max_dimension
+        )
+    )
     registry.register(ViewImageTool(max_dimension=config.agent.image_max_dimension))
 
-    prompt_builder = SystemPromptBuilder(identity, registry, skill_loader, palace_loader=palace_loader, thinking_path="data/thinking.md", git_commit=current_env.get("git_commit"))
+    prompt_builder = SystemPromptBuilder(
+        identity,
+        registry,
+        skill_loader,
+        palace_loader=palace_loader,
+        thinking_path="data/thinking.md",
+        git_commit=current_env.get("git_commit"),
+    )
 
     bubble_store: BubbleStore | None = None
     if config.agent.bubble_thinking:
@@ -680,23 +735,27 @@ async def _main() -> bool:
 
     if is_restart:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        restart_msg = f"系统已重启。当前时间：{now_str}。"
+        restart_msg = tr("startup.system_restarted", time=now_str)
         if restored_alarms:
-            restart_msg += f"已恢复 {restored_alarms} 个待触发闹钟。"
+            restart_msg += tr("startup.alarms_restored", count=restored_alarms)
         if env_diff:
-            restart_msg += f" {env_diff}。"
-        await inbox_watcher.push(IncomingEvent(
-            participant_id="system",
-            content=restart_msg,
-            source="system",
-        ))
+            restart_msg += tr("startup.environment_fragment", changes=env_diff)
+        await inbox_watcher.push(
+            IncomingEvent(
+                participant_id="system",
+                content=restart_msg,
+                source="system",
+            )
+        )
     elif env_diff:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        await inbox_watcher.push(IncomingEvent(
-            participant_id="system",
-            content=f"系统启动。当前时间：{now_str}。{env_diff}。",
-            source="system",
-        ))
+        await inbox_watcher.push(
+            IncomingEvent(
+                participant_id="system",
+                content=tr("startup.system_started", time=now_str, environment=env_diff),
+                source="system",
+            )
+        )
 
     agent_loop = AgentLoop(
         brain=brain,
@@ -758,13 +817,20 @@ async def _main() -> bool:
 
     # 写入实例状态文件（新旧交接标记）
     status_path = Path(config.memory.db_path) / "instance_status.json"
-    status_path.write_text(json.dumps({
-        "pid": os.getpid(),
-        "started_at": datetime.now().isoformat(),
-        "is_restart": is_restart,
-        "messages_restored": len(short_term.primary),
-        "alarms_restored": restored_alarms,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    status_path.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "started_at": datetime.now().isoformat(),
+                "is_restart": is_restart,
+                "messages_restored": len(short_term.primary),
+                "alarms_restored": restored_alarms,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     logger.info(f"Instance ready (pid={os.getpid()}, is_restart={is_restart})")
 
     uv_config = uvicorn.Config(
@@ -852,7 +918,9 @@ async def _main() -> bool:
             short_term.save_to_file(snapshot_path)
             logger.info(f"Short-term memory snapshot saved ({len(short_term.primary)} messages)")
 
-        logger.info(f"Teardown complete (reason={reason}); _main returning restart={agent_state.restart_requested}")
+        logger.info(
+            f"Teardown complete (reason={reason}); _main returning restart={agent_state.restart_requested}"
+        )
         logger.remove()  # flush + close file handler，避免 handler 跨 _main() 调用残留
 
     return agent_state.restart_requested
@@ -870,6 +938,7 @@ def _exec_replace() -> None:
     if sys.platform == "win32":
         import ctypes
         import subprocess
+
         # SetConsoleCtrlHandler(NULL, TRUE): 父进程忽略 Ctrl-C，
         # 子进程作为同一 console group 成员会直接收到信号。
         ctypes.windll.kernel32.SetConsoleCtrlHandler(None, True)
@@ -885,10 +954,14 @@ def main_sync() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--check", action="store_true",
-                        help="校验代码环境（配置加载+Provider注册），不启动服务")
-    parser.add_argument("--backfill-tree", action="store_true",
-                        help="从原始日志全史一次性重建多尺度记忆树，写回快照后退出")
+    parser.add_argument(
+        "--check", action="store_true", help="校验代码环境（配置加载+Provider注册），不启动服务"
+    )
+    parser.add_argument(
+        "--backfill-tree",
+        action="store_true",
+        help="从原始日志全史一次性重建多尺度记忆树，写回快照后退出",
+    )
     args, _ = parser.parse_known_args()
 
     if args.check:

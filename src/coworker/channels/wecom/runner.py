@@ -10,6 +10,7 @@ from loguru import logger
 
 from coworker.channels.wecom import adapter
 from coworker.core.types import ToolResult
+from coworker.i18n import tr
 
 
 class _LoguruLogger:
@@ -39,6 +40,7 @@ class _LoguruLogger:
 
     def error(self, message: str, *args: Any) -> None:
         logger.opt(depth=1).error(self._fmt(message, args))
+
 
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
@@ -326,26 +328,23 @@ class WeComRunner:
             if request.conversation_id:
                 return ToolResult(
                     tool_call_id="",
-                    content=(
-                        "消息发送失败：企业微信信道不支持 conversation_id；"
-                        "请去掉该字段后重试。"
-                    ),
+                    content=tr("tool_result.communicate.wecom_conversation_unsupported"),
                     is_error=True,
                 )
             if request.extra:
                 return ToolResult(
                     tool_call_id="",
-                    content="消息发送失败：企业微信信道不支持 extra 扩展参数。",
+                    content=tr("tool_result.communicate.wecom_extra_unsupported"),
                     is_error=True,
                 )
             await self.send(participant_id, request.message, request.attachments)
             return ToolResult(
                 tool_call_id="",
-                content=f"消息已通过企业微信发送给 {participant_id}",
+                content=tr("tool_result.communicate.wecom_sent", participant=participant_id),
             )
         except Exception as e:
             return ToolResult(
                 tool_call_id="",
-                content=f"消息通过企业微信发送失败: {e}",
+                content=tr("tool_result.communicate.wecom_failed", error=e),
                 is_error=True,
             )

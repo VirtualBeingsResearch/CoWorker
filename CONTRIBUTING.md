@@ -73,6 +73,12 @@ npm --prefix apps/coworker-desktop/desktop run build
 - Update README or examples when commands, configuration, or public behavior change.
 - Paired pages under `docs/` use `<name>.md` for Chinese and `<name>.en.md` for English. Update
   both versions together, keeping commands, configuration names, and product terms consistent.
+- Python runtime translations live in domain TOML catalogs under
+  `src/coworker/i18n/catalogs/<locale>/`. Keep semantic keys and `{{placeholder}}` sets identical
+  across every locale; never translate protocol names, IDs, enum values, or user/third-party text.
+- Localized user assets use companion files (`SKILL.en.md`, `PALACE.en.md`, `MODE.en.md`,
+  `thinking.en.md`, or identity prose such as `personality.en.md`). Only the documented prose
+  fields may differ; stable metadata remains in the original file.
 - Add a concise entry to `CHANGELOG.md` for user-visible changes.
 - Call out migrations, compatibility breaks, security implications, and checks you could not run.
 

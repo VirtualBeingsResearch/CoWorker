@@ -16,6 +16,21 @@ environment variables. `data/model_runtime_config.json` overrides only the summa
 vision settings changed at runtime. When a container or service manager injects environment
 variables, make sure the working directory does not contain conflicting `.env` values.
 
+### Runtime language
+
+| Variable | Default | Description |
+|---|---|---|
+| `I18N__LOCALE` | `zh-CN` | Instance-wide model/runtime language; accepts `zh-CN`, `en`, and common aliases such as `zh`, `zh_CN`, and `en-US`, then takes effect after restart |
+
+The runtime locale is independent of the Web/Desktop interface language and can also be changed
+under Runtime language in the administration page. It controls Coworker-owned system prompts,
+tool schemas and result wrappers, summarization and memory framework text, Bubbles, subconscious
+modes, vision requests, and participant-facing system notices. Replies to a participant default to
+the language of that participant's current message; an explicit language request wins; autonomous
+output without a current user message falls back to the runtime locale. Switching locale does not
+translate user content, historical data, third-party text, or existing Identity, Skill, Palace,
+task, or memory data, so mixed-language history is expected for compatibility.
+
 ### LLM
 
 | Variable | Default | Description |
