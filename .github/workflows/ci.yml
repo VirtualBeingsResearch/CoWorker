@@ -213,9 +213,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+          # Mypy invalidates stale modules itself. Keeping source hashes out of
+          # the key lets later commits reuse the cache instead of uploading a
+          # near-duplicate cache for every source revision.
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}
       - name: Check versions
         run: uv run --frozen python scripts/check_version.py
       - name: Lint Python
