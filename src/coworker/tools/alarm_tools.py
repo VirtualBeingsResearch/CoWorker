@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from coworker.core.types import IncomingEvent, ToolResult
-from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
@@ -33,9 +32,7 @@ class AlarmManager:
     ) -> None:
         self._cancel(alarm_id)
         delay = max(0.0, (trigger_at - datetime.now()).total_seconds())
-        task = asyncio.create_task(
-            bind_locale(lambda: self._fire(alarm_id, delay, message, repeat_seconds))
-        )
+        task = asyncio.create_task(self._fire(alarm_id, delay, message, repeat_seconds))
         self._alarms[alarm_id] = (task, trigger_at, message, repeat_seconds)
         self._save()
 
@@ -59,17 +56,9 @@ class AlarmManager:
             overdue_note: str | None = None
             if next_trigger < now:
                 late = int((now - next_trigger).total_seconds())
-                overdue_note = tr("tool_result.alarm.overdue", seconds=late)
+                overdue_note = f"迟到 {late} 秒触发"
             task = asyncio.create_task(
-                bind_locale(
-                    lambda: self._fire(
-                        alarm_id,
-                        delay,
-                        message,
-                        repeat_seconds,
-                        overdue_note=overdue_note,
-                    )
-                )
+                self._fire(alarm_id, delay, message, repeat_seconds, overdue_note=overdue_note)
             )
             self._alarms[alarm_id] = (task, next_trigger, message, repeat_seconds)
             count += 1
@@ -88,14 +77,10 @@ class AlarmManager:
     ) -> None:
         try:
             await asyncio.sleep(delay)
-            display = (
-                tr("tool_result.alarm.display", message=message, note=overdue_note)
-                if overdue_note
-                else message
-            )
+            display = f"{message}（{overdue_note}）" if overdue_note else message
             event = IncomingEvent(
                 participant_id="alarm",
-                content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
+                content=f"[闹钟提醒] {alarm_id}: {display}",
                 timestamp=datetime.now(),
                 source="alarm",
             )
@@ -105,14 +90,7 @@ class AlarmManager:
             if repeat_seconds and repeat_seconds > 0:
                 next_trigger = datetime.now() + timedelta(seconds=repeat_seconds)
                 new_task = asyncio.create_task(
-                    bind_locale(
-                        lambda: self._fire(
-                            alarm_id,
-                            float(repeat_seconds),
-                            message,
-                            repeat_seconds,
-                        )
-                    )
+                    self._fire(alarm_id, float(repeat_seconds), message, repeat_seconds)
                 )
                 self._alarms[alarm_id] = (new_task, next_trigger, message, repeat_seconds)
                 self._save()
@@ -139,15 +117,13 @@ class AlarmManager:
     def list(self) -> list[dict]:
         result = []
         for alarm_id, (task, trigger_at, message, repeat_seconds) in self._alarms.items():
-            result.append(
-                {
-                    "id": alarm_id,
-                    "trigger_at": trigger_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    "message": message,
-                    "repeat_seconds": repeat_seconds,
-                    "done": task.done(),
-                }
-            )
+            result.append({
+                "id": alarm_id,
+                "trigger_at": trigger_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "message": message,
+                "repeat_seconds": repeat_seconds,
+                "done": task.done(),
+            })
         return result
 
     def _save(self) -> None:
@@ -220,7 +196,7 @@ class SetAlarmTool(Tool):
         except ValueError:
             return ToolResult(
                 tool_call_id="",
-                content=tr("tool_result.alarm.invalid_time"),
+                content="时间格式错误，请使用 YYYY-MM-DD HH:MM:SS",
                 is_error=True,
             )
 
@@ -228,7 +204,7 @@ class SetAlarmTool(Tool):
         if delay < 0:
             return ToolResult(
                 tool_call_id="",
-                content=tr("tool_result.alarm.past_time", time=trigger_at),
+                content=f"指定的时间 {trigger_at} 已过去",
                 is_error=True,
             )
 
@@ -238,20 +214,10 @@ class SetAlarmTool(Tool):
         repeat = repeat_seconds if repeat_seconds and repeat_seconds > 0 else None
         await self._manager.set(alarm_id, dt, message, repeat)
 
-        mode = (
-            tr("tool_result.alarm.repeat_set", seconds=repeat)
-            if repeat
-            else tr("tool_result.alarm.once")
-        )
+        mode = f"每 {repeat} 秒循环" if repeat else "一次性"
         return ToolResult(
             tool_call_id="",
-            content=tr(
-                "tool_result.alarm.set",
-                id=alarm_id,
-                time=trigger_at,
-                delay=f"{delay:.0f}",
-                mode=mode,
-            ),
+            content=f"闹钟已设置：[{alarm_id}] 将在 {trigger_at} 触发（{delay:.0f} 秒后），{mode}",
         )
 
 
@@ -270,19 +236,12 @@ class ListAlarmsTool(Tool):
     async def execute(self, **_) -> ToolResult:
         alarms = self._manager.list()
         if not alarms:
-            return ToolResult(tool_call_id="", content=tr("tool_result.alarm.none"))
+            return ToolResult(tool_call_id="", content="当前没有待触发的闹钟")
         lines = []
         for a in alarms:
-            mode = (
-                tr("tool_result.alarm.repeat_list", seconds=a["repeat_seconds"])
-                if a["repeat_seconds"]
-                else tr("tool_result.alarm.once")
-            )
+            mode = f"每 {a['repeat_seconds']} 秒重复" if a["repeat_seconds"] else "一次性"
             lines.append(f"- [{a['id']}] {a['trigger_at']} | {mode} | {a['message']}")
-        return ToolResult(
-            tool_call_id="",
-            content=tr("tool_result.alarm.title") + "\n" + "\n".join(lines),
-        )
+        return ToolResult(tool_call_id="", content="待触发闹钟：\n" + "\n".join(lines))
 
 
 class CancelAlarmTool(Tool):
@@ -308,11 +267,9 @@ class CancelAlarmTool(Tool):
 
     async def execute(self, alarm_id: str, **_) -> ToolResult:
         if self._manager.cancel(alarm_id):
-            return ToolResult(
-                tool_call_id="", content=tr("tool_result.alarm.cancelled", id=alarm_id)
-            )
+            return ToolResult(tool_call_id="", content=f"闹钟 [{alarm_id}] 已取消")
         return ToolResult(
             tool_call_id="",
-            content=tr("tool_result.alarm.missing", id=alarm_id),
+            content=f"未找到闹钟 [{alarm_id}]",
             is_error=True,
         )

@@ -10,7 +10,6 @@ from coworker.core.config import (
     AgentConfig,
     APIConfig,
     DesktopUpdatesConfig,
-    I18NConfig,
     LLMConfig,
     MemoryConfig,
     WeComConfig,
@@ -29,7 +28,6 @@ CONFIG_TYPES = {
     "API": APIConfig,
     "DESKTOP_UPDATES": DesktopUpdatesConfig,
     "LLM": LLMConfig,
-    "I18N": I18NConfig,
     "MEMORY": MemoryConfig,
     "WECOM": WeComConfig,
 }
@@ -92,7 +90,9 @@ def test_documented_configuration_defaults_match_code() -> None:
             assert field_name in config_type.model_fields, (
                 f"Unknown setting in {document.name}: {env_name}"
             )
-            default = config_type.model_fields[field_name].get_default(call_default_factory=True)
+            default = config_type.model_fields[field_name].get_default(
+                call_default_factory=True
+            )
             actual = match.group("default")
             if isinstance(default, bool):
                 expected = str(default).lower()

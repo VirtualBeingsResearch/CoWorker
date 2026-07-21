@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from coworker.core.types import ToolResult
-from coworker.i18n import browser_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
@@ -41,7 +40,6 @@ class BrowserSessionStore:
     async def get_playwright(self) -> Playwright:
         if self._playwright is None:
             from playwright.async_api import async_playwright
-
             self._playwright = await async_playwright().start()
         return self._playwright
 
@@ -68,7 +66,6 @@ class BrowserSessionStore:
 
 
 _SCREENSHOTS_DIR = Path("data/browser_screenshots")
-# Kept as a compatibility constant; runtime defaults are resolved from i18n context.
 DEFAULT_BROWSER_LOCALE = "zh-CN"
 
 
@@ -100,8 +97,8 @@ class BrowserOpenTool(Tool):
                     },
                     "locale": {
                         "type": "string",
-                        "description": "浏览器语言区域，如 zh-CN、en-US（默认跟随运行时 locale）",
-                        "default": browser_locale(),
+                        "description": "浏览器语言区域，如 zh-CN、en-US（默认 zh-CN）",
+                        "default": DEFAULT_BROWSER_LOCALE,
                     },
                     "timezone_id": {
                         "type": "string",
@@ -118,7 +115,7 @@ class BrowserOpenTool(Tool):
                     },
                     "extra_http_headers": {
                         "type": "object",
-                        "description": '附加到每个请求的 HTTP 头，如 {"Authorization": "Bearer token"}',
+                        "description": "附加到每个请求的 HTTP 头，如 {\"Authorization\": \"Bearer token\"}",
                     },
                     "cookies": {
                         "type": "array",
@@ -146,7 +143,7 @@ class BrowserOpenTool(Tool):
         headless: bool = True,
         viewport_width: int = 1280,
         viewport_height: int = 720,
-        locale: str | None = None,
+        locale: str | None = DEFAULT_BROWSER_LOCALE,
         timezone_id: str | None = None,
         user_agent: str | None = None,
         ignore_https_errors: bool = False,
@@ -163,7 +160,7 @@ class BrowserOpenTool(Tool):
                 "viewport": {"width": viewport_width, "height": viewport_height},
                 "ignore_https_errors": ignore_https_errors,
             }
-            ctx_kwargs["locale"] = locale or browser_locale()
+            ctx_kwargs["locale"] = locale or DEFAULT_BROWSER_LOCALE
             if timezone_id:
                 ctx_kwargs["timezone_id"] = timezone_id
             if user_agent:
@@ -202,10 +199,7 @@ class BrowserScreenshotTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "browser_open 返回的 session_id",
-                    },
+                    "session_id": {"type": "string", "description": "browser_open 返回的 session_id"},
                     "full_page": {
                         "type": "boolean",
                         "description": "是否截取整页（默认 false，仅可视区域）",
@@ -219,18 +213,13 @@ class BrowserScreenshotTool(Tool):
     async def execute(self, session_id: str, full_page: bool = False, **_) -> ToolResult:
         session = self._store.get(session_id)
         if not session or not session.page:
-            return ToolResult(
-                tool_call_id="", content=f"Session {session_id} not found", is_error=True
-            )
+            return ToolResult(tool_call_id="", content=f"Session {session_id} not found", is_error=True)
         try:
             _SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
             session.screenshot_count += 1
             path = _SCREENSHOTS_DIR / f"{session_id}_{session.screenshot_count}.png"
             await session.page.screenshot(path=str(path), full_page=full_page)
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.browser.screenshot_saved", path=path.resolve()),
-            )
+            return ToolResult(tool_call_id="", content=f"截图已保存：{path.resolve()}")
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
 
@@ -286,57 +275,39 @@ class BrowserActionTool(Tool):
             },
         )
 
-    async def execute(
-        self,
-        session_id: str,
-        action: str,
-        selector: str = "",
-        value: str = "",
-        script: str = "",
-        **_,
-    ) -> ToolResult:
+    async def execute(self, session_id: str, action: str, selector: str = "", value: str = "", script: str = "", **_) -> ToolResult:
         session = self._store.get(session_id)
         if not session or not session.page:
-            return ToolResult(
-                tool_call_id="", content=f"Session {session_id} not found", is_error=True
-            )
+            return ToolResult(tool_call_id="", content=f"Session {session_id} not found", is_error=True)
         page = session.page
         try:
             if action == "navigate":
                 await page.goto(selector, wait_until="domcontentloaded", timeout=30000)
                 session.url = page.url
-                result = tr("tool_result.browser.navigated", url=page.url)
+                result = f"已导航到 {page.url}"
             elif action == "click":
                 await page.locator(selector).click(timeout=10000)
-                result = tr("tool_result.browser.clicked", selector=selector)
+                result = f"已点击 {selector}"
             elif action == "type":
                 await page.locator(selector).fill(value, timeout=10000)
-                result = tr("tool_result.browser.typed", selector=selector)
+                result = f"已在 {selector} 输入文本"
             elif action == "select":
                 await page.locator(selector).select_option(value, timeout=10000)
-                result = tr("tool_result.browser.selected", selector=selector, value=value)
+                result = f"已选择 {selector} 的选项 {value}"
             elif action == "hover":
                 await page.locator(selector).hover(timeout=10000)
-                result = tr("tool_result.browser.hovered", selector=selector)
+                result = f"已悬停在 {selector}"
             elif action == "press_key":
                 await page.locator(selector).press(value, timeout=10000)
-                result = tr("tool_result.browser.pressed", selector=selector, value=value)
+                result = f"已在 {selector} 按下 {value}"
             elif action == "evaluate":
                 try:
                     result = await asyncio.wait_for(page.evaluate(script), timeout=10)
                 except TimeoutError:
-                    return ToolResult(
-                        tool_call_id="",
-                        content=tr("tool_result.browser.script_timeout"),
-                        is_error=True,
-                    )
+                    return ToolResult(tool_call_id="", content="脚本执行超时", is_error=True)
                 return ToolResult(tool_call_id="", content=str(result))
             else:
-                return ToolResult(
-                    tool_call_id="",
-                    content=tr("tool_result.common.unknown_action", action=action),
-                    is_error=True,
-                )
+                return ToolResult(tool_call_id="", content=f"未知 action: {action}", is_error=True)
             return ToolResult(tool_call_id="", content=result)
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
@@ -360,10 +331,7 @@ class BrowserGetContentTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "browser_open 返回的 session_id",
-                    },
+                    "session_id": {"type": "string", "description": "browser_open 返回的 session_id"},
                     "fmt": {
                         "type": "string",
                         "enum": ["text", "html"],
@@ -384,33 +352,22 @@ class BrowserGetContentTool(Tool):
             },
         )
 
-    async def execute(
-        self, session_id: str, fmt: str = "text", selector: str = "", start: int = 0, **_
-    ) -> ToolResult:
+    async def execute(self, session_id: str, fmt: str = "text", selector: str = "", start: int = 0, **_) -> ToolResult:
         session = self._store.get(session_id)
         if not session or not session.page:
-            return ToolResult(
-                tool_call_id="", content=f"Session {session_id} not found", is_error=True
-            )
+            return ToolResult(tool_call_id="", content=f"Session {session_id} not found", is_error=True)
         page = session.page
         try:
             if selector:
                 locator = page.locator(selector)
-                content = (
-                    await locator.inner_text() if fmt == "text" else await locator.inner_html()
-                )
+                content = await locator.inner_text() if fmt == "text" else await locator.inner_html()
             else:
                 content = await page.inner_text("body") if fmt == "text" else await page.content()
             total = len(content)
             chunk = content[start : start + self._MAX_CHARS]
             end = start + len(chunk)
             if end < total:
-                chunk += "\n\n" + tr(
-                    "tool_result.browser.content_truncated",
-                    total=total,
-                    start=start,
-                    end=end,
-                )
+                chunk += f"\n\n[内容已截断：共 {total} 字符，当前显示第 {start}~{end} 字符。如需继续，使用 start={end}]"
             return ToolResult(tool_call_id="", content=chunk)
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
@@ -440,9 +397,7 @@ class BrowserCloseTool(Tool):
     async def execute(self, session_id: str, **_) -> ToolResult:
         session = self._store.get(session_id)
         if not session:
-            return ToolResult(
-                tool_call_id="", content=f"Session {session_id} not found", is_error=True
-            )
+            return ToolResult(tool_call_id="", content=f"Session {session_id} not found", is_error=True)
         try:
             pages = []
             for page in session.context.pages if session.context else []:
@@ -454,9 +409,9 @@ class BrowserCloseTool(Tool):
                 f"{index}. title={title}\n   url={url}"
                 for index, (title, url) in enumerate(pages, 1)
             )
-            content = tr("tool_result.browser.closed", id=session_id)
+            content = f"Session {session_id} 已关闭"
             if page_summary:
-                content += f"\n{tr('tool_result.browser.pages')}\n{page_summary}"
+                content += f"\n会话页面：\n{page_summary}"
             return ToolResult(tool_call_id="", content=content)
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
@@ -479,10 +434,7 @@ class BrowserViewTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "browser_open 返回的 session_id",
-                    },
+                    "session_id": {"type": "string", "description": "browser_open 返回的 session_id"},
                     "full_page": {
                         "type": "boolean",
                         "description": "是否截取整页（默认 false，仅可视区域）",
@@ -498,33 +450,21 @@ class BrowserViewTool(Tool):
             },
         )
 
-    async def execute(
-        self, session_id: str, full_page: bool = False, full_resolution: bool = False, **_
-    ) -> ToolResult:
+    async def execute(self, session_id: str, full_page: bool = False, full_resolution: bool = False, **_) -> ToolResult:
         session = self._store.get(session_id)
         if not session or not session.page:
-            return ToolResult(
-                tool_call_id="", content=f"Session {session_id} not found", is_error=True
-            )
+            return ToolResult(tool_call_id="", content=f"Session {session_id} not found", is_error=True)
         try:
             from coworker.tools.vision_tools import _resize_image
-
             raw = await session.page.screenshot(full_page=full_page)
             if full_resolution:
                 resize_note = ""
             else:
                 raw, _media_type, resize_note = _resize_image(raw, "image/png", self._max_dimension)
-            note = tr("vision.parenthesized_note", note=resize_note) if resize_note else ""
-            desc = tr("tool_result.browser.view", id=session_id, url=session.url, note=note)
+            note = f"（{resize_note}）" if resize_note else ""
+            desc = f"浏览器截图 session={session_id} url={session.url}{note}"
             content_blocks: list[dict[str, Any]] = [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": base64.standard_b64encode(raw).decode(),
-                    },
-                },
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64.standard_b64encode(raw).decode()}},
                 {"type": "text", "text": desc},
             ]
             return ToolResult(tool_call_id="", content=desc, content_blocks=content_blocks)
@@ -547,6 +487,6 @@ class BrowserListSessionsTool(Tool):
     async def execute(self, **_) -> ToolResult:
         sessions = self._store.all()
         if not sessions:
-            return ToolResult(tool_call_id="", content=tr("tool_result.browser.none"))
+            return ToolResult(tool_call_id="", content="当前没有活跃的浏览器 session")
         lines = [f"session_id={s.session_id}  url={s.url}" for s in sessions]
         return ToolResult(tool_call_id="", content="\n".join(lines))

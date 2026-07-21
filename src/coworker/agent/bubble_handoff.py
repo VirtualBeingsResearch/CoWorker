@@ -11,7 +11,6 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES,
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
 )
-from coworker.i18n import tr
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble
@@ -24,11 +23,15 @@ _SUPPORTED_STREAM_TRANSPORTS = frozenset({"websocket", "sse"})
 
 
 def format_handoff_start_message(bubble_id: str, *, resumed: bool = False) -> str:
-    return tr("handoff.resume" if resumed else "handoff.start", id=bubble_id)
+    action = "再次转交" if resumed else "转交"
+    return (
+        f"🫧 当前会话已{action}给泡泡处理（ID：{bubble_id}）。"
+        "它会直接回复；完成后将由主线继续接手。"
+    )
 
 
 def format_handoff_end_message(bubble_id: str) -> str:
-    return tr("handoff.end", id=bubble_id)
+    return f"🫧 本次泡泡处理已结束（ID：{bubble_id}），后续消息将由主线继续处理。"
 
 
 def bubble_handoff_message_extra(
@@ -153,7 +156,9 @@ class BubbleHandoffNotifier:
             return
         try:
             outgoing_extra = (
-                extra if self._communicate.supports_message_extra(bubble.participant_id) else None
+                extra
+                if self._communicate.supports_message_extra(bubble.participant_id)
+                else None
             )
             result = await self._communicate.execute(
                 participant_id=bubble.participant_id,
@@ -175,7 +180,7 @@ def is_desktop_participant(participant_id: str) -> bool:
 
 def bubble_reply_fallback_prefix(participant_id: str) -> str:
     """Return a text fallback only for channels without guaranteed Bubble metadata UI."""
-    return "" if is_desktop_participant(participant_id) else tr("handoff.reply_prefix")
+    return "" if is_desktop_participant(participant_id) else BUBBLE_REPLY_PREFIX
 
 
 def _normalize_participant_matches(matches: Iterable[str]) -> list[str]:

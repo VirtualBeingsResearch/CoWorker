@@ -12,7 +12,6 @@ from loguru import logger
 
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import ToolResult
-from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
@@ -95,7 +94,9 @@ class SleepTool(Tool):
             logger.info(f"{prefix}sleep(0) ignored (not in passive mode)")
             return ToolResult(
                 tool_call_id="",
-                content=tr("tool_result.system.sleep_zero", time=now_str),
+                content=(
+                    f"sleep(0) 不会进入等待。请用 sleep(N) 指定休眠秒数。当前时间 {now_str}。"
+                ),
             )
         woken_by_event = False
         if indefinite:
@@ -121,11 +122,11 @@ class SleepTool(Tool):
             logger.info(f"{prefix}Entering sleep mode for {seconds}s")
             await asyncio.sleep(seconds)
         if woken_by_event:
-            msg = tr("tool_result.system.sleep_woken", time=now_str)
+            msg = f"收到新消息，提前结束休眠。当前时间 {now_str}。"
         elif indefinite:
-            msg = tr("tool_result.system.sleep_no_channel", time=now_str)
+            msg = f"结束被动等待（无外部信道，立即返回）。当前时间 {now_str}。"
         else:
-            msg = tr("tool_result.system.slept", seconds=seconds, time=now_str)
+            msg = f"Slept for {seconds}s, resuming. 当前时间 {now_str}。"
         return ToolResult(tool_call_id="", content=msg)
 
 
@@ -149,10 +150,7 @@ class SwitchModelTool(Tool):
                         "enum": self._brain.list_providers(),
                         "description": "LLM 提供商实例名（由配置决定，同类型可有多个命名实例）",
                     },
-                    "model_id": {
-                        "type": "string",
-                        "description": "模型 ID，如 claude-sonnet-4-6；省略则用该 provider 配置的默认模型",
-                    },
+                    "model_id": {"type": "string", "description": "模型 ID，如 claude-sonnet-4-6；省略则用该 provider 配置的默认模型"},
                 },
                 "required": ["provider"],
             },
@@ -191,17 +189,13 @@ class GetContextTool(Tool):
     async def execute(self, **_) -> ToolResult:
         now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
         model = f"{self._brain.current_provider_name}/{self._brain.current_model}"
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.system.context",
-                time=now,
-                cycles=self._state.cycle_count,
-                model=model,
-                messages=len(self._short_term.primary),
-            ),
-        )
-
+        lines = [
+            f"当前时间：{now}",
+            f"运行周期：{self._state.cycle_count}",
+            f"当前模型：{model}",
+            f"短期记忆：{len(self._short_term.primary)} 条消息",
+        ]
+        return ToolResult(tool_call_id="", content="\n".join(lines))
 
 class RestartSelfTool(Tool):
     """校验代码环境，保存悬空快照，然后抛出 RestartRequestedException。
@@ -240,17 +234,13 @@ class RestartSelfTool(Tool):
                 ),
             )
         except subprocess.TimeoutExpired:
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.system.restart_check_timeout"),
-                is_error=True,
-            )
+            return ToolResult(tool_call_id="", content="代码环境校验超时，取消重启。", is_error=True)
 
         if check.returncode != 0:
             stderr = check.stderr.decode(errors="replace").strip()
             return ToolResult(
                 tool_call_id="",
-                content=tr("tool_result.system.restart_check_failed", error=stderr),
+                content=f"代码环境校验失败，取消重启。\n{stderr}",
                 is_error=True,
             )
 
@@ -258,11 +248,7 @@ class RestartSelfTool(Tool):
         #    tool result 尚未追加——悬空状态，供新进程注入真实成功消息）
         self._short_term.save_to_file(self._snapshot_path)
         if not _validate_snapshot(self._snapshot_path):
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.system.restart_snapshot_failed"),
-                is_error=True,
-            )
+            return ToolResult(tool_call_id="", content="快照保存后校验失败，取消重启。", is_error=True)
 
         logger.info("Snapshot saved (dangling), raising RestartRequestedException")
         # 3. 抛出重启信号：异常在 tool result 写入 short_term 之前传播，
@@ -308,7 +294,5 @@ class ClearShortTermMemoryTool(Tool):
                 logger.warning(f"Pre-compress summarize notification failed: {e}")
         compressed, _remaining = await self._short_term.compress_all_now(self._brain)
         if compressed == 0:
-            return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_empty"))
-        return ToolResult(
-            tool_call_id="", content=tr("tool_result.system.compressed", count=compressed)
-        )
+            return ToolResult(tool_call_id="", content="当前没有可压缩的短期记忆消息。")
+        return ToolResult(tool_call_id="", content=f"已压缩 {compressed} 条短期记忆消息。")

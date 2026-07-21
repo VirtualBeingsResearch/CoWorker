@@ -5,16 +5,11 @@ import json
 import openai
 from loguru import logger
 
-from coworker.brain.base import (
-    BaseLLMProvider,
-    pdf_attachment_fallback,
-    unsupported_image_fallback,
-)
+from coworker.brain.base import BaseLLMProvider
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
 from coworker.core.types import LLMResponse, Message, ToolCall
-from coworker.i18n import tr
 
 
 def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
@@ -23,7 +18,6 @@ def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse tool call arguments for '{tool_name}': {raw!r}")
         return {"__parse_error__": str(e), "__raw_arguments__": raw}
-
 
 _ZHIPU_MODELS = {
     "glm-4.5-air",
@@ -99,7 +93,9 @@ class ZhipuProvider(BaseLLMProvider):
         if self._current_model in _THINKING_MODELS and thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled", "clear_thinking": False}}
         elif not thinking:
-            kwargs["extra_body"] = {"thinking": {"type": "disabled", "clear_thinking": False}}
+            kwargs["extra_body"] = {
+                "thinking": {"type": "disabled", "clear_thinking": False}
+            }
         if tools:
             kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
 
@@ -159,10 +155,14 @@ class ZhipuProvider(BaseLLMProvider):
                     data_url = f"data:{src['media_type']};base64,{src['data']}"
                     result.append({"type": "image_url", "image_url": {"url": data_url}})
                 else:
-                    result.append({"type": "text", "text": unsupported_image_fallback()})
+                    result.append({"type": "text", "text": "[图片附件 — 不支持的图片格式]"})
             elif btype == "document":
-                fname = block.get("_filename", tr("attachment_fallback.document_name"))
-                text = pdf_attachment_fallback(fname, block.get("_saved_path", ""))
+                fname = block.get("_filename", "文档")
+                path = block.get("_saved_path", "")
+                text = f"[PDF 附件: {fname}"
+                if path:
+                    text += f"，已保存至 {path}，可使用工具读取"
+                text += "]"
                 result.append({"type": "text", "text": text})
             else:
                 result.append({k: v for k, v in block.items() if not k.startswith("_")})

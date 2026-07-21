@@ -9,10 +9,10 @@ from typing import Any
 from loguru import logger
 
 from coworker.core.types import IncomingEvent
-from coworker.i18n import tr
 from coworker.memory.short_term import ShortTermMemory
 
 _PIN_ID = "coworker_desktop_registry"
+_PIN_LABEL = "CoWorker Desktop 注册表"
 _RECENT_CONVERSATIONS_IN_PIN = 5
 
 # Folded-message detail store: when a rendered desktop prompt exceeds the
@@ -52,8 +52,7 @@ class DesktopRegistry:
     def update_connections(self, participant_ids: set[str]) -> None:
         self._connections = set(participant_ids)
         stale = [
-            key
-            for key, actor in self._actors.items()
+            key for key, actor in self._actors.items()
             if actor.participant_id not in self._connections
         ]
         for key in stale:
@@ -105,30 +104,33 @@ class DesktopRegistry:
         return True
 
     def render_pinned_context(self) -> str:
-        lines = [*tr("channel.desktop.pin_intro").splitlines(), ""]
+        lines = [
+            "使用 CoWorker Desktop 前先加载 `coworker-desktop` Skill。",
+            "participant 决定 local/codex/claude 身份，禁止跨身份复用 conversation_id。",
+            "会话按项目展示；这里只是近期快照，完整列表用 list_conversations 查询。",
+            "",
+        ]
         for state in sorted(
             self._actors.values(), key=lambda item: (item.desktop_id, item.actor_id)
         ):
-            lines.extend(
-                [
-                    f"- {state.display_name} / {state.actor_id}",
-                    f"  participant_id: {state.participant_id}",
-                    f"  desktop_id: {state.desktop_id}",
-                    "  status: connected",
-                ]
-            )
+            lines.extend([
+                f"- {state.display_name} / {state.actor_id}",
+                f"  participant_id: {state.participant_id}",
+                f"  desktop_id: {state.desktop_id}",
+                "  status: connected",
+            ])
             projects = _dict_list(state.snapshot.get("projects"))
             if not projects:
-                lines.append(tr("channel.desktop.projects_none"))
+                lines.append("  项目：无")
                 continue
             for project in projects:
                 conversation_only = project.get("scope") == "conversation"
                 if conversation_only:
-                    lines.append(tr("channel.desktop.conversations"))
+                    lines.append("  对话：")
                 else:
-                    name = str(project.get("name") or tr("channel.desktop.unknown_project"))
+                    name = str(project.get("name") or "未识别项目")
                     project_id = str(project.get("project_id") or "unknown")
-                    lines.append(tr("channel.desktop.project", name=name, id=project_id))
+                    lines.append(f"  项目：{name}（{project_id}）")
                     path = project.get("path")
                     if isinstance(path, str) and path:
                         lines.append(f"    path: {path}")
@@ -153,11 +155,7 @@ class DesktopRegistry:
         if not self._actors:
             self._short_term.unpin(_PIN_ID)
         else:
-            self._short_term.pin(
-                _PIN_ID,
-                tr("channel.desktop.pin_label"),
-                self.render_pinned_context(),
-            )
+            self._short_term.pin(_PIN_ID, _PIN_LABEL, self.render_pinned_context())
 
     def detail_path(self, key: str) -> Path:
         return self._dir / _DETAIL_SUBDIR / f"{_safe(key)}.txt"
@@ -245,13 +243,11 @@ def _append_conversations(
     lines: list[str], conversations: list[dict[str, Any]], indent: str
 ) -> None:
     if not conversations:
-        lines.append(tr("channel.desktop.recent_none", indent=indent))
+        lines.append(f"{indent}近期会话：无")
         return
     for conversation in conversations[:_RECENT_CONVERSATIONS_IN_PIN]:
         conversation_id = str(conversation.get("conversation_id") or "unknown")
-        title = " ".join(
-            str(conversation.get("title") or tr("channel.desktop.unnamed_conversation")).split()
-        )
+        title = " ".join(str(conversation.get("title") or "未命名会话").split())
         title = title if len(title) <= 12 else f"{title[:11]}…"
         details = []
         mode = conversation.get("mode")
@@ -260,9 +256,5 @@ def _append_conversations(
         updated_at = conversation.get("updated_at")
         if isinstance(updated_at, str) and updated_at:
             details.append(f"updated_at={updated_at}")
-        suffix = (
-            tr("channel.desktop.conversation_details", details=", ".join(details))
-            if details
-            else ""
-        )
+        suffix = f"（{', '.join(details)}）" if details else ""
         lines.append(f"{indent}- {conversation_id} {title}{suffix}")
