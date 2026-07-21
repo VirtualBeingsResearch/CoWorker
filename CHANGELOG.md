@@ -31,3 +31,4 @@
 - ci: add merge queue coverage, automatic web bundle updates, and mypy caching
 - build(deps): refresh Python, Rust, web, desktop, and Explore Lab dependencies
 - fix(container): restore Python 3.13 compatibility and make Playwright provisioning independent of source packaging
+- fix(deps): pin spaCy 3.8.13 to restore Python 3.14 installations and container builds

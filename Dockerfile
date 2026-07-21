@@ -1,6 +1,4 @@
-# Keep the runtime on Python 3.13 until the locked spaCy release provides
-# CPython 3.14 artifacts.
-FROM python:3.13-bookworm AS base
+FROM python:3.14-bookworm AS base
 
 # Install system deps + Node.js 24 via NodeSource
 RUN apt-get update && apt-get install -y --no-install-recommends \
