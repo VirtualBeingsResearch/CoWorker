@@ -103,6 +103,42 @@ def test_upsert_changelog_section_preserves_manual_body() -> None:
     assert bump_version.upsert_changelog_section(text, "0.2.0", "- feat: add bridge") == text
 
 
+def test_upsert_changelog_section_moves_generic_unreleased_body_to_version() -> None:
+    text = (
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "- 手写发布说明\n\n"
+        "## 0.1.0 - 2026-01-01\n\n"
+        "- Initial release.\n"
+    )
+
+    result = bump_version.upsert_changelog_section(text, "0.2.0", "- feat: generated")
+
+    assert result == (
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "## 0.2.0 - Unreleased\n\n"
+        "- 手写发布说明\n\n"
+        "## 0.1.0 - 2026-01-01\n\n"
+        "- Initial release.\n"
+    )
+
+
+def test_upsert_changelog_section_fills_empty_generic_unreleased_body() -> None:
+    text = "# Changelog\n\n## Unreleased\n\n## 0.1.0 - 2026-01-01\n\n- Initial.\n"
+
+    result = bump_version.upsert_changelog_section(text, "0.2.0", "- feat: generated")
+
+    assert result == (
+        "# Changelog\n\n"
+        "## Unreleased\n\n"
+        "## 0.2.0 - Unreleased\n\n"
+        "- feat: generated\n\n"
+        "## 0.1.0 - 2026-01-01\n\n"
+        "- Initial.\n"
+    )
+
+
 def test_normalize_changelog_subject_filters_release_noise() -> None:
     assert (
         bump_version.normalize_changelog_subject(
@@ -111,7 +147,19 @@ def test_normalize_changelog_subject_filters_release_noise() -> None:
         == "optimize(subconscious): 优化审计，针对长期任务优化"
     )
     assert bump_version.normalize_changelog_subject("chore(release): bump version to 0.2.0") is None
-    assert bump_version.normalize_changelog_subject("world_model: update morning progress") is None
-    assert bump_version.normalize_changelog_subject("chore(world_model): add trace note") is None
-    assert bump_version.normalize_changelog_subject("thinking.md: add a working principle") is None
-    assert bump_version.normalize_changelog_subject("fix(testing): add local discipline") is None
+    assert (
+        bump_version.normalize_changelog_subject("world_model: update morning progress")
+        == "world_model: update morning progress"
+    )
+    assert (
+        bump_version.normalize_changelog_subject("chore(world_model): add trace note")
+        == "chore(world_model): add trace note"
+    )
+    assert (
+        bump_version.normalize_changelog_subject("thinking.md: add a working principle")
+        == "thinking.md: add a working principle"
+    )
+    assert (
+        bump_version.normalize_changelog_subject("fix(testing): add local discipline")
+        == "fix(testing): add local discipline"
+    )

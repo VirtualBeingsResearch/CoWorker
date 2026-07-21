@@ -3,6 +3,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_prepare_release_bumps_version_and_opens_a_pull_request() -> None:
+    workflow = (ROOT / ".github/workflows/prepare-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'description: "Release version without the v prefix' in workflow
+    assert 'python scripts/bump_version.py "$RELEASE_VERSION"' in workflow
+    assert "pull-requests: write" in workflow
+    assert "gh pr create" in workflow
+    assert 'gh workflow run ci.yml --repo "$GITHUB_REPOSITORY"' in workflow
+    assert "Refusing generated change outside the version file allowlist" in workflow
+
+
 def test_manual_release_creates_a_tag_and_dispatches_both_release_workflows() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 

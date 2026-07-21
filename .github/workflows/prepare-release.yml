@@ -1,0 +1,170 @@
+name: Prepare CoWorker Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix (for example 0.3.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-coworker-release-v${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Bump version and open release pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Validate release request
+        id: release
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_TYPE" != "branch" || "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error::Run this workflow from the default branch ($DEFAULT_BRANCH)."
+            exit 1
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must match X.Y.Z or X.Y.Z-prerelease without a v prefix or build metadata."
+            exit 1
+          fi
+
+          tag="v$RELEASE_VERSION"
+          branch="chore/release-$tag"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "::error::Release tag $tag already exists."
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote --heads origin "refs/heads/$branch")" ]]; then
+            echo "::error::Release branch $branch already exists; review or remove it before retrying."
+            exit 1
+          fi
+
+          {
+            echo "branch=$branch"
+            echo "default_branch=$DEFAULT_BRANCH"
+            echo "tag=$tag"
+            echo "version=$RELEASE_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump product version
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: uv run --frozen python scripts/bump_version.py "$RELEASE_VERSION"
+
+      - name: Validate generated release changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          uv run --frozen python scripts/check_version.py
+          uv run --frozen ruff check scripts/bump_version.py tests/unit/test_bump_version.py
+          uv run --frozen pytest tests/unit/test_bump_version.py tests/unit/test_check_version.py
+          git diff --check
+
+          declare -A allowed=()
+          for path in \
+            VERSION \
+            pyproject.toml \
+            uv.lock \
+            Cargo.toml \
+            Cargo.lock \
+            apps/coworker-desktop/desktop/src-tauri/tauri.conf.json \
+            apps/coworker-desktop/desktop/package.json \
+            apps/coworker-desktop/desktop/package-lock.json \
+            web/package.json \
+            web/package-lock.json \
+            CHANGELOG.md
+          do
+            allowed["$path"]=1
+          done
+
+          mapfile -d '' -t changed_paths < <(git diff --name-only -z)
+          if [[ "${#changed_paths[@]}" -eq 0 ]]; then
+            echo "::error::bump_version.py did not produce any changes."
+            exit 1
+          fi
+          for path in "${changed_paths[@]}"; do
+            if [[ -z "${allowed[$path]:-}" ]]; then
+              echo "::error::Refusing generated change outside the version file allowlist: $path"
+              exit 1
+            fi
+          done
+
+          git diff --stat
+
+      - name: Commit and push release branch
+        shell: bash
+        env:
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git switch --create "$RELEASE_BRANCH"
+          git add --all
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(release): prepare $RELEASE_TAG"
+          git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
+
+      - name: Open release pull request
+        id: pull_request
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ steps.release.outputs.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          body="$(printf '## Summary\n\n- bump the product version to `%s`\n- update Python, Rust, web, desktop, Tauri, and lockfile versions\n- preserve the generic `Unreleased` notes in the `%s - Unreleased` section\n\n## Validation\n\n- `scripts/check_version.py`\n- Ruff for the version tooling\n- focused bump/version unit tests\n- generated path allowlist and `git diff --check`\n\n## Release follow-up\n\nAfter merging this PR, run **Create CoWorker Release** with tag `%s`.\n' "$RELEASE_VERSION" "$RELEASE_VERSION" "$RELEASE_TAG")"
+          pr_url="$(gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$DEFAULT_BRANCH" \
+            --head "$RELEASE_BRANCH" \
+            --title "chore(release): prepare $RELEASE_TAG" \
+            --body "$body")"
+
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release pull request"
+            echo
+            echo "$pr_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run CI for the generated commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_BRANCH"

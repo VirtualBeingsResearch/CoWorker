@@ -14,15 +14,6 @@ RELEASE_SUBJECT_RE = re.compile(
     r"(?:bump(?: product)? version|prepare release|release|update changelog)\b",
     re.IGNORECASE,
 )
-INTERNAL_SUBJECT_RE = re.compile(
-    r"^(?:"
-    r"(?:world_model|update world_model|thinking(?:\.md)?|skill-sync|sync)(?::|\b)|"
-    r"chore\(world_model\):|"
-    r"chore: update ai-kb-push-history\b|"
-    r"(?:fix|chore)\(testing\):"
-    r")",
-    re.IGNORECASE,
-)
 
 
 def replace_text(path: Path, pattern: str, repl: str) -> None:
@@ -113,7 +104,6 @@ def normalize_changelog_subject(subject: str) -> str | None:
         not subject
         or subject.startswith("Merge ")
         or RELEASE_SUBJECT_RE.match(subject)
-        or INTERNAL_SUBJECT_RE.match(subject)
     ):
         return None
     return subject
@@ -159,6 +149,24 @@ def upsert_changelog_section(text: str, version: str, body: str) -> str:
         if existing_body and existing_body != "- TODO":
             return text
         return (text[: match.start()] + section + text[section_end:].lstrip("\n")).rstrip() + "\n"
+
+    unreleased_re = re.compile(r"^##\s+Unreleased\s*$", re.MULTILINE | re.IGNORECASE)
+    unreleased_match = unreleased_re.search(text)
+    if unreleased_match:
+        next_match = re.search(r"^##\s+", text[unreleased_match.end() :], re.MULTILINE)
+        section_end = (
+            unreleased_match.end() + next_match.start() if next_match else len(text)
+        )
+        unreleased_body = text[unreleased_match.end() : section_end].strip()
+        release_body = (
+            unreleased_body if unreleased_body and unreleased_body != "- TODO" else body
+        )
+        replacement = f"## Unreleased\n\n## {version} - Unreleased\n\n{release_body}\n\n"
+        return (
+            text[: unreleased_match.start()]
+            + replacement
+            + text[section_end:].lstrip("\n")
+        ).rstrip() + "\n"
 
     if text.startswith("# Changelog"):
         title_end = text.find("\n")
