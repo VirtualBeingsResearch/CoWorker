@@ -125,7 +125,7 @@ def _setup_logging(logs_dir: str) -> None:
     intercept_standard_logging()
 
 
-def _get_env_snapshot() -> dict:
+def _get_env_snapshot(*, runtime_locale: str | None = None) -> dict:
     snapshot: dict = {
         "python_version": sys.version.split()[0],
         "python_executable": sys.executable,
@@ -144,6 +144,8 @@ def _get_env_snapshot() -> dict:
             snapshot["git_commit"] = r.stdout.strip()
     except Exception:
         pass
+    if runtime_locale:
+        snapshot["runtime_locale"] = runtime_locale
     return snapshot
 
 
@@ -166,6 +168,14 @@ def _diff_env(old: dict, new: dict) -> str | None:
         if changes
         else None
     )
+
+
+def _diff_runtime_locale(old: dict, new: dict) -> str | None:
+    old_locale = str(old.get("runtime_locale") or "")
+    new_locale = str(new.get("runtime_locale") or "")
+    if not old_locale or not new_locale or old_locale == new_locale:
+        return None
+    return tr("startup.locale_changed", old=old_locale, new=new_locale)
 
 
 def _find_pending_tool_call(messages: list, tool_name: str) -> dict | None:
@@ -231,7 +241,7 @@ def _register_providers(brain: Brain, config: Config) -> None:
                 )
             )
         except ValueError as e:
-            logger.error(f"跳过 provider {spec.name!r}：{e}")
+            logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 
 def _load_config() -> Config:
@@ -345,13 +355,13 @@ async def _run_backfill() -> int:
             except (ProviderNotFoundError, ModelNotSupportedError) as e:
                 logger.warning(f"[backfill] Could not restore previous model: {e}")
 
-        logger.info("[backfill] 开始从原始日志全史回溯记忆树……")
+        logger.info(tr("log.backfill_start"))
         n = await short_term.backfill_tree_from_log(
             brain, max_leaves=config.memory.tree_backfill_max_leaves
         )
         short_term.save_to_file(snapshot_path)
         logger.info(
-            f"[backfill] 完成：生成 {n} 叶子，脊柱 {len(short_term.tree.nodes)} 节点，已写回快照。"
+            tr("log.backfill_complete", leaves=n, nodes=len(short_term.tree.nodes))
         )
         return 0
     except Exception as e:
@@ -370,9 +380,13 @@ async def _main() -> bool:
         print(
             "\n"
             + "=" * 68
-            + "\nCoworker 首次启动：请用下面的初始管理员令牌打开 /admin\n\n"
-            + f"  {generated_admin_token}\n\n"
-            + f"令牌已保存到 {config.admin.config_file}，完成初始化后仍可继续使用。\n"
+            + "\n"
+            + tr(
+                "cli.first_run_token",
+                token=generated_admin_token,
+                path=config.admin.config_file,
+            )
+            + "\n"
             + "=" * 68
             + "\n",
             file=sys.stderr,
@@ -420,7 +434,7 @@ async def _main() -> bool:
     alarm_persist_path = Path(config.memory.db_path) / "alarms.json"
     env_snapshot_path = Path(config.memory.db_path) / "env_snapshot.json"
 
-    current_env = _get_env_snapshot()
+    current_env = _get_env_snapshot(runtime_locale=config.i18n.locale.value)
     prev_env: dict = {}
     if env_snapshot_path.exists():
         try:
@@ -428,6 +442,7 @@ async def _main() -> bool:
         except Exception:
             pass
     env_diff = _diff_env(prev_env, current_env) if prev_env else None
+    locale_diff = _diff_runtime_locale(prev_env, current_env) if prev_env else None
     env_snapshot_path.write_text(
         json.dumps(current_env, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -461,7 +476,11 @@ async def _main() -> bool:
                 messages=len(short_term.primary),
                 alarms=(tr("startup.alarm_fragment", count=alarm_count) if alarm_count else ""),
                 environment=(
-                    tr("startup.environment_fragment", changes=env_diff) if env_diff else ""
+                    "".join(
+                        tr("startup.environment_fragment", changes=change)
+                        for change in (env_diff, locale_diff)
+                        if change
+                    )
                 ),
             )
             _append_recovered_tool_result(
@@ -740,6 +759,8 @@ async def _main() -> bool:
             restart_msg += tr("startup.alarms_restored", count=restored_alarms)
         if env_diff:
             restart_msg += tr("startup.environment_fragment", changes=env_diff)
+        if locale_diff:
+            restart_msg += tr("startup.environment_fragment", changes=locale_diff)
         await inbox_watcher.push(
             IncomingEvent(
                 participant_id="system",
@@ -747,12 +768,18 @@ async def _main() -> bool:
                 source="system",
             )
         )
-    elif env_diff:
+    elif env_diff or locale_diff:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         await inbox_watcher.push(
             IncomingEvent(
                 participant_id="system",
-                content=tr("startup.system_started", time=now_str, environment=env_diff),
+                content=tr(
+                    "startup.system_started",
+                    time=now_str,
+                    environment=tr("startup.env_separator").join(
+                        change for change in (env_diff, locale_diff) if change
+                    ),
+                ),
                 source="system",
             )
         )
@@ -898,8 +925,10 @@ async def _main() -> bool:
         _, pending = await asyncio.wait(background, timeout=10)
         if pending:
             logger.warning(
-                "后台任务 10s 内未停止，强制取消以继续退出/重启；卡住的 task: "
-                + ", ".join(t.get_name() for t in pending)
+                tr(
+                    "log.shutdown_tasks_stuck",
+                    tasks=", ".join(t.get_name() for t in pending),
+                )
             )
             # 把卡住 task 的挂起栈写进日志——直接定位「卡在哪个 await」的根因。
             logger.warning("Stuck task stacks:\n" + format_task_stacks(list(pending)))

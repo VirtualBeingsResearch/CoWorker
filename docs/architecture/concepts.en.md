@@ -22,10 +22,10 @@
 
 Coworker renders its own model-visible framework text using an instance-wide locale. The first
 release supports `zh-CN` and `en`, defaulting to `zh-CN`. The locale lives in an async-safe context;
-prompt caches are partitioned by locale, and background model tasks inherit and retain the locale
-present when they are created. It also drives weekday names, message-source labels, IP geolocation
-request language, and the browser's default locale, while time zones and ISO date formats remain
-unchanged.
+each `SystemPromptBuilder` captures it at construction, so temporary locale contexts cannot switch
+an existing system prompt or cache. Background model tasks inherit and retain the locale present
+when they are created. It also drives weekday names, message-source labels, IP geolocation request
+language, and the browser's default locale, while time zones and ISO date formats remain unchanged.
 
 Built-in text lives under `src/coworker/i18n/catalogs/<locale>/` in domain-specific TOML catalogs,
 using semantic keys and `{{variable}}` placeholders. Startup and tests strictly require identical
@@ -39,15 +39,18 @@ base language, then the original file:
 - `SKILL.en.md` overrides only `description` and the body;
 - `PALACE.en.md` overrides only `when_to_attach` and the body;
 - `MODE.en.md` overrides only `goal`, `purpose`, `retire_after`, and the body;
-- `thinking.en.md` and identity prose such as `personality.en.md` override the matching prose.
+- Identity prose such as `personality.en.md` can override matching prose. Model-authored
+  `data/thinking.md` always reads the original file and never resolves a companion.
 
 Names, stable IDs, tags, scheduling fields, and other operational metadata always come from the
 original file. A missing companion falls back silently; malformed content or mismatched placeholders
 emit a load warning and fall back without invalidating the original asset. Existing snapshots,
-memories, tasks, alarms, logs, and user assets are neither migrated nor translated. For mem0,
-Coworker localizes only its own wrappers and custom instructions that require preserving source
-language; prompts owned internally by mem0, model providers, or other third-party libraries are not
-copied or monkey-patched.
+memories, tasks, alarms, logs, and user assets are neither migrated nor translated. When restart
+detects a locale change, it injects a language-transition system notice; new Coworker-owned API
+errors, response notes, and cataloged operational warnings and notices use the new locale. For
+mem0, Coworker localizes only
+its own wrappers and custom instructions that require preserving source language; prompts owned
+internally by mem0, model providers, or other third-party libraries are not copied or monkey-patched.
 
 ## Main tools
 

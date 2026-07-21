@@ -1,0 +1,17 @@
+[log]
+provider_skipped = "Skipping provider {{provider}}: {{error}}"
+backfill_start = "[backfill] Rebuilding the memory tree from the complete raw log…"
+backfill_complete = "[backfill] Complete: generated {{leaves}} leaves and {{nodes}} spine nodes; snapshot saved."
+backfill_empty = "[backfill] No historical content is available for backfill"
+backfill_summarizing = "[backfill] Starting {{count}} chunks; summarizing leaves in parallel…"
+backfill_reducing = "[backfill] {{count}} leaves complete; building the spine with balanced reduction…"
+shutdown_tasks_stuck = "Background tasks did not stop within 10s; force-cancelling to continue shutdown/restart. Stuck tasks: {{tasks}}"
+mode_invalid_trigger = "MODE file {{path}} has invalid trigger='{{value}}'; falling back to 'periodic'."
+mode_invalid_context_builder = "MODE file {{path}} has invalid context_builder='{{value}}'; falling back to 'short_term'."
+
+[cli]
+first_run_token = '''Coworker is starting for the first time. Open /admin with this initial administrator token:
+
+  {{token}}
+
+The token was saved to {{path}} and remains valid after initialization.'''

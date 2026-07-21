@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from coworker.core.constants import TICK_TAG
-from coworker.i18n import get_locale, tr
-from coworker.i18n.resources import read_localized_text
+from coworker.i18n import get_locale, locale_context, tr
 
 
 def _tz_info() -> str:
@@ -61,59 +60,65 @@ class SystemPromptBuilder:
         self._palaces = palace_loader
         self._thinking_path = Path(thinking_path)
         self._git_commit = git_commit
+        # Runtime locale changes require a process restart.  Capture the locale
+        # with the builder so temporary locale contexts used by background work
+        # cannot switch an existing agent's system prompt or invalidate its cache.
+        self._locale = get_locale()
         # 系统提示词整体缓存，只在首次 build 或显式 refresh() 后重建。
         # 模型刚写入 skill / thinking / identity 时，变更内容仍在短期上下文里；
         # 等记忆压缩导致上下文缓存失效，再统一刷新系统提示词，避免每轮扫盘和打掉前缀缓存。
-        self._cached_prompts: dict[str, str] = {}
+        self._cached_prompt: str | None = None
 
     def build(self) -> str:
-        locale = get_locale()
-        cached = self._cached_prompts.get(locale.value)
-        if cached is not None:
-            return cached
+        if self._cached_prompt is not None:
+            return self._cached_prompt
 
-        sections: list[str] = []
+        with locale_context(self._locale):
+            sections: list[str] = []
 
-        sections.append(f"[IDENTITY]\n{self._identity.to_system_prompt_section()}")
+            sections.append(f"[IDENTITY]\n{self._identity.to_system_prompt_section()}")
 
-        sections.append(_build_env_section(self._git_commit))
-        instinct_parts = [
-            tr(
-                "prompt.instincts_intro",
-                count=tr("prompt.count_six" if not self._identity.name else "prompt.count_five"),
-            ),
-            tr("prompt.instincts", tick_tag=TICK_TAG),
-        ]
-        if not self._identity.name:
-            instinct_parts.append(tr("prompt.newborn_instinct"))
-        sections.append(f"[INSTINCTS]\n{'\n'.join(instinct_parts)}")
-        sections.append(f"[GUIDELINES]\n{tr('prompt.guidelines')}")
-        sections.append(tr("prompt.language_policy", locale=locale.value))
+            sections.append(_build_env_section(self._git_commit))
+            instinct_parts = [
+                tr(
+                    "prompt.instincts_intro",
+                    count=tr(
+                        "prompt.count_six" if not self._identity.name else "prompt.count_five"
+                    ),
+                ),
+                tr("prompt.instincts", tick_tag=TICK_TAG),
+            ]
+            if not self._identity.name:
+                instinct_parts.append(tr("prompt.newborn_instinct"))
+            sections.append(f"[INSTINCTS]\n{'\n'.join(instinct_parts)}")
+            sections.append(f"[GUIDELINES]\n{tr('prompt.guidelines')}")
+            sections.append(tr("prompt.language_policy", locale=self._locale.value))
 
-        thinking_text = self._read_thinking()
-        if thinking_text:
-            sections.append(f"[THINKING]\n{thinking_text}")
+            thinking_text = self._read_thinking()
+            if thinking_text:
+                sections.append(f"[THINKING]\n{thinking_text}")
 
-        skills_text = self._skills.format_for_prompt()
-        if skills_text:
-            sections.append(f"[SKILLS]\n{tr('prompt.skills_intro')}\n\n{skills_text}")
+            skills_text = self._skills.format_for_prompt()
+            if skills_text:
+                sections.append(f"[SKILLS]\n{tr('prompt.skills_intro')}\n\n{skills_text}")
 
-        if self._palaces is not None:
-            palaces_text = self._palaces.format_for_prompt()
-            if palaces_text:
-                sections.append(f"[PALACES]\n{tr('prompt.palaces_intro')}\n\n{palaces_text}")
+            if self._palaces is not None:
+                palaces_text = self._palaces.format_for_prompt()
+                if palaces_text:
+                    sections.append(f"[PALACES]\n{tr('prompt.palaces_intro')}\n\n{palaces_text}")
 
-        prompt = "\n\n".join(sections) + "\n"
-        self._cached_prompts[locale.value] = prompt
-        return prompt
+            self._cached_prompt = "\n\n".join(sections) + "\n"
+        return self._cached_prompt
 
     def _read_thinking(self) -> str:
-        return read_localized_text(self._thinking_path)
+        if not self._thinking_path.is_file():
+            return ""
+        return self._thinking_path.read_text(encoding="utf-8").strip()
 
     def refresh(self) -> None:
         """Invalidate and reload prompt inputs after context cache invalidation."""
         self._identity.load()
-        self._cached_prompts.clear()
+        self._cached_prompt = None
 
     def consume_skill_load_warnings(self) -> list[str]:
         return self._skills.consume_skill_load_warnings()

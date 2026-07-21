@@ -77,8 +77,9 @@ npm --prefix apps/coworker-desktop/desktop run build
   `src/coworker/i18n/catalogs/<locale>/`. Keep semantic keys and `{{placeholder}}` sets identical
   across every locale; never translate protocol names, IDs, enum values, or user/third-party text.
 - Localized user assets use companion files (`SKILL.en.md`, `PALACE.en.md`, `MODE.en.md`,
-  `thinking.en.md`, or identity prose such as `personality.en.md`). Only the documented prose
+  or identity prose such as `personality.en.md`). Only the documented prose
   fields may differ; stable metadata remains in the original file.
+- `data/thinking.md` is model-authored runtime state and never uses a localized companion.
 - Add a concise entry to `CHANGELOG.md` for user-visible changes.
 - Call out migrations, compatibility breaks, security implications, and checks you could not run.
 

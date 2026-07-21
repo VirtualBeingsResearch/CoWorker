@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import re
 from importlib import resources
@@ -31,7 +32,7 @@ from coworker.i18n.runtime import catalog
 from coworker.tools.base import ToolDefinition
 from coworker.tools.browser_tools import BrowserOpenTool, BrowserSessionStore
 from coworker.tools.bubble_tools import BubbleCheckTool
-from coworker.tools.reasoning_tools import infer_task_kind
+from coworker.tools.system_tools import SwitchModelTool
 
 
 @pytest.mark.parametrize(
@@ -186,6 +187,17 @@ def test_invalid_companion_warns_and_falls_back_without_changing_metadata(
 
 
 def test_builtin_subconscious_modes_have_valid_english_companions() -> None:
+    with locale_context("zh-CN"):
+        chinese_loader = SubconsciousModeLoader(".coworker/subconscious")
+        chinese_loader.load_all()
+    chinese_introspect = chinese_loader.get("introspect")
+    chinese_meta = chinese_loader.get("meta")
+    assert chinese_introspect is not None
+    assert chinese_meta is not None
+    assert 'description="[成长]' in chinese_introspect.body
+    assert 'description="[维护]' in chinese_introspect.body
+    assert 'description="[潜意识]' in chinese_meta.body
+
     with locale_context("en"):
         loader = SubconsciousModeLoader(".coworker/subconscious")
         loader.load_all()
@@ -203,6 +215,11 @@ def test_builtin_subconscious_modes_have_valid_english_companions() -> None:
     assert introspect.trigger == "periodic"
     assert "Assess" in introspect.goal
     assert "{bubble_id}" in introspect.body
+    assert 'description="[growth]' in introspect.body
+    assert 'description="[maintenance]' in introspect.body
+    meta = loader.get("meta")
+    assert meta is not None
+    assert "Create tasks as `[subconscious]" in meta.body
 
 
 def test_all_tool_names_have_english_catalog_descriptions() -> None:
@@ -213,6 +230,83 @@ def test_all_tool_names_have_english_catalog_descriptions() -> None:
     english = catalog("en")
     missing = sorted(name for name in names if f"tool_schema.description.{name}" not in english)
     assert not missing
+
+
+def _schema_description_paths(
+    schema: ast.AST,
+    path: tuple[str, ...] = (),
+) -> set[tuple[str, ...]]:
+    if not isinstance(schema, ast.Dict):
+        return set()
+    fields = {
+        key.value: value
+        for key, value in zip(schema.keys, schema.values, strict=True)
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+    found = {path} if path and "description" in fields else set()
+    properties = fields.get("properties")
+    if isinstance(properties, ast.Dict):
+        for key, child in zip(properties.keys, properties.values, strict=True):
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                found.update(_schema_description_paths(child, (*path, key.value)))
+    items = fields.get("items")
+    if items is not None:
+        found.update(_schema_description_paths(items, (*path, "item")))
+    for branch_name in ("allOf", "anyOf", "oneOf"):
+        branches = fields.get(branch_name)
+        if isinstance(branches, ast.List):
+            for branch in branches.elts:
+                found.update(_schema_description_paths(branch, path))
+    return found
+
+
+def test_all_declared_tool_parameter_descriptions_have_catalog_entries() -> None:
+    expected: set[str] = set()
+    for source in Path("src/coworker/tools").glob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+            if not isinstance(call.func, ast.Name) or call.func.id != "ToolDefinition":
+                continue
+            keywords = {item.arg: item.value for item in call.keywords if item.arg}
+            name_node = keywords.get("name")
+            parameters = keywords.get("parameters")
+            if not isinstance(name_node, ast.Constant) or not isinstance(name_node.value, str):
+                continue
+            for path in _schema_description_paths(parameters or ast.Dict()):
+                expected.add(f"tool_schema.parameter.{name_node.value}.{'.'.join(path)}")
+
+    missing = sorted(expected - catalog("en").keys())
+    assert not missing
+
+
+def test_operational_logs_do_not_embed_chinese_runtime_text() -> None:
+    violations: list[str] = []
+    for source in Path("src/coworker").rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+            if not (
+                isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "logger"
+                and call.func.attr in {"debug", "info", "warning", "error", "critical"}
+            ):
+                continue
+            if re.search(r"[\u3400-\u9fff]", ast.unparse(call)):
+                violations.append(f"{source}:{call.lineno}")
+    assert not violations
+
+
+def test_api_static_error_details_use_catalogs() -> None:
+    violations: list[str] = []
+    for source in Path("src/coworker/api").rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+            if not isinstance(call.func, ast.Name) or call.func.id != "HTTPException":
+                continue
+            detail = next((item.value for item in call.keywords if item.arg == "detail"), None)
+            if isinstance(detail, ast.Constant) and isinstance(detail.value, str):
+                violations.append(f"{source}:{call.lineno}")
+    assert not violations
 
 
 def test_english_tool_schema_localizes_descriptions_without_mutating_protocol() -> None:
@@ -232,27 +326,33 @@ def test_english_tool_schema_localizes_descriptions_without_mutating_protocol() 
         schema = definition.to_schema()
     assert not re.search(r"[\u3400-\u9fff]", str(schema))
     assert schema["name"] == "read_file"
+    assert schema["parameters"]["properties"]["path"]["description"] == (
+        catalog("en")["tool_schema.parameter.read_file.path"]
+    )
     assert schema["parameters"]["properties"]["mode"]["enum"] == ["raw", "text"]
     assert definition.description == "读取文件"
+
+
+def test_switch_model_parameter_descriptions_are_fully_localized() -> None:
+    class BrainStub:
+        @staticmethod
+        def list_providers() -> list[str]:
+            return ["primary"]
+
+    definition = SwitchModelTool(BrainStub()).definition  # type: ignore[arg-type]
+    with locale_context("zh-CN"):
+        chinese = definition.to_schema()["parameters"]["properties"]
+    with locale_context("en"):
+        english = definition.to_schema()["parameters"]["properties"]
+
+    assert "提供商实例名" in chinese["provider"]["description"]
+    assert "省略则使用" in chinese["model_id"]["description"]
+    assert "Named LLM provider instance" in english["provider"]["description"]
+    assert "omit it to use" in english["model_id"]["description"]
+    assert english["provider"]["enum"] == ["primary"]
 
 
 def test_browser_schema_default_follows_runtime_locale() -> None:
     with locale_context("en"):
         definition = BrowserOpenTool(BrowserSessionStore()).definition
     assert definition.parameters["properties"]["locale"]["default"] == "en-US"
-
-
-@pytest.mark.parametrize(
-    ("description", "kind"),
-    [
-        ("[growth] improve", "growth"),
-        ("[maintenance] clean", "maintenance"),
-        ("[subconscious] tune", "subconscious"),
-        ("[成长] 提升", "growth"),
-        ("[维护] 清理", "maintenance"),
-        ("[潜意识] 调整", "subconscious"),
-        ("ordinary user task", ""),
-    ],
-)
-def test_task_kind_uses_stable_markers_and_legacy_inference(description: str, kind: str) -> None:
-    assert infer_task_kind(description) == kind

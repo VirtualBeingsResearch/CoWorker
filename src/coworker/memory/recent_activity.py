@@ -726,10 +726,16 @@ class RecentActivityMemory:
         result = raw_result if isinstance(raw_result, dict) else {}
         args = json.dumps(entry.get("arguments", {}), ensure_ascii=False, default=str)
         return {
-            "call_context": self._meta_snippet(f"[tool_args] {args}"),
+            "call_context": self._meta_snippet(
+                tr("recent_activity.body_tool_args", content=args)
+            ),
             "result_preview": self._meta_snippet(
-                f"[{'tool_error' if result.get('is_error') else 'tool_result'}] "
-                f"{str(result.get('content') or '')}"
+                tr(
+                    "recent_activity.body_tool_error"
+                    if result.get("is_error")
+                    else "recent_activity.body_tool_result",
+                    content=str(result.get("content") or ""),
+                )
             ),
         }
 
@@ -1430,20 +1436,18 @@ class RecentActivityMemory:
             document = document.split("\n", 1)[1]
         candidates: list[str] = [document]
         candidates.extend(line.strip() for line in document.splitlines())
-        prefixes = (
-            "[tool_args]",
-            "[tool_result]",
-            "[tool_error]",
-            "调用参数:",
-            "工具结果:",
-            "工具错误:",
-        )
-        candidates.extend(
-            candidate[len(prefix) :].strip()
-            for candidate in list(candidates)
-            for prefix in prefixes
-            if candidate.startswith(prefix)
-        )
+        # Vector chunks contain a display label followed by the raw payload.
+        # Strip that structural wrapper without knowing which locale produced it.
+        # The colon form also keeps old indexed documents searchable.
+        for candidate in list(candidates):
+            if candidate.startswith("["):
+                _label, separator, payload = candidate.partition("]")
+                if separator and payload.strip():
+                    candidates.append(payload.strip())
+            for separator in (":", "："):
+                label, found, payload = candidate.partition(separator)
+                if found and 0 < len(label) <= 16 and payload.strip():
+                    candidates.append(payload.strip())
         document_match: tuple[int, int] | None = None
         for candidate in sorted({c for c in candidates if c}, key=len, reverse=True):
             probes = [candidate]
@@ -1761,9 +1765,13 @@ class RecentActivityMemory:
             args = json.dumps(entry.get("arguments", {}), ensure_ascii=False, default=str)
             return "\n".join(
                 [
-                    f"[tool_args] {args}",
-                    f"[{'tool_error' if result.get('is_error') else 'tool_result'}] "
-                    f"{str(result.get('content') or '')}",
+                    tr("recent_activity.body_tool_args", content=args),
+                    tr(
+                        "recent_activity.body_tool_error"
+                        if result.get("is_error")
+                        else "recent_activity.body_tool_result",
+                        content=str(result.get("content") or ""),
+                    ),
                 ]
             )
         if t == "task_reminder":

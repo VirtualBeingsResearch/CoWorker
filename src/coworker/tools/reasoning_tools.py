@@ -16,15 +16,6 @@ from coworker.tools.base import Tool, ToolDefinition
 
 _TASK_STATUSES = ("pending", "in_progress", "completed", "deleted")
 _DETAILS_UPDATE_MODES = ("replace", "append", "patch")
-_TASK_KIND_PREFIXES = {
-    "[growth]": "growth",
-    "[maintenance]": "maintenance",
-    "[subconscious]": "subconscious",
-    # Read-only compatibility for tasks created before the stable ASCII protocol.
-    "[成长]": "growth",
-    "[维护]": "maintenance",
-    "[潜意识]": "subconscious",
-}
 _HUNK_RE = re.compile(
     r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? "
     r"\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@"
@@ -46,16 +37,6 @@ class DetailsPatchError(ValueError):
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def infer_task_kind(description: str) -> str:
-    """Return the stable framework task kind, including legacy-prefix inference."""
-
-    stripped = description.lstrip()
-    for prefix, kind in _TASK_KIND_PREFIXES.items():
-        if stripped.startswith(prefix):
-            return kind
-    return ""
 
 
 def _timestamp_from_path(path: Path) -> str | None:
@@ -296,15 +277,10 @@ class Task:
     created_at: str = ""
     updated_at: str = ""
 
-    @property
-    def kind(self) -> str:
-        return infer_task_kind(self.description)
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "description": self.description,
-            "kind": self.kind,
             "status": self.status,
             "details": self.details,
             "created_at": self.created_at,

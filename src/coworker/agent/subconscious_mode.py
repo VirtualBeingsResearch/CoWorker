@@ -187,13 +187,17 @@ class SubconsciousModeLoader:
 
         trigger = str(fm.get("trigger", "periodic"))
         if trigger not in _VALID_TRIGGERS:
-            logger.warning(f"MODE 文件 {path} 的 trigger='{trigger}' 无效，回退为 'periodic'。")
+            logger.warning(tr("log.mode_invalid_trigger", path=path, value=trigger))
             trigger = "periodic"
 
         context_builder = str(fm.get("context_builder", "short_term"))
         if context_builder not in _VALID_CONTEXT_BUILDERS:
             logger.warning(
-                f"MODE 文件 {path} 的 context_builder='{context_builder}' 无效，回退为 'short_term'。"
+                tr(
+                    "log.mode_invalid_context_builder",
+                    path=path,
+                    value=context_builder,
+                )
             )
             context_builder = "short_term"
 

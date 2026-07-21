@@ -9,8 +9,46 @@ from types import SimpleNamespace
 
 import pytest
 
+from coworker.i18n import locale_context
 from coworker.memory import recent_activity as recent_activity_module
 from coworker.memory.recent_activity import RecentActivityMemory, render_recent_activity_replay
+
+
+def test_tool_exchange_wrappers_follow_locale_and_keep_bracket_shape():
+    memory = object.__new__(RecentActivityMemory)
+    entry = {
+        "type": "tool_exchange",
+        "arguments": {"path": "用户原文.txt"},
+        "result": {"content": "source payload", "is_error": False},
+    }
+
+    with locale_context("zh-CN"):
+        chinese = memory._body(entry)
+    with locale_context("en"):
+        english = memory._body(entry)
+
+    assert chinese.startswith("[工具参数]")
+    assert "[工具结果] source payload" in chinese
+    assert english.startswith("[tool_args]")
+    assert "[tool_result] source payload" in english
+    assert "用户原文.txt" in chinese
+    assert "用户原文.txt" in english
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "[tool_result] TARGET payload",
+        "[工具结果] TARGET payload",
+        "工具结果: TARGET payload",
+    ],
+)
+def test_match_span_removes_structural_wrappers_without_locale_tables(document):
+    text = "prefix " + "x" * 1000 + " TARGET payload " + "y" * 1000
+    match = RecentActivityMemory._find_match_span(text, "", document)
+
+    assert match is not None
+    assert text[slice(*match)] == "TARGET payload"
 
 
 class _Tokenizer:

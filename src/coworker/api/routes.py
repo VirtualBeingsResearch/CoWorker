@@ -114,9 +114,15 @@ def verify_communication_authorization(authorization: str | None) -> None:
     if _development_mode:
         return
     if not _communication_token:
-        raise HTTPException(status_code=503, detail="Communication token is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.auth.communication_token_unconfigured"),
+        )
     if authorization != f"Bearer {_communication_token}":
-        raise HTTPException(status_code=401, detail="Invalid communication bearer token")
+        raise HTTPException(
+            status_code=401,
+            detail=tr("api.auth.communication_token_invalid"),
+        )
 
 
 class SwitchModelPayload(BaseModel):
@@ -170,7 +176,7 @@ def _save_attachment(att: AttachmentSchema, *, keep_inline_data: bool = True) ->
 
 def _model_config_response() -> dict:
     if _brain is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     snapshot = _brain.model_config_snapshot()
     snapshot["override_path"] = str(_model_config_path)
     snapshot["persisted"] = _model_config_path.is_file()
@@ -180,9 +186,12 @@ def _model_config_response() -> dict:
 @router.post("/messages")
 async def post_message(message: MessagePayload, authorization: str | None = Header(default=None)):
     if _inbox is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     if message.sender_id.startswith(("codex:", "local:", "codex-bridge:")):
-        raise HTTPException(status_code=422, detail="legacy Codex Bridge messages are unsupported")
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.message.legacy_bridge_unsupported"),
+        )
     is_desktop = (
         message.sender_id.startswith("coworker-desktop:")
         or message.message_id is not None
@@ -191,13 +200,17 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
     if is_desktop:
         verify_communication_authorization(authorization)
         if message.protocol_version != 1:
-            raise HTTPException(status_code=422, detail="protocol_version must be 1")
+            raise HTTPException(status_code=422, detail=tr("api.message.protocol_version"))
         if not message.message_id:
-            raise HTTPException(status_code=422, detail="message_id is required")
+            raise HTTPException(
+                status_code=422, detail=tr("api.message.message_id_required")
+            )
         if not message.type or not message.type.startswith("desktop."):
-            raise HTTPException(status_code=422, detail="desktop event type is required")
+            raise HTTPException(
+                status_code=422, detail=tr("api.message.event_type_required")
+            )
         if message.payload is None:
-            raise HTTPException(status_code=422, detail="desktop payload is required")
+            raise HTTPException(status_code=422, detail=tr("api.message.payload_required"))
         if not _remember_desktop_message_id(message.message_id):
             # bridge 出站重试导致的重复投递：对端已经处理过这条消息，直接 ack 且不再入队，
             # 让 bridge 把 outbox 行 acknowledge 掉，避免 agent 把同一条消息处理多次。
@@ -227,7 +240,7 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
 async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> None:
     inbox = _inbox
     if inbox is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     content = message.content
     attachment_schemas = list(message.attachments)
     if source_is_desktop:
@@ -320,7 +333,7 @@ async def get_debug_tasks():
 @router.post("/switch_model")
 async def switch_model(payload: SwitchModelPayload):
     if _brain is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     try:
         await _brain.switch_model(payload.provider, payload.model_id)
         return {
@@ -340,7 +353,7 @@ async def get_model_config():
 @router.patch("/model_config")
 async def patch_model_config(payload: ModelConfigPatchPayload):
     if _brain is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
 
     try:
         snapshot = await _brain.update_model_config(
@@ -368,14 +381,16 @@ async def backfill_tree(payload: BackfillTreePayload):
     与主循环并发安全）。完成后记日志并向 inbox 推送一条系统消息。
     """
     if _agent is None or _brain is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     stm = _agent._short_term
     if stm.log_store is None:
-        raise HTTPException(status_code=400, detail="未配置原始日志寻址层，无法回溯")
+        raise HTTPException(
+            status_code=400, detail=tr("api.backfill.log_store_unconfigured")
+        )
     if stm.backfill_progress.get("running"):
         raise HTTPException(
             status_code=409,
-            detail="回溯已在进行中，请用 GET /backfill_tree 查看进度",
+            detail=tr("api.backfill.already_running"),
         )
     # 同步占位 running=True：让 GET 在 POST 返回后立刻看到进行中，并堵住并发重复触发的窗口
     # （检查→置位之间无 await，端点协程不让出）。_run 的 finally 与 _populate_tree 均会复位。
@@ -410,7 +425,7 @@ async def backfill_tree(payload: BackfillTreePayload):
     return {
         "status": "started",
         "max_leaves": payload.max_leaves,
-        "note": "后台重建记忆树，用 GET /backfill_tree 查看进度，完成后记日志并推送系统消息",
+        "note": tr("api.backfill.started_note"),
     }
 
 
@@ -498,7 +513,7 @@ async def list_backups() -> dict[str, object]:
     """列出应急备份（AgentLoop 连续错误时写入的完整短期记忆快照），供运维查看与恢复。"""
     backup_dir = _backup_dir()
     if backup_dir is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     out = []
     for p in sorted(backup_dir.glob(f"{_BACKUP_PREFIX}*.json"), reverse=True):
         item: dict = {"filename": p.name, "timestamp": None, "message_count": None}
@@ -525,7 +540,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
     """
     backup_dir = _backup_dir()
     if backup_dir is None or _brain is None:
-        raise HTTPException(status_code=503, detail="Agent not ready")
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
 
     name = payload.filename
     # 路径穿越防护：必须是裸文件名、符合命名前后缀、解析后仍落在备份目录内。
@@ -536,19 +551,21 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
         or not name.startswith(_BACKUP_PREFIX)
         or not name.endswith(".json")
     ):
-        raise HTTPException(status_code=400, detail="非法备份文件名")
+        raise HTTPException(status_code=400, detail=tr("api.backup.invalid_filename"))
     path = backup_dir / name
     if path.resolve().parent != backup_dir.resolve() or not path.is_file():
-        raise HTTPException(status_code=404, detail="备份文件不存在")
+        raise HTTPException(status_code=404, detail=tr("api.backup.missing"))
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        raise HTTPException(status_code=400, detail=f"备份文件读取失败：{e}")
+        raise HTTPException(
+            status_code=400, detail=tr("api.backup.read_failed", error=e)
+        )
 
     restored = ShortTermMemory.parse_primary(data)
     if not restored:
-        raise HTTPException(status_code=400, detail="备份为空，拒绝恢复（避免清空会话）")
+        raise HTTPException(status_code=400, detail=tr("api.backup.empty"))
 
     stm = _agent._short_term  # type: ignore[union-attr]  # _backup_dir 已确保 _agent 非 None
 
@@ -559,7 +576,9 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
                 context_hint=tr("notification.backup_restore_hint", name=name),
             )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"摘要失败：{e}")
+            raise HTTPException(
+                status_code=500, detail=tr("api.backup.summary_failed", error=e)
+            )
         summary_text = raw.content if isinstance(raw, SummaryResult) else raw
         try:
             summary = json.loads(summary_text).get("summary", summary_text)

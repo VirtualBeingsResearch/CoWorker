@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from coworker.core.types import ToolResult
-from coworker.i18n import SupportedLocale, get_locale, tr
+from coworker.i18n import tr
 from coworker.i18n.runtime import catalog
 
 if TYPE_CHECKING:
@@ -84,8 +84,6 @@ class ToolDefinition:
         entries = catalog()
 
         def localized_description(original: str, path: tuple[str, ...]) -> str:
-            if get_locale() is SupportedLocale.ZH_CN:
-                return original
             if not path:
                 return entries.get(
                     f"tool_schema.description.{self.name}",

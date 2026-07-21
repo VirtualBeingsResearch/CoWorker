@@ -43,6 +43,7 @@ from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest, IncomingEvent
+from coworker.i18n import tr
 from coworker.version import __version__
 
 if TYPE_CHECKING:
@@ -143,10 +144,7 @@ def _format_sse(message: Any) -> str:
 
 
 def _connection_rejected_message(participant_id: str) -> str:
-    return (
-        f"连接被拒绝：'{participant_id}' 已有活跃的 SSE/WS 连接。"
-        "同名连接按先到先得处理；请关闭已有连接后重试，或使用不同的 participant_id。"
-    )
+    return tr("api.desktop.connection_rejected", participant=participant_id)
 
 
 async def _reject_websocket(ws: WebSocket, participant_id: str) -> None:
@@ -196,7 +194,9 @@ def setup_desktop_updates(config: DesktopUpdatesConfig, admin_token: str = "") -
 
 def _require_communicate() -> CommunicateTool:
     if _communicate is None:
-        raise HTTPException(status_code=503, detail="Communicate tool not ready")
+        raise HTTPException(
+            status_code=503, detail=tr("api.state.communicate_tool_not_ready")
+        )
     return _communicate
 
 
@@ -225,7 +225,7 @@ def _normalize_version(value: str) -> str:
     value = value.strip()
     match = _SEMVER_RE.match(value)
     if not match:
-        raise HTTPException(status_code=422, detail="version must be SemVer")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.version_semver"))
     return value.removeprefix("v")
 
 
@@ -288,24 +288,28 @@ def _require_admin(authorization: str | None) -> None:
         if token
     )
     if not tokens:
-        raise HTTPException(status_code=503, detail="desktop update admin token is not configured")
+        raise HTTPException(
+            status_code=503, detail=tr("api.auth.desktop_token_unconfigured")
+        )
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
-        raise HTTPException(status_code=401, detail="missing bearer token")
+        raise HTTPException(status_code=401, detail=tr("api.auth.bearer_token_missing"))
     supplied = authorization[len(prefix):]
     if not any(secrets.compare_digest(supplied, token) for token in tokens):
-        raise HTTPException(status_code=403, detail="invalid bearer token")
+        raise HTTPException(status_code=403, detail=tr("api.auth.bearer_token_invalid"))
 
 
 def _read_json_file(path: _Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail="desktop release not found") from error
+        raise HTTPException(
+            status_code=404, detail=tr("api.desktop.release_missing")
+        ) from error
     except json.JSONDecodeError as error:
         raise HTTPException(
             status_code=500,
-            detail=f"desktop release metadata is invalid: {error}",
+            detail=tr("api.desktop.release_metadata_invalid", error=error),
         ) from error
 
 
@@ -324,7 +328,7 @@ def _safe_filename(filename: str) -> str:
     leaf = filename.replace("\\", "/").split("/")[-1].strip(" .")
     safe = _SAFE_FILENAME_RE.sub("-", leaf).strip(" .-")
     if not safe:
-        raise HTTPException(status_code=422, detail="asset filename is empty")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_filename_empty"))
     return safe
 
 
@@ -352,7 +356,7 @@ def _asset_path(version: str, filename: str) -> _Path:
     root = (_release_dir(_normalize_version(version)) / "assets").resolve()
     path = (root / safe).resolve()
     if path.parent != root:
-        raise HTTPException(status_code=400, detail="invalid asset path")
+        raise HTTPException(status_code=400, detail=tr("api.desktop.asset_path_invalid"))
     return path
 
 
@@ -396,7 +400,9 @@ def _publish_release(
     platform_map = release.get("platforms") or {}
     selected = platforms or sorted(platform_map.keys())
     if not selected:
-        raise HTTPException(status_code=422, detail="release has no platforms to publish")
+        raise HTTPException(
+            status_code=422, detail=tr("api.desktop.release_platforms_empty")
+        )
     latest_platforms: dict[str, dict[str, str]] = {}
 
     publish_platforms = list(selected)
@@ -415,19 +421,28 @@ def _publish_release(
 
     for platform in publish_platforms:
         if not _PLATFORM_RE.match(platform):
-            raise HTTPException(status_code=422, detail=f"invalid platform: {platform}")
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.desktop.platform_invalid", platform=platform),
+            )
         asset = platform_map.get(platform)
         if not isinstance(asset, dict):
-            raise HTTPException(status_code=422, detail=f"missing asset for platform: {platform}")
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.desktop.platform_asset_missing", platform=platform),
+            )
         filename = str(asset.get("file") or "")
         signature = str(asset.get("signature") or "").strip()
         path = _asset_path(version, filename)
         if not filename or not path.is_file():
-            raise HTTPException(status_code=422, detail=f"missing file for platform: {platform}")
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.desktop.platform_file_missing", platform=platform),
+            )
         if not signature:
             raise HTTPException(
                 status_code=422,
-                detail=f"missing signature for platform: {platform}",
+                detail=tr("api.desktop.platform_signature_missing", platform=platform),
             )
         latest_platforms[platform] = {
             "file": filename,
@@ -456,13 +471,16 @@ async def communicate_register(
     authorization: str | None = Header(default=None),
 ):
     if payload.kind != "coworker-desktop":
-        raise HTTPException(status_code=422, detail="only coworker-desktop registration is supported")
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.desktop.registration_kind_unsupported"),
+        )
     verify_communication_authorization(authorization)
     versions = payload.metadata.get("protocol_versions", [])
     if not isinstance(versions, list) or 1 not in versions:
         raise HTTPException(
             status_code=422,
-            detail="No compatible CoWorker Desktop protocol version; Coworker supports [1]",
+            detail=tr("api.desktop.protocol_incompatible"),
         )
     communicate = _require_communicate()
     try:
@@ -494,7 +512,9 @@ async def communicate_delete_registration(
     try:
         return {"deleted": communicate.delete_registration(registration_id)}
     except KeyError as error:
-        raise HTTPException(status_code=404, detail="registration not found") from error
+        raise HTTPException(
+            status_code=404, detail=tr("api.desktop.registration_missing")
+        ) from error
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -508,7 +528,7 @@ async def create_desktop_release(
     version = _normalize_version(payload.version)
     path = _release_path(version)
     if path.exists():
-        raise HTTPException(status_code=409, detail="desktop release already exists")
+        raise HTTPException(status_code=409, detail=tr("api.desktop.release_exists"))
     now = datetime.now().astimezone().isoformat()
     release = {
         "version": version,
@@ -556,19 +576,19 @@ async def upload_desktop_release_asset(
     _require_admin(authorization)
     version = _normalize_version(version)
     if not _PLATFORM_RE.match(platform):
-        raise HTTPException(status_code=422, detail="platform must be OS-ARCH")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.platform_format"))
     if kind not in {"updater", "installer"}:
-        raise HTTPException(status_code=422, detail="kind must be updater or installer")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_kind_invalid"))
     release = _read_release(version)
     signature = signature.strip()
     if kind == "updater" and not signature:
-        raise HTTPException(status_code=422, detail="signature is required")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.signature_required"))
     filename = _stored_asset_filename(file.filename or "", platform, kind)
     path = _asset_path(version, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=422, detail="asset file is empty")
+        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_empty"))
     path.write_bytes(content)
     asset = {
         "file": filename,
@@ -614,7 +634,7 @@ async def rollback_desktop_release(
 async def download_desktop_release_asset(version: str, filename: str):
     path = _asset_path(version, filename)
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="desktop update asset not found")
+        raise HTTPException(status_code=404, detail=tr("api.desktop.update_asset_missing"))
     return FileResponse(path)
 
 
@@ -761,7 +781,7 @@ async def sse_endpoint(
     """SSE 出站通道：与 WS 共用 CommunicateTool 的出站队列注册表，故 communicate
     工具投递逻辑零改动。入站方向用现有 POST /messages。EventSource 原生自动重连。"""
     if participant_id.startswith("codex-bridge:"):
-        raise HTTPException(status_code=410, detail="codex-bridge protocol is no longer supported")
+        raise HTTPException(status_code=410, detail=tr("api.desktop.legacy_bridge_removed"))
     if participant_id.startswith("coworker-desktop:"):
         verify_communication_authorization(authorization)
     queue: asyncio.Queue = asyncio.Queue()

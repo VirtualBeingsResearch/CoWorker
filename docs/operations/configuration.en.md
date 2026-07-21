@@ -25,11 +25,14 @@ variables, make sure the working directory does not contain conflicting `.env` v
 The runtime locale is independent of the Web/Desktop interface language and can also be changed
 under Runtime language in the administration page. It controls Coworker-owned system prompts,
 tool schemas and result wrappers, summarization and memory framework text, Bubbles, subconscious
-modes, vision requests, and participant-facing system notices. Replies to a participant default to
+modes, vision requests, API errors and response notes, cataloged operational warnings and notices,
+and participant-facing
+system notices. Replies to a participant default to
 the language of that participant's current message; an explicit language request wins; autonomous
 output without a current user message falls back to the runtime locale. Switching locale does not
 translate user content, historical data, third-party text, or existing Identity, Skill, Palace,
-task, or memory data, so mixed-language history is expected for compatibility.
+task, or memory data, so mixed-language history is expected for compatibility. Restart injects a
+language-transition system notice when it detects a locale change.
 
 ### LLM
 

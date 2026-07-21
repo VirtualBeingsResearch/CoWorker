@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from coworker.api import admin
 from coworker.core.config import Config, apply_admin_config_file, ensure_admin_token
 from coworker.core.types import Message
+from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.skills.loader import SkillLoader
 
@@ -61,6 +62,18 @@ def test_admin_requires_bearer_token(tmp_path):
     response = client.post("/api/admin/session/verify", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["name"] == "Luna"
+
+
+def test_admin_error_detail_follows_runtime_locale(tmp_path):
+    client, _ = _client(tmp_path)
+
+    with locale_context("zh-CN"):
+        chinese = client.post("/api/admin/session/verify")
+    with locale_context("en"):
+        english = client.post("/api/admin/session/verify")
+
+    assert chinese.json()["detail"] == "缺少管理员令牌"
+    assert english.json()["detail"] == "Administrator token is missing"
 
 
 def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_path):

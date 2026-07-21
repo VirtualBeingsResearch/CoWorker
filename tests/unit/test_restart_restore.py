@@ -4,9 +4,10 @@ import json
 
 import pytest
 
-from coworker.__main__ import _append_recovered_tool_result
+from coworker.__main__ import _append_recovered_tool_result, _diff_runtime_locale
 from coworker.agent.interaction_log import InteractionLogger
 from coworker.core.types import Message
+from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 
 
@@ -74,3 +75,24 @@ def test_recovered_tool_result_noops_without_pending_call(tmp_path):
     assert recovered is False
     assert short_term.primary == []
     assert not (tmp_path / "interactions.jsonl").exists()
+
+
+def test_runtime_locale_change_notice_is_emitted_only_for_an_actual_change():
+    assert _diff_runtime_locale({}, {"runtime_locale": "en"}) is None
+    assert (
+        _diff_runtime_locale(
+            {"runtime_locale": "zh-CN"},
+            {"runtime_locale": "zh-CN"},
+        )
+        is None
+    )
+
+    with locale_context("en"):
+        notice = _diff_runtime_locale(
+            {"runtime_locale": "zh-CN"},
+            {"runtime_locale": "en"},
+        )
+
+    assert notice is not None
+    assert "runtime language changed from zh-CN to en" in notice
+    assert "existing user content and memories remain" in notice

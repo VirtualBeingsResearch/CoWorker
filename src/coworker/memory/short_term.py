@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 
 TokenCountSource = Literal["estimated", "exact"]
 
+_LEGACY_SUMMARY_ANCHOR_PREFIXES = (
+    "[记忆：以下是我之前的行动摘要]",
+    "[memory: summary of my previous actions]",
+)
+
 
 class ShortTermMemory:
     def __init__(
@@ -299,16 +304,6 @@ class ShortTermMemory:
         slice_, _cutoff = self._select_full_promotion_slice()
         return slice_
 
-    @staticmethod
-    def _is_legacy_summary_anchor(message: Message) -> bool:
-        return message.role == "user" and (
-            message.source == "memory_summary"
-            or (
-                isinstance(message.content, str)
-                and message.content.startswith("[记忆：以下是我之前的行动摘要]")
-            )
-        )
-
     def raw_primary_boundary(self) -> datetime | None:
         """Oldest timestamp still present as raw short-term context.
 
@@ -316,12 +311,13 @@ class ShortTermMemory:
         events older than this timestamp have been compressed out of ``primary`` and
         are no longer available verbatim in short-term memory. Legacy single-anchor
         summaries are skipped because they are compressed replacements, not raw
-        retained context.
+        retained context.  Legacy snapshots are normalized to the same source
+        marker while loading.
         """
-        raw = [m.timestamp for m in self.primary if not self._is_legacy_summary_anchor(m)]
+        raw = [m.timestamp for m in self.primary if m.source != "memory_summary"]
         if raw:
             return min(raw)
-        if self.tree.nodes or any(self._is_legacy_summary_anchor(m) for m in self.primary):
+        if self.tree.nodes or any(m.source == "memory_summary" for m in self.primary):
             return datetime.now()
         return None
 
@@ -833,11 +829,11 @@ class ShortTermMemory:
                 return 0
             chunks = self._log_store.backfill_chunks(before=before, max_chunks=max_leaves)
             if not chunks:
-                logger.info("[backfill] 无可回溯的历史内容")
+                logger.info(tr("log.backfill_empty"))
                 return 0
             total = len(chunks)
             self.backfill_progress["total"] = total
-            logger.info(f"[backfill] 开始：{total} 块，并行摘要为叶子…")
+            logger.info(tr("log.backfill_summarizing", count=total))
             summarize = self._make_summarize_fn(brain)
 
             # 1) 并行把每块摘要成 L0 叶子（有界并发；进度随完成数递增）
@@ -881,7 +877,7 @@ class ShortTermMemory:
             # gather 保持输入顺序 → 叶子按时序排列（平衡归约配对相邻=配对相邻时间）
             results = await asyncio.gather(*(_make_leaf(c) for c in chunks))
             leaves = [n for n in results if n is not None]
-            logger.info(f"[backfill] {len(leaves)} 叶子完成，平衡归约建脊柱…")
+            logger.info(tr("log.backfill_reducing", count=len(leaves)))
 
             # 2) 平衡两两归约（绝不塌成单节点；归约合并走 summary-of-summaries，不重读日志）
             await tree.build_balanced(leaves, summarize, concurrency=self._backfill_concurrency)
@@ -1033,14 +1029,23 @@ class ShortTermMemory:
         """从快照/备份 dict 解析 primary 消息列表（不构造整个 STM）。供 deserialize 与备份恢复复用。"""
         out: list[Message] = []
         for m in data.get("primary", []):
+            content = m["content"]
+            source = m.get("source")
+            if (
+                source is None
+                and m["role"] == "user"
+                and isinstance(content, str)
+                and content.startswith(_LEGACY_SUMMARY_ANCHOR_PREFIXES)
+            ):
+                source = "memory_summary"
             msg = Message(
                 role=m["role"],
-                content=m["content"],
+                content=content,
                 tool_calls=m.get("tool_calls", []),
                 tool_call_id=m.get("tool_call_id"),
                 recalled_memory_ids=m.get("recalled_memory_ids", []),
                 pin_id=m.get("pin_id"),
-                source=m.get("source"),
+                source=source,
                 usage=m.get("usage", {}),
             )
             if "timestamp" in m:

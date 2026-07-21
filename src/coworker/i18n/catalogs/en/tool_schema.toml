@@ -47,3 +47,197 @@ view_image = "Load an image directly into the vision model context."
 visual_analyze = "Analyze an image or video with the vision model in the background."
 search_web = "Search the internet and return summarized results."
 fetch_url = "Fetch the main content of a URL."
+
+[tool_schema.parameter.set_alarm]
+trigger_at = "First trigger time in YYYY-MM-DD HH:MM:SS format."
+message = "Reminder content."
+alarm_id = "Optional alarm ID for later cancellation; generated automatically when omitted."
+repeat_seconds = "Repeat interval in seconds; omit or use 0 for a one-time alarm, or use a positive integer to repeat until cancelled."
+
+[tool_schema.parameter.cancel_alarm]
+alarm_id = "ID of the alarm to cancel."
+
+[tool_schema.parameter.browser_open]
+url = "Webpage URL to open."
+headless = "Whether to use headless mode; defaults to true."
+viewport_width = "Browser viewport width in pixels; defaults to 1280."
+viewport_height = "Browser viewport height in pixels; defaults to 720."
+locale = "Browser locale such as zh-CN or en-US; defaults to the runtime locale."
+timezone_id = "Time-zone ID such as Asia/Shanghai or America/New_York."
+user_agent = "Custom User-Agent string."
+ignore_https_errors = "Whether to ignore HTTPS certificate errors; defaults to false."
+extra_http_headers = "HTTP headers to add to every request."
+cookies = "Initial cookies; each item needs name, value, and either domain or url."
+
+[tool_schema.parameter.browser_screenshot]
+session_id = "session_id returned by browser_open."
+full_page = "Whether to capture the full page; defaults to false for the visible viewport only."
+
+[tool_schema.parameter.browser_action]
+session_id = "session_id returned by browser_open."
+action = "Type of browser action to perform."
+selector = "Target element selector; for navigate, provide the URL here."
+value = "Input text for type, option value for select, or key name for press_key."
+script = "JavaScript to run for evaluate; avoid long-running code."
+
+[tool_schema.parameter.browser_get_content]
+session_id = "session_id returned by browser_open."
+fmt = "Output format: text (visible text, default) or html (raw HTML)."
+selector = "Optional CSS selector that limits extraction; omit it for the full page."
+start = "Starting character offset for pagination; defaults to 0."
+
+[tool_schema.parameter.browser_close]
+session_id = "session_id to close."
+
+[tool_schema.parameter.browser_view]
+session_id = "session_id returned by browser_open."
+full_page = "Whether to capture the full page; defaults to false for the visible viewport only."
+full_resolution = "Whether to preserve original resolution without scaling; defaults to false."
+
+[tool_schema.parameter.bubble_spawn]
+goal = "Specific goal for a new bubble; required when creating one and optional as a resume instruction."
+bubble_id = "ID of a timed-out bubble to resume; providing it resumes instead of creating a bubble."
+max_cycles = "Maximum cycles for a new bubble or extra resume cycles; range 1-50, cumulative maximum 50, default 10."
+fresh_start = "Whether to start with only pinned context and no conversation history; defaults to false."
+palaces = "Memory-palace names to attach (see [PALACES]); multiple are allowed, and an empty list attaches none."
+participant_id = "Participant this task serves; once bound, unambiguous messages can route to the bubble and it may reply only to that participant."
+conversation_id = "Optional conversation ID; with participant_id, routing and replies are restricted to that conversation."
+thinking = "Whether to enable extended thinking; defaults to true and may be false for quick tool or aggregation work."
+provider = "Model provider for the bubble; leave empty to inherit the main thread."
+model = "Model for the bubble; leave empty to inherit the main thread."
+
+[tool_schema.parameter.bubble_check]
+bubble_id = "Bubble ID."
+
+[tool_schema.parameter.bubble_send]
+target = "Target bubble ID, or main for the main thread."
+message = "Message content to send."
+
+[tool_schema.parameter.bubble_cancel]
+bubble_id = "Bubble ID."
+
+[tool_schema.parameter.bubble_done]
+result = "Conclusion for this call; interim when checkpoint=true, otherwise the complete final conclusion."
+checkpoint = "Whether to submit an interim checkpoint and continue; false (default) submits the final conclusion and ends the bubble."
+
+[tool_schema.parameter.execute_code]
+code = "Code to execute."
+language = "Programming language of the code."
+timeout = "Timeout in seconds; the system hard timeout is used when omitted."
+cwd = "Execution directory; defaults to the current working directory."
+output_limit = "Maximum output characters returned directly; use get_code_result to page through overflow."
+block = "Whether to block until completion; defaults to false and is honored only in bubble contexts."
+
+[tool_schema.parameter.get_code_result]
+job_id = "job_id returned by execute_code."
+offset = "Character offset for pagination, starting at 0; defaults to 0."
+limit = "Maximum characters to return; 0 requests the largest page, and offset retrieves later pages."
+
+[tool_schema.parameter.kill_code_job]
+job_id = "job_id returned by execute_code."
+
+[tool_schema.parameter.communicate]
+participant_id = "Recipient ID; a bubble bound to a participant cannot change it to another recipient."
+message = "Message content to send."
+conversation_id = "Conversation ID under the same participant_id."
+attachments = "Optional attachments; exact support depends on the destination channel."
+extra = "Low-frequency channel extensions; the destination channel defines the allowlist."
+
+"attachments.item.type" = "Attachment type: image or file."
+"attachments.item.filename" = "Optional display filename; defaults to the filename from path."
+"attachments.item.media_type" = "Optional MIME type; inferred from the file extension by default."
+"attachments.item.path" = "Absolute or relative local file path."
+
+[tool_schema.parameter.read_file]
+path = "File path."
+offset = "Starting line number (1-based); defaults to 1."
+limit = "Maximum lines to read; 0 or omission reads to the end of the file."
+
+[tool_schema.parameter.write_file]
+path = "File path."
+content = "Content for a full-file write."
+append = "Whether to append instead of overwrite; defaults to false and applies only to full writes."
+old_string = "Original text to replace in a targeted edit."
+new_string = "Replacement text for a targeted edit."
+replace_all = "Whether to replace every match; defaults to false."
+
+[tool_schema.parameter.list_directory]
+path = "Directory path; defaults to the current directory."
+show_hidden = "Whether to show dot-prefixed hidden files; defaults to false."
+
+[tool_schema.parameter.find_files]
+pattern = "Filename glob pattern such as *.py or **/*.json."
+root = "Search root; defaults to the current directory."
+max_results = "Maximum number of results; defaults to 50."
+
+[tool_schema.parameter.grep_files]
+pattern = "Regular expression or plain text to search for."
+path = "File or directory to search; defaults to the current directory."
+file_pattern = "Only search files matching this glob, such as *.py; all files by default."
+ignore_case = "Whether to ignore letter case; defaults to false."
+context_lines = "Extra lines before and after each match; defaults to 0."
+max_matches = "Maximum number of matches; defaults to 50."
+
+[tool_schema.parameter.query_memory]
+query = "Keywords or description for long-term-memory search; cannot be combined with start/end."
+category = "Optional category filter for long-term-memory search."
+tags = "Optional tag filter for long-term-memory search; matches memories with any listed tag."
+limit = "Combined maximum for recent activity and long-term memories; defaults to 5, maximum 10."
+start = "Start of the time window in ISO format."
+end = "End of the time window in ISO format."
+
+[tool_schema.parameter.manage_memory]
+action = "Operation: write, update, associate, or delete."
+content = "Memory content; required for write and update."
+memory_id = "Memory ID; required for update, associate, and delete."
+category = "Memory category; required for write."
+tags = "Tags; initial tags for write or tags to add for associate."
+
+[tool_schema.parameter.manage_pinned_context]
+action = "Operation: pin (add or update), unpin (remove), or list."
+pin_id = "Unique semantic pin identifier; required for pin and unpin, and an existing ID is updated."
+label = "Title displayed for pinned content; required for pin."
+content = "Text to pin; choose either content or file_path when pinning."
+file_path = "File to pin; its latest contents are read whenever the pin is reinjected."
+
+[tool_schema.parameter.task_create]
+description = "Task content; prefix tasks from a user with their source to avoid confusion across users."
+details = "Optional task context, preferably in Markdown."
+
+[tool_schema.parameter.task_get]
+task_id = "Task ID."
+
+[tool_schema.parameter.task_update]
+task_id = "ID of the task to update."
+status = "New task status."
+description = "New task description."
+details = "Task recovery context as a full replacement, appended text, or a single-document unified diff."
+details_update_mode = "details update mode: replace, append, or patch; defaults to replace when omitted."
+
+[tool_schema.parameter.get_skill]
+skill_name = "Skill name, such as plan."
+
+[tool_schema.parameter.sleep]
+seconds = "Seconds to sleep; new messages may wake it early, and 0 may wait for the next external event when supported."
+
+[tool_schema.parameter.switch_model]
+provider = "Named LLM provider instance; configuration may define multiple instances of the same provider type."
+model_id = "Model ID such as claude-sonnet-4-6; omit it to use the provider's default model."
+
+[tool_schema.parameter.view_image]
+image_path = "Local image path or HTTP(S) URL."
+full_resolution = "Whether to preserve original resolution without scaling; defaults to false."
+
+[tool_schema.parameter.visual_analyze]
+media_path = "Local image or video path, or an HTTP(S) URL."
+question = "Specific analysis, recognition, or reasoning question about the image or video."
+
+[tool_schema.parameter.search_web]
+query = "Search keywords."
+max_results = "Maximum number of results; defaults to 5."
+
+[tool_schema.parameter.fetch_url]
+url = "URL to fetch."
+fmt = "Output format: text_markdown (default), text_plain, text_rich, or text (raw HTML)."
+offset = "Character offset for paging through a long page, starting at 0; defaults to 0."
+limit = "Maximum characters to return; use offset for later pages."
