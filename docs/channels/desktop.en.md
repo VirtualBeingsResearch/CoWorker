@@ -2,13 +2,13 @@
 
 [中文](desktop.md) · English
 
-[← Back to project home](../README.en.md)
+[← Back to Channels and Clients](README.en.md)
 
 Coworker Desktop is a local collaboration workbench. It brings the local user, Codex, Claude Code, and one or more Coworker instances into one interface while keeping their identities, projects, and conversation contexts distinct. You can inspect connection health, switch actors, resume existing conversations, and deliberately send results to Coworker when needed.
 
 ## Desktop at a glance
 
-![Coworker Desktop conversation workspace showing a local user, Codex, Claude Code, and Coworker](assets/screenshots/desktop-conversations-en.png)
+![Coworker Desktop conversation workspace showing a local user, Codex, Claude Code, and Coworker](../assets/screenshots/desktop-conversations-en.png)
 
 <p align="center"><sub>Manage runtime health and Coworker instances on the left, switch actors and conversations in the middle, and inspect messages and tool activity on the right.</sub></p>
 

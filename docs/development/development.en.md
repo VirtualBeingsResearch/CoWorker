@@ -2,7 +2,9 @@
 
 [中文](development.md) · English
 
-Read the [contributing guide](../CONTRIBUTING.md) before submitting code. Report security issues privately according to the [security policy](../SECURITY.md).
+[← Back to Development and Collaboration](README.en.md)
+
+Read the [contributing guide](../../CONTRIBUTING.md) before submitting code. Report security issues privately according to the [security policy](../../SECURITY.md).
 
 ```bash
 # Install development dependencies
@@ -60,4 +62,4 @@ To clean runtime caches and data, see:
 uv run python scripts/cleanup.py
 ```
 
-[← Back to project home](../README.en.md)
+[← Back to project home](../../README.en.md)

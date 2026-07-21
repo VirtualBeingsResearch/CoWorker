@@ -34,8 +34,10 @@ CONFIG_TYPES = {
 
 
 def test_docs_have_paired_language_versions() -> None:
-    chinese_docs = sorted(path for path in DOCS.glob("*.md") if not path.name.endswith(".en.md"))
-    english_docs = sorted(DOCS.glob("*.en.md"))
+    chinese_docs = sorted(
+        path for path in DOCS.rglob("*.md") if not path.name.endswith(".en.md")
+    )
+    english_docs = sorted(DOCS.rglob("*.en.md"))
 
     expected_english = {path.with_name(f"{path.stem}.en.md") for path in chinese_docs}
     assert set(english_docs) == expected_english
@@ -54,7 +56,7 @@ def test_local_documentation_links_resolve() -> None:
         ROOT / "CONTRIBUTING.zh-CN.md",
         ROOT / "SECURITY.md",
         ROOT / "SECURITY.zh-CN.md",
-        *DOCS.glob("*.md"),
+        *DOCS.rglob("*.md"),
     ]
 
     broken: list[str] = []
@@ -72,7 +74,10 @@ def test_local_documentation_links_resolve() -> None:
 
 
 def test_documented_configuration_defaults_match_code() -> None:
-    for document in (DOCS / "configuration.md", DOCS / "configuration.en.md"):
+    for document in (
+        DOCS / "operations" / "configuration.md",
+        DOCS / "operations" / "configuration.en.md",
+    ):
         seen: set[str] = set()
         for match in CONFIG_DEFAULT_PATTERN.finditer(document.read_text(encoding="utf-8")):
             prefix = match.group("prefix")

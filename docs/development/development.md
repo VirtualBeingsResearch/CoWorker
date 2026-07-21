@@ -2,8 +2,10 @@
 
 中文 · [English](development.en.md)
 
-提交代码前请阅读 [贡献指南](../CONTRIBUTING.zh-CN.md)；安全问题请按
-[安全策略](../SECURITY.zh-CN.md) 私下报告。
+[← 返回开发与协作](README.md)
+
+提交代码前请阅读 [贡献指南](../../CONTRIBUTING.zh-CN.md)；安全问题请按
+[安全策略](../../SECURITY.zh-CN.md) 私下报告。
 
 ```bash
 # 安装开发依赖
@@ -63,4 +65,4 @@ uv run --project apps/explore-lab/backend python -m explore_lab --ui-dir path/to
 uv run python scripts/cleanup.py
 ```
 
-[← 返回项目首页](../README.md)
+[← 返回项目首页](../../README.md)

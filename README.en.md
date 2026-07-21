@@ -99,7 +99,7 @@ This is not a claim that she is biologically alive or conscious. It is a product
 | **🌱 Learning and growth** | Accumulates experience through long-term memory, Skills, and memory palaces; optional Bubble and subconscious modes explore, reflect, and organize. |
 | **🤝 Relationships and boundaries** | Recognizes different participants and their relationships while separate conversation threads keep teammates' short-term contexts from bleeding together. |
 
-Coworker supports Anthropic, OpenAI, DeepSeek, Qwen, Zhipu, MiniMax, and other model services, with runtime model switching. For the full feature set and internal design, see [Core concepts and capabilities](docs/concepts.en.md).
+Coworker supports Anthropic, OpenAI, DeepSeek, Qwen, Zhipu, MiniMax, and other model services, with runtime model switching. For the full feature set and internal design, see [Core concepts and capabilities](docs/architecture/concepts.en.md).
 
 ## What she does for a team
 
@@ -245,7 +245,7 @@ curl -X POST http://localhost:8000/messages \
   -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
 ```
 
-For more REST, SSE, WebSocket, and file message examples, see [API and communication channels](docs/api-and-channels.en.md).
+For more REST, SSE, WebSocket, and file message examples, see [API and communication channels](docs/channels/api-and-channels.en.md).
 
 ## Sync upstream source
 
@@ -291,7 +291,7 @@ results, or attachments may be sent to the model provider you configured. Search
 communication tools also contact their corresponding third-party services. Command and file tools
 run with the permissions of the operating-system user running Coworker; this is not a sandbox.
 
-See [Data and trust boundaries](docs/data-boundaries.en.md) for storage locations, outbound
+See [Data and trust boundaries](docs/architecture/data-boundaries.en.md) for storage locations, outbound
 data, cleanup scope, and deployment boundaries.
 
 ## Explore further
@@ -299,12 +299,13 @@ data, cleanup scope, and deployment boundaries.
 | Document | Contents |
 |---|---|
 | [Documentation index](docs/README.en.md) | All usage, design, and collaboration documentation |
-| [Configuration and models](docs/configuration.en.md) | Environment variables, providers, models, and multi-instance configuration |
-| [Data and trust boundaries](docs/data-boundaries.en.md) | Local storage, external services, permissions, and cleanup |
-| [API and communication channels](docs/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |
-| [Coworker Desktop](docs/desktop.en.md) | Desktop workspace connecting local users, Codex, and Claude Code, plus CLI, configuration, and build guidance |
-| [Core concepts and capabilities](docs/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
-| [Development guide](docs/development.en.md) | Local checks and Explore Lab |
+| [Configuration and models](docs/operations/configuration.en.md) | Environment variables, providers, models, and multi-instance configuration |
+| [Data and trust boundaries](docs/architecture/data-boundaries.en.md) | Local storage, external services, permissions, and cleanup |
+| [API and communication channels](docs/channels/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |
+| [Coworker Desktop](docs/channels/desktop.en.md) | Desktop workspace connecting local users, Codex, and Claude Code, plus CLI, configuration, and build guidance |
+| [Core concepts and capabilities](docs/architecture/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
+| [WeCom ordering and concurrency design](docs/channels/wecom-message-ordering-and-concurrency.en.md) | Proposal for per-conversation order, bounded concurrency, idempotency, durable queues, and exact reply correlation |
+| [Development guide](docs/development/development.en.md) | Local checks and Explore Lab |
 
 ## Development and contributing
 

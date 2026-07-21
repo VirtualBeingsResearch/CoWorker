@@ -2,7 +2,7 @@
 
 中文 · [English](concepts.en.md)
 
-[← 返回项目首页](../README.md)
+[← 返回架构与核心概念](README.md)
 
 ## 当前能力
 

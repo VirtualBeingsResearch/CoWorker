@@ -2,7 +2,7 @@
 
 [中文](data-boundaries.md) · English
 
-[← Back to the documentation index](README.en.md)
+[← Back to Architecture and Core Concepts](README.en.md)
 
 Coworker is a locally operated autonomous agent, but “running locally” does not mean that data never leaves the device. It calls the model providers and tools you configure as tasks require. This page describes the default boundaries; individual model services and third-party integrations remain subject to their own privacy policies, logging practices, and deployment settings.
 
@@ -36,7 +36,7 @@ If data must not be shared with an external service, do not configure that servi
 
 - Coworker is not a security sandbox. Command, file, and browser tools run with the permissions of the operating-system user that started the process. Use a dedicated least-privileged account, container, or virtual machine, and mount only disposable or backed-up directories.
 - Treat webpages, messages, attachments, skills, memory, and model output as untrusted input. Any of them may contain prompt injection or malicious content.
-- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route. Do not expose port 8000 directly. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../SECURITY.md).
+- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route. Do not expose port 8000 directly. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../../SECURITY.md).
 
 ## Inspection, backup, and cleanup
 
@@ -54,4 +54,4 @@ uv run python scripts/cleanup.py backup-delete
 
 `cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container.
 
-[← Back to project home](../README.en.md)
+[← Back to project home](../../README.en.md)

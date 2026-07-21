@@ -99,7 +99,7 @@
 | **🌱 学习与生长** | 通过长期记忆、Skill 和记忆宫殿积累经验；可选的泡泡与潜意识模式会并行探索、反省和整理。 |
 | **🤝 建立关系与边界** | 识别不同参与者及其关系，同时用独立对话线程避免不同成员的短期上下文互相污染。 |
 
-支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax 等模型服务，并可在运行时切换模型。完整能力和内部机制见 [核心概念与能力](docs/concepts.md)。
+支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax 等模型服务，并可在运行时切换模型。完整能力和内部机制见 [核心概念与能力](docs/architecture/concepts.md)。
 
 ## 她在团队里扮演什么角色
 
@@ -241,7 +241,7 @@ curl -X POST http://localhost:8000/messages \
 ```
 
 更多 REST、SSE、WebSocket 和文件消息示例见
-[API 与通信入口](docs/api-and-channels.md)。
+[API 与通信入口](docs/channels/api-and-channels.md)。
 
 ## 同步上游源码
 
@@ -284,19 +284,20 @@ remote 和分支后执行 `git push`。
 系统用户权限运行，它不是安全沙箱。
 
 完整的存储位置、外发场景、清理范围与部署边界见
-[数据与信任边界](docs/data-boundaries.md)。
+[数据与信任边界](docs/architecture/data-boundaries.md)。
 
 ## 继续了解
 
 | 文档 | 内容 |
 |---|---|
 | [文档索引](docs/README.md) | 全部使用、设计与协作文档 |
-| [配置与模型](docs/configuration.md) | 环境变量、Provider、模型与多实例配置 |
-| [数据与信任边界](docs/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
-| [API 与通信入口](docs/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
-| [Coworker Desktop](docs/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
-| [核心概念与能力](docs/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
-| [开发指南](docs/development.md) | 本地检查与 Explore Lab |
+| [配置与模型](docs/operations/configuration.md) | 环境变量、Provider、模型与多实例配置 |
+| [数据与信任边界](docs/architecture/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
+| [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
+| [Coworker Desktop](docs/channels/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
+| [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
+| [企微消息时序与并发设计](docs/channels/wecom-message-ordering-and-concurrency.md) | 同会话有序、跨会话并发、幂等、持久队列与精确回复关联提案 |
+| [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |
 
 ## 开发与贡献
 

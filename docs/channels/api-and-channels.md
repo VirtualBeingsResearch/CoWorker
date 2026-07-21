@@ -2,10 +2,12 @@
 
 中文 · [English](api-and-channels.en.md)
 
-[← 返回项目首页](../README.md)
+[← 返回通信与客户端](README.md)
 
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
-> [安全策略](../SECURITY.zh-CN.md)。
+> [安全策略](../../SECURITY.zh-CN.md)。
+
+企业微信当前的消息接收与回复能力由 WeCom WebSocket 适配器提供。关于现状中的排队、乱序和并发边界，以及按会话有序、幂等、持久 Inbox/Outbox 和精确回复关联的演进方案，见[企微消息时序、可靠性与并发控制设计](wecom-message-ordering-and-concurrency.md)。
 
 ## REST API
 

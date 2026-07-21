@@ -2,7 +2,7 @@
 
 [中文](concepts.md) · English
 
-[← Back to project home](../README.en.md)
+[← Back to Architecture and Core Concepts](README.en.md)
 
 ## Current capabilities
 

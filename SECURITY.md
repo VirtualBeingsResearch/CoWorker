@@ -25,7 +25,7 @@ Coworker is an autonomous agent, not a security sandbox. Its tools can execute c
 write files with the permissions of the operating-system user running it. Model output and content
 from webpages, messages, attachments, skills, and memory must therefore be treated as untrusted.
 
-See [Data and trust boundaries](docs/data-boundaries.en.md) for what is stored locally, what may leave
+See [Data and trust boundaries](docs/architecture/data-boundaries.en.md) for what is stored locally, what may leave
 the machine, and what the cleanup script does and does not remove.
 
 For the current v0.x releases:

@@ -2,7 +2,7 @@
 
 [中文](configuration.md) · English
 
-[← Back to project home](../README.en.md)
+[← Back to Configuration and Operations](README.en.md)
 
 ## Basic configuration
 
@@ -122,7 +122,7 @@ variables, make sure the working directory does not contain conflicting `.env` v
 The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
 `minimax`. Coworker only allows switching to models that the corresponding provider marks as
 supporting tool calls. The exact list changes with the source; use the first-run wizard and the
-provider implementations under [`src/coworker/brain/`](../src/coworker/brain/) as the source of
+provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of
 truth instead of a duplicated model catalog in this document.
 
 Only providers with a corresponding API key are registered. `LLM__DEFAULT_PROVIDER` must refer to

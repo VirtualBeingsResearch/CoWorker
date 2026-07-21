@@ -2,10 +2,12 @@
 
 [中文](api-and-channels.md) · English
 
-[← Back to project home](../README.en.md)
+[← Back to Channels and Clients](README.en.md)
 
 > The current v0.x releases should be used only locally or on a trusted network. Read the
-> [security policy](../SECURITY.md) before deployment.
+> [security policy](../../SECURITY.md) before deployment.
+
+WeCom messaging is currently provided by the WeCom WebSocket adapter. For its queueing, ordering, and concurrency boundaries—and the proposed evolution toward per-conversation ordering, idempotency, durable inbox/outbox processing, and exact reply correlation—see [WeCom message ordering, reliability, and concurrency design](wecom-message-ordering-and-concurrency.en.md).
 
 ## REST API
 

@@ -2,13 +2,13 @@
 
 中文 · [English](desktop.en.md)
 
-[← 返回项目首页](../README.md)
+[← 返回通信与客户端](README.md)
 
 Coworker Desktop 是一个本机协作工作台：它把本机用户、Codex、Claude Code 与一个或多个 Coworker 放进同一界面，同时保留彼此独立的身份、项目和对话上下文。你可以查看连接状态、切换身份、继续已有会话，并在明确需要时把结果发送给 Coworker。
 
 ## 桌面端一览
 
-![Coworker Desktop 对话工作台，展示本机用户、Codex、Claude Code 与 Coworker](assets/screenshots/desktop-conversations-zh.png)
+![Coworker Desktop 对话工作台，展示本机用户、Codex、Claude Code 与 Coworker](../assets/screenshots/desktop-conversations-zh.png)
 
 <p align="center"><sub>左侧管理运行状态与 Coworker，中间切换身份和会话，右侧查看对话与工具活动。</sub></p>
 
