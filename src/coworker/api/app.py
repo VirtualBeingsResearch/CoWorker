@@ -68,7 +68,6 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(admin_router)
 
-_pool = None  # deprecated; live connections now live in CommunicateTool.stream
 _inbox: InboxWatcher | None = None
 _communicate: CommunicateTool | None = None
 _collector: RuntimeEventCollector | None = None
