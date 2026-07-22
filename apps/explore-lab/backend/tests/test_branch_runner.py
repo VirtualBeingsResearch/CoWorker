@@ -333,12 +333,13 @@ class TestSystemPrompt:
 
 
 class TestLabCommunicate:
-    def test_default_ws_connection_is_visible_in_state(self, tmp_path):
+    def test_default_virtual_connection_is_visible_in_state(self, tmp_path):
         controller = _make_controller(tmp_path)
 
         snapshot = controller.state_snapshot()
 
-        assert snapshot["ws_connections"] == ["explore_lab"]
+        assert snapshot["virtual_connections"] == ["explore_lab"]
+        assert controller.runtime.communicate.list_live_stream_participant_ids() == []
         assert "communicate" not in snapshot["tool_intercepts"]
         assert "list_connections" not in snapshot["tool_intercepts"]
 
@@ -372,13 +373,13 @@ class TestLabCommunicate:
         assert snapshot["outbound_messages"][0]["participant_id"] == "explore_lab"
         assert snapshot["outbound_messages"][0]["message"] == "hello"
 
-    async def test_patch_config_replaces_virtual_ws_connections(self, tmp_path):
+    async def test_patch_config_replaces_virtual_connections(self, tmp_path):
         controller = _make_controller(tmp_path)
 
-        applied = await controller.patch_hot_config({"ws_connections": ["alice", "bob"]})
+        applied = await controller.patch_hot_config({"virtual_connections": ["alice", "bob"]})
 
-        assert applied["ws_connections"] == ["alice", "bob"]
-        assert controller.state_snapshot()["ws_connections"] == ["alice", "bob"]
+        assert applied["virtual_connections"] == ["alice", "bob"]
+        assert controller.state_snapshot()["virtual_connections"] == ["alice", "bob"]
 
 
 class TestSubconsciousToggle:

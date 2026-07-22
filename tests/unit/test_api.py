@@ -395,7 +395,7 @@ class TestUnregisterWsGuard:
     def test_connection_listener_only_fires_on_real_connection_changes(self):
         comm = CommunicateTool("unused")
         events: list[list[str]] = []
-        comm.add_connection_listener(lambda: events.append(comm.list_connected()))
+        comm.add_connection_listener(lambda: events.append(comm.list_live_stream_participant_ids()))
 
         first_q: asyncio.Queue = asyncio.Queue()
         second_q: asyncio.Queue = asyncio.Queue()
@@ -661,6 +661,8 @@ class TestGetStatus:
         assert data["model"] == "claude-sonnet-4-6"
         assert data["providers"] == ["anthropic", "zhipu-userA"]
         assert data["model_config"]["fallbacks"] == []
+        assert "ws_connections" not in data
+        assert "ws_connection_count" not in data
 
     def test_returns_usage_stats_when_available(self, client):
         mock_inbox = MagicMock()

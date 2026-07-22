@@ -94,7 +94,7 @@ class ConnectionPool:
             return False
         return transports is None or transport in set(transports)
 
-    def list_connected(self) -> list[str]:
+    def list_live_stream_participant_ids(self) -> list[str]:
         return list(self._outboxes.keys())
 
     # --------------------------------------------------------- ws lifecycle

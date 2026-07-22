@@ -7,7 +7,7 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.zh-CN.md)。
 
-所有出站通信统一由 `ChannelHost` 路由到对应信道：通用 WS/SSE 流、企业微信或 Coworker Desktop。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。为保持状态接口兼容，`/status` 中的 `ws_connections` 仍只表示在线的通用 WS/SSE participant。
+所有出站通信统一由 `ChannelHost` 路由到对应信道：通用 WS/SSE 流、企业微信或 Coworker Desktop。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
 
 ## REST API
 

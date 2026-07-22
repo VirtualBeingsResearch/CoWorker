@@ -7,7 +7,7 @@
 > The current v0.x releases should be used only locally or on a trusted network. Read the
 > [security policy](../../SECURITY.md) before deployment.
 
-All outbound communication is routed by `ChannelHost` to the appropriate channel: the generic WS/SSE stream, WeCom, or Coworker Desktop. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. For status API compatibility, `/status.ws_connections` continues to contain only live generic WS/SSE participants.
+All outbound communication is routed by `ChannelHost` to the appropriate channel: the generic WS/SSE stream, WeCom, or Coworker Desktop. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. `/status` reports runtime, model, and usage state only; connection discovery is handled exclusively by `list_connections`.
 
 ## REST API
 

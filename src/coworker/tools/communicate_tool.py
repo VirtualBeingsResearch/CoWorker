@@ -150,10 +150,6 @@ class CommunicateTool(Tool):
     def add_connection_listener(self, listener: ConnectionListener) -> None:
         self._stream.add_connection_listener(listener)
 
-    def _notify_connection_listeners(self) -> None:
-        """Fire connection listeners (subclasses with virtual connections call this)."""
-        self._stream._notify_connection_listeners()
-
     def fork(self, scope: ToolScope) -> Tool:
         participant_id = str(getattr(scope, "communicate_participant_id", "")).strip()
         if not participant_id:
@@ -197,8 +193,8 @@ class CommunicateTool(Tool):
     ) -> bool:
         return self._stream.has_live_stream_connection(participant_id, transports=transports)
 
-    def list_connected(self) -> list[str]:
-        return self._host.list_connected()
+    def list_live_stream_participant_ids(self) -> list[str]:
+        return self._host.list_live_stream_participant_ids()
 
     def list_connections(self) -> list:
         """Aggregate reachable participants across all channels (for list_connections tool)."""
@@ -368,7 +364,3 @@ class ListConnectionTool(Tool):
                 label = f" ({info.display_name})" if info.display_name else ""
                 lines.append(f"  - {info.participant_id} [{info.kind}, {state}]{label}")
         return ToolResult(tool_call_id="", content="\n".join(lines))
-
-
-# Backwards-compatible alias for callers that still import the old name.
-ListWSConnectionsTool = ListConnectionTool

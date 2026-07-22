@@ -10,8 +10,8 @@ routing that previously lived in :class:`~coworker.tools.communicate_tool.Commun
 
 Channels are registered once and started/stopped together. The host also
 aggregates :meth:`ConnectionInfo` across channels for the
-``list_connections`` tool and exposes a stream-only ``list_connected`` view
-for the ``/status`` endpoint's ``ws_connections`` field.
+``list_connections`` tool and exposes live WS/SSE participant IDs for
+internal stream-lifecycle consumers.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class InlineChannel:
     def list_connections(self) -> list[ConnectionInfo]:
         return []
 
-    def list_connected(self) -> list[str]:
+    def list_live_stream_participant_ids(self) -> list[str]:
         return []
 
     async def start(self) -> None:
@@ -121,7 +121,7 @@ class Channel(Protocol):
         """Reachable participants on this channel."""
         ...
 
-    def list_connected(self) -> list[str]:
+    def list_live_stream_participant_ids(self) -> list[str]:
         """Live participant_ids (WS/SSE stream connections); non-stream channels return []."""
         ...
 
@@ -224,7 +224,7 @@ class ChannelHost:
             )
         return participant_id, None
 
-    # ------------------------------------------------------ connections / status
+    # ------------------------------------------------ connections / live streams
 
     def list_connections(self) -> list[ConnectionInfo]:
         """Aggregate reachable participants across all channels."""
@@ -233,11 +233,11 @@ class ChannelHost:
             out.extend(channel.list_connections())
         return out
 
-    def list_connected(self) -> list[str]:
-        """Live stream participant_ids for the ``/status`` ``ws_connections`` field."""
+    def list_live_stream_participant_ids(self) -> list[str]:
+        """Return participant IDs with a currently live WS/SSE reply stream."""
         out: list[str] = []
         for channel in self._channels:
-            out.extend(channel.list_connected())
+            out.extend(channel.list_live_stream_participant_ids())
         return out
 
     # ----------------------------------------------------------------- lifecycle

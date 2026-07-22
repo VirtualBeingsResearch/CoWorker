@@ -617,9 +617,13 @@ async def _main() -> bool:
 
     desktop_dispatcher = DesktopDispatcher(desktop_registry)
     communicate.add_connection_listener(
-        lambda: desktop_registry.update_connections(set(communicate.list_connected()))
+        lambda: desktop_registry.update_connections(
+            set(communicate.list_live_stream_participant_ids())
+        )
     )
-    desktop_registry.update_connections(set(communicate.list_connected()))
+    desktop_registry.update_connections(
+        set(communicate.list_live_stream_participant_ids())
+    )
     registry.register(TaskCreateTool(task_store))
     registry.register(TaskGetTool(task_store))
     registry.register(TaskListTool(task_store))

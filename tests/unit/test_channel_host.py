@@ -56,7 +56,7 @@ class _FakeChannel:
             for p in self._live
         ]
 
-    def list_connected(self) -> list[str]:
+    def list_live_stream_participant_ids(self) -> list[str]:
         return list(self._live) if self.participant_prefix == "" else []
 
     async def start(self) -> None:
@@ -183,16 +183,16 @@ def test_supports_extra_follows_selected_transport(host: ChannelHost) -> None:
     assert not host.supports_message_extra("offline-client")
 
 
-# ------------------------------------------------------------ list_connected / status
+# ---------------------------------------------------------- live stream participants
 
 
-def test_list_connected_is_stream_only(host: ChannelHost) -> None:
+def test_list_live_stream_participant_ids_is_stream_only(host: ChannelHost) -> None:
     stream = _FakeChannel("stream", "", live=("a", "b"))
     desktop = _FakeChannel("desktop", "coworker-desktop:", live=("d1",))  # non-stream
     host.register(stream)
     host.register(desktop)
 
-    assert sorted(host.list_connected()) == ["a", "b"]
+    assert sorted(host.list_live_stream_participant_ids()) == ["a", "b"]
 
 
 def test_list_connections_aggregates_across_channels(host: ChannelHost) -> None:

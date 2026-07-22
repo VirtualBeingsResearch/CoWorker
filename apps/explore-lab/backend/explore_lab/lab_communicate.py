@@ -7,7 +7,7 @@ from coworker.channels.base import ConnectionInfo
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.tools.communicate_tool import CommunicateTool
 
-DEFAULT_LAB_WS_CONNECTIONS: tuple[str, ...] = ("explore_lab",)
+DEFAULT_LAB_VIRTUAL_CONNECTIONS: tuple[str, ...] = ("explore_lab",)
 
 
 class LabCommunicateTool(CommunicateTool):
@@ -23,7 +23,7 @@ class LabCommunicateTool(CommunicateTool):
         self,
         outbox_dir: str,
         *,
-        virtual_connections: list[str] | tuple[str, ...] = DEFAULT_LAB_WS_CONNECTIONS,
+        virtual_connections: list[str] | tuple[str, ...] = DEFAULT_LAB_VIRTUAL_CONNECTIONS,
     ) -> None:
         super().__init__(outbox_dir)
         self._virtual_connections: set[str] = set()
@@ -36,13 +36,9 @@ class LabCommunicateTool(CommunicateTool):
             for pid in participant_ids
             if str(pid).strip()
         }
-        self._notify_connection_listeners()
 
     def virtual_connections(self) -> list[str]:
         return sorted(self._virtual_connections)
-
-    def list_connected(self) -> list[str]:
-        return sorted(set(super().list_connected()) | self._virtual_connections)
 
     def list_connections(self) -> list[ConnectionInfo]:
         infos = super().list_connections()

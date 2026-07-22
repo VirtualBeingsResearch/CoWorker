@@ -395,10 +395,10 @@ class BranchController:
         rt = self._require_runtime()
         set_tool_intercepts(rt, intercepts)
 
-    def set_ws_connections(self, participant_ids: list[str]) -> dict[str, Any]:
+    def set_virtual_connections(self, participant_ids: list[str]) -> list[str]:
         rt = self._require_runtime()
         rt.communicate.set_virtual_connections(participant_ids)
-        return {"ws_connections": rt.communicate.virtual_connections()}
+        return rt.communicate.virtual_connections()
 
     def _set_subconscious_runtime_refs(self, scheduler) -> None:
         rt = self._require_runtime()
@@ -470,17 +470,18 @@ class BranchController:
         if "tool_intercepts" in payload:
             self.patch_tool_intercepts(payload["tool_intercepts"])
             applied["tool_intercepts"] = payload["tool_intercepts"]
-        if "ws_connections" in payload:
-            ws_connections = payload["ws_connections"]
-            if not isinstance(ws_connections, list) or not all(
-                isinstance(item, str) for item in ws_connections
+        if "virtual_connections" in payload:
+            virtual_connections = payload["virtual_connections"]
+            if not isinstance(virtual_connections, list) or not all(
+                isinstance(item, str) for item in virtual_connections
             ):
                 raise HTTPException(
-                    status_code=422, detail="ws_connections must be a list of strings"
+                    status_code=422,
+                    detail="virtual_connections must be a list of strings",
                 )
-            applied["ws_connections"] = self.set_ws_connections(ws_connections)[
-                "ws_connections"
-            ]
+            applied["virtual_connections"] = self.set_virtual_connections(
+                virtual_connections
+            )
 
         return applied
 
@@ -519,7 +520,7 @@ class BranchController:
             "system_prompt_override_active": self.system_prompt_override is not None,
             "system_prompt_override_text": self.system_prompt_override,
             "tool_intercepts": dict(rt.tool_intercepts),
-            "ws_connections": rt.communicate.list_connected(),
+            "virtual_connections": rt.communicate.virtual_connections(),
             "outbound_messages": rt.communicate.outbound_messages(),
             "subconscious_enabled": rt.config.agent.subconscious_thinking,
             "usage_stats": rt.usage_stats.snapshot(),

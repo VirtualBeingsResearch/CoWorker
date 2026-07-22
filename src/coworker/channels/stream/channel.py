@@ -73,10 +73,6 @@ class StreamChannel:
     def add_connection_listener(self, listener: Any) -> None:
         self._pool.add_connection_listener(listener)
 
-    def _notify_connection_listeners(self) -> None:
-        """Fire connection listeners (used by subclasses managing virtual connections)."""
-        self._pool._notify_connection_listeners()
-
     async def connect(self, participant_id: str, ws: WebSocket, queue: Any | None = None) -> Any:
         return await self._pool.connect(participant_id, ws, queue)
 
@@ -114,7 +110,7 @@ class StreamChannel:
             raise ValueError("client_id is required")
 
         registrations = self._registrations.load()
-        live_ids = set(self._pool.list_connected())
+        live_ids = set(self._pool.list_live_stream_participant_ids())
         reusable = next(
             (
                 item
@@ -145,7 +141,7 @@ class StreamChannel:
         return registration.to_dict(active=False)
 
     def list_registrations(self) -> list[dict[str, Any]]:
-        live_ids = set(self._pool.list_connected())
+        live_ids = set(self._pool.list_live_stream_participant_ids())
         return [item.to_dict(active=item.participant_id in live_ids) for item in self._registrations.load()]
 
     def registration_records(self) -> list:
@@ -153,7 +149,7 @@ class StreamChannel:
 
     def delete_registration(self, registration_id: str) -> dict[str, Any]:
         registrations = self._registrations.load()
-        live_ids = set(self._pool.list_connected())
+        live_ids = set(self._pool.list_live_stream_participant_ids())
         for index, item in enumerate(registrations):
             if item.registration_id != registration_id:
                 continue
@@ -239,11 +235,11 @@ class StreamChannel:
                 kind=self._pool.live_stream_transport(pid) or "websocket",
                 active=True,
             )
-            for pid in self._pool.list_connected()
+            for pid in self._pool.list_live_stream_participant_ids()
         ]
 
-    def list_connected(self) -> list[str]:
-        return self._pool.list_connected()
+    def list_live_stream_participant_ids(self) -> list[str]:
+        return self._pool.list_live_stream_participant_ids()
 
     async def start(self) -> None:
         """No background task to start; the WS server is uvicorn-managed."""
