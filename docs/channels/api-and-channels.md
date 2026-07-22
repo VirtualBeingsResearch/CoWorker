@@ -7,7 +7,7 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.zh-CN.md)。
 
-企业微信当前的消息接收与回复能力由 WeCom WebSocket 适配器提供。关于现状中的排队、乱序和并发边界，以及按会话有序、幂等、持久 Inbox/Outbox 和精确回复关联的演进方案，见[企微消息时序、可靠性与并发控制设计](wecom-message-ordering-and-concurrency.md)。
+所有出站通信统一由 `ChannelHost` 路由到对应信道：通用 WS/SSE 流、企业微信或 Coworker Desktop。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。为保持状态接口兼容，`/status` 中的 `ws_connections` 仍只表示在线的通用 WS/SSE participant。
 
 ## REST API
 

@@ -7,7 +7,7 @@
 > The current v0.x releases should be used only locally or on a trusted network. Read the
 > [security policy](../../SECURITY.md) before deployment.
 
-WeCom messaging is currently provided by the WeCom WebSocket adapter. For its queueing, ordering, and concurrency boundaries—and the proposed evolution toward per-conversation ordering, idempotency, durable inbox/outbox processing, and exact reply correlation—see [WeCom message ordering, reliability, and concurrency design](wecom-message-ordering-and-concurrency.en.md).
+All outbound communication is routed by `ChannelHost` to the appropriate channel: the generic WS/SSE stream, WeCom, or Coworker Desktop. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. For status API compatibility, `/status.ws_connections` continues to contain only live generic WS/SSE participants.
 
 ## REST API
 
