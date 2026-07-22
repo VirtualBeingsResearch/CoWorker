@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from coworker.channels.base import ConnectionInfo
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.tools.communicate_tool import CommunicateTool
 
@@ -42,6 +43,20 @@ class LabCommunicateTool(CommunicateTool):
 
     def list_connected(self) -> list[str]:
         return sorted(set(super().list_connected()) | self._virtual_connections)
+
+    def list_connections(self) -> list[ConnectionInfo]:
+        infos = super().list_connections()
+        known_participants = {info.participant_id for info in infos}
+        infos.extend(
+            ConnectionInfo(
+                participant_id=participant_id,
+                channel="explore_lab",
+                kind="virtual",
+                active=True,
+            )
+            for participant_id in sorted(self._virtual_connections - known_participants)
+        )
+        return infos
 
     def outbound_messages(self) -> list[dict[str, Any]]:
         return list(self._outbound_messages)

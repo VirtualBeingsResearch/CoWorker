@@ -342,6 +342,20 @@ class TestLabCommunicate:
         assert "communicate" not in snapshot["tool_intercepts"]
         assert "list_connections" not in snapshot["tool_intercepts"]
 
+    async def test_virtual_connection_is_visible_to_list_connections(self, tmp_path):
+        controller = _make_controller(tmp_path)
+        tool_call = ToolCall(
+            id="tc-list-connections",
+            name="list_connections",
+            arguments={},
+        )
+
+        result = await controller.runtime.base_registry.execute(tool_call)
+
+        assert result.is_error is False
+        assert "explore_lab:" in result.content
+        assert "explore_lab [virtual, active]" in result.content
+
     async def test_communicate_to_virtual_connection_records_outbound_message(self, tmp_path):
         controller = _make_controller(tmp_path)
         tool_call = ToolCall(
