@@ -57,7 +57,7 @@ prompt 不复制、不 monkey-patch。
 - 记忆工具：`query_memory`（综合搜索：query 同时检索最近活动索引和长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`
 - 系统工具：`sleep`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
-- 通信工具：`communicate`、`list_ws_connections`
+- 通信工具：`communicate`、`list_connections`
 - 技能与任务：`get_skill`、`task_board`
 
 `visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：

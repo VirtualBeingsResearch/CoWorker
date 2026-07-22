@@ -100,6 +100,7 @@ folded = "… (content folded because it is too long; read the complete file at 
 error = '''[CoWorker Desktop error]
 {{context}}Content: {{message}}'''
 unknown_operation = "unknown operation"
+unknown_event = "Unrecognized CoWorker Desktop event type: {{type}}"
 permission_note = '''
 Note: this is a permission request. Reply with a complete permissions response, not an abbreviated decision.'''
 approval = '''[CoWorker Desktop approval request]

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- refactor(channels): introduce a unified `Channel`/`ChannelHost` abstraction, promote the generic WS/SSE transport to `channels/stream/` (consolidating the dual connection registry), replace `CommunicateTool.register_sender` with channel-owned routing, split `WeComRunner` into runner/sender/contacts, and split `DesktopRegistry` (detail store extracted, dead `intercept` removed). `list_ws_connections` is renamed to `list_connections` and now aggregates connections across all channels (WS/SSE streams, WeCom groups/users, Desktop actors). `IncomingEvent.source` is now a plain `str`. All wire contracts (URLs, register/SSE/WS/message shapes, participant_id assignment) are preserved.
 - ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects
 - ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - fix(admin): show model-switch errors in the management console

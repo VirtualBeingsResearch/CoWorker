@@ -39,7 +39,7 @@ def _make_brain(content: str = "ok", tool_calls=None, stop_reason: str = "end_tu
 
 def _make_runtime(tmp_path: Path, brain) -> Runtime:
     from coworker.memory.short_term import ShortTermMemory
-    from coworker.tools.communicate_tool import ListWSConnectionsTool
+    from coworker.tools.communicate_tool import ListConnectionTool
     from coworker.tools.registry import ToolRegistry
 
     mem = ShortTermMemory()
@@ -79,7 +79,7 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     communicate = LabCommunicateTool(str(tmp_path / "outbox"))
     tools = ToolRegistry()
     tools.register(communicate)
-    tools.register(ListWSConnectionsTool(communicate))
+    tools.register(ListConnectionTool(communicate))
     clear_tool = MagicMock()
     clear_tool._subconscious = None
 
@@ -340,7 +340,7 @@ class TestLabCommunicate:
 
         assert snapshot["ws_connections"] == ["explore_lab"]
         assert "communicate" not in snapshot["tool_intercepts"]
-        assert "list_ws_connections" not in snapshot["tool_intercepts"]
+        assert "list_connections" not in snapshot["tool_intercepts"]
 
     async def test_communicate_to_virtual_connection_records_outbound_message(self, tmp_path):
         controller = _make_controller(tmp_path)

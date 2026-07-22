@@ -16,7 +16,7 @@ for the ``/status`` endpoint's ``ws_connections`` field.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -40,6 +40,52 @@ class ConnectionInfo:
 
 class ParticipantIdResolutionError(ValueError):
     """Raised when a shorthand participant ID cannot be resolved unambiguously."""
+
+
+class InlineChannel:
+    """Minimal :class:`Channel` wrapping a sender callable.
+
+    The simplest way to register a channel: a prefix, an async sender, an
+    optional checker, and a static ``supports_extra`` flag. Real channels
+    (desktop, wecom, stream) provide richer ``list_connections`` / lifecycle,
+    but anything that just routes by prefix and sends can use this.
+    """
+
+    def __init__(
+        self,
+        prefix: str,
+        sender: Callable[[CommunicateRequest], Awaitable[ToolResult]],
+        checker: Callable[[str], str | None] | None = None,
+        *,
+        supports_extra: bool = False,
+        name: str | None = None,
+    ) -> None:
+        self.name = name or prefix.rstrip(":") or "inline"
+        self.participant_prefix = prefix
+        self._sender = sender
+        self._checker = checker
+        self._supports_extra = supports_extra
+
+    def resolve(self, participant_id: str) -> str | None:
+        return self._checker(participant_id) if self._checker is not None else None
+
+    async def send(self, request: CommunicateRequest) -> ToolResult:
+        return await self._sender(request)
+
+    def supports_extra_for(self, participant_id: str) -> bool:
+        return self._supports_extra
+
+    def list_connections(self) -> list[ConnectionInfo]:
+        return []
+
+    def list_connected(self) -> list[str]:
+        return []
+
+    async def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        pass
 
 
 @runtime_checkable

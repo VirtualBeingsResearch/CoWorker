@@ -1,27 +1,18 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from coworker.core.types import IncomingEvent
+from coworker.channels.desktop.detail_store import DetailStore, _safe
 from coworker.i18n import tr
 from coworker.memory.short_term import ShortTermMemory
 
 _PIN_ID = "coworker_desktop_registry"
 _RECENT_CONVERSATIONS_IN_PIN = 5
-
-# Folded-message detail store: when a rendered desktop prompt exceeds the
-# fold threshold, its full text is persisted here (keyed by request_id /
-# message_id) so the coworker can `read_file` it on demand instead of
-# carrying the whole block in context.
-_DETAIL_SUBDIR = "detail"
-_DETAIL_MAX_FILES = 200
-_DETAIL_MAX_AGE_SECONDS = 7 * 24 * 3600
 
 
 @dataclass
@@ -35,6 +26,12 @@ class DesktopActorState:
 
 
 class DesktopRegistry:
+    """Tracks connected CoWorker Desktop actors and renders their pinned context.
+
+    Folded-prompt detail persistence is delegated to :class:`DetailStore`.
+    Inbound envelope routing (consume vs. wake) is the dispatcher's job.
+    """
+
     def __init__(
         self,
         short_term: ShortTermMemory,
@@ -44,6 +41,7 @@ class DesktopRegistry:
         self._dir = Path(registry_dir)
         self._actors: dict[str, DesktopActorState] = {}
         self._connections: set[str] = set()
+        self._details = DetailStore(self._dir)
 
     @property
     def actors(self) -> dict[str, DesktopActorState]:
@@ -59,23 +57,6 @@ class DesktopRegistry:
         for key in stale:
             self._actors.pop(key, None)
         self._refresh_pin()
-
-    def intercept(self, event: IncomingEvent) -> bool:
-        try:
-            envelope = json.loads(event.content)
-        except (TypeError, json.JSONDecodeError):
-            return False
-        if not isinstance(envelope, dict):
-            return False
-        event_type = envelope.get("type")
-        if not isinstance(event_type, str) or not event_type.startswith("desktop."):
-            return False
-        if envelope.get("protocol_version") != 1:
-            logger.warning("Ignored unsupported CoWorker Desktop protocol envelope")
-            return True
-        if event_type != "desktop.actor.snapshot":
-            return False
-        return self.ingest_snapshot(envelope.get("payload"), event.participant_id)
 
     def ingest_snapshot(self, payload: Any, participant_id: str) -> bool:
         """Validate and store a ``desktop.actor.snapshot`` payload.
@@ -159,65 +140,16 @@ class DesktopRegistry:
                 self.render_pinned_context(),
             )
 
+    # --------------------------------------------------- detail store delegates
+
     def detail_path(self, key: str) -> Path:
-        return self._dir / _DETAIL_SUBDIR / f"{_safe(key)}.txt"
+        return self._details.detail_path(key)
 
     def write_detail(self, key: str, text: str) -> Path:
-        """Persist a folded prompt's full text for lazy ``read_file`` retrieval.
-
-        The dispatcher folds long rendered blocks and writes the full content
-        here keyed by ``request_id``/``message_id``; the inline prompt keeps a
-        head summary plus a pointer to the returned path.
-        """
-        destination = self.detail_path(key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_suffix(".tmp")
-        temporary.write_text(text, encoding="utf-8")
-        temporary.replace(destination)
-        self._prune_details()
-        # Absolute path so the coworker's `read_file` resolves regardless of CWD.
-        return destination.resolve()
+        return self._details.write_detail(key, text)
 
     def _prune_details(self) -> None:
-        directory = self._dir / _DETAIL_SUBDIR
-        if not directory.is_dir():
-            return
-        try:
-            files = [path for path in directory.iterdir() if path.is_file()]
-        except OSError as error:
-            logger.warning(f"Failed to list desktop detail dir {directory}: {error}")
-            return
-        cutoff = time.time() - _DETAIL_MAX_AGE_SECONDS
-        expired = [path for path in files if self._mtime(path) < cutoff]
-        expired_set = set(expired)
-        for path in expired:
-            self._unlink(path)
-        survivors = [path for path in files if path not in expired_set]
-        excess = len(survivors) - _DETAIL_MAX_FILES
-        if excess <= 0:
-            return
-        survivors.sort(key=self._mtime)
-        for path in survivors[:excess]:
-            self._unlink(path)
-
-    @staticmethod
-    def _mtime(path: Path) -> float:
-        try:
-            return path.stat().st_mtime
-        except OSError:
-            return float("inf")
-
-    @staticmethod
-    def _unlink(path: Path) -> None:
-        try:
-            path.unlink()
-        except OSError as error:
-            logger.warning(f"Failed to prune desktop detail file {path}: {error}")
-
-
-def _safe(value: str) -> str:
-    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in value)
-    return safe.strip(".-") or "unknown"
+        self._details.prune()
 
 
 def _dict_list(value: Any) -> list[dict[str, Any]]:

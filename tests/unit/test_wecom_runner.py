@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.channels.wecom.runner import WeComRunner, _split_markdown
+from coworker.channels.wecom.runner import WeComRunner
+from coworker.channels.wecom.sender import split_markdown as _split_markdown
 from coworker.core.config import WeComConfig
 from coworker.core.types import CommunicateRequest
 
@@ -165,8 +166,8 @@ async def test_ensure_media_caches_by_path_and_mtime(tmp_path):
 
     img = tmp_path / "a.png"
     img.write_bytes(b"\x89PNGfake-data" * 100)
-    a = await runner._ensure_media({"type": "image", "path": str(img)})
-    b = await runner._ensure_media({"type": "image", "path": str(img)})
+    a = await runner._sender._ensure_media({"type": "image", "path": str(img)})
+    b = await runner._sender._ensure_media({"type": "image", "path": str(img)})
     assert a == b == "MID-X"
     runner._client.upload_media.assert_awaited_once()
 
@@ -177,7 +178,7 @@ def test_validate_attachment_rejects_oversize(tmp_path):
     # 11MB > image limit 10MB
     big.write_bytes(b"\x00" * (11 * 1024 * 1024))
     with pytest.raises(ValueError):
-        runner._validate_attachment({"type": "image", "path": str(big)})
+        runner._sender._validate_attachment({"type": "image", "path": str(big)})
 
 
 def test_validate_attachment_rejects_unknown_type(tmp_path):
@@ -185,7 +186,7 @@ def test_validate_attachment_rejects_unknown_type(tmp_path):
     f = tmp_path / "a.png"
     f.write_bytes(b"hello-world-bytes")
     with pytest.raises(ValueError):
-        runner._validate_attachment({"type": "weird", "path": str(f)})
+        runner._sender._validate_attachment({"type": "weird", "path": str(f)})
 
 
 def test_take_fresh_frame_returns_none_after_expiry(tmp_path, monkeypatch):

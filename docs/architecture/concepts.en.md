@@ -63,7 +63,7 @@ The following tools are registered by default at startup:
 - Memory tools: `query_memory` (unified search: `query` searches both the recent-activity index and long-term memory; `start`/`end` recall or filter a time window; `query` can be combined with `start`/`end`), `manage_memory`, `clear_short_term_memory` (manually compress all primary memory without deleting it), `manage_pinned_context`
 - System tools: `sleep`, `switch_model`, `get_context`, `restart_self`
 - Alarm tools: `set_alarm`, `list_alarms`, `cancel_alarm`
-- Communication tools: `communicate`, `list_ws_connections`
+- Communication tools: `communicate`, `list_connections`
 - Skills and tasks: `get_skill`, `task_board`
 
 `visual_analyze` is registered by default and is visible to both text and vision main models. It becomes available after `LLM__VISION_PROVIDER` and `LLM__VISION_MODEL` are configured:

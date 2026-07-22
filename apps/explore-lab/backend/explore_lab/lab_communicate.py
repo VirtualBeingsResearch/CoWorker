@@ -12,7 +12,7 @@ DEFAULT_LAB_WS_CONNECTIONS: tuple[str, ...] = ("explore_lab",)
 class LabCommunicateTool(CommunicateTool):
     """Explore Lab communication shim.
 
-    Branches need to exercise the same communicate/list_ws_connections tools as
+    Branches need to exercise the same communicate/list_connections tools as
     production, but they should not send real external messages. This subclass
     adds configurable in-lab participants and records outbound requests for the
     control UI/API to inspect.

@@ -192,19 +192,10 @@ class IncomingEvent:
     content: str
     conversation_id: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now())
-    source: Literal[
-        "file",
-        "rest",
-        "websocket",
-        "alarm",
-        "system",
-        "wecom",
-        "code_job",
-        "bubble",
-        "codex",
-        "coworker_desktop",
-        "task_reminder",
-    ] = "file"
+    # Plain str: new channels and internal sources (e.g. "system_recovery",
+    # "sleep_interrupt", "compress_memory") are not enumerated here -- the
+    # value is a free-form provenance tag, not a closed set.
+    source: str = "file"
     attachments: list[AttachmentData] = field(default_factory=list)
     event_id: str | None = None
 
