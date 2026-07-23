@@ -23,7 +23,6 @@ jobs:
     permissions:
       actions: write
       contents: write
-      pull-requests: write
 
     steps:
       - name: Checkout selected ref
@@ -72,6 +71,17 @@ jobs:
             echo "tag=$tag"
             echo "version=$RELEASE_VERSION"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release pull request token
+        env:
+          RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_PR_TOKEN" ]]; then
+            echo "::error::Missing RELEASE_PR_TOKEN. Configure a fine-grained personal access token or GitHub App installation token with Pull requests: write for this repository."
+            exit 1
+          fi
 
       - name: Bump product version
         env:
@@ -140,7 +150,7 @@ jobs:
         shell: bash
         env:
           DEFAULT_BRANCH: ${{ steps.release.outputs.default_branch }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
           RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}

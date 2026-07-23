@@ -120,7 +120,9 @@ uv run python scripts/check_version.py
 
 `bump_version.py` first collects commits after the most recent `vX.Y.Z` tag for `CHANGELOG.md`; during the migration it also recognizes historical `coworker-desktop-vX.Y.Z` tags. If no release tag exists, it falls back to commits after the last change to `VERSION`. Manually written content under a generic `## Unreleased` heading is moved into the target `## X.Y.Z - Unreleased` section, while an empty generic `## Unreleased` section remains at the top for future changes. Existing manual content for the target version is not overwritten. Commit subjects are no longer filtered by internal category; only merges and release-preparation noise are omitted.
 
-The recommended preparation path is to run `Prepare CoWorker Release` from `.github/workflows/prepare-release.yml` on the default branch and enter a version without the `v` prefix. It runs `bump_version.py`, version checks, lint, and focused tests; restricts generated changes to the expected version and changelog files; and opens a `chore/release-vX.Y.Z` pull request. The repository must allow GitHub Actions to create pull requests. Review and merge that PR before running `Create CoWorker Release` with the corresponding `vX.Y.Z` tag.
+The recommended preparation path is to run `Prepare CoWorker Release` from `.github/workflows/prepare-release.yml` on the default branch and enter a version without the `v` prefix. It runs `bump_version.py`, version checks, lint, and focused tests; restricts generated changes to the expected version and changelog files; and opens a `chore/release-vX.Y.Z` pull request.
+
+Before running it, configure `RELEASE_PR_TOKEN` in the repository's Actions secrets. Use a GitHub App installation token or fine-grained PAT scoped only to this repository, with at least **Pull requests: write**. The token is used only to create the release-preparation PR, not to push its branch. This removes the dependency on the repository-wide "Allow GitHub Actions to create and approve pull requests" setting. Review and merge that PR before running `Create CoWorker Release` with the corresponding `vX.Y.Z` tag.
 
 Run in development:
 
