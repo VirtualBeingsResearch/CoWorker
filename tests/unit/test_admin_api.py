@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from coworker.api import admin
 from coworker.core.config import Config, apply_admin_config_file, ensure_admin_token
 from coworker.core.types import Message
+from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.skills.loader import SkillLoader
@@ -19,12 +20,19 @@ class _Identity:
     name = "Luna"
 
 
-def _client(tmp_path, *, providers_file: str = ""):
+def _client(
+    tmp_path,
+    *,
+    providers_file: str = "",
+    desktop_updates: dict | None = None,
+    desktop_update_sync=None,
+):
     config = Config.model_validate(
         {
             "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
             "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
             "agent": {"logs_dir": str(tmp_path / "logs")},
+            "desktop_updates": desktop_updates or {},
         }
     )
     agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda: None)
@@ -44,6 +52,7 @@ def _client(tmp_path, *, providers_file: str = ""):
         skill_loader=None,
         palace_loader=None,
         mode_loader=None,
+        desktop_update_sync=desktop_update_sync,
     )
     app = FastAPI()
     app.include_router(admin.router)
@@ -102,6 +111,85 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert saved["llm"]["max_tokens"] == 4096
     assert "openai_api_key" not in saved["llm"]
     assert config.llm.openai_api_key == "sk-original"
+
+
+def test_desktop_update_sync_config_status_and_trigger_are_safe(tmp_path):
+    source_id = "11111111-1111-4111-8111-111111111111"
+    sync_service = SimpleNamespace(
+        status=AsyncMock(
+            return_value=SyncStatus(
+                enabled=True,
+                ready=True,
+                readiness="ready",
+                outcome="idle",
+                source={
+                    "source_id": source_id,
+                    "name": "GitHub upstream",
+                    "provider": "github",
+                    "endpoint": "https://api.example.test/api/v3",
+                    "target": "acme/coworker",
+                    "options": {"include_drafts": True},
+                },
+            )
+        ),
+        request_sync=AsyncMock(return_value={"run_id": "sync-1", "coalesced": False}),
+    )
+    client, _ = _client(
+        tmp_path,
+        desktop_updates={
+            "sync_sources": [
+                {
+                    "id": source_id,
+                    "name": "GitHub upstream",
+                    "type": "github",
+                    "api_base_url": "https://api.example.test/api/v3",
+                    "repository": "acme/coworker",
+                    "token": "github-secret-token",
+                    "include_drafts": True,
+                }
+            ],
+            "sync_active_source": source_id,
+        },
+        desktop_update_sync=sync_service,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    config_response = client.get("/api/admin/config", headers=headers)
+    assert config_response.status_code == 200
+    config_body = config_response.json()
+    source = config_body["config"]["desktop_updates"]["sync_sources"][0]
+    assert source["token"] == ""
+    assert config_body["secret_status"][f"desktop_updates.sync_sources.{source_id}.token"] == {
+        "configured": True,
+        "last4": "oken",
+    }
+
+    status_response = client.get("/api/admin/desktop-updates/sync", headers=headers)
+    assert status_response.status_code == 200
+    assert status_response.json()["source"]["target"] == "acme/coworker"
+    assert status_response.json()["token_configured"] is True
+    assert "github-secret-token" not in status_response.text
+
+    trigger_response = client.post("/api/admin/desktop-updates/sync", headers=headers)
+    assert trigger_response.status_code == 202
+    assert trigger_response.json() == {
+        "accepted": True,
+        "run_id": "sync-1",
+        "coalesced": False,
+    }
+    sync_service.request_sync.assert_awaited_once_with("manual")
+    audit = (tmp_path / "logs" / "admin_audit.jsonl").read_text(encoding="utf-8")
+    assert "desktop_updates.sync.trigger" in audit
+    assert "github-secret-token" not in audit
+
+
+def test_desktop_update_sync_trigger_requires_enabled_config(tmp_path):
+    client, _ = _client(tmp_path)
+    response = client.post(
+        "/api/admin/desktop-updates/sync",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert response.status_code == 409
 
 
 def test_config_response_separates_external_and_managed_providers(tmp_path):

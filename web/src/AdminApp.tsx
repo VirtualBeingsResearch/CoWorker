@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Json = Record<string, any>;
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
@@ -54,17 +56,46 @@ async function api<T = Json>(path: string, init: RequestInit = {}): Promise<T> {
   return response.status === 204 ? ({} as T) : response.json();
 }
 
+async function downloadApiFile(path: string, filename: string) {
+  const response = await fetch(path, {
+    headers: { Authorization: `Bearer ${storedToken()}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(typeof body.detail === 'string' ? body.detail : t('下载失败'), response.status);
+  }
+  const href = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
 function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const requestId = useRef(0);
   const reload = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     setLoading(true); setError('');
-    try { setData(await loader()); } catch (e) { setError(e instanceof Error ? e.message : t('加载失败')); }
-    finally { setLoading(false); }
+    try {
+      const result = await loader();
+      if (requestId.current === currentRequest) setData(result);
+    } catch (e) {
+      if (requestId.current === currentRequest) setError(e instanceof Error ? e.message : t('加载失败'));
+    } finally {
+      if (requestId.current === currentRequest) setLoading(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    return () => { requestId.current += 1; };
+  }, [reload]);
   return { data, error, loading, reload, setData };
 }
 
@@ -198,9 +229,22 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   </main>;
 }
 
-function Panel({ title, note, action, children, className = '' }: { title: string; note?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+function ReleaseNotes({ text }: { text: string }) {
+  const collapsible = text.length > 900;
+  const [expanded, setExpanded] = useState(false);
+  return <>
+    <div className={'release-notes' + (collapsible && !expanded ? ' preview' : '')} lang={/[\u3400-\u9fff]/.test(text) ? 'zh-CN' : 'en'}><ReactMarkdown
+    allowedElements={['p', 'h1', 'h2', 'h3', 'h4', 'strong', 'em', 'del', 'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td']}
+    remarkPlugins={[remarkGfm]}
+    components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}
+    >{text}</ReactMarkdown></div>
+    {collapsible && <button type="button" className="release-notes-toggle" onClick={() => setExpanded(value => !value)}>{t(expanded ? '收起发布说明' : '展开完整发布说明')}</button>}
+  </>;
+}
+
+function Panel({ title, note, action, children, className = '' }: { title: string; note?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`admin-panel ${className}`}>
-    <header><div><h2>{t(title)}</h2>{note && <p>{t(note)}</p>}</div>{action}</header>
+    <header><div><h2>{t(title)}</h2>{typeof note === 'string' ? <p>{t(note)}</p> : note}</div>{action}</header>
     {children}
   </section>;
 }
@@ -309,33 +353,228 @@ function Field({ label, children, hint, hot = false }: { label: string; children
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端' };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
+type DesktopUpdateSourceConfig = {
+  id: string;
+  name: string;
+  type: 'github' | 'coworker';
+  token?: string;
+  include_prereleases?: boolean;
+  api_base_url?: string;
+  repository?: string;
+  include_drafts?: boolean;
+  base_url?: string;
+};
+
+type DesktopUnit = 'minutes' | 'hours' | 'days';
+type ByteUnit = 'MiB' | 'GiB';
+
+const INTERVAL_UNITS: Array<{ value: DesktopUnit; label: string; seconds: number }> = [
+  { value: 'minutes', label: '分钟', seconds: 60 },
+  { value: 'hours', label: '小时', seconds: 3600 },
+  { value: 'days', label: '天', seconds: 86400 },
+];
+const BYTE_UNITS: Array<{ value: ByteUnit; bytes: number }> = [
+  { value: 'MiB', bytes: 1024 * 1024 },
+  { value: 'GiB', bytes: 1024 * 1024 * 1024 },
+];
+
+function desktopSource(type: 'github' | 'coworker' = 'github'): DesktopUpdateSourceConfig {
+  const id = crypto.randomUUID();
+  return type === 'github'
+    ? { id, name: t('GitHub 上游'), type, api_base_url: 'https://api.github.com', repository: '', token: '', include_drafts: false, include_prereleases: false }
+    : { id, name: t('Coworker 上游'), type, base_url: '', token: '', include_prereleases: false };
+}
+
+function sourceSecretPath(id: string) { return `desktop_updates.sync_sources.${id}.token`; }
+function sourceProviderLabel(source?: DesktopUpdateSourceConfig) { return source?.type === 'coworker' ? 'Coworker Feed' : 'GitHub Releases'; }
+function sourceTarget(source?: DesktopUpdateSourceConfig) { return source?.type === 'coworker' ? source.base_url || '' : source?.repository || ''; }
+function sourceEndpoint(source?: DesktopUpdateSourceConfig) { return source?.type === 'coworker' ? source.base_url || '' : source?.api_base_url || ''; }
+function isSourceConfigured(source?: DesktopUpdateSourceConfig) { return !!(source && source.name?.trim() && sourceEndpoint(source).trim() && (source.type === 'coworker' || source.repository?.trim())); }
+
+function preferredInterval(seconds: number): { value: number; unit: DesktopUnit } {
+  if (seconds >= 86400 && seconds % 86400 === 0) return { value: seconds / 86400, unit: 'days' };
+  if (seconds >= 3600 && seconds % 3600 === 0) return { value: seconds / 3600, unit: 'hours' };
+  return { value: Math.max(1, Math.round(seconds / 60)), unit: 'minutes' };
+}
+
+function preferredBytes(bytes: number): { value: number; unit: ByteUnit } {
+  const gib = 1024 * 1024 * 1024;
+  if (bytes >= gib && bytes % gib === 0) return { value: bytes / gib, unit: 'GiB' };
+  return { value: Math.max(1, Math.round(bytes / (1024 * 1024))), unit: 'MiB' };
+}
+
+function intervalToSeconds(value: number, unit: DesktopUnit) {
+  return Math.max(0, Math.round(value * (INTERVAL_UNITS.find(item => item.value === unit)?.seconds || 60)));
+}
+
+function bytesFromUnit(value: number, unit: ByteUnit) {
+  return Math.max(0, Math.round(value * (BYTE_UNITS.find(item => item.value === unit)?.bytes || 1024 * 1024)));
+}
+
+function describeDesktopUpdateSave(before: Json = {}, after: Json = {}, fallback: string) {
+  const beforeActive = before.sync_active_source || '';
+  const afterActive = after.sync_active_source || '';
+  const beforeSources = (Array.isArray(before.sync_sources) ? before.sync_sources : []) as DesktopUpdateSourceConfig[];
+  const afterSources = (Array.isArray(after.sync_sources) ? after.sync_sources : []) as DesktopUpdateSourceConfig[];
+  const beforeActiveSource = beforeSources.find(source => source.id === beforeActive);
+  const afterActiveSource = afterSources.find(source => source.id === afterActive);
+  if (!afterActive && beforeActive) return t('同步已关闭；已保存的上游来源会继续保留。');
+  if (afterActive && beforeActive !== afterActive) return t('当前上游已切换为 {{name}}，保存后立即生效。', { name: afterActiveSource?.name || sourceProviderLabel(afterActiveSource) });
+  if (afterActive && JSON.stringify(beforeActiveSource || {}) !== JSON.stringify(afterActiveSource || {})) return t('当前上游配置已更新，保存后立即生效。');
+  if (JSON.stringify(beforeSources) !== JSON.stringify(afterSources)) return t('备用上游来源已更新，不会影响当前同步任务。');
+  if (before.sync_interval_seconds !== after.sync_interval_seconds || before.sync_max_asset_bytes !== after.sync_max_asset_bytes || before.sync_max_run_bytes !== after.sync_max_run_bytes) return t('同步周期和下载限制已更新，保存后立即生效。');
+  if (before.sync_on_start !== after.sync_on_start || before.feed_token !== after.feed_token) return t('桌面更新全局设置已保存。');
+  return fallback;
+}
+
+function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, secretStatus, onValidationChange }: { value: Json; change: (key: string, value: any) => void; secretInputs: Record<string, string>; setSecretInputs: (value: Record<string, string>) => void; secretStatus: Record<string, { configured?: boolean; last4?: string }>; onValidationChange: (message: string) => void }) {
+  const sources = (Array.isArray(value.sync_sources) ? value.sync_sources : []) as DesktopUpdateSourceConfig[];
+  const active = value.sync_active_source || '';
+  const sourceFromUrl = new URLSearchParams(window.location.search).get('source') || '';
+  const [selectedSourceId, setSelectedSourceId] = useState(() => sourceFromUrl || active || sources[0]?.id || '');
+  const selectedSource = sources.find(source => source.id === selectedSourceId) || null;
+  const activeSource = sources.find(source => source.id === active) || null;
+  const detailRef = useRef<HTMLElement | null>(null);
+  const initialInterval = preferredInterval(Number(value.sync_interval_seconds || 21600));
+  const initialAsset = preferredBytes(Number(value.sync_max_asset_bytes || 2 * 1024 * 1024 * 1024));
+  const initialRun = preferredBytes(Number(value.sync_max_run_bytes || 4 * 1024 * 1024 * 1024));
+  const [intervalUnit, setIntervalUnit] = useState<DesktopUnit>(initialInterval.unit);
+  const [assetUnit, setAssetUnit] = useState<ByteUnit>(initialAsset.unit);
+  const [runUnit, setRunUnit] = useState<ByteUnit>(initialRun.unit);
+  const updateSources = (next: DesktopUpdateSourceConfig[], nextActive = active) => { change('sync_sources', next); change('sync_active_source', nextActive || null); };
+  const patchSource = (id: string, patch: Partial<DesktopUpdateSourceConfig>) => updateSources(sources.map(source => source.id === id ? { ...source, ...patch } : source));
+  const setUrlSource = (id: string, replace = false) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('section', 'settings'); params.set('group', 'desktop_updates');
+    if (id) params.set('source', id); else params.delete('source');
+    window.history[replace ? 'replaceState' : 'pushState'](null, '', `?${params.toString()}`);
+  };
+  const selectSource = (id: string, replace = false) => { setSelectedSourceId(id); setUrlSource(id, replace); };
+  const addSource = (type: 'github' | 'coworker') => { const next = desktopSource(type); updateSources([...sources, next]); selectSource(next.id); };
+  const duplicate = (source: DesktopUpdateSourceConfig) => {
+    const next = { ...source, id: crypto.randomUUID(), name: t('{{name}} 副本', { name: source.name || sourceProviderLabel(source) }), token: '' };
+    updateSources([...sources, next]); setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([key]) => key !== sourceSecretPath(next.id)))); selectSource(next.id);
+  };
+  const remove = (id: string) => {
+    const source = sources.find(item => item.id === id);
+    if (!source) return;
+    const isActive = active === id;
+    if (!confirm(isActive ? t('删除当前上游“{{name}}”？同步会切换为关闭，但不会影响已导入的草稿。', { name: source.name || sourceProviderLabel(source) }) : t('删除上游来源“{{name}}”？', { name: source.name || sourceProviderLabel(source) }))) return;
+    const index = sources.findIndex(item => item.id === id);
+    const next = sources.filter(item => item.id !== id);
+    updateSources(next, isActive ? '' : active);
+    setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([key]) => key !== sourceSecretPath(id))));
+    if (selectedSourceId === id) selectSource(next[Math.min(index, next.length - 1)]?.id || '', true);
+  };
+  const move = (index: number, delta: number) => { const next = [...sources]; const target = index + delta; if (target < 0 || target >= next.length) return; [next[index], next[target]] = [next[target], next[index]]; updateSources(next); };
+  const setActive = (id: string) => change('sync_active_source', id || null);
+  const setInterval = (amount: number, unit = intervalUnit) => change('sync_interval_seconds', intervalToSeconds(amount, unit));
+  const setLimit = (key: 'sync_max_asset_bytes' | 'sync_max_run_bytes', amount: number, unit: ByteUnit) => change(key, bytesFromUnit(amount, unit));
+  const intervalAmount = Number(((value.sync_interval_seconds || 21600) / (INTERVAL_UNITS.find(item => item.value === intervalUnit)?.seconds || 60)).toFixed(2));
+  const assetAmount = Number(((value.sync_max_asset_bytes || 0) / (BYTE_UNITS.find(item => item.value === assetUnit)?.bytes || 1)).toFixed(2));
+  const runAmount = Number(((value.sync_max_run_bytes || 0) / (BYTE_UNITS.find(item => item.value === runUnit)?.bytes || 1)).toFixed(2));
+  const validationError = useMemo(() => {
+    const names = sources.map(source => (source.name || '').trim().toLowerCase()).filter(Boolean);
+    if (names.length !== new Set(names).size) return t('上游来源名称不能重复。');
+    if (Number(value.sync_interval_seconds || 0) < 300) return t('检测间隔至少为 5 分钟。');
+    if (Number(value.sync_max_asset_bytes || 0) < 1024 || Number(value.sync_max_run_bytes || 0) < 1024) return t('下载大小上限必须大于 1 KiB。');
+    if (Number(value.sync_max_run_bytes || 0) < Number(value.sync_max_asset_bytes || 0)) return t('单次同步总量上限不能小于单个制品上限。');
+    return '';
+  }, [sources, value.sync_interval_seconds, value.sync_max_asset_bytes, value.sync_max_run_bytes]);
+  useEffect(() => { onValidationChange(validationError); }, [onValidationChange, validationError]);
+  useEffect(() => {
+    const current = new URLSearchParams(window.location.search).get('source') || '';
+    if (current && sources.some(source => source.id === current)) { setSelectedSourceId(current); return; }
+    if (selectedSourceId && !sources.some(source => source.id === selectedSourceId)) setSelectedSourceId(active || sources[0]?.id || '');
+  }, [active, selectedSourceId, sources]);
+  const feedStatus = secretStatus['desktop_updates.feed_token'];
+  const activeConfigured = isSourceConfigured(activeSource || undefined);
+  return <div className="desktop-update-settings">
+    <section className={'desktop-sync-overview ' + (active ? activeConfigured ? 'ready' : 'warning' : 'disabled')}>
+      <div className="desktop-sync-overview-copy"><RefreshCw size={22} /><div><span>{t('上游同步')}</span><h3>{active ? activeConfigured ? t('当前上游已就绪') : t('当前上游未配置完整') : t('上游同步已关闭')}</h3><p>{activeSource ? <><b>{activeSource.name || sourceProviderLabel(activeSource)}</b>{' · '}{sourceProviderLabel(activeSource)}{sourceTarget(activeSource) ? ` · ${sourceTarget(activeSource)}` : ''}</> : t('选择一个来源作为当前上游后，定时同步和立即同步才会运行。')}</p></div></div>
+      <Field label="当前上游" hint="切换后保存即可立即应用，不需要重启"><select value={active || ''} onChange={event => setActive(event.target.value)}><option value="">{t('关闭上游同步')}</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name || sourceProviderLabel(source)}</option>)}</select></Field>
+    </section>
+    {validationError && <div className="notice error"><TriangleAlert size={15} /><span>{validationError}</span></div>}
+    <div className="desktop-source-toolbar"><div><b>{t('上游来源')}</b><small>{t('可以保存多个同类型来源，但同一时间只有当前上游会运行。')}</small></div><div><button className="ghost mini" onClick={() => addSource('github')}><Plus size={14} />{t('添加 GitHub 来源')}</button><button className="ghost mini" onClick={() => addSource('coworker')}><Plus size={14} />{t('添加 Coworker 来源')}</button></div></div>
+    {sources.length ? <div className="desktop-source-workbench">
+      <div className="desktop-source-list" role="list">{sources.map((source, index) => {
+        const configured = isSourceConfigured(source); const isActive = active === source.id; const isSelected = selectedSourceId === source.id;
+        return <article role="listitem" className={'desktop-source-item ' + (isActive ? 'active ' : '') + (isSelected ? 'selected ' : '') + (!configured ? 'warning' : '')} key={source.id}>
+          <button type="button" onClick={() => selectSource(source.id)}><span><b>{source.name || t('未命名来源')}</b><small>{sourceProviderLabel(source)}{sourceTarget(source) ? ` · ${sourceTarget(source)}` : ''}</small></span><em className={'desktop-source-badge ' + (isActive ? 'active' : !configured ? 'warning' : '')}>{isActive ? t('当前') : configured ? t('备用') : t('待补全')}</em></button>
+          <div className="desktop-source-row-actions"><button className="ghost mini" disabled={isActive} onClick={() => setActive(source.id)}>{t('设为当前')}</button><button className="ghost mini" disabled={index === 0} onClick={() => move(index, -1)}>{t('上移')}</button><button className="ghost mini" disabled={index === sources.length - 1} onClick={() => move(index, 1)}>{t('下移')}</button><button className="ghost mini" onClick={() => duplicate(source)}>{t('复制')}</button><button className="danger-outline mini" onClick={() => remove(source.id)}>{t('删除')}</button></div>
+        </article>;
+      })}</div>
+      <section className="desktop-source-detail" ref={detailRef}>{selectedSource ? <>
+        <header><div><span>{t('来源详情')}</span><h3>{selectedSource.name || t('未命名来源')}</h3><p>{selectedSource.id}</p></div><em className={'desktop-source-badge ' + (active === selectedSource.id ? 'active' : '')}>{active === selectedSource.id ? t('当前上游') : t('备用上游')}</em></header>
+        <div className="desktop-source-form">
+          <div className="desktop-form-row two">
+            <Field label="来源名称"><input value={selectedSource.name || ''} onChange={event => patchSource(selectedSource.id, { name: event.target.value })} /></Field>
+            <Field label="Provider 类型" hint="切换类型会清空此来源的地址字段，并需要重新确认访问 Token"><select value={selectedSource.type} onChange={event => { const type = event.target.value as 'github' | 'coworker'; if (type !== selectedSource.type && !confirm(t('切换来源类型会清空当前地址字段和未保存 Token，继续吗？'))) return; patchSource(selectedSource.id, type === 'github' ? { type, api_base_url: 'https://api.github.com', repository: '', base_url: undefined, token: '' } : { type, base_url: '', api_base_url: undefined, repository: undefined, include_drafts: undefined, token: '' }); setSecretInputs({ ...secretInputs, [sourceSecretPath(selectedSource.id)]: '' }); }}><option value="github">GitHub Releases</option><option value="coworker">Coworker Feed</option></select></Field>
+          </div>
+          <div className="desktop-form-row two">
+            {selectedSource.type === 'github' ? <><Field label="GitHub API Base URL"><input value={selectedSource.api_base_url || ''} onChange={event => patchSource(selectedSource.id, { api_base_url: event.target.value })} placeholder="https://api.github.com" /></Field><Field label="上游仓库（owner/repo）"><input value={selectedSource.repository || ''} onChange={event => patchSource(selectedSource.id, { repository: event.target.value })} placeholder="owner/repo" /></Field></> : <Field label="Coworker Base URL" hint="会读取该实例的 published release feed"><input value={selectedSource.base_url || ''} onChange={event => patchSource(selectedSource.id, { base_url: event.target.value })} placeholder="https://coworker.example.com" /></Field>}
+            <Field label="访问 Token" hint={secretStatus[sourceSecretPath(selectedSource.id)]?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: secretStatus[sourceSecretPath(selectedSource.id)]?.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[sourceSecretPath(selectedSource.id)] || ''} onChange={event => setSecretInputs({ ...secretInputs, [sourceSecretPath(selectedSource.id)]: event.target.value })} placeholder={secretStatus[sourceSecretPath(selectedSource.id)]?.configured ? t('留空保留，输入新值则替换') : t('可选')} /></Field>
+          </div>
+          <div className="desktop-option-grid">
+            {selectedSource.type === 'github' && <label className="desktop-option-card"><input type="checkbox" checked={!!selectedSource.include_drafts} onChange={event => patchSource(selectedSource.id, { include_drafts: event.target.checked })} /><span>{t('同步 GitHub 草稿')}</span><small>{t('仅在需要接收上游 draft 时开启。')}</small></label>}
+            <label className="desktop-option-card"><input type="checkbox" checked={!!selectedSource.include_prereleases} onChange={event => patchSource(selectedSource.id, { include_prereleases: event.target.checked })} /><span>{t('同步预发布版本')}</span><small>{t('允许 SemVer 预发布版本进入本地草稿。')}</small></label>
+          </div>
+        </div>
+      </> : <div className="provider-empty">{t('选择一个上游来源查看详情。')}</div>}</section>
+    </div> : <div className="provider-empty desktop-source-empty">{t('还没有上游来源。添加 GitHub 或 Coworker 来源后，在上方选择一个作为当前上游。')}</div>}
+    <section className="desktop-global-settings">
+      <div className="config-section-heading"><div><b>{t('全局同步设置')}</b><small>{t('这些限制和周期作用于当前活跃来源。')}</small></div></div>
+      <div className="config-fields"><Field label="检测间隔"><div className="unit-field"><input type="number" min="1" value={intervalAmount} onChange={event => setInterval(Number(event.target.value))} /><select value={intervalUnit} onChange={event => { const unit = event.target.value as DesktopUnit; setIntervalUnit(unit); setInterval(intervalAmount, unit); }}>{INTERVAL_UNITS.map(unit => <option value={unit.value} key={unit.value}>{t(unit.label)}</option>)}</select></div></Field><label className="switch config-switch"><input type="checkbox" checked={value.sync_on_start !== false} onChange={event => change('sync_on_start', event.target.checked)} /><i /><span>{t('服务启动时立即检测')}</span></label><Field label="单个制品大小上限"><div className="unit-field"><input type="number" min="1" value={assetAmount} onChange={event => setLimit('sync_max_asset_bytes', Number(event.target.value), assetUnit)} /><select value={assetUnit} onChange={event => { const unit = event.target.value as ByteUnit; setAssetUnit(unit); setLimit('sync_max_asset_bytes', assetAmount, unit); }}>{BYTE_UNITS.map(unit => <option value={unit.value} key={unit.value}>{unit.value}</option>)}</select></div><small>{formatBytes(value.sync_max_asset_bytes || 0)}</small></Field><Field label="单次同步总量上限"><div className="unit-field"><input type="number" min="1" value={runAmount} onChange={event => setLimit('sync_max_run_bytes', Number(event.target.value), runUnit)} /><select value={runUnit} onChange={event => { const unit = event.target.value as ByteUnit; setRunUnit(unit); setLimit('sync_max_run_bytes', runAmount, unit); }}>{BYTE_UNITS.map(unit => <option value={unit.value} key={unit.value}>{unit.value}</option>)}</select></div><small>{formatBytes(value.sync_max_run_bytes || 0)}</small></Field><Field label="下游同步 Feed Token" hint={feedStatus?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: feedStatus.last4 || '' }) : t('当前 feed 已关闭')}><input type="password" value={secretInputs['desktop_updates.feed_token'] || ''} onChange={event => setSecretInputs({ ...secretInputs, 'desktop_updates.feed_token': event.target.value })} placeholder={feedStatus?.configured ? t('留空保留，输入新值则替换') : t('设置后允许其他 Coworker 实例同步本实例已发布版本')} /></Field></div>
+    </section>
+  </div>;
+}
+
 const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
   'i18n.locale': '模型与运行时语言',
+  'desktop_updates.dir': '本地发布目录',
+  'desktop_updates.sync_sources': '上游来源',
+  'desktop_updates.sync_active_source': '当前上游',
+  'desktop_updates.sync_interval_seconds': '检测间隔（秒）',
+  'desktop_updates.sync_on_start': '服务启动时立即检测',
+  'desktop_updates.sync_max_asset_bytes': '单个制品大小上限（字节）',
+  'desktop_updates.sync_max_run_bytes': '单次同步总量上限（字节）',
 };
 
 function Settings() {
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/config'), []);
   const [draft, setDraft] = useState<Json | null>(null);
-  const [group, setGroup] = useState('llm');
+  const [group, setGroup] = useState(() => new URLSearchParams(window.location.search).get('group') || 'llm');
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
+  const [desktopValidationError, setDesktopValidationError] = useState('');
   useEffect(() => { if (data) setDraft(structuredClone(data.config)); }, [data]);
   if (loading || !data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
-  const change = (key: string, value: any) => setDraft({ ...draft, [group]: { ...draft[group], [key]: value } });
+  const change = (key: string, value: any) => setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
+  const selectGroup = (next: string) => {
+    setGroup(next);
+    const params = new URLSearchParams(window.location.search);
+    params.set('section', 'settings');
+    params.set('group', next);
+    if (next !== 'desktop_updates') params.delete('source');
+    window.history.pushState(null, '', `?${params.toString()}`);
+  };
   const changeProvider = (index: number, key: string, value: string) => {
     const providers = [...(draft.llm.managed_providers || [])];
     providers[index] = { ...providers[index], [key]: value };
     setDraft({ ...draft, llm: { ...draft.llm, managed_providers: providers } });
   };
   const save = async () => {
+    if (group === 'desktop_updates' && desktopValidationError) { setMessage(desktopValidationError); return; }
+    const beforeGroup = structuredClone(data.config?.[group] || {});
+    const afterGroup = structuredClone(draft[group] || {});
     const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
-    const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: draft[group] }, secrets }) });
+    const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: afterGroup }, secrets }) });
     const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
     const savedMessage = hotCount && restartCount
       ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
@@ -344,7 +583,7 @@ function Settings() {
         : restartCount
           ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
           : t('配置没有变化。');
-    setSecretInputs({}); setMessage(savedMessage); await reload();
+    setSecretInputs({}); setMessage(group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage); await reload();
   };
   const isHot = (path: string) => (data.hot_reloadable || []).some((item: string) => path === item || path.startsWith(`${item}.`));
   const adminToken = data.secret_status['admin.token'];
@@ -353,14 +592,14 @@ function Settings() {
   const providerSource = data.sources?.providers ? t('、{{source}}', { source: data.sources.providers }) : '';
   const configNote = t('有效配置来自 {{env}}{{providers}}，并由 {{override}} 覆盖。', { env: '.env', providers: providerSource, override: data.override_path });
   return <div className="settings-layout">
-    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} onClick={() => setGroup(k)} key={k}>{t(GROUP_LABELS[k])}<ChevronRight size={14} /></button>)}</nav>
+    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} onClick={() => selectGroup(k)} key={k}>{t(GROUP_LABELS[k])}<ChevronRight size={14} /></button>)}</nav>
     <Panel title={GROUP_LABELS[group]} note={configNote} className="config-panel">
       {data.pending_restart && <div className="notice amber"><TriangleAlert size={16} />{t('存在等待重启的修改')}</div>}
       {group === 'admin' ? <div className="admin-settings-status">
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -376,21 +615,21 @@ function Settings() {
               <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax'].map(type => <option key={type}>{type}</option>)}</select></Field>
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
-              <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 }) : t('输入 API Key')} /></Field>
+              <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
               <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs({}); }}><Trash2 size={15} /></button>
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (data.secret_status[path]) { const status = data.secret_status[path]; return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 }) : t('当前未配置')}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={status.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 }) : t('输入新值')} /></Field>; }
+        if (data.secret_status[path]) { const status = data.secret_status[path]; return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={status.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入新值')} /></Field>; }
         if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
         if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} step="any" onChange={e => change(key, Number(e.target.value))} /></Field>;
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
-      })}</div>
+      })}</div></>}
       {message && <div className="notice success">{message}</div>}
-      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(''); }}>{t('重置本页')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -1177,10 +1416,25 @@ const DESKTOP_PLATFORMS = [
 ] as const;
 type DesktopPlatform = typeof DESKTOP_PLATFORMS[number];
 type DesktopAssetKind = 'updater' | 'installer';
-type DesktopAsset = { file: string; signature: string; kind: DesktopAssetKind; size: number; uploaded_at: string };
-type DesktopReleaseSummary = { version: string; notes: string; pub_date: string; published: boolean; platforms: string[]; installers: string[]; created_at: string; updated_at: string };
+type DesktopAsset = { file: string; signature: string; kind: DesktopAssetKind; size: number; uploaded_at: string; sha256?: string };
+type DesktopReleaseSource = { type: string; source_id?: string; api_base_url?: string; base_url?: string; repository?: string; tag?: string; html_url?: string; draft?: boolean; prerelease?: boolean; revision?: string; synced_at?: string };
+type DesktopReleaseSummary = { version: string; notes: string; pub_date: string; published: boolean; platforms: string[]; installers: string[]; created_at: string; updated_at: string; source?: DesktopReleaseSource };
 type DesktopRelease = Omit<DesktopReleaseSummary, 'platforms' | 'installers'> & { platforms: Record<string, DesktopAsset>; installers: Record<string, DesktopAsset> };
 type DesktopReleaseList = { latest_version: string | null; releases: DesktopReleaseSummary[] };
+function releaseSourceLabel(source: DesktopReleaseSource) {
+  if (source.type === 'coworker_release') return 'Coworker 发布同步';
+  if (source.draft) return 'GitHub 草稿同步';
+  if (source.prerelease) return 'GitHub 预发布同步';
+  return 'GitHub Release 同步';
+}
+type DesktopSyncStatus = {
+  enabled: boolean; ready: boolean; readiness?: string; token_configured?: boolean; active_source?: string | null; active_source_name?: string; active_source_type?: string;
+  source?: { source_id: string; name: string; provider: string; endpoint: string; target?: string; options?: Record<string, boolean | string | number> } | null;
+  outcome: string; run_id?: string | null; phase?: string; version?: string | null; asset?: string | null;
+  bytes_downloaded?: number; bytes_total?: number; next_run_at?: string | null; last_success_at?: string | null;
+  finished_at?: string | null; last_error?: string; imported_versions?: string[]; skipped_releases?: string[];
+  rate_limit?: { limit?: number | null; remaining?: number | null; reset_at?: string | null; retry_after_seconds?: number | null };
+};
 type QueuedReleaseFile = { id: string; file: File; entryName: string; archiveName: string };
 type UploadState = { status: 'idle' | 'uploading' | 'success' | 'error'; error?: string };
 type PendingReleaseAsset = {
@@ -1337,11 +1591,19 @@ function buildPendingReleaseAssets(files: QueuedReleaseFile[], overrides: Record
 
 function ReleaseAssetLane({ version, title, note, assets }: { version: string; title: string; note: string; assets: Record<string, DesktopAsset> }) {
   const entries = Object.entries(assets || {});
-  return <section className="release-asset-lane"><header><div><b>{t(title)}</b><small>{t(note)}</small></div><span>{entries.length}</span></header>{entries.length ? <div>{entries.map(([platform, asset]) => <article key={platform}><div className="asset-platform"><i /> <span>{platform}</span></div><div className="asset-file"><b title={asset.file}>{asset.file}</b><small>{formatBytes(asset.size)}{' · '}{asset.uploaded_at ? new Date(asset.uploaded_at).toLocaleString() : t('时间未知')}</small></div><a href={'/api/desktop-updates/assets/' + encodeURIComponent(version) + '/' + encodeURIComponent(asset.file)} title={t('下载 {{file}}', { file: asset.file })}><Download size={14} /></a></article>)}</div> : <p className="release-lane-empty">{t('还没有这类产物')}</p>}</section>;
+  const download = (asset: DesktopAsset) => {
+    const path = '/api/desktop-updates/assets/' + encodeURIComponent(version) + '/' + encodeURIComponent(asset.file);
+    void downloadApiFile(path, asset.file).catch(error => window.alert(error instanceof Error ? error.message : t('下载失败')));
+  };
+  return <section className="release-asset-lane"><header><div><b>{t(title)}</b><small>{t(note)}</small></div><span>{entries.length}</span></header>{entries.length ? <div>{entries.map(([platform, asset]) => <article key={platform}><div className="asset-platform"><i /> <span>{platform}</span></div><div className="asset-file"><b title={asset.file}>{asset.file}</b><small>{formatBytes(asset.size)}{' · '}{asset.uploaded_at ? new Date(asset.uploaded_at).toLocaleString() : t('时间未知')}</small></div><button type="button" onClick={() => download(asset)} title={t('下载 {{file}}', { file: asset.file })}><Download size={14} /></button></article>)}</div> : <p className="release-lane-empty">{t('还没有这类产物')}</p>}</section>;
 }
 
 function DesktopReleases() {
   const releases = useLoad(() => api<DesktopReleaseList>('/api/desktop-updates/releases'), []);
+  const sync = useLoad(() => api<DesktopSyncStatus>('/api/admin/desktop-updates/sync'), []);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
   const [selectedVersion, setSelectedVersion] = useState('');
   const [detail, setDetail] = useState<DesktopRelease | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1368,6 +1630,27 @@ function DesktopReleases() {
     catch (error) { setDetail(null); setDetailError(error instanceof Error ? error.message : t('版本读取失败')); }
     finally { setDetailLoading(false); }
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => { void sync.reload(); }, sync.data?.outcome === 'running' ? 2000 : 30000);
+    return () => window.clearInterval(interval);
+  }, [sync.data?.outcome, sync.reload]);
+
+  const importedKey = (sync.data?.imported_versions || []).join('|');
+  useEffect(() => {
+    if (!importedKey || sync.data?.outcome === 'running') return;
+    void releases.reload();
+  }, [importedKey, sync.data?.outcome, releases.reload]);
+
+  const triggerSync = async () => {
+    setSyncBusy(true); setSyncError(''); setSyncMessage('');
+    try {
+      const result = await api<{ run_id: string; coalesced: boolean }>('/api/admin/desktop-updates/sync', { method: 'POST' });
+      setSyncMessage(result.coalesced ? t('已有同步任务正在运行，已继续跟踪。') : t('已开始检查当前上游。'));
+      await sync.reload();
+    } catch (error) { setSyncError(error instanceof Error ? error.message : t('启动同步失败')); }
+    finally { setSyncBusy(false); }
+  };
 
   useEffect(() => {
     if (!releases.data || creating || selectedVersion) return;
@@ -1488,11 +1771,29 @@ function DesktopReleases() {
   const stateLabel = (version: string, published: boolean) => version === latest ? t('当前 latest') : published ? t('曾发布') : t('草稿');
   const heroTitle = latest ? t('v{{version}} 正在投放', { version: latest }) : t('还没有桌面更新');
   const heroNote = latestSummary?.notes || (latest ? t('当前版本已进入自动更新通道。') : t('创建版本并上传签名产物后，从这里开启第一次投放。'));
+  const syncStatus = sync.data;
+  const syncRunning = syncStatus?.outcome === 'running';
+  const syncProgress = syncStatus?.bytes_total ? Math.min(100, Math.round(((syncStatus.bytes_downloaded || 0) / syncStatus.bytes_total) * 100)) : 0;
+  const syncOutcome = syncStatus?.outcome ? t(({ succeeded: '同步成功', not_modified: '上游没有变化', no_updates: '没有更高版本', conflict: '版本存在冲突', rate_limited: '上游请求受限', failed: '同步失败', interrupted: '同步已中断', running: '同步进行中', idle: '等待检测' } as Record<string, string>)[syncStatus.outcome] || syncStatus.outcome) : t('状态未知');
+  const syncReady = !!(syncStatus?.enabled && syncStatus?.ready && syncStatus?.source);
+  const settingsHref = syncStatus?.source?.source_id ? `?section=settings&group=desktop_updates&source=${encodeURIComponent(syncStatus.source.source_id)}` : '?section=settings&group=desktop_updates';
   return <div className="release-page page-stack">
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
       <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2><p>{heroNote}</p></div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
+    </section>
+    <section className={'release-sync-card ' + (syncRunning ? 'running' : syncStatus?.outcome || 'idle')}>
+      <div className="release-sync-main"><div className="release-sync-icon"><RefreshCw size={20} /></div><div><p className="eyebrow">{t('上游同步')}</p><h3>{syncReady ? syncOutcome : t(syncStatus?.readiness === 'unconfigured' ? '当前上游未配置完整' : '上游同步已关闭')}</h3><p>{syncReady && syncStatus?.source ? <><code>{syncStatus.source.name}</code><span>{' · '}{syncStatus.source.provider}{syncStatus.source.target ? ` · ${syncStatus.source.target}` : ''}</span></> : t('配置一个 GitHub 或 Coworker 上游后，发布页才显示完整同步控制。')} <a href={settingsHref}>{t('配置上游')}</a></p></div></div>
+      {syncReady && <div className="release-sync-facts">
+        <span><b>{syncStatus?.version ? 'v' + syncStatus.version : '—'}</b>{t('当前候选')}</span>
+        <span><b>{syncStatus?.next_run_at ? new Date(syncStatus.next_run_at).toLocaleString() : '—'}</b>{t('下次检测')}</span>
+        {syncStatus?.rate_limit?.remaining != null && <span><b>{syncStatus.rate_limit.remaining}</b>{t('剩余请求额度')}</span>}
+      </div>}
+      {syncReady && syncRunning && <div className="release-sync-progress"><div><span>{syncStatus?.asset || t('正在读取 Release…')}</span><b>{syncStatus?.bytes_total ? `${formatBytes(syncStatus.bytes_downloaded || 0)} / ${formatBytes(syncStatus.bytes_total)}` : t(syncStatus?.phase || '正在检测')}</b></div><i><em style={{ width: `${syncProgress}%` }} /></i></div>}
+      {!syncRunning && syncStatus?.last_error && <div className="notice error"><TriangleAlert size={15} /><span>{syncStatus.last_error}</span></div>}
+      {(syncError || syncMessage || sync.error) && <div className={'notice ' + (syncError || sync.error ? 'error' : 'success')}>{syncError || sync.error ? <TriangleAlert size={15} /> : <Check size={15} />}<span>{syncError || sync.error || syncMessage}</span></div>}
+      <div className="release-sync-footer"><p><ShieldCheck size={15} />{t('同步只导入本地草稿，不会修改 latest.json；请检查制品和签名后手动发布。')}</p><div><button className="ghost" onClick={() => void sync.reload()} disabled={sync.loading}><RefreshCw size={14} />{t('刷新状态')}</button>{syncReady && <button className="primary" onClick={() => void triggerSync()} disabled={syncBusy || syncRunning}><CloudUpload size={14} />{syncRunning ? t('同步中…') : t('立即同步')}</button>}</div></div>
     </section>
     <div className="release-layout">
       <aside className="release-index">
@@ -1503,12 +1804,13 @@ function DesktopReleases() {
       <main className="release-workspace">
         {creating ? <Panel title="创建桌面版本" note="只建立版本草稿；创建后在同一工作台上传 updater、installer 与签名。" className="release-create"><form onSubmit={createRelease}><Field label="版本号" hint="遵循 SemVer，例如 0.3.0"><input autoFocus value={newVersion} onChange={event => setNewVersion(event.target.value)} placeholder="0.3.0" /></Field><Field label="发布说明" hint="会显示给检查到更新的桌面客户端"><textarea value={newNotes} onChange={event => setNewNotes(event.target.value)} placeholder={t('这次更新解决了什么？')} /></Field><div className="panel-actions"><button className="primary" disabled={!newVersion.trim() || creatingBusy}>{creatingBusy ? t('正在创建…') : t('创建版本草稿')}<ChevronRight size={15} /></button></div></form>{actionError && <div className="notice error"><TriangleAlert size={16} /><span>{actionError}</span></div>}{message && <div className="notice success"><Check size={16} /><span>{message}</span></div>}</Panel>
         : detailLoading ? <Loading /> : detailError ? <Loading error={detailError} /> : detail ? <>
-          <Panel title={'v' + detail.version} note={detail.notes || t('这个版本没有发布说明。')} action={<span className={'release-state ' + (detail.version === latest ? 'latest' : detail.published ? 'published' : 'draft')}>{stateLabel(detail.version, detail.published)}</span>} className="release-detail">
+          <Panel title={'v' + detail.version} note={detail.notes ? <ReleaseNotes text={detail.notes} /> : t('这个版本没有发布说明。')} action={<span className={'release-state ' + (detail.version === latest ? 'latest' : detail.published ? 'published' : 'draft')}>{stateLabel(detail.version, detail.published)}</span>} className="release-detail">
             <div className="release-meta"><span><b>{detail.created_at ? new Date(detail.created_at).toLocaleString() : '—'}</b>{t('创建时间')}</span><span><b>{detail.updated_at ? new Date(detail.updated_at).toLocaleString() : '—'}</b>{t('最近更新')}</span><span><b>{Object.keys(detail.platforms || {}).length + Object.keys(detail.installers || {}).length}</b>{t('已存产物')}</span></div>
+            {detail.source && <div className="release-provenance"><span>{t('同步来源')}</span><strong>{t(releaseSourceLabel(detail.source))}</strong><code>{detail.source.repository || detail.source.base_url || detail.source.revision || t('上游来源')}{detail.source.tag ? ` · ${detail.source.tag}` : ''}</code></div>}
             <div className="release-asset-grid"><ReleaseAssetLane version={detail.version} title="自动更新包" note="带签名，进入 latest.json" assets={detail.platforms} /><ReleaseAssetLane version={detail.version} title="安装包" note="供首次安装或手动重装" assets={detail.installers} /></div>
           </Panel>
-          <Panel title="追加或替换产物" note="拖入 GitHub artifact ZIP 或散文件；识别结果可在上传前修正。" className="release-upload-panel">
-            <label className={'release-dropzone ' + (dragging ? 'dragging ' : '') + (parsing ? 'busy' : '')} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (event.currentTarget === event.target) setDragging(false); }} onDrop={event => { event.preventDefault(); setDragging(false); void addFiles(Array.from(event.dataTransfer.files)); }}><CloudUpload size={25} /><span><b>{parsing ? t('正在读取产物…') : t('拖入 artifact ZIP 或点击选择文件')}</b><small>{t('自动匹配版本、平台、产物类型和同名 .sig')}</small></span><input type="file" multiple accept=".zip,.sig,.exe,.dmg,.appimage,.deb,.rpm,.msi,.gz" disabled={parsing} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ''; }} /></label>
+          <Panel title="追加或替换产物" note="拖入 CI/发布产物 ZIP 或散文件；识别结果可在上传前修正。" className="release-upload-panel">
+            <label className={'release-dropzone ' + (dragging ? 'dragging ' : '') + (parsing ? 'busy' : '')} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (event.currentTarget === event.target) setDragging(false); }} onDrop={event => { event.preventDefault(); setDragging(false); void addFiles(Array.from(event.dataTransfer.files)); }}><CloudUpload size={25} /><span><b>{parsing ? t('正在读取产物…') : t('拖入产物 ZIP 或点击选择文件')}</b><small>{t('自动匹配版本、平台、产物类型和同名 .sig')}</small></span><input type="file" multiple accept=".zip,.sig,.exe,.dmg,.appimage,.deb,.rpm,.msi,.gz" disabled={parsing} onChange={event => { void addFiles(Array.from(event.target.files || [])); event.target.value = ''; }} /></label>
             {queued.length ? <div className="release-queue">
               <header><div><FileArchive size={16} /><span>{t('{{files}} 个文件 · {{assets}} 个产物', { files: queued.length, assets: pending.rows.length })}</span></div><button className="ghost mini" onClick={() => { setQueued([]); setOverrides({}); setUploadStates({}); }}>{t('清空队列')}</button></header>
               {versionError && <div className="notice error"><TriangleAlert size={15} /><span>{versionError}</span></div>}

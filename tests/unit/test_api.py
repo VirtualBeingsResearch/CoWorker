@@ -1376,3 +1376,68 @@ class TestDesktopUpdatesAPI:
 
         traversal = client.get("/api/desktop-updates/assets/0.2.0/..%2Fsecret.txt")
         assert traversal.status_code in {400, 404, 422}
+
+    def test_semver_prerelease_precedence_and_release_order(self, client, monkeypatch, tmp_path):
+        headers = _desktop_update_env(monkeypatch, tmp_path)
+        for version in ("0.9.0", "0.10.0", "1.0.0-rc.1"):
+            create = client.post(
+                "/api/desktop-updates/releases",
+                json={"version": version},
+                headers=headers,
+            )
+            assert create.status_code == 200
+
+        release_list = client.get("/api/desktop-updates/releases", headers=headers)
+        assert [item["version"] for item in release_list.json()["releases"]] == [
+            "1.0.0-rc.1",
+            "0.10.0",
+            "0.9.0",
+        ]
+
+        upload = client.post(
+            "/api/desktop-updates/releases/1.0.0-rc.1/assets",
+            headers=headers,
+            data={"platform": "windows-x86_64", "signature": "rc-sig"},
+            files={"file": ("Coworker.exe", b"rc-binary", "application/octet-stream")},
+        )
+        assert upload.status_code == 200
+        draft_filename = upload.json()["platforms"]["windows-x86_64"]["file"]
+        installer = client.post(
+            "/api/desktop-updates/releases/1.0.0-rc.1/assets",
+            headers=headers,
+            data={"platform": "linux-x86_64", "kind": "installer"},
+            files={"file": ("coworker.deb", b"installer", "application/octet-stream")},
+        )
+        assert installer.status_code == 200
+        installer_filename = installer.json()["installers"]["linux-x86_64"]["file"]
+        draft_url = f"/api/desktop-updates/assets/1.0.0-rc.1/{draft_filename}"
+        installer_url = f"/api/desktop-updates/assets/1.0.0-rc.1/{installer_filename}"
+        assert client.get(draft_url).status_code == 404
+        assert client.get(draft_url, headers=headers).status_code == 200
+        assert client.post(
+            "/api/desktop-updates/releases/1.0.0-rc.1/publish",
+            headers=headers,
+            json={"platforms": ["windows-x86_64"]},
+        ).status_code == 200
+        assert client.get(draft_url).status_code == 200
+        assert client.get(installer_url).status_code == 200
+        assert client.get("/api/desktop-updates/windows/x86_64/1.0.0-beta.1").status_code == 200
+        assert client.get("/api/desktop-updates/windows/x86_64/1.0.0").status_code == 204
+
+        assert client.post(
+            "/api/desktop-updates/releases",
+            json={"version": "1.0.0"},
+            headers=headers,
+        ).status_code == 200
+        assert client.post(
+            "/api/desktop-updates/releases/1.0.0/assets",
+            headers=headers,
+            data={"platform": "windows-x86_64", "signature": "stable-sig"},
+            files={"file": ("Coworker-stable.exe", b"stable", "application/octet-stream")},
+        ).status_code == 200
+        assert client.post(
+            "/api/desktop-updates/releases/1.0.0/publish", headers=headers
+        ).status_code == 200
+        stable = client.get("/api/desktop-updates/windows/x86_64/1.0.0-rc.1")
+        assert stable.status_code == 200
+        assert stable.json()["version"] == "1.0.0"

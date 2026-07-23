@@ -6,6 +6,7 @@ alarm_manager_not_ready = "闹钟管理器尚未就绪"
 task_store_not_ready = "任务存储尚未就绪"
 bubble_store_not_ready = "Bubble 存储尚未就绪"
 communicate_tool_not_ready = "通信工具尚未就绪"
+desktop_update_sync_not_ready = "桌面更新同步服务尚未就绪"
 loader_not_ready = "{{kind}} loader 尚未就绪"
 
 [api.auth]
@@ -92,6 +93,9 @@ asset_empty = "资源文件为空"
 update_asset_missing = "桌面更新资源不存在"
 legacy_bridge_removed = "codex-bridge 协议已不再支持"
 connection_rejected = "连接被拒绝：'{{participant}}' 已有活跃的 SSE/WS 连接。同名连接按先到先得处理；请关闭已有连接后重试，或使用不同的 participant_id。"
+sync_disabled = "桌面更新同步未启用"
+sync_repository_unconfigured = "尚未配置 GitHub 上游仓库"
+feed_disabled = "桌面更新发布 feed 未启用"
 
 [api.message]
 legacy_bridge_unsupported = "不支持旧版 Codex Bridge 消息"

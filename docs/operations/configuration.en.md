@@ -130,6 +130,13 @@ language-transition system notice when it detects a locale change.
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | Typed JSON override layer saved by the administration page, with higher priority than `.env`; non-hot-reload settings take effect after a restart |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Storage directory for Desktop update releases and assets |
 | `DESKTOP_UPDATES__ADMIN_TOKEN` | Empty | Bearer token for the Desktop update administration API |
+| `DESKTOP_UPDATES__SYNC_SOURCES` | `[]` | JSON array of upstream source instances. Each item has a stable `id`, display `name`, and `type`; multiple GitHub repositories and multiple Coworker instances are supported |
+| `DESKTOP_UPDATES__SYNC_ACTIVE_SOURCE` | Empty | UUID of the active source; empty disables synchronization. Only one active source runs at a time |
+| `DESKTOP_UPDATES__FEED_TOKEN` | Empty | Independent token that lets other Coworker instances sync from this instance's published release feed; empty means the feed endpoint is closed, and it is not the administrator token |
+| `DESKTOP_UPDATES__SYNC_INTERVAL_SECONDS` | `21600` | Upstream check interval, from 300 to 604800 seconds |
+| `DESKTOP_UPDATES__SYNC_ON_START` | `true` | Run one upstream check when the service starts |
+| `DESKTOP_UPDATES__SYNC_MAX_ASSET_BYTES` | `2147483648` | Maximum bytes allowed for one downloaded asset |
+| `DESKTOP_UPDATES__SYNC_MAX_RUN_BYTES` | `4294967296` | Maximum total bytes allowed for one synchronization run |
 | `WECOM__ENABLED` | `false` | Whether to enable the WeCom intelligent-bot WebSocket connection |
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |

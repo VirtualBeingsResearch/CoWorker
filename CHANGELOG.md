@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely
 - ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects
 - ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - fix(admin): show model-switch errors in the management console
