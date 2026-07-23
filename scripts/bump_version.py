@@ -179,6 +179,25 @@ def upsert_changelog_section(text: str, version: str, body: str) -> str:
     return (f"# Changelog\n\n{section}" + text.lstrip("\n")).rstrip() + "\n"
 
 
+def finalize_changelog_section(text: str, version: str, released_on: str) -> str:
+    heading_re = re.compile(
+        rf"^(##[ \t]+{re.escape(version)}[ \t]+-[ \t]+)Unreleased[ \t]*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    finalized = heading_re.sub(rf"\g<1>{released_on}", text, count=1)
+    if finalized != text:
+        return finalized
+
+    finalized_heading_re = re.compile(
+        rf"^##[ \t]+{re.escape(version)}[ \t]+-[ \t]+{re.escape(released_on)}[ \t]*$",
+        re.MULTILINE,
+    )
+    if finalized_heading_re.search(text):
+        return text
+
+    raise ValueError(f"no unreleased changelog section found for {version}")
+
+
 def ensure_changelog(version: str, root: Path = ROOT) -> None:
     path = root / "CHANGELOG.md"
     if not path.exists():

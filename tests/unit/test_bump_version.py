@@ -139,6 +139,20 @@ def test_upsert_changelog_section_fills_empty_generic_unreleased_body() -> None:
     )
 
 
+def test_finalize_changelog_section_replaces_version_unreleased_heading() -> None:
+    text = "# Changelog\n\n## Unreleased\n\n## 0.2.0 - Unreleased\n\n- Fixed.\n"
+
+    assert bump_version.finalize_changelog_section(text, "0.2.0", "2026-07-23") == (
+        "# Changelog\n\n## Unreleased\n\n## 0.2.0 - 2026-07-23\n\n- Fixed.\n"
+    )
+
+
+def test_finalize_changelog_section_is_idempotent_for_release_date() -> None:
+    text = "# Changelog\n\n## 0.2.0 - 2026-07-23\n\n- Fixed.\n"
+
+    assert bump_version.finalize_changelog_section(text, "0.2.0", "2026-07-23") == text
+
+
 def test_normalize_changelog_subject_filters_release_noise() -> None:
     assert (
         bump_version.normalize_changelog_subject(

@@ -27,6 +27,7 @@ jobs:
     permissions:
       actions: write
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout selected ref
@@ -78,6 +79,50 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag --annotate "$RELEASE_TAG" "$RELEASE_SHA" --message "CoWorker $VERSION"
           git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Open changelog finalization pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+          RELEASE_BRANCH: chore/finalize-release-${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.commit_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::Missing RELEASE_PR_TOKEN. Configure a token with Pull requests: write for this repository."
+            exit 1
+          fi
+
+          git fetch origin main
+          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null; then
+            echo "A changelog finalization branch already exists for $RELEASE_TAG; reusing it."
+            exit 0
+          fi
+
+          git switch --create "$RELEASE_BRANCH" "$RELEASE_SHA"
+          release_date="$(date -u +%F)"
+          python scripts/finalize_changelog.py "$VERSION" --date "$release_date"
+          git add CHANGELOG.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs(release): finalize $RELEASE_TAG changelog"
+          git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
+
+          pr_body="$(printf '## Summary\n\n- mark `%s` as released on %s in CHANGELOG.md\n\n## Validation\n\n- `python scripts/finalize_changelog.py %s --date %s`\n' \
+            "$VERSION" \
+            "$release_date" \
+            "$VERSION" \
+            "$release_date")"
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$RELEASE_BRANCH" \
+            --title "docs(release): finalize $RELEASE_TAG changelog" \
+            --body "$pr_body"
 
       - name: Start desktop and container releases
         shell: bash

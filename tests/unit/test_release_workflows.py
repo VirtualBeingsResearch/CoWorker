@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,8 +23,16 @@ def test_prepare_release_bumps_version_and_opens_a_pull_request() -> None:
 def test_manual_release_creates_a_tag_and_dispatches_both_release_workflows() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 
+    yaml.safe_load(workflow)
     assert 'description: "Release tag to create (for example v0.3.2)"' in workflow
     assert 'git tag --annotate "$RELEASE_TAG"' in workflow
+    assert "Open changelog finalization pull request" in workflow
+    assert "python scripts/finalize_changelog.py" in workflow
+    assert "RELEASE_PR_TOKEN" in workflow
+    assert "pull-requests: write" in workflow
+    assert "gh pr create" in workflow
+    assert 'release_date="$(date -u +%F)"' in workflow
+    assert '--body "$pr_body"' in workflow
     assert "gh workflow run coworker-desktop-release.yml" in workflow
     assert "gh workflow run container-release.yml" in workflow
     assert '--ref "$RELEASE_TAG"' in workflow
