@@ -3,7 +3,7 @@
 Wraps :class:`WeComRunner` (WS lifecycle, outbound send, contacts). Outbound
 routing uses the runner's ``sender``/``checker``; ``list_connections`` exposes
 known WeCom group chats and single-chat users (the user-requested visibility
-into WeCom reachables), with ``active`` reflecting a recent inbound frame.
+into WeCom reachables), including the latest send and receive times.
 """
 
 from __future__ import annotations
@@ -36,12 +36,16 @@ class WeComChannel(InlineChannel):
         for chat_id, chat_type in self._runner._contacts.items():
             item = self._runner._frame_cache.get(chat_id)
             active = item is not None and now < item[1]
+            participant_id = f"wecom:{chat_type}:{chat_id}"
+            last_sent_at, last_received_at = self._runner.activity_for(participant_id)
             out.append(
                 ConnectionInfo(
-                    participant_id=f"wecom:{chat_type}:{chat_id}",
+                    participant_id=participant_id,
                     channel="wecom",
                     kind=f"wecom:{chat_type}",
                     active=active,
+                    last_sent_at=last_sent_at,
+                    last_received_at=last_received_at,
                 )
             )
         return out

@@ -36,6 +36,8 @@ class ConnectionInfo:
     kind: str  # "websocket" / "sse" / "wecom:single" / "wecom:group" / "desktop:actor"
     display_name: str = ""
     active: bool = False  # online now (stream WS/SSE) vs known-reachable (wecom/desktop)
+    last_sent_at: str | None = None
+    last_received_at: str | None = None
 
 
 class ParticipantIdResolutionError(ValueError):

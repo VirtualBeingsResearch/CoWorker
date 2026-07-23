@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -72,6 +73,8 @@ class WeComRunner:
         self._contacts_path = contacts_path
         self._client: Any = None  # WSClient, lazy-imported
         self._frame_cache: dict[str, tuple[dict[str, Any], float]] = {}
+        self._last_sent_at: dict[str, str] = {}
+        self._last_received_at: dict[str, str] = {}
         # Persistent chat_id -> chat_type ("single"/"group") mapping.
         self._contacts: dict[str, str] = ContactsStore.load(self._contacts_path)
         self._sender = WeComSender(lambda: self._client, self._take_fresh_frame)
@@ -158,6 +161,7 @@ class WeComRunner:
         # Cache keyed by participant_id so send() can look up by chat_id later.
         chat_type, chat_id = adapter.parse_participant(participant_id)
         self._frame_cache[chat_id] = (frame, time.monotonic() + _FRAME_TTL)
+        self._last_received_at[chat_id] = datetime.now().astimezone().isoformat(timespec="seconds")
         if self._contacts.get(chat_id) != chat_type:
             self._contacts[chat_id] = chat_type
             ContactsStore.save(self._contacts_path, self._contacts)
@@ -186,6 +190,13 @@ class WeComRunner:
         attachments: list[dict[str, Any]],
     ) -> None:
         await self._sender.send(participant_id, message, attachments)
+        _, chat_id = adapter.parse_participant(participant_id)
+        self._last_sent_at[chat_id] = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
+        """Return the latest successful outbound and inbound times for a chat."""
+        _, chat_id = adapter.parse_participant(participant_id)
+        return self._last_sent_at.get(chat_id), self._last_received_at.get(chat_id)
 
     # ── adapter for CommunicateTool ──────────────────────────────────────
 

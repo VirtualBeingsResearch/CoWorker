@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import pytest
+
+from coworker.channels.base import ConnectionInfo
+from coworker.tools.communicate_tool import ListConnectionTool
+
+
+class _Communicate:
+    def list_connections(self) -> list[ConnectionInfo]:
+        return [
+            ConnectionInfo(
+                participant_id="wecom:single:U123",
+                channel="wecom",
+                kind="wecom:single",
+                active=True,
+                last_sent_at="2026-07-23T10:20:30+08:00",
+                last_received_at="2026-07-23T10:19:00+08:00",
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_list_connections_shows_activity_times_without_status_label():
+    result = await ListConnectionTool(_Communicate()).execute()
+
+    assert result.is_error is False
+    assert "最近发送：2026-07-23T10:20:30+08:00" in result.content
+    assert "最近接收：2026-07-23T10:19:00+08:00" in result.content
+    assert "[wecom:single, active]" not in result.content

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.channels.wecom.sender import split_markdown as _split_markdown
 from coworker.core.config import WeComConfig
@@ -95,6 +96,21 @@ async def test_send_uses_reply_stream_when_frame_cached(tmp_path):
 
     runner._client.reply_stream.assert_awaited_once()
     runner._client.send_message.assert_not_called()
+    sent_at, received_at = runner.activity_for("wecom:single:U123")
+    assert sent_at is not None
+    assert received_at is not None
+
+
+def test_channel_lists_latest_activity_times(tmp_path):
+    runner = _make_runner(tmp_path)
+    runner._contacts["U123"] = "single"
+    runner._cache_frame("wecom:single:U123", _frame_single())
+
+    info = WeComChannel(runner).list_connections()[0]
+
+    assert info.active is True
+    assert info.last_sent_at is None
+    assert info.last_received_at is not None
 
 
 @pytest.mark.asyncio
@@ -227,6 +243,7 @@ async def test_sender_catches_errors(tmp_path):
     )
     assert result.is_error is True
     assert "boom" in result.content
+    assert runner.activity_for("wecom:single:U777")[0] is None
 
 
 @pytest.mark.asyncio
