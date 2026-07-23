@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -159,25 +159,90 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const catalogs = data.providers || [];
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
-  const models = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
   const preferredModel = preferredModelFor(providerType, models);
   const [model, setModel] = useState(preferredModel);
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [name, setName] = useState('');
+  const [locale, setLocale] = useState(data.defaults?.locale === 'en' ? 'en' : 'zh-CN');
+  const [maxTokens, setMaxTokens] = useState(String(data.defaults?.max_tokens || 8192));
+  const [passiveMode, setPassiveMode] = useState(Boolean(data.defaults?.passive_mode));
+  const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelFilter, setModelFilter] = useState<string | null>(null);
+  const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
+  const modelComboboxRef = useRef<HTMLDivElement | null>(null);
+  const modelOptionRefs = useRef<Array<HTMLLIElement | null>>([]);
+  const submitInFlight = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'form' | 'restarting'>('form');
+  const normalizedModel = model.trim();
+  const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
+  const parsedMaxTokens = Number(maxTokens);
+  const validMaxTokens = Number.isInteger(parsedMaxTokens) && parsedMaxTokens > 0;
+  const modelListboxId = `bootstrap-model-listbox-${providerType}`;
+  const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
+  const filteredModels = useMemo(() => {
+    if (modelFilter === null) return models;
+    const filter = modelFilter.toLowerCase();
+    return models.filter(item => item.toLowerCase().includes(filter));
+  }, [modelFilter, models]);
+
+  const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
+  const openAllModels = () => {
+    const selectedIndex = models.findIndex(item => item === normalizedModel);
+    setModelFilter(null);
+    setHighlightedModelIndex(selectedIndex);
+    setModelMenuOpen(true);
+  };
+  const chooseRecommendedModel = (value: string) => {
+    setModel(value);
+    setAllowUnverifiedModel(false);
+    closeModelMenu();
+  };
+  const changeProvider = (nextProvider: string) => {
+    const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
+    setProviderType(nextProvider);
+    setModel(preferredModelFor(nextProvider, nextModels));
+    setAllowUnverifiedModel(false);
+    closeModelMenu();
+  };
+  const moveHighlight = (direction: 1 | -1) => {
+    if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
+    setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
+  };
+  const handleModelKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
+    else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
+    else if (event.key === 'Escape' && modelMenuOpen) { event.preventDefault(); closeModelMenu(); }
+    else if (event.key === 'Tab') closeModelMenu();
+  };
 
   useEffect(() => {
-    const nextModels = catalogs.find((item: Json) => item.type === providerType)?.models || [];
-    setModel(preferredModelFor(providerType, nextModels));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerType]);
+    if (!modelMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !modelComboboxRef.current?.contains(target)) closeModelMenu();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedModelIndex, filteredModels]);
 
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setError('');
+    event.preventDefault();
+    if (submitInFlight.current) return;
+    submitInFlight.current = true;
+    setSubmitting(true);
+    setError('');
     try {
-      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model, api_key: apiKey, base_url: baseUrl, coworker_name: name }) });
+      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model: normalizedModel, api_key: apiKey, base_url: baseUrl, coworker_name: name, locale, max_tokens: parsedMaxTokens, passive_mode: passiveMode, allow_unverified_model: customModel && allowUnverifiedModel }) });
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
       const waitUntilReady = async () => {
@@ -191,7 +256,11 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         setError(t('配置已经保存，但服务仍在重启。请稍后刷新页面。'));
       };
       void waitUntilReady();
-    } catch (e) { setError(e instanceof Error ? e.message : t('初始化失败')); }
+    } catch (e) {
+      submitInFlight.current = false;
+      setSubmitting(false);
+      setError(e instanceof Error ? e.message : t('初始化失败'));
+    }
   };
 
   return <main className="admin-login admin-bootstrap">
@@ -213,14 +282,30 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
-              <label><span>{t('服务类型')}</span><select value={providerType} onChange={e => setProviderType(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <label><span>{t('启动模型')}</span><select value={model} onChange={e => setModel(e.target.value)}>{models.map((item: string) => <option value={item} key={item}>{item}</option>)}</select></label>
+              <label><span>{t('服务类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
+              <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
+                <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
+                <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
+                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); setAllowUnverifiedModel(false); }} placeholder={t('选择推荐模型或输入模型 ID')} />
+                  {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
+                    {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
+                  </ul>}
+                </div>
+              </div>
+              <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
+              <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
+              <div className="bootstrap-mode wide" role="radiogroup" aria-label={t('启动模式')}>
+                <span>{t('启动模式')}</span>
+                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><b>{t('主动模式')}</b><small>{t('空闲后会周期性自我唤醒并继续观察。')}</small></button>
+                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><b>{t('Passive 模式')}</b><small>{t('空闲后只等待外部消息、闹钟或任务事件唤醒。')}</small></button>
+              </div>
               <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
               <label className="wide"><span>{t('给 Coworker 起个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('之后也可以在身份档案中修改')} /></label>
             </div>
+            {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={!apiKey.trim() || !model}>{t('保存并唤醒')} <ChevronRight size={16} /></button>
+            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : '保存并唤醒')} <ChevronRight size={16} /></button>
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -548,7 +633,7 @@ function Settings() {
   const [draft, setDraft] = useState<Json | null>(null);
   const [group, setGroup] = useState(() => new URLSearchParams(window.location.search).get('group') || 'llm');
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [desktopValidationError, setDesktopValidationError] = useState('');
   useEffect(() => { if (data) setDraft(structuredClone(data.config)); }, [data]);
   if (loading || !data || !draft) return <Loading error={error} />;
@@ -570,20 +655,29 @@ function Settings() {
     setDraft({ ...draft, llm: { ...draft.llm, managed_providers: providers } });
   };
   const save = async () => {
-    if (group === 'desktop_updates' && desktopValidationError) { setMessage(desktopValidationError); return; }
+    if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return; }
     const beforeGroup = structuredClone(data.config?.[group] || {});
     const afterGroup = structuredClone(draft[group] || {});
-    const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
-    const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: afterGroup }, secrets }) });
-    const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
-    const savedMessage = hotCount && restartCount
-      ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
-      : hotCount
-        ? t('已保存，{{count}} 项修改已立即生效。', { count: hotCount })
-        : restartCount
-          ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
-          : t('配置没有变化。');
-    setSecretInputs({}); setMessage(group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage); await reload();
+    const maxTokensValue = Number(draft.llm?.max_tokens);
+    if (group === 'llm' && (!Number.isInteger(maxTokensValue) || maxTokensValue <= 0)) {
+      setMessage({ kind: 'error', text: t('单次输出上限必须是正整数。') });
+      return;
+    }
+    try {
+      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
+      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: afterGroup }, secrets }) });
+      const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
+      const savedMessage = hotCount && restartCount
+        ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
+        : hotCount
+          ? t('已保存，{{count}} 项修改已立即生效。', { count: hotCount })
+          : restartCount
+            ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
+            : t('配置没有变化。');
+      setSecretInputs({}); setMessage({ kind: 'success', text: group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage }); await reload();
+    } catch (saveError) {
+      setMessage({ kind: 'error', text: saveError instanceof Error ? saveError.message : t('保存失败') });
+    }
   };
   const isHot = (path: string) => (data.hot_reloadable || []).some((item: string) => path === item || path.startsWith(`${item}.`));
   const adminToken = data.secret_status['admin.token'];
@@ -624,12 +718,12 @@ function Settings() {
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
         if (data.secret_status[path]) { const status = data.secret_status[path]; return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={status.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入新值')} /></Field>; }
         if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
-        if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} step="any" onChange={e => change(key, Number(e.target.value))} /></Field>;
+        if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} min={path === 'llm.max_tokens' ? 1 : undefined} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
-      })}</div></>}
-      {message && <div className="notice success">{message}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(''); }}>{t('重置本页')}</button></div></>}
+      })}</div>
+      {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
+      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}</>}
     </Panel>
   </div>;
 }

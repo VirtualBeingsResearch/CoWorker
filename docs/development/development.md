@@ -38,7 +38,7 @@ Debian/Ubuntu 如果缺少浏览器系统库，使用
 
 ### Explore Lab
 
-Explore Lab 的后端可以直接托管前端构建产物，日常使用只需要启动后端：
+Explore Lab 的后端可以直接托管前端构建产物，日常使用只需要启动后端。分支运行时使用模拟通信对象（默认 `explore_lab`）：`communicate` 只把出站消息记录到分支状态，不会投递到外部；`list_connections` 会将这些模拟对象显示为活跃连接。
 
 ```bash
 # 1. 安装依赖并构建前端静态资源

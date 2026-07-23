@@ -35,7 +35,7 @@ On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` if the
 
 ### Explore Lab
 
-The Explore Lab backend can serve the frontend build directly. Normal use requires starting only the backend after building the UI:
+The Explore Lab backend can serve the frontend build directly. Branch runtimes use virtual communication participants (`explore_lab` by default): `communicate` records outbound messages in branch state without external delivery, and `list_connections` reports those virtual participants as active connections. Normal use requires starting only the backend after building the UI:
 
 ```bash
 # 1. Install dependencies and build the frontend assets

@@ -42,7 +42,7 @@ export function BranchDetail({ branch, onForked, onBranchPatched }: Props) {
   const [label, setLabel] = useState(branch.label);
   const [note, setNote] = useState(branch.note);
   const [forkLabel, setForkLabel] = useState('');
-  const [wsConnectionsText, setWsConnectionsText] = useState('');
+  const [virtualConnectionsText, setVirtualConnectionsText] = useState('');
 
   useEffect(() => {
     setRuntimeBranch(branch);
@@ -94,10 +94,10 @@ export function BranchDetail({ branch, onForked, onBranchPatched }: Props) {
   };
 
   useEffect(() => {
-    if (state?.ws_connections) {
-      setWsConnectionsText(state.ws_connections.join('\n'));
+    if (state?.virtual_connections) {
+      setVirtualConnectionsText(state.virtual_connections.join('\n'));
     }
-  }, [state?.ws_connections?.join('\n')]);
+  }, [state?.virtual_connections?.join('\n')]);
 
   const run = async (fn: () => Promise<unknown>, refreshState = false) => {
     setBusy(true);
@@ -265,10 +265,10 @@ export function BranchDetail({ branch, onForked, onBranchPatched }: Props) {
             </button>
           </div>
 
-          <h3>模拟连接</h3>
+          <h3>虚拟连接</h3>
           <textarea
-            value={wsConnectionsText}
-            onChange={e => setWsConnectionsText(e.target.value)}
+            value={virtualConnectionsText}
+            onChange={e => setVirtualConnectionsText(e.target.value)}
             rows={3}
             placeholder="每行一个 participant_id"
           />
@@ -279,7 +279,7 @@ export function BranchDetail({ branch, onForked, onBranchPatched }: Props) {
                 run(
                   () =>
                     api.patchConfig(controlPort, {
-                      ws_connections: wsConnectionsText
+                      virtual_connections: virtualConnectionsText
                         .split(/\r?\n/)
                         .map(item => item.trim())
                         .filter(Boolean),
@@ -288,7 +288,7 @@ export function BranchDetail({ branch, onForked, onBranchPatched }: Props) {
                 )
               }
             >
-              保存连接
+              保存虚拟连接
             </button>
           </div>
           {state?.outbound_messages && state.outbound_messages.length > 0 && (

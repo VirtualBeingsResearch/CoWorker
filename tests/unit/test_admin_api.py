@@ -7,8 +7,14 @@ from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from coworker.__main__ import _print_setup_admin_token
 from coworker.api import admin
-from coworker.core.config import Config, apply_admin_config_file, ensure_admin_token
+from coworker.core.config import (
+    Config,
+    apply_admin_config_file,
+    effective_admin_token,
+    ensure_admin_token,
+)
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
@@ -31,11 +37,12 @@ def _client(
         {
             "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
             "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
+            "memory": {"db_path": str(tmp_path / "memory")},
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
         }
     )
-    agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda: None)
+    agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda reason="normal": None)
     brain = SimpleNamespace(
         active_provider=object(),
         current_provider_name="openai",
@@ -57,6 +64,15 @@ def _client(
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
+
+
+def test_setup_admin_refreshes_config_lock_for_each_runtime(tmp_path):
+    _client(tmp_path / "first")
+    first_lock = admin._config_write_lock
+
+    _client(tmp_path / "second")
+
+    assert admin._config_write_lock is not first_lock
 
 
 def test_admin_requires_bearer_token(tmp_path):
@@ -238,7 +254,9 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     headers = {"Authorization": "Bearer secret"}
     built: list[str] = []
 
-    def fake_build_provider(type_, api_key, *, base_url=None, name=None, default_model=None):
+    def fake_build_provider(
+        type_, api_key, *, base_url=None, name=None, default_model=None, tool_use_models=None
+    ):
         built.append(str(name or type_))
         return SimpleNamespace(provider_name=name or type_)
 
@@ -363,7 +381,51 @@ def test_first_run_admin_token_is_generated_and_preserves_overrides(tmp_path):
     assert ensure_admin_token(config) is None
 
 
-def test_bootstrap_persists_first_provider_and_requests_restart(tmp_path):
+def test_effective_admin_token_prefers_admin_and_falls_back_to_desktop(tmp_path):
+    config = Config.model_validate(
+        {
+            "admin": {"token": "admin-token", "config_file": str(tmp_path / "admin.json")},
+            "desktop_updates": {"admin_token": "legacy-token"},
+        }
+    )
+    assert effective_admin_token(config) == "admin-token"
+    assert ensure_admin_token(config) is None
+
+    config.admin.token = ""
+    assert effective_admin_token(config) == "legacy-token"
+    assert ensure_admin_token(config) is None
+
+    config.desktop_updates.admin_token = ""
+    assert effective_admin_token(config) == ""
+
+
+def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsys):
+    config = Config.model_validate(
+        {
+            "admin": {"token": "saved-token", "config_file": str(tmp_path / "admin.json")},
+            "api": {"port": 8123},
+        }
+    )
+
+    with locale_context("en"):
+        _print_setup_admin_token(config)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "saved-token" in captured.err
+    assert "http://127.0.0.1:8123/admin" in captured.err
+
+    config.admin.token = ""
+    config.desktop_updates.admin_token = "legacy-token"
+    _print_setup_admin_token(config)
+    assert "legacy-token" in capsys.readouterr().err
+
+    config.desktop_updates.admin_token = ""
+    _print_setup_admin_token(config)
+    assert capsys.readouterr().err == ""
+
+
+def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     client, config = _client(tmp_path)
     admin._brain.active_provider = None
     admin._agent._identity._dir = tmp_path / "identity"
@@ -373,6 +435,11 @@ def test_bootstrap_persists_first_provider_and_requests_restart(tmp_path):
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
+    assert status.json()["defaults"] == {
+        "locale": "zh-CN",
+        "max_tokens": 8192,
+        "passive_mode": False,
+    }
     assert {item["type"] for item in status.json()["providers"]} >= {"openai", "deepseek"}
 
     response = client.post(
@@ -384,6 +451,9 @@ def test_bootstrap_persists_first_provider_and_requests_restart(tmp_path):
             "api_key": "sk-first-run",
             "base_url": "https://example.test/v1",
             "coworker_name": "Nova",
+            "locale": "en",
+            "max_tokens": 4096,
+            "passive_mode": True,
         },
     )
 
@@ -391,25 +461,152 @@ def test_bootstrap_persists_first_provider_and_requests_restart(tmp_path):
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved["llm"]["default_provider"] == "openai"
     assert saved["llm"]["default_model"] == "gpt-5.2"
+    assert saved["llm"]["max_tokens"] == 4096
     assert saved["llm"]["managed_providers"][0]["api_key"] == "sk-first-run"
     assert saved["memory"]["mem0_llm_provider"] == "openai"
-    assert "agent" not in saved
+    assert saved["i18n"]["locale"] == "en"
+    assert saved["agent"]["passive_mode"] is True
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"
+    intent = json.loads(
+        (tmp_path / "memory" / "startup_intent.json").read_text(encoding="utf-8")
+    )
+    assert intent == {
+        "version": 1,
+        "reason": "bootstrap",
+        "provider": "openai",
+        "model": "gpt-5.2",
+    }
+    assert "sk-first-run" not in json.dumps(intent)
     assert config.admin.token == "secret"
 
 
-def test_bootstrap_rejects_unknown_model_and_completed_installation(tmp_path):
+def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
     payload = {
         "provider_type": "openai",
-        "model": "not-a-model",
+        "model": "custom-tool-model",
         "api_key": "sk-test",
     }
     assert client.post("/api/admin/bootstrap", headers=headers, json=payload).status_code == 409
 
     admin._brain.active_provider = None
-    assert client.post("/api/admin/bootstrap", headers=headers, json=payload).status_code == 422
+    rejected = client.post("/api/admin/bootstrap", headers=headers, json=payload)
+    assert rejected.status_code == 422
+    assert not (tmp_path / "admin_config.json").exists()
+
+    accepted = client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**payload, "allow_unverified_model": True},
+    )
+    assert accepted.status_code == 202
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["llm"]["default_model"] == "custom-tool-model"
+    assert saved["llm"]["managed_providers"][0]["tool_use_models"] == [
+        "custom-tool-model"
+    ]
+    assert saved["llm"]["max_tokens"] == 8192
+    assert saved["i18n"]["locale"] == "zh-CN"
+    blocked_patch = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"llm": {"default_model": "gpt-5.2"}}},
+    )
+    assert blocked_patch.status_code == 409
+
+
+def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+    admin._agent._identity._dir = tmp_path / "identity"
+
+    def fail_identity_load():
+        raise RuntimeError("identity load failed")
+
+    admin._agent._identity.load = fail_identity_load
+
+    try:
+        client.post(
+            "/api/admin/bootstrap",
+            headers={"Authorization": "Bearer secret"},
+            json={
+                "provider_type": "openai",
+                "model": "gpt-5.2",
+                "api_key": "sk-test",
+                "coworker_name": "Nova",
+            },
+        )
+    except RuntimeError as error:
+        assert str(error) == "identity load failed"
+    else:
+        raise AssertionError("bootstrap should propagate the identity failure")
+
+    assert not (tmp_path / "admin_config.json").exists()
+    assert not (tmp_path / "memory" / "startup_intent.json").exists()
+
+
+def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+
+    def fail_config_write(path, payload):
+        raise OSError("config write failed")
+
+    monkeypatch.setattr(admin, "_write_json_atomic", fail_config_write)
+    try:
+        client.post(
+            "/api/admin/bootstrap",
+            headers={"Authorization": "Bearer secret"},
+            json={
+                "provider_type": "openai",
+                "model": "gpt-5.2",
+                "api_key": "sk-test",
+            },
+        )
+    except OSError as error:
+        assert str(error) == "config write failed"
+    else:
+        raise AssertionError("bootstrap should propagate the config write failure")
+
+    assert not (tmp_path / "memory" / "startup_intent.json").exists()
+
+
+def test_bootstrap_custom_model_confirmation_does_not_trust_provider_capability(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+    response = client.post(
+        "/api/admin/bootstrap",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "anthropic",
+            "model": "future-claude-model",
+            "api_key": "sk-test",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+    headers = {"Authorization": "Bearer secret"}
+    base = {"provider_type": "openai", "model": "gpt-5.2", "api_key": "sk-test"}
+
+    assert client.post(
+        "/api/admin/bootstrap", headers=headers, json={**base, "max_tokens": 0}
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap", headers=headers, json={**base, "locale": "fr"}
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap", headers=headers, json={**base, "model": "   "}
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap", headers=headers, json={**base, "api_key": "   "}
+    ).status_code == 422
+    assert not (tmp_path / "admin_config.json").exists()
+    assert not (tmp_path / "memory" / "startup_intent.json").exists()
 
 
 def test_overview_uses_short_term_configured_token_capacity(tmp_path):

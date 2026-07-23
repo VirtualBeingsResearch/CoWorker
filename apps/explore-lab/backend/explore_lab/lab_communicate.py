@@ -3,16 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from coworker.channels.base import ConnectionInfo
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.tools.communicate_tool import CommunicateTool
 
-DEFAULT_LAB_WS_CONNECTIONS: tuple[str, ...] = ("explore_lab",)
+DEFAULT_LAB_VIRTUAL_CONNECTIONS: tuple[str, ...] = ("explore_lab",)
 
 
 class LabCommunicateTool(CommunicateTool):
     """Explore Lab communication shim.
 
-    Branches need to exercise the same communicate/list_ws_connections tools as
+    Branches need to exercise the same communicate/list_connections tools as
     production, but they should not send real external messages. This subclass
     adds configurable in-lab participants and records outbound requests for the
     control UI/API to inspect.
@@ -22,11 +23,13 @@ class LabCommunicateTool(CommunicateTool):
         self,
         outbox_dir: str,
         *,
-        virtual_connections: list[str] | tuple[str, ...] = DEFAULT_LAB_WS_CONNECTIONS,
+        virtual_connections: list[str] | tuple[str, ...] = DEFAULT_LAB_VIRTUAL_CONNECTIONS,
     ) -> None:
         super().__init__(outbox_dir)
         self._virtual_connections: set[str] = set()
         self._outbound_messages: list[dict[str, Any]] = []
+        self._virtual_last_sent_at: dict[str, str] = {}
+        self._virtual_last_received_at: dict[str, str] = {}
         self.set_virtual_connections(virtual_connections)
 
     def set_virtual_connections(self, participant_ids: list[str] | tuple[str, ...]) -> None:
@@ -35,16 +38,36 @@ class LabCommunicateTool(CommunicateTool):
             for pid in participant_ids
             if str(pid).strip()
         }
-        self._notify_connection_listeners()
 
     def virtual_connections(self) -> list[str]:
         return sorted(self._virtual_connections)
 
-    def list_connected(self) -> list[str]:
-        return sorted(set(super().list_connected()) | self._virtual_connections)
+    def list_connections(self) -> list[ConnectionInfo]:
+        infos = super().list_connections()
+        known_participants = {info.participant_id for info in infos}
+        infos.extend(
+            ConnectionInfo(
+                participant_id=participant_id,
+                channel="explore_lab",
+                kind="virtual",
+                active=True,
+                last_sent_at=self._virtual_last_sent_at.get(participant_id),
+                last_received_at=self._virtual_last_received_at.get(participant_id),
+            )
+            for participant_id in sorted(self._virtual_connections - known_participants)
+        )
+        return infos
 
     def outbound_messages(self) -> list[dict[str, Any]]:
         return list(self._outbound_messages)
+
+    def record_received(self, participant_id: str) -> None:
+        if participant_id in self._virtual_connections:
+            self._virtual_last_received_at[participant_id] = datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            )
+            return
+        super().record_received(participant_id)
 
     async def execute(
         self,
@@ -82,6 +105,9 @@ class LabCommunicateTool(CommunicateTool):
         payload = request.to_dict()
         payload["timestamp"] = datetime.now().isoformat()
         self._outbound_messages.append(payload)
+        self._virtual_last_sent_at[participant_id] = datetime.now().astimezone().isoformat(
+            timespec="seconds"
+        )
         return ToolResult(
             tool_call_id="",
             content=f"消息已发送给 Explore Lab 模拟连接 {participant_id}",

@@ -10,7 +10,3 @@ This domain describes how Coworker receives external messages, replies to partic
 
 - [API and communication channels](api-and-channels.en.md): REST, SSE, WebSocket, file messages, and direct Bubble handoff.
 - [Coworker Desktop](desktop.en.md): the desktop workspace connecting local users, Codex, and Claude Code.
-
-## Design documents
-
-- [WeCom message ordering, reliability, and concurrency design](wecom-message-ordering-and-concurrency.en.md): current-path analysis and a target design for per-conversation ordering, bounded cross-conversation concurrency, durable queues, idempotency, and exact reply correlation.

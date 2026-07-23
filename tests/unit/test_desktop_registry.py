@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
-
 from coworker.channels.desktop import DesktopRegistry
-from coworker.core.types import IncomingEvent
 from coworker.memory.short_term import ShortTermMemory
 
 
@@ -57,9 +54,7 @@ def test_snapshot_creates_actor_scoped_pin(tmp_path):
     participant = "coworker-desktop:desk-a:claude:cw:123"
     registry.update_connections({participant})
 
-    consumed = registry.intercept(
-        IncomingEvent(participant_id=participant, content=json.dumps(_snapshot()))
-    )
+    consumed = registry.ingest_snapshot(_snapshot()["payload"], participant)
 
     assert consumed is True
     assert registry.actors["desk-a:claude"].participant_id == participant
@@ -79,25 +74,12 @@ def test_disconnected_actor_is_removed_from_registry(tmp_path):
     registry = DesktopRegistry(memory, tmp_path)
     participant = "coworker-desktop:desk-a:local:cw:123"
     registry.update_connections({participant})
-    registry.intercept(
-        IncomingEvent(participant_id=participant, content=json.dumps(_snapshot("local")))
-    )
+    registry.ingest_snapshot(_snapshot("local")["payload"], participant)
 
     registry.update_connections(set())
 
     assert registry.actors == {}
     assert all(item.pin_id != "coworker_desktop_registry" for item in memory.list_pinned())
-
-
-def test_registry_does_not_consume_command_result(tmp_path):
-    # The registry only owns snapshots. command.result is the dispatcher's job:
-    # DesktopDispatcher suppresses ok:true acks (see test_desktop_dispatcher).
-    # Here we only assert the registry itself does not consume it.
-    registry = DesktopRegistry(ShortTermMemory(), tmp_path)
-    event = _snapshot()
-    event["type"] = "desktop.command.result"
-    event["payload"]["request_id"] = "request-1"
-    assert registry.intercept(IncomingEvent(participant_id="p", content=json.dumps(event))) is False
 
 
 def test_flat_legacy_conversations_are_not_rendered(tmp_path):
@@ -109,9 +91,7 @@ def test_flat_legacy_conversations_are_not_rendered(tmp_path):
         {"conversation_id": "legacy-thread", "title": "Legacy"}
     ]
 
-    assert registry.intercept(
-        IncomingEvent(participant_id="desktop", content=json.dumps(event))
-    )
+    assert registry.ingest_snapshot(event["payload"], "desktop")
     pin = next(
         item for item in memory.list_pinned() if item.pin_id == "coworker_desktop_registry"
     )

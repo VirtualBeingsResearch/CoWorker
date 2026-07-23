@@ -37,8 +37,6 @@ export type VitalsInfo = {
   skill_count?: number;
   memory_count?: number;
   inbox_pending?: number;
-  ws_connection_count?: number;
-  ws_connections?: string[];
   milestones?: Array<{
     title?: string;
     detail?: string;

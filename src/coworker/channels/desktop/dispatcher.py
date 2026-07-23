@@ -1,12 +1,10 @@
-"""Programmatic dispatch of CoWorker Desktop envelopes at the inbox boundary.
+"""Render CoWorker Desktop envelopes to agent-visible text.
 
 The desktop bridge POSTs ``DesktopEnvelopeV1`` envelopes to ``/messages``.
-``routes.py`` unwraps ``desktop.thread.event`` to plain chat text, but every
-other desktop event used to reach the agent as a ``json.dumps(envelope)``
-string that the LLM had to parse by hand.
-
-``DesktopDispatcher`` is wired as the ``InboxWatcher`` interceptor. It parses
-the envelope once and routes by ``type``:
+:class:`DesktopChannel` hands each desktop envelope to
+:mod:`coworker.channels.desktop.inbound`, which builds a typed
+``DesktopEnvelope`` structurally (no ``json.dumps``/``json.loads`` round-trip)
+and calls :meth:`DesktopDispatcher.route`, which routes by ``type``:
 
 * ``desktop.actor.snapshot``           -> delegate to ``DesktopRegistry`` (consume)
 * ``desktop.command.result`` (ok:true) -> consume (ack suppression)
@@ -14,13 +12,13 @@ the envelope once and routes by ``type``:
 * ``desktop.command.result`` (ok:false)/``desktop.error`` -> render short text (wake)
 * ``desktop.approval.requested``       -> render structured prompt + reply template (wake)
 * ``desktop.user_input.requested``     -> render questions + answers template (wake)
-* ``desktop.thread.event``             -> defensive: extract ``payload.message`` (wake)
+* ``desktop.thread.event``             -> extract ``payload.message`` (wake)
 
-Returning ``True`` consumes the event (the agent is never woken); returning
-``False`` after rewriting ``event.content`` hands the agent clean text instead
-of raw JSON. Actor-specific reply identifiers (Codex ``server_request_id`` vs
-Claude ``request_id``) are resolved here so the rendered template is always
-copy-pasteable and the skill no longer has to teach the difference.
+``route`` returns ``None`` to consume (the agent is never woken) or the final
+text to place in ``IncomingEvent.content``. Actor-specific reply identifiers
+(Codex ``server_request_id`` vs Claude ``request_id``) are resolved here so the
+rendered template is always copy-pasteable and the skill no longer has to
+teach the difference.
 
 Rendered prompts that exceed ``_FOLD_THRESHOLD`` are folded: the full text is
 persisted via ``DesktopRegistry.write_detail`` (keyed by request/message id)
@@ -35,10 +33,9 @@ import json
 from typing import Any
 
 from loguru import logger
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from coworker.channels.desktop.registry import DesktopRegistry
-from coworker.core.types import IncomingEvent
 from coworker.i18n import tr
 
 _DETAIL_LIMIT = 240
@@ -72,67 +69,44 @@ class DesktopDispatcher:
     def __init__(self, registry: DesktopRegistry) -> None:
         self._registry = registry
 
-    def __call__(self, event: IncomingEvent) -> bool:
-        envelope = self._parse(event.content)
-        if envelope is None:
-            # Plain chat text, a file attachment, or a non-desktop REST event.
-            return False
-        return self._route(event, envelope)
+    def route(self, envelope: DesktopEnvelope, participant_id: str) -> str | None:
+        """Render a desktop envelope to final agent-visible text, or None to consume.
 
-    @staticmethod
-    def _parse(content: Any) -> DesktopEnvelope | None:
-        if not isinstance(content, str) or not content:
-            return None
-        try:
-            raw = json.loads(content)
-        except (TypeError, json.JSONDecodeError):
-            return None
-        if not isinstance(raw, dict):
-            return None
-        event_type = raw.get("type")
-        if not isinstance(event_type, str) or not event_type.startswith("desktop."):
-            return None
-        try:
-            return DesktopEnvelope.model_validate(raw)
-        except ValidationError:
-            # Malformed desktop envelope: let it flow as-is rather than drop it.
-            return None
-
-    def _route(self, event: IncomingEvent, envelope: DesktopEnvelope) -> bool:
+        Replaces the old inbox-interceptor + json round-trip: the caller
+        (:class:`DesktopChannel` via :mod:`coworker.channels.desktop.inbound`) builds the envelope
+        structurally, and this returns the final text to place in
+        ``IncomingEvent.content`` (or ``None`` to consume without waking the
+        agent).
+        """
         if envelope.protocol_version not in (None, 1):
             logger.warning("Ignored unsupported CoWorker Desktop protocol envelope")
-            return True
+            return None
 
         event_type = envelope.type
         payload = envelope.payload or {}
 
         if event_type == "desktop.actor.snapshot":
-            return self._registry.ingest_snapshot(payload, event.participant_id)
+            self._registry.ingest_snapshot(payload, participant_id)
+            return None
         if event_type == "desktop.command.result":
             if payload.get("ok") is True:
-                return True
-            event.content = self._render_error(envelope, tr("channel.desktop.command_rejected"))
-            return False
+                return None
+            return self._render_error(envelope, tr("channel.desktop.command_rejected"))
         if event_type == "desktop.server_request.resolved":
-            return True
+            return None
         if event_type == "desktop.error":
-            event.content = self._render_error(envelope, tr("channel.desktop.reported_error"))
-            return False
+            return self._render_error(envelope, tr("channel.desktop.reported_error"))
         if event_type == "desktop.approval.requested":
-            event.content = self._render_approval(envelope, event)
-            return False
+            return self._render_approval(envelope, participant_id)
         if event_type == "desktop.user_input.requested":
-            event.content = self._render_user_input(envelope, event)
-            return False
+            return self._render_user_input(envelope, participant_id)
         if event_type == "desktop.thread.event":
-            # routes.py normally unwraps thread events to plain text before the
-            # interceptor runs; this only fires if a thread envelope arrived raw.
             message = payload.get("message")
             if isinstance(message, str):
-                event.content = self._maybe_fold(message, _detail_key(envelope))
-            return False
-        # Unknown desktop type: do not drop, let the agent see it as-is.
-        return False
+                return self._maybe_fold(message, _detail_key(envelope))
+            return ""
+        # Unknown desktop type: render a short summary so the agent sees something.
+        return tr("channel.desktop.unknown_event", type=event_type)
 
     # ------------------------------------------------------------------ render
 
@@ -158,7 +132,7 @@ class DesktopDispatcher:
         text = tr("channel.desktop.error", context=context, message=message)
         return self._maybe_fold(text, _detail_key(envelope))
 
-    def _render_approval(self, envelope: DesktopEnvelope, event: IncomingEvent) -> str:
+    def _render_approval(self, envelope: DesktopEnvelope, participant_id: str) -> str:
         payload = envelope.payload or {}
         actor, id_field, id_value = self._approval_identity(payload)
         tool = (
@@ -182,14 +156,14 @@ class DesktopDispatcher:
             context=context,
             tool=tool,
             detail=detail,
-            participant=event.participant_id,
+            participant=participant_id,
             conversation=conversation_id,
             accept=extra_accept,
             decline=extra_decline,
             note=note,
         )
 
-    def _render_user_input(self, envelope: DesktopEnvelope, event: IncomingEvent) -> str:
+    def _render_user_input(self, envelope: DesktopEnvelope, participant_id: str) -> str:
         payload = envelope.payload or {}
         actor, id_field, id_value = self._approval_identity(payload)
         conversation_id = self._conversation_id(envelope, payload)
@@ -205,7 +179,7 @@ class DesktopDispatcher:
                 context,
                 tr("channel.desktop.answer_each"),
             ]
-            reply_lines = self._user_input_reply_lines(event, conversation_id, id_field, id_value)
+            reply_lines = self._user_input_reply_lines(participant_id, conversation_id, id_field, id_value)
             full_text = "\n".join(
                 header + _render_question_lines(questions, with_descriptions=True) + reply_lines
             )
@@ -230,7 +204,7 @@ class DesktopDispatcher:
             "channel.desktop.input",
             context=context,
             detail=detail,
-            participant=event.participant_id,
+            participant=participant_id,
             conversation=conversation_id,
             accept=extra_accept,
             decline=extra_decline,
@@ -238,7 +212,7 @@ class DesktopDispatcher:
 
     @staticmethod
     def _user_input_reply_lines(
-        event: IncomingEvent, conversation_id: str, id_field: str, id_value: str
+        participant_id: str, conversation_id: str, id_field: str, id_value: str
     ) -> list[str]:
         answers_example = _json_extra(
             {
@@ -254,7 +228,7 @@ class DesktopDispatcher:
         return [
             tr(
                 "channel.desktop.answer_reply",
-                participant=event.participant_id,
+                participant=participant_id,
                 conversation=conversation_id,
                 answers=answers_example,
             ),

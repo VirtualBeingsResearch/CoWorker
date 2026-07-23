@@ -6,7 +6,7 @@
 - 不调用 `inbox_watcher.start()`（不做文件轮询式投递）；探索平台走 `POST /input`
   直接 `inbox_watcher.push(...)`，不需要监视 workdir 下的 inbox 目录。
 - `agent.idle_sleep_seconds` 强制置 0：分支的节奏完全由 step/resume 主动驱动。
-- communicate/list_ws_connections 在 Explore Lab 中走模拟通信信道：schema 与调用行为
+- communicate/list_connections 在 Explore Lab 中走模拟通信信道：schema 与调用行为
   保持可测，但不会真的向外部连接发消息。
 - 不做生产那套「重启悬空 tool_call 修复 + 系统重启消息」——导入的快照本来就是
   当前有效状态，不是「重启恢复」场景，只做基础的 `cleanup_incomplete_tool_calls()`。
@@ -68,7 +68,7 @@ from coworker.tools.code_tools import (
     GetCodeResultTool,
     KillCodeJobTool,
 )
-from coworker.tools.communicate_tool import ListWSConnectionsTool
+from coworker.tools.communicate_tool import ListConnectionTool
 from coworker.tools.file_tools import (
     FindFilesTool,
     GrepFilesTool,
@@ -368,7 +368,7 @@ async def assemble_runtime(workdir: Path) -> Runtime:
 
     communicate = LabCommunicateTool(config.agent.outbox_dir)
     registry.register(communicate)
-    registry.register(ListWSConnectionsTool(communicate))
+    registry.register(ListConnectionTool(communicate))
     registry.register(GetSkillTool(skill_loader, agent_state))
     registry.register(GetContextTool(brain, short_term, agent_state))
     registry.register(ManagePinnedContextTool(short_term))

@@ -10,7 +10,3 @@
 
 - [API 与通信入口](api-and-channels.md)：REST、SSE、WebSocket、文件消息和 Bubble 直接转交。
 - [Coworker Desktop](desktop.md)：连接本机用户、Codex 与 Claude Code 的桌面工作台。
-
-## 设计文档
-
-- [企微消息时序、可靠性与并发控制设计](wecom-message-ordering-and-concurrency.md)：梳理当前企微链路，定义按会话有序、跨会话受控并发、持久队列、幂等和精确回复关联的目标方案。

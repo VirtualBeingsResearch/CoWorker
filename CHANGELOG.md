@@ -3,11 +3,16 @@
 ## Unreleased
 
 - feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely
+- fix(channels): show the latest send and receive times for every listed channel in localized `list_connections` output instead of transient active/offline labels
+- refactor(channels): centralize normalized inbound event delivery through `ChannelHost` and remove WeCom Runner's direct `InboxWatcher` dependency
+- refactor(channels): route raw HTTP/WebSocket envelopes into their owning channels, which now normalize payloads, persist attachments, record receive activity, and publish inbound events
+- feat(first-run): add admin-only clean bootstrap setup with runtime language/token/passive-mode options, confirmed custom tool-capable models, setup redirects, and effective-token display while setup is incomplete
+- refactor(channels): introduce a unified `Channel`/`ChannelHost` abstraction, promote the generic WS/SSE transport to `channels/stream/` (consolidating the dual connection registry), replace `CommunicateTool.register_sender` with channel-owned routing, split `WeComRunner` into runner/sender/contacts, and split `DesktopRegistry` (detail store extracted, dead `intercept` removed). `list_ws_connections` is renamed to `list_connections` and now aggregates connections across all channels (WS/SSE streams, WeCom groups/users, Desktop actors); Explore Lab also exposes its virtual participants through the same tool and names its editable control-API field `virtual_connections`. `IncomingEvent.source` is now a plain `str`. Production wire contracts (URLs, register/SSE/WS/message shapes, participant_id assignment) are preserved; the Explore Lab control API intentionally drops its former connection-field name without an alias.
 - ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects
 - ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - fix(admin): show model-switch errors in the management console
 - fix(first-run): avoid queuing profile generation before a model is configured, clarify the setup URL, and default Compose to the published offline image
-- docs: reorganize documentation by functional domain and add a detailed WeCom ordering, reliability, and concurrency design
+- docs: reorganize documentation by functional domain
 - feat(i18n): add instance-wide `zh-CN`/`en` runtime localization for prompts, complete tool schemas, memory, Bubbles, subconscious modes, vision, notifications, Coworker-owned API messages, cataloged operational notices, and localized user-asset companions; locale changes are announced after restart
 
 ## 0.3.1 - 2026-07-20

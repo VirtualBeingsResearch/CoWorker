@@ -16,37 +16,37 @@ def _event(participant_id: str = "alice", content: str = "hello") -> IncomingEve
 
 class TestInboxWatcher:
     @pytest.mark.asyncio
-    async def test_push_and_get_pending(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_push_and_get_pending(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         await watcher.push(_event())
         events = await watcher.get_pending()
         assert len(events) == 1
         assert events[0].participant_id == "alice"
 
     @pytest.mark.asyncio
-    async def test_get_pending_empty_queue(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_get_pending_empty_queue(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         events = await watcher.get_pending()
         assert events == []
 
     @pytest.mark.asyncio
-    async def test_push_multiple_events(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_push_multiple_events(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         for i in range(5):
             await watcher.push(_event(participant_id=f"user{i}", content=f"msg{i}"))
         events = await watcher.get_pending()
         assert len(events) == 5
 
     @pytest.mark.asyncio
-    async def test_push_sets_message_event(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_push_sets_message_event(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         assert not watcher.message_event.is_set()
         await watcher.push(_event())
         assert watcher.message_event.is_set()
 
     @pytest.mark.asyncio
-    async def test_interceptors_run_in_registration_order(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_interceptors_run_in_registration_order(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         seen: list[str] = []
         watcher.set_interceptor(lambda event: seen.append("first") or False)
         watcher.add_interceptor(lambda event: seen.append("second") or False)
@@ -57,8 +57,8 @@ class TestInboxWatcher:
         assert len(await watcher.get_pending()) == 1
 
     @pytest.mark.asyncio
-    async def test_consuming_interceptor_stops_later_interceptors_and_main_inbox(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_consuming_interceptor_stops_later_interceptors_and_main_inbox(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         seen: list[str] = []
         watcher.set_interceptor(lambda event: seen.append("first") or True)
         watcher.add_interceptor(lambda event: seen.append("second") or False)
@@ -69,15 +69,15 @@ class TestInboxWatcher:
         assert await watcher.get_pending() == []
 
     @pytest.mark.asyncio
-    async def test_get_pending_clears_event_when_queue_empty(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_get_pending_clears_event_when_queue_empty(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         await watcher.push(_event())
         await watcher.get_pending()
         assert not watcher.message_event.is_set()
 
     @pytest.mark.asyncio
-    async def test_get_pending_keeps_event_set_if_queue_not_empty(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_get_pending_keeps_event_set_if_queue_not_empty(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
         await watcher.push(_event("alice"))
         await watcher.push(_event("bob"))
         # Manually drain only one item to leave one in queue
@@ -88,8 +88,8 @@ class TestInboxWatcher:
         assert not watcher.message_event.is_set()
 
     @pytest.mark.asyncio
-    async def test_message_event_wakes_up_waiter(self):
-        watcher = InboxWatcher("data/inbox")
+    async def test_message_event_wakes_up_waiter(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
 
         async def push_after_delay():
             await asyncio.sleep(0.05)
@@ -158,8 +158,8 @@ class TestInboxWatcher:
         events = await watcher.get_pending()
         assert len(events) == 0
 
-    def test_poll_interval_property(self):
-        watcher = InboxWatcher("data/inbox", poll_interval=5.0)
+    def test_poll_interval_property(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"), poll_interval=5.0)
         assert watcher.poll_interval == 5.0
         watcher.poll_interval = 30.0
         assert watcher.poll_interval == 30.0

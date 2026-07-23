@@ -190,17 +190,23 @@ class AgentLoop:
         # 唤醒 _rest() 中等待的消息事件，避免等满 idle_sleep_seconds 才退出
         self._inbox.message_event.set()
 
-    def request_restart(self) -> None:
+    async def wait_until_stopped(self) -> None:
+        """Wait for an external shutdown/restart request without starting the loop."""
+
+        await self._stop_event.wait()
+
+    def request_restart(self, reason: str = "normal") -> None:
         """由受信任的管理入口请求安全重启。
 
-        管理 API 不处在 tool-call 链中，因此保存的是结构完整的当前快照；随后让主循环
-        正常收尾，外层 ``main_sync`` 会按既有重启路径替换进程。
+        普通管理重启先保存结构完整的当前快照；首次初始化没有运行中的上下文，
+        因此只记录重启意图并唤醒外层生命周期等待器。
         """
-        if self._snapshot_path is not None:
+        if self._snapshot_path is not None and not self.state.setup_mode and reason != "bootstrap":
             self._short_term.active_provider = self._brain.current_provider_name
             self._short_term.active_model = self._brain.current_model
             self._short_term.save_to_file(self._snapshot_path)
         self.state.restart_requested = True
+        self.state.restart_reason = reason
         self.stop()
 
     async def _cycle(self) -> None:
@@ -297,6 +303,7 @@ class AgentLoop:
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
+            and self._short_term.primary
             and self._short_term.primary[-1].role != "user"
         ):
             tick_content = f"<{TICK_TAG}>"

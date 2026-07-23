@@ -39,7 +39,7 @@ def _make_brain(content: str = "ok", tool_calls=None, stop_reason: str = "end_tu
 
 def _make_runtime(tmp_path: Path, brain) -> Runtime:
     from coworker.memory.short_term import ShortTermMemory
-    from coworker.tools.communicate_tool import ListWSConnectionsTool
+    from coworker.tools.communicate_tool import ListConnectionTool
     from coworker.tools.registry import ToolRegistry
 
     mem = ShortTermMemory()
@@ -79,7 +79,7 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     communicate = LabCommunicateTool(str(tmp_path / "outbox"))
     tools = ToolRegistry()
     tools.register(communicate)
-    tools.register(ListWSConnectionsTool(communicate))
+    tools.register(ListConnectionTool(communicate))
     clear_tool = MagicMock()
     clear_tool._subconscious = None
 
@@ -333,14 +333,30 @@ class TestSystemPrompt:
 
 
 class TestLabCommunicate:
-    def test_default_ws_connection_is_visible_in_state(self, tmp_path):
+    def test_default_virtual_connection_is_visible_in_state(self, tmp_path):
         controller = _make_controller(tmp_path)
 
         snapshot = controller.state_snapshot()
 
-        assert snapshot["ws_connections"] == ["explore_lab"]
+        assert snapshot["virtual_connections"] == ["explore_lab"]
+        assert controller.runtime.communicate.list_live_stream_participant_ids() == []
         assert "communicate" not in snapshot["tool_intercepts"]
-        assert "list_ws_connections" not in snapshot["tool_intercepts"]
+        assert "list_connections" not in snapshot["tool_intercepts"]
+
+    async def test_virtual_connection_is_visible_to_list_connections(self, tmp_path):
+        controller = _make_controller(tmp_path)
+        tool_call = ToolCall(
+            id="tc-list-connections",
+            name="list_connections",
+            arguments={},
+        )
+
+        result = await controller.runtime.base_registry.execute(tool_call)
+
+        assert result.is_error is False
+        assert "explore_lab:" in result.content
+        assert "最近发送：无" in result.content
+        assert "最近接收：无" in result.content
 
     async def test_communicate_to_virtual_connection_records_outbound_message(self, tmp_path):
         controller = _make_controller(tmp_path)
@@ -358,13 +374,13 @@ class TestLabCommunicate:
         assert snapshot["outbound_messages"][0]["participant_id"] == "explore_lab"
         assert snapshot["outbound_messages"][0]["message"] == "hello"
 
-    async def test_patch_config_replaces_virtual_ws_connections(self, tmp_path):
+    async def test_patch_config_replaces_virtual_connections(self, tmp_path):
         controller = _make_controller(tmp_path)
 
-        applied = await controller.patch_hot_config({"ws_connections": ["alice", "bob"]})
+        applied = await controller.patch_hot_config({"virtual_connections": ["alice", "bob"]})
 
-        assert applied["ws_connections"] == ["alice", "bob"]
-        assert controller.state_snapshot()["ws_connections"] == ["alice", "bob"]
+        assert applied["virtual_connections"] == ["alice", "bob"]
+        assert controller.state_snapshot()["virtual_connections"] == ["alice", "bob"]
 
 
 class TestSubconsciousToggle:

@@ -16,6 +16,7 @@ from coworker.api import app as api_app
 from coworker.api.routes import setup as setup_routes
 from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
+from coworker.channels.desktop import DesktopChannel, DesktopDispatcher, DesktopRegistry
 from coworker.core.config import APIConfig
 from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
@@ -24,17 +25,31 @@ from coworker.tools.communicate_tool import CommunicateTool
 from tests.conftest import MockProvider
 
 
+def _communication_with_desktop(tmp_path, handler):
+    communication = CommunicateTool(str(tmp_path / "outbox"))
+    communication.set_inbound_handler(handler)
+    registry = DesktopRegistry(ShortTermMemory(), tmp_path / "desktop_registry")
+    dispatcher = DesktopDispatcher(registry)
+    sender = MagicMock()
+    sender.send = AsyncMock()
+    communication.register_channel(
+        DesktopChannel(sender, registry, dispatcher, tmp_path / "attachments")
+    )
+    return communication
+
+
 @pytest.fixture
-def client():
+def client(tmp_path):
     # reset module-level state before each test
     import coworker.api.routes as routes_mod
     routes_mod._inbox = None
     routes_mod._agent = None
     routes_mod._brain = None
     routes_mod._usage_stats = None
-    routes_mod._model_config_path = Path("data/model_runtime_config.json")
+    routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
+    routes_mod._communication = None
     routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
     api_app._desktop_updates_effective = None
@@ -42,9 +57,11 @@ def client():
     api_app._inbox = None
     api_app._communicate = None
     api_app._collector = None
-    api_app._pool = ConnectionPool()
     api_app._shutting_down = False
-    return TestClient(api_app.app)
+    api_app.set_setup_required(False)
+    with TestClient(api_app.app) as test_client:
+        yield test_client
+    api_app.set_setup_required(False)
 
 
 def test_api_defaults_bind_locally_and_require_desktop_authentication():
@@ -62,17 +79,94 @@ def test_admin_ui_is_bundled(client):
     assert '<div id="root"></div>' in response.text
 
 
+class TestSetupRedirect:
+    @pytest.mark.parametrize(
+        "path",
+        ["/", "/status", "/profile", "/unknown", "/api/admin/config", "/assets-secret"],
+    )
+    def test_redirects_non_setup_http_paths(self, client, path):
+        api_app.set_setup_required(True)
+
+        response = client.get(path, follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/admin"
+        assert response.headers["cache-control"] == "no-store"
+
+    def test_redirect_uses_path_without_query_string(self, client):
+        api_app.set_setup_required(True)
+
+        response = client.get("/status?detail=1", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/admin"
+
+    def test_redirects_write_methods_without_preserving_method(self, client):
+        api_app.set_setup_required(True)
+
+        message = client.post(
+            "/messages",
+            json={"sender_id": "alice", "content": "hi"},
+            follow_redirects=False,
+        )
+        wrong_verify_method = client.get(
+            "/api/admin/session/verify", follow_redirects=False
+        )
+        wrong_bootstrap_method = client.patch(
+            "/api/admin/bootstrap", json={}, follow_redirects=False
+        )
+        cors_preflight = client.options(
+            "/messages",
+            headers={
+                "Origin": "http://localhost:8000",
+                "Access-Control-Request-Method": "POST",
+            },
+            follow_redirects=False,
+        )
+
+        assert message.status_code == 303
+        assert wrong_verify_method.status_code == 303
+        assert wrong_bootstrap_method.status_code == 303
+        assert cors_preflight.status_code == 303
+        assert message.headers["location"] == "/admin"
+
+    def test_allows_admin_assets_and_bootstrap_endpoints(self, client):
+        api_app.set_setup_required(True)
+
+        assert client.get("/admin", follow_redirects=False).status_code == 200
+        assert client.get("/admin/", follow_redirects=False).status_code == 200
+        assert client.get("/assets/missing.js", follow_redirects=False).status_code == 404
+        assert client.get("/favicon.png", follow_redirects=False).status_code == 200
+        assert client.post(
+            "/api/admin/session/verify", follow_redirects=False
+        ).status_code != 303
+        assert client.get("/api/admin/bootstrap", follow_redirects=False).status_code != 303
+        assert client.post(
+            "/api/admin/bootstrap", json={}, follow_redirects=False
+        ).status_code != 303
+
+    def test_guard_can_be_disabled_on_same_app(self, client):
+        api_app.set_setup_required(True)
+        assert client.get("/status", follow_redirects=False).status_code == 303
+
+        api_app.set_setup_required(False)
+
+        assert client.get("/status", follow_redirects=False).status_code != 303
+
+
 class TestPostMessages:
     def test_returns_503_when_not_ready(self, client):
         resp = client.post("/messages", json={"sender_id": "alice", "content": "hi"})
         assert resp.status_code == 503
 
-    def test_queues_event_when_ready(self, client):
+    def test_queues_event_when_ready(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = CommunicateTool(str(tmp_path / "outbox"))
+        communication.set_inbound_handler(mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain)
+        setup_routes(mock_inbox, mock_agent, mock_brain, communication=communication)
 
         resp = client.post("/messages", json={"sender_id": "alice", "content": "hello"})
         assert resp.status_code == 200
@@ -107,13 +201,20 @@ class TestPostMessages:
     def test_attachment_filename_is_sanitized(self, client, tmp_path, monkeypatch):
         compact_id_with_separator = "abcde_fghijk"
         monkeypatch.setattr(
-            "coworker.api.routes.new_compact_id", lambda: compact_id_with_separator
+            "coworker.channels.inbound.new_compact_id", lambda: compact_id_with_separator
         )
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain, inbox_dir=str(tmp_path / "inbox"))
+        setup_routes(
+            mock_inbox,
+            mock_agent,
+            mock_brain,
+            inbox_dir=str(tmp_path / "inbox"),
+            communication=communication,
+        )
 
         resp = client.post(
             "/messages",
@@ -145,12 +246,14 @@ class TestPostMessages:
     ):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
             MagicMock(),
             inbox_dir=str(tmp_path / "inbox"),
             development_mode=True,
+            communication=communication,
         )
         encoded = base64.b64encode(b"image bytes").decode("ascii")
         envelope = {
@@ -192,12 +295,19 @@ class TestPostMessages:
         assert event.attachments[0].data is None
         assert Path(event.attachments[0].saved_path).read_bytes() == b"image bytes"
 
-    def test_duplicate_desktop_message_id_is_acked_without_requeueing(self, client):
+    def test_duplicate_desktop_message_id_is_acked_without_requeueing(self, client, tmp_path):
         # bridge 出站是"至少一次"：HTTP POST 成功但响应丢失时它会用同一 message_id 重发。
         # coworker 必须按 message_id 幂等去重，第二条只 ack 不再 push。
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        setup_routes(mock_inbox, MagicMock(), MagicMock(), development_mode=True)
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            development_mode=True,
+            communication=communication,
+        )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
             "protocol_version": 1,
@@ -226,7 +336,14 @@ class TestPostMessages:
 
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        setup_routes(mock_inbox, MagicMock(), MagicMock(), development_mode=True)
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            development_mode=True,
+            communication=communication,
+        )
         request = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
             "protocol_version": 1,
@@ -239,18 +356,21 @@ class TestPostMessages:
         response = client.post("/messages", json=request)
 
         assert response.status_code == 200
-        event = mock_inbox.push.call_args.args[0]
-        envelope = json.loads(event.content)
-        assert envelope == {key: value for key, value in request.items() if key != "sender_id"}
+        # Snapshots are consumed at the inbound boundary (registry ingest),
+        # not pushed to the inbox.
+        mock_inbox.push.assert_not_awaited()
 
-    def test_desktop_message_requires_matching_bearer_by_default(self, client):
+    def test_desktop_message_requires_matching_bearer_by_default(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = CommunicateTool(str(tmp_path / "outbox"))
+        communication.set_inbound_handler(mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
             MagicMock(),
             communication_token="secret",
+            communication=communication,
         )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
@@ -346,7 +466,7 @@ class TestSSE:
         pool._connections["alice"] = FakeWebSocket()
         pool._outboxes["alice"] = asyncio.Queue()
 
-        await pool.send(
+        await pool.transmit(
             "alice",
             CommunicateRequest(
                 participant_id="alice",
@@ -375,24 +495,24 @@ class TestUnregisterWsGuard:
         second_q: asyncio.Queue = asyncio.Queue()
         assert comm.register_ws("alice", first_q) is True
         assert comm.register_ws("alice", second_q) is False
-        assert comm._ws_connections.get("alice") is first_q
+        assert comm.outbound_queue("alice") is first_q
         # 被拒绝的 queue 不应删掉先到的连接
         comm.unregister_ws("alice", second_q)
-        assert comm._ws_connections.get("alice") is first_q
+        assert comm.outbound_queue("alice") is first_q
         # 用匹配的 queue 注销才生效
         comm.unregister_ws("alice", first_q)
-        assert "alice" not in comm._ws_connections
+        assert comm.outbound_queue("alice") is None
 
     def test_no_queue_arg_removes_unconditionally(self):
         comm = CommunicateTool("unused")
         comm.register_ws("bob", asyncio.Queue())
         comm.unregister_ws("bob")  # 向后兼容：不传 queue 直接删
-        assert "bob" not in comm._ws_connections
+        assert comm.outbound_queue("bob") is None
 
     def test_connection_listener_only_fires_on_real_connection_changes(self):
         comm = CommunicateTool("unused")
         events: list[list[str]] = []
-        comm.add_connection_listener(lambda: events.append(comm.list_connected()))
+        comm.add_connection_listener(lambda: events.append(comm.list_live_stream_participant_ids()))
 
         first_q: asyncio.Queue = asyncio.Queue()
         second_q: asyncio.Queue = asyncio.Queue()
@@ -462,9 +582,9 @@ class TestConnectionRejection:
                     duplicate.receive_text()
                 assert exc.value.code == 1008
 
-            assert "alice" in comm._ws_connections
+            assert comm.outbound_queue("alice") is not None
 
-        assert "alice" not in comm._ws_connections
+        assert comm.outbound_queue("alice") is None
 
     def test_sse_duplicate_gets_rejection_event(self, client, tmp_path):
         comm = CommunicateTool(str(tmp_path))
@@ -486,6 +606,15 @@ class TestConnectionRejection:
 
         response = client.get("/sse/codex-bridge:old")
         assert response.status_code == 410
+
+    def test_websocket_rejects_messages_while_agent_is_not_ready(self, client):
+        api_app.setup_ws(None, None)
+
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/alice") as socket:
+                socket.receive_text()
+
+        assert exc.value.code == 1013
 
 
 class TestCommunicateRegistrationAPI:
@@ -654,10 +783,13 @@ class TestGetStatus:
         data = resp.json()
         assert data["is_running"] is True
         assert data["cycle_count"] == 7
+        assert data["setup_mode"] is False
         assert data["provider"] == "anthropic"
         assert data["model"] == "claude-sonnet-4-6"
         assert data["providers"] == ["anthropic", "zhipu-userA"]
         assert data["model_config"]["fallbacks"] == []
+        assert "ws_connections" not in data
+        assert "ws_connection_count" not in data
 
     def test_returns_usage_stats_when_available(self, client):
         mock_inbox = MagicMock()

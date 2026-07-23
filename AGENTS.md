@@ -41,6 +41,28 @@ The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWor
 
 - Keep one logical change per branch and pull request. Do not mix unrelated cleanup or user-owned changes into the feature commit.
 
+## Localization and i18n
+
+- Treat user-visible Python runtime text as localized content. Do not add new
+  hard-coded natural-language strings to tools, API responses, channel output,
+  runtime notices, or model-facing prompts when the text can be owned by
+  Coworker.
+- Put runtime translations in the domain catalog that owns the message under
+  `src/coworker/i18n/catalogs/<locale>/`. Update both `en` and `zh-CN` catalogs
+  in the same change. Keep semantic keys and the complete set of
+  `{{placeholder}}` names identical across locales.
+- Use `tr("catalog.key", ...)` at the call site. Keep protocol names,
+  participant IDs, enum values, timestamps, file paths, and user or
+  third-party text unchanged; translate only Coworker-owned labels and
+  surrounding prose.
+- For localized documentation under `docs/`, update the paired `.md` and
+  `.en.md` pages together. Keep commands, configuration names, API fields,
+  and product terms consistent between languages.
+- Add or update tests for both locale outputs when behavior is user-visible.
+  At minimum run `uv run --frozen pytest tests/unit/test_i18n.py` and the
+  affected feature tests; `test_i18n.py` enforces catalog key and placeholder
+  parity.
+
 ## Implementation, validation, and automatic pull-request delivery
 
 - Completing a requested feature includes implementing it, running the relevant checks from `CONTRIBUTING.md`, committing the scoped changes, pushing the feature branch to `origin`, and creating the upstream pull request.

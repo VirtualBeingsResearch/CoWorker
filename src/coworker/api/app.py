@@ -24,24 +24,20 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles as _StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from coworker.api.admin import router as admin_router
-from coworker.api.routes import (
-    AttachmentSchema,
-    _save_attachment,
-    router,
-    verify_communication_authorization,
-)
-from coworker.api.ws import SHUTDOWN_SENTINEL, ConnectionPool, serialize_outbound_message
+from coworker.api.routes import router, verify_communication_authorization
+from coworker.api.ws import SHUTDOWN_SENTINEL, serialize_outbound_message
+from coworker.channels.inbound import InboundEnvelope
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
-from coworker.core.types import CommunicateRequest, IncomingEvent
+from coworker.core.types import CommunicateRequest
 from coworker.desktop_updates import (
     DesktopReleaseStore,
     DesktopReleaseStoreError,
@@ -77,8 +73,37 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(admin_router)
+app.state.setup_required = False
 
-_pool = ConnectionPool()
+
+def set_setup_required(required: bool) -> None:
+    app.state.setup_required = required
+
+
+def _setup_request_allowed(method: str, path: str) -> bool:
+    if method in {"GET", "HEAD"} and (
+        path in {"/admin", "/admin/", "/favicon.png"}
+        or path.startswith("/assets/")
+    ):
+        return True
+    if path == "/api/admin/session/verify":
+        return method == "POST"
+    if path == "/api/admin/bootstrap":
+        return method in {"GET", "POST"}
+    return False
+
+
+@app.middleware("http")
+async def redirect_to_setup(request: Request, call_next):
+    if not app.state.setup_required or _setup_request_allowed(
+        request.method, request.url.path
+    ):
+        return await call_next(request)
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 _inbox: InboxWatcher | None = None
 _communicate: CommunicateTool | None = None
 _collector: RuntimeEventCollector | None = None
@@ -122,17 +147,15 @@ def signal_shutdown() -> None:
     （进而触发 CancelledError 噪声）。"""
     global _shutting_down
     _shutting_down = True
-    queues: list[Any] = []
+    # Wake live WS/SSE outbox queues via the single stream registry.
     if _communicate is not None:
-        queues.extend(_communicate._ws_connections.values())
-    queues.extend(_pool._outboxes.values())
+        _communicate.shutdown()
     if _collector is not None:
-        queues.extend(_collector.subscribers())  # /logs/stream SSE 订阅者
-    for q in list(queues):
-        try:
-            q.put_nowait(SHUTDOWN_SENTINEL)
-        except Exception:
-            pass
+        for q in list(_collector.subscribers()):  # /logs/stream SSE 订阅者
+            try:
+                q.put_nowait(SHUTDOWN_SENTINEL)
+            except Exception:
+                pass
 
 
 def _format_sse(message: Any) -> str:
@@ -173,10 +196,15 @@ def _rejected_sse_response(participant_id: str) -> StreamingResponse:
     )
 
 
-def setup_ws(inbox: InboxWatcher, communicate: CommunicateTool) -> None:
+def setup_ws(
+    inbox: InboxWatcher | None,
+    communicate: CommunicateTool | None,
+) -> None:
     global _inbox, _communicate
     _inbox = inbox
     _communicate = communicate
+    if _communicate is not None and _inbox is not None:
+        _communicate.set_inbound_handler(_inbox.push)
 
 
 def set_collector(collector: RuntimeEventCollector) -> None:
@@ -733,70 +761,41 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
         except HTTPException as error:
             await ws.close(code=1008, reason=str(error.detail))
             return
+    if _communicate is None:
+        await ws.close(code=1013, reason=tr("api.state.agent_not_ready"))
+        return
     queue: asyncio.Queue = asyncio.Queue()
-    registered = False
     sender_task: asyncio.Task | None = None
 
-    if _communicate:
-        registered = _communicate.register_ws(
-            participant_id,
-            queue,
-            transport="websocket",
-        )
-        if not registered:
-            logger.info(f"WS rejected duplicate participant_id: {participant_id}")
-            await _reject_websocket(ws, participant_id)
-            return
-    elif _pool.is_connected(participant_id):
+    if not _communicate.register_ws(participant_id, queue, transport="websocket"):
         logger.info(f"WS rejected duplicate participant_id: {participant_id}")
         await _reject_websocket(ws, participant_id)
         return
 
     try:
         try:
-            queue = await _pool.connect(participant_id, ws, queue)
+            queue = await _communicate.stream.connect(participant_id, ws, queue)
         except ValueError:
-            if registered and _communicate:
-                _communicate.unregister_ws(participant_id, queue)
+            _communicate.unregister_ws(participant_id, queue)
             logger.info(f"WS rejected duplicate participant_id: {participant_id}")
             await _reject_websocket(ws, participant_id)
             return
 
-        sender_task = asyncio.create_task(_pool.run_sender(participant_id, queue, ws))
+        sender_task = asyncio.create_task(_communicate.stream.run_sender(participant_id, queue, ws))
         while True:
             text = await ws.receive_text()
-            if _inbox:
-                from datetime import datetime
-                content = text
-                conversation_id = None
-                attachments = []
-                try:
-                    parsed = json.loads(text)
-                    if isinstance(parsed, dict) and any(
-                        key in parsed for key in ("message", "conversation_id", "attachments")
-                    ):
-                        content = str(parsed.get("message") or "")
-                        raw_conversation_id = parsed.get("conversation_id")
-                        if isinstance(raw_conversation_id, str) and raw_conversation_id:
-                            conversation_id = raw_conversation_id
-                        for a in parsed.get("attachments", []):
-                            attachments.append(_save_attachment(AttachmentSchema(**a)))
-                except (json.JSONDecodeError, Exception):
-                    pass
-                await _inbox.push(IncomingEvent(
+            await _communicate.receive_raw(
+                InboundEnvelope(
                     participant_id=participant_id,
-                    content=content,
-                    conversation_id=conversation_id,
-                    timestamp=datetime.now(),
                     source="websocket",
-                    attachments=attachments,
-                ))
+                    payload={"text": text},
+                )
+            )
     except WebSocketDisconnect:
         logger.info(f"WS client disconnected: {participant_id}")
     finally:
-        _pool.disconnect(participant_id, ws=ws, queue=queue)
-        if registered and _communicate:
-            _communicate.unregister_ws(participant_id, queue)
+        _communicate.stream.disconnect(participant_id, ws=ws, queue=queue)
+        _communicate.unregister_ws(participant_id, queue)
         if sender_task is not None:
             sender_task.cancel()
 

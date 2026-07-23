@@ -314,7 +314,6 @@ data, cleanup scope, and deployment boundaries.
 | [API and communication channels](docs/channels/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |
 | [Coworker Desktop](docs/channels/desktop.en.md) | Desktop workspace connecting local users, Codex, and Claude Code, plus CLI, configuration, and build guidance |
 | [Core concepts and capabilities](docs/architecture/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
-| [WeCom ordering and concurrency design](docs/channels/wecom-message-ordering-and-concurrency.en.md) | Proposal for per-conversation order, bounded concurrency, idempotency, durable queues, and exact reply correlation |
 | [Development guide](docs/development/development.en.md) | Local checks and Explore Lab |
 
 ## Development and contributing

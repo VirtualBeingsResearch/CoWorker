@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import re
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,9 +11,9 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
-from coworker.core.ids import new_compact_id
+from coworker.channels.inbound import InboundEnvelope
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
-from coworker.core.types import AttachmentData, IncomingEvent, SummaryResult
+from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
 
@@ -24,6 +22,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
+    from coworker.tools.communicate_tool import CommunicateTool
 
 router = APIRouter()
 
@@ -31,12 +30,12 @@ _inbox: InboxWatcher | None = None
 _agent: AgentLoop | None = None
 _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
-_attachments_dir: Path = Path("data/attachments")
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
 # Authentication is the safe baseline.  Tests and explicitly local-only
 # callers can opt into development mode through ``setup(..., True)``.
 _development_mode = False
+_communication: CommunicateTool | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
 # bridge 在 HTTP POST 成功但响应丢失/超时会重发同一 message_id，这里命中后直接 ack 且不再入队，
@@ -59,15 +58,12 @@ def _remember_desktop_message_id(message_id: str) -> bool:
     return True
 
 
-_IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-_PDF_MEDIA_TYPES = {"application/pdf"}
-_UNSAFE_ATTACHMENT_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _PROFILE_README_INTERVAL = timedelta(days=14)  # 档案自述更新提醒间隔；默认两周一次
 _profile_readme_last_reminded_at: datetime | None = None
 
 
 def setup(
-    inbox: InboxWatcher,
+    inbox: InboxWatcher | None,
     agent: AgentLoop,
     brain: Brain,
     inbox_dir: str = "data/inbox",
@@ -75,18 +71,18 @@ def setup(
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
     development_mode: bool = False,
+    communication: CommunicateTool | None = None,
 ) -> None:
-    global _inbox, _agent, _brain, _usage_stats, _attachments_dir, _model_config_path
-    global _communication_token, _development_mode
+    global _inbox, _agent, _brain, _usage_stats, _model_config_path
+    global _communication_token, _development_mode, _communication
     _inbox = inbox
     _agent = agent
     _brain = brain
     _usage_stats = usage_stats
     _model_config_path = Path(model_config_path)
-    _attachments_dir = Path(inbox_dir).parent / "attachments"
-    _attachments_dir.mkdir(parents=True, exist_ok=True)
     _communication_token = communication_token.strip()
     _development_mode = development_mode
+    _communication = communication
     if _development_mode:
         logger.warning("Coworker communication API is running in unauthenticated development mode")
 
@@ -157,23 +153,6 @@ class RestoreBackupPayload(BaseModel):
     mode: Literal["full", "summarize"] = "full"
 
 
-def _save_attachment(att: AttachmentSchema, *, keep_inline_data: bool = True) -> AttachmentData:
-    raw = base64.b64decode(att.data)
-    leaf = re.split(r"[\\/]+", att.filename)[-1].strip(" .")
-    filename = _UNSAFE_ATTACHMENT_CHARS_RE.sub("-", leaf).strip(" .-") or "attachment"
-    dest = _attachments_dir / f"{new_compact_id()}_{filename}"
-    dest.write_bytes(raw)
-    keep_data = keep_inline_data and (
-        att.media_type in _IMAGE_MEDIA_TYPES or att.media_type in _PDF_MEDIA_TYPES
-    )
-    return AttachmentData(
-        filename=filename,
-        media_type=att.media_type,
-        saved_path=str(dest),
-        data=att.data if keep_data else None,
-    )
-
-
 def _model_config_response() -> dict:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
@@ -238,60 +217,15 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
 
 
 async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> None:
-    inbox = _inbox
-    if inbox is None:
+    if _communication is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    content = message.content
-    attachment_schemas = list(message.attachments)
-    if source_is_desktop:
-        desktop_payload = message.payload or {}
-        if message.type == "desktop.thread.event":
-            raw_message = desktop_payload.get("message")
-            content = raw_message if isinstance(raw_message, str) else ""
-            raw_attachments = desktop_payload.get("attachments")
-            if isinstance(raw_attachments, list):
-                attachment_schemas.extend(
-                    AttachmentSchema.model_validate(item) for item in raw_attachments
-                )
-        else:
-            content = json.dumps(
-                _desktop_envelope(message),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-    # Desktop envelopes can contain inline attachments. Persist their files at
-    # the boundary and pass only local references onward so base64 data never
-    # enters the agent's generic short-term context.
-    attachments = [
-        _save_attachment(a, keep_inline_data=not source_is_desktop) for a in attachment_schemas
-    ]
-    source: Literal["coworker_desktop", "rest"] = (
-        "coworker_desktop" if source_is_desktop else "rest"
+    await _communication.receive_raw(
+        InboundEnvelope(
+            participant_id=message.sender_id,
+            source="desktop" if source_is_desktop else "rest",
+            payload=message.model_dump(),
+        )
     )
-    event = IncomingEvent(
-        participant_id=message.sender_id,
-        content=content,
-        conversation_id=message.conversation_id,
-        timestamp=datetime.now(),
-        source=source,
-        attachments=attachments,
-    )
-    await inbox.push(event)
-
-
-def _desktop_envelope(message: MessagePayload) -> dict[str, Any]:
-    envelope: dict[str, Any] = {
-        "protocol_version": message.protocol_version,
-        "message_id": message.message_id,
-        "created_at": message.created_at,
-        "type": message.type,
-        "payload": message.payload,
-    }
-    if message.request_id is not None:
-        envelope["request_id"] = message.request_id
-    if message.conversation_id is not None:
-        envelope["conversation_id"] = message.conversation_id
-    return envelope
 
 
 @router.get("/status")
@@ -305,6 +239,7 @@ async def get_status():
         "provider": s.current_provider,
         "model": s.current_model,
         "cycle_count": s.cycle_count,
+        "setup_mode": s.setup_mode,
     }
     if _brain is not None:
         payload["providers"] = _brain.list_providers()

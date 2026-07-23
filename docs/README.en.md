@@ -16,7 +16,6 @@ This documentation covers operation, configuration, communication surfaces, prod
 | Connect local users, Codex, and Claude Code | [Coworker Desktop](channels/desktop.en.md) |
 | Understand local storage and outbound data | [Data and trust boundaries](architecture/data-boundaries.en.md) |
 | Learn how identity, memory, tools, and the runtime fit together | [Core concepts and capabilities](architecture/concepts.en.md) |
-| Review the WeCom ordering and concurrency proposal | [WeCom message ordering, reliability, and concurrency design](channels/wecom-message-ordering-and-concurrency.en.md) |
 
 ## Functional domains
 
@@ -33,7 +32,6 @@ External surfaces including REST, SSE, WebSocket, files, WeCom, and Coworker Des
 
 - [API and communication channels](channels/api-and-channels.en.md)
 - [Coworker Desktop](channels/desktop.en.md)
-- [WeCom message ordering, reliability, and concurrency design](channels/wecom-message-ordering-and-concurrency.en.md)
 
 ### [Configuration and operations](operations/README.en.md)
 

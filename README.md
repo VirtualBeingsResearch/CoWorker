@@ -306,7 +306,6 @@ remote 和分支后执行 `git push`。
 | [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
 | [Coworker Desktop](docs/channels/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
 | [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
-| [企微消息时序与并发设计](docs/channels/wecom-message-ordering-and-concurrency.md) | 同会话有序、跨会话并发、幂等、持久队列与精确回复关联提案 |
 | [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |
 
 ## 开发与贡献

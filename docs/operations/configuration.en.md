@@ -16,6 +16,8 @@ environment variables. `data/model_runtime_config.json` overrides only the summa
 vision settings changed at runtime. When a container or service manager injects environment
 variables, make sure the working directory does not contain conflicting `.env` values.
 
+Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
+
 ### Runtime language
 
 | Variable | Default | Description |
@@ -145,10 +147,7 @@ language-transition system notice when it detects a locale change.
 ## Supported models
 
 The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
-`minimax`. Coworker only allows switching to models that the corresponding provider marks as
-supporting tool calls. The exact list changes with the source; use the first-run wizard and the
-provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of
-truth instead of a duplicated model catalog in this document.
+`minimax`. The recommended catalog contains models that the corresponding provider statically marks as tool-capable. The exact list changes with the source; use the first-run wizard and the provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth. During first-run setup, an administrator may enter a model outside that catalog only after explicitly confirming that the model and API gateway support tool/function calling. The wizard does not perform a potentially billable online capability probe; an incompatible model will fail on its first real call. Normal model switching after setup continues to follow the provider capability catalog.
 
 Only providers with a corresponding API key are registered. `LLM__DEFAULT_PROVIDER` must refer to
 a registered provider instance name.
