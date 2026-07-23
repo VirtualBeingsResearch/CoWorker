@@ -35,6 +35,7 @@ class ProviderSpec(BaseModel):
     api_key: str = ""
     base_url: str = ""
     default_model: str | None = None
+    tool_use_models: list[str] = Field(default_factory=list)
 
 
 class _EnvSettings(BaseSettings):
@@ -343,6 +344,12 @@ def apply_admin_config_file(config: Config) -> Config:
     return Config.model_validate(merged)
 
 
+def effective_admin_token(config: Config) -> str:
+    """Return the token accepted by the management API."""
+
+    return config.admin.token or config.desktop_updates.admin_token
+
+
 def ensure_admin_token(config: Config) -> str | None:
     """Create and persist a first-run admin token when none was configured.
 
@@ -350,7 +357,7 @@ def ensure_admin_token(config: Config) -> str | None:
     Existing ``ADMIN__TOKEN`` and desktop-update tokens are never changed.
     """
 
-    if config.admin.token or config.desktop_updates.admin_token:
+    if effective_admin_token(config):
         return None
 
     token = secrets.token_urlsafe(24)

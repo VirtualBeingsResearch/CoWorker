@@ -67,7 +67,7 @@ _profile_readme_last_reminded_at: datetime | None = None
 
 
 def setup(
-    inbox: InboxWatcher,
+    inbox: InboxWatcher | None,
     agent: AgentLoop,
     brain: Brain,
     inbox_dir: str = "data/inbox",
@@ -305,6 +305,7 @@ async def get_status():
         "provider": s.current_provider,
         "model": s.current_model,
         "cycle_count": s.cycle_count,
+        "setup_mode": s.setup_mode,
     }
     if _brain is not None:
         payload["providers"] = _brain.list_providers()

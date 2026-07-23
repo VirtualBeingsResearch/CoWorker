@@ -268,6 +268,7 @@ class AgentState:
     cycle_count: int = 0
     last_active: datetime | None = None
     restart_requested: bool = False
+    restart_reason: str = ""
     last_main_response_usage: dict[str, Any] | None = None
     tool_call_counts: dict = field(default_factory=dict)
     skill_load_counts: dict = field(default_factory=dict)

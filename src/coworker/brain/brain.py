@@ -106,7 +106,7 @@ class Brain:
         async with self._lock:
             if (
                 provider.provider_name == self._active_provider_name
-                and not provider.supports_tool_use(self._active_model)
+                and not provider.can_use_tools(self._active_model)
             ):
                 raise ModelNotSupportedError(
                     tr(
@@ -221,7 +221,7 @@ class Brain:
             raise ModelNotSupportedError(
                 tr("brain.validation.fallback_model_missing", provider=name)
             )
-        if not provider.supports_tool_use(model):
+        if not provider.can_use_tools(model):
             raise ModelNotSupportedError(
                 tr(
                     "brain.validation.fallback_tool_unsupported",
@@ -354,7 +354,7 @@ class Brain:
             if provider is None:
                 continue
             model = model or provider.default_model
-            if not model or not provider.supports_tool_use(model):
+            if not model or not provider.can_use_tools(model):
                 continue
             if (name, model) in seen:
                 continue
@@ -557,7 +557,7 @@ class Brain:
                     raise ModelNotSupportedError(
                         tr("brain.validation.model_missing", provider=provider_name)
                     )
-            if not provider.supports_tool_use(model_id):
+            if not provider.can_use_tools(model_id):
                 raise ModelNotSupportedError(
                     tr(
                         "brain.validation.model_tool_unsupported",

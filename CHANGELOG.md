@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fix(first-run): always show the effective admin token while setup is incomplete and redirect non-setup HTTP paths to `/admin`
+- feat(first-run): add runtime language and token settings, allow confirmed custom tool-capable models, and use an admin-only clean bootstrap restart without Agent loop or restart notice
 - ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects
 - ci: add a one-step manual release entry that creates a canonical tag and starts desktop and container publishing
 - fix(admin): show model-switch errors in the management console
