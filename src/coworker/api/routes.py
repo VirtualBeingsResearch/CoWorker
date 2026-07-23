@@ -5,7 +5,7 @@ import base64
 import json
 import re
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -42,6 +42,7 @@ _communication_token = ""
 _development_mode = False
 _desktop_dispatcher: DesktopDispatcher | None = None
 _communication_received: Callable[[str], None] | None = None
+_communication_publish: Callable[[IncomingEvent], Awaitable[None]] | None = None
 
 
 def set_desktop_dispatcher(dispatcher: DesktopDispatcher) -> None:
@@ -87,9 +88,10 @@ def setup(
     communication_token: str = "",
     development_mode: bool = False,
     communication_received: Callable[[str], None] | None = None,
+    communication_publish: Callable[[IncomingEvent], Awaitable[None]] | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _attachments_dir, _model_config_path
-    global _communication_token, _development_mode, _communication_received
+    global _communication_token, _development_mode, _communication_received, _communication_publish
     _inbox = inbox
     _agent = agent
     _brain = brain
@@ -100,6 +102,7 @@ def setup(
     _communication_token = communication_token.strip()
     _development_mode = development_mode
     _communication_received = communication_received
+    _communication_publish = communication_publish
     if _development_mode:
         logger.warning("Coworker communication API is running in unauthenticated development mode")
 
@@ -276,7 +279,7 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
         # Desktop attachments: persist files at the boundary, pass only local
         # references onward so base64 data never enters short-term context.
         attachments = [_save_attachment(a, keep_inline_data=False) for a in attachment_schemas]
-        await inbox.push(
+        await _publish_inbound(
             IncomingEvent(
                 participant_id=message.sender_id,
                 content=text,
@@ -289,7 +292,7 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
         return
     # Plain REST message.
     attachments = [_save_attachment(a, keep_inline_data=True) for a in message.attachments]
-    await inbox.push(
+    await _publish_inbound(
         IncomingEvent(
             participant_id=message.sender_id,
             content=message.content,
@@ -299,6 +302,13 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
             attachments=attachments,
         )
     )
+
+
+async def _publish_inbound(event: IncomingEvent) -> None:
+    if _communication_publish is not None:
+        await _communication_publish(event)
+    elif _inbox is not None:
+        await _inbox.push(event)
 
 
 def _desktop_envelope(message: MessagePayload) -> dict[str, Any]:

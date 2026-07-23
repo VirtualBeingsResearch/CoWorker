@@ -5,9 +5,19 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from coworker.channels.base import Channel, ChannelHost, ParticipantIdResolutionError
+from coworker.channels.base import (
+    Channel,
+    ChannelHost,
+    InboundHandler,
+    ParticipantIdResolutionError,
+)
 from coworker.channels.stream import StreamChannel
-from coworker.core.types import CommunicateRegistration, CommunicateRequest, ToolResult
+from coworker.core.types import (
+    CommunicateRegistration,
+    CommunicateRequest,
+    IncomingEvent,
+    ToolResult,
+)
 from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
@@ -203,6 +213,14 @@ class CommunicateTool(Tool):
     def record_received(self, participant_id: str) -> None:
         """Record an inbound message for the participant's selected channel."""
         self._host.record_received(participant_id)
+
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        """Attach the inbox owner to all registered communication channels."""
+        self._host.set_inbound_handler(handler)
+
+    async def publish_inbound(self, event: IncomingEvent) -> None:
+        """Publish a normalized inbound event through the channel host."""
+        await self._host.publish_inbound(event)
 
     def shutdown(self) -> None:
         """Wake all live WS/SSE queues so blocked senders can exit on shutdown."""

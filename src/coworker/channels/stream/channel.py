@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.channels.base import ConnectionInfo
+from coworker.channels.base import ConnectionInfo, InboundHandler
 from coworker.channels.stream.connection_pool import ConnectionPool
 from coworker.channels.stream.registration import (
     RegistrationStore,
     build_registration,
     next_participant_id,
 )
-from coworker.core.types import CommunicateRequest, ToolResult
+from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -46,6 +46,15 @@ class StreamChannel:
         self._registrations = RegistrationStore(registrations_path)
         self._last_sent_at: dict[str, str] = {}
         self._last_received_at: dict[str, str] = {}
+        self._inbound_handler: InboundHandler | None = None
+
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        self._inbound_handler = handler
+
+    async def publish_inbound(self, event: IncomingEvent) -> None:
+        if self._inbound_handler is None:
+            raise RuntimeError("no inbound handler registered")
+        await self._inbound_handler(event)
 
     # ----------------------------------------------------- connection access
 

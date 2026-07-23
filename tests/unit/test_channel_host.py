@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from coworker.channels.base import (
@@ -9,7 +11,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     ParticipantIdResolutionError,
 )
-from coworker.core.types import CommunicateRequest, ToolResult
+from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 
 
 class _FakeChannel:
@@ -32,6 +34,9 @@ class _FakeChannel:
         self.sent: list[CommunicateRequest] = []
         self.started = False
         self.stopped = False
+
+    def set_inbound_handler(self, handler) -> None:
+        self.inbound_handler = handler
 
     def resolve(self, participant_id: str) -> str | None:
         return self._resolver(participant_id)
@@ -204,6 +209,18 @@ def test_list_connections_aggregates_across_channels(host: ChannelHost) -> None:
     infos = host.list_connections()
     assert [info.participant_id for info in infos] == ["a"]
     assert infos[0].channel == "stream"
+
+
+@pytest.mark.asyncio
+async def test_inbound_events_are_delivered_by_the_host() -> None:
+    host = ChannelHost()
+    handler = AsyncMock()
+    host.set_inbound_handler(handler)
+
+    event = IncomingEvent(participant_id="alice", content="hello")
+    await host.publish_inbound(event)
+
+    handler.assert_awaited_once_with(event)
 
 
 # --------------------------------------------------------------------- lifecycle

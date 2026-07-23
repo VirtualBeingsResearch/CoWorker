@@ -641,6 +641,7 @@ async def _main() -> bool:
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
     communicate = CommunicateTool(config.agent.outbox_dir)
+    communicate.set_inbound_handler(inbox_watcher.push)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
     registry = ToolRegistry()
@@ -850,6 +851,7 @@ async def _main() -> bool:
         config.api.communication_token,
         config.api.development_mode,
         communicate.record_received,
+        communicate.publish_inbound,
     )
     set_desktop_dispatcher(desktop_dispatcher)
     setup_admin(
@@ -879,7 +881,6 @@ async def _main() -> bool:
         else:
             wecom_runner = WeComRunner(
                 cfg=config.wecom,
-                inbox=inbox_watcher,
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
             )

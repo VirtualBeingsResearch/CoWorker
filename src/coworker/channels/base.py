@@ -9,9 +9,9 @@ routing that previously lived in :class:`~coworker.tools.communicate_tool.Commun
 * fallback to the empty-prefix stream channel (live WS/SSE queue or outbox).
 
 Channels are registered once and started/stopped together. The host also
-aggregates :meth:`ConnectionInfo` across channels for the
-``list_connections`` tool and exposes live WS/SSE participant IDs for
-internal stream-lifecycle consumers.
+owns the normalized inbound event delivery port, aggregates
+:meth:`ConnectionInfo` across channels for the ``list_connections`` tool, and
+exposes live WS/SSE participant IDs for internal stream-lifecycle consumers.
 """
 
 from __future__ import annotations
@@ -19,13 +19,12 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-from coworker.core.types import CommunicateRequest, ToolResult
+from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
-if TYPE_CHECKING:
-    from coworker.core.types import IncomingEvent
+InboundHandler = Callable[[IncomingEvent], Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -70,9 +69,18 @@ class InlineChannel:
         self._supports_extra = supports_extra
         self._last_sent_at: dict[str, str] = {}
         self._last_received_at: dict[str, str] = {}
+        self._inbound_handler: InboundHandler | None = None
 
     def resolve(self, participant_id: str) -> str | None:
         return self._checker(participant_id) if self._checker is not None else None
+
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        self._inbound_handler = handler
+
+    async def publish_inbound(self, event: IncomingEvent) -> None:
+        if self._inbound_handler is None:
+            raise RuntimeError("no inbound handler registered")
+        await self._inbound_handler(event)
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
         result = await self._sender(request)
@@ -123,6 +131,10 @@ class Channel(Protocol):
         """Deliver a request to this channel's participant."""
         ...
 
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        """Attach the host-owned handler for normalized inbound events."""
+        ...
+
     def supports_extra_for(self, participant_id: str) -> bool:
         """Whether this channel accepts structured ``extra`` for the participant.
 
@@ -164,6 +176,7 @@ class ChannelHost:
         self._channels: list[Channel] = []
         self._fallback: Channel | None = None
         self._interceptors: list[Callable[[IncomingEvent], bool]] = []
+        self._inbound_handler: InboundHandler | None = None
 
     @property
     def channels(self) -> list[Channel]:
@@ -171,8 +184,21 @@ class ChannelHost:
 
     def register(self, channel: Channel) -> None:
         self._channels.append(channel)
+        channel.set_inbound_handler(self._inbound_handler)
         if channel.participant_prefix == "":
             self._fallback = channel
+
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        """Set the single owner of normalized inbound event delivery."""
+        self._inbound_handler = handler
+        for channel in self._channels:
+            channel.set_inbound_handler(handler)
+
+    async def publish_inbound(self, event: IncomingEvent) -> None:
+        """Deliver a normalized inbound event to the configured inbox owner."""
+        if self._inbound_handler is None:
+            raise RuntimeError("no inbound handler registered")
+        await self._inbound_handler(event)
 
     # ------------------------------------------------------------------ routing
 

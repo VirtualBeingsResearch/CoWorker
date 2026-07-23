@@ -207,6 +207,8 @@ def setup_ws(
     global _inbox, _communicate
     _inbox = inbox
     _communicate = communicate
+    if _communicate is not None and _inbox is not None:
+        _communicate.set_inbound_handler(_inbox.push)
 
 
 def set_collector(collector: RuntimeEventCollector) -> None:
@@ -776,7 +778,7 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
                 except (json.JSONDecodeError, Exception):
                     pass
                 _communicate.record_received(participant_id)
-                await _inbox.push(IncomingEvent(
+                await _communicate.publish_inbound(IncomingEvent(
                     participant_id=participant_id,
                     content=content,
                     conversation_id=conversation_id,

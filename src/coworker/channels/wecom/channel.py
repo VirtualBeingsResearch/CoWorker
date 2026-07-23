@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from coworker.channels.base import ConnectionInfo, InlineChannel
+from coworker.channels.base import ConnectionInfo, InboundHandler, InlineChannel
 
 if TYPE_CHECKING:
     from coworker.channels.wecom.runner import WeComRunner
@@ -29,6 +29,10 @@ class WeComChannel(InlineChannel):
             name="wecom",
         )
         self._runner = runner
+
+    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        super().set_inbound_handler(handler)
+        self._runner.set_inbound_handler(handler)
 
     def list_connections(self) -> list[ConnectionInfo]:
         now = time.monotonic()
