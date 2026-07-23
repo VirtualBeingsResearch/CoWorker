@@ -16,10 +16,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.core.config import Config, _deep_merge, load_admin_overrides
+from coworker.core.config import (
+    Config,
+    _deep_merge,
+    effective_admin_token,
+    load_admin_overrides,
+)
+from coworker.core.startup_intent import (
+    clear_startup_intent,
+    write_bootstrap_startup_intent,
+)
 from coworker.i18n import capture_locale, locale_context, tr
 
 if TYPE_CHECKING:
@@ -48,6 +58,7 @@ _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
+_config_write_lock = asyncio.Lock()
 
 _SECRET_PATHS = {
     "admin.token",
@@ -89,6 +100,10 @@ class BootstrapPayload(BaseModel):
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
+    locale: Literal["zh-CN", "en"] | None = None
+    max_tokens: int | None = Field(default=None, gt=0)
+    passive_mode: bool = False
+    allow_unverified_model: bool = False
 
 
 class SummaryModelPatch(BaseModel):
@@ -172,7 +187,8 @@ def setup_admin(
         _skill_loader, \
         _palace_loader, \
         _mode_loader, \
-        _pending_restart
+        _pending_restart, \
+        _config_write_lock
     _agent = agent
     _brain = brain
     _config = config
@@ -181,6 +197,7 @@ def setup_admin(
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _pending_restart = False
+    _config_write_lock = asyncio.Lock()
 
 
 def _require_agent() -> AgentLoop:
@@ -284,8 +301,7 @@ def _admin_tool_calls(
 def _token() -> str:
     if _config is None:
         return ""
-    # Compatibility: existing desktop update deployments already have a protected admin token.
-    return _config.admin.token or _config.desktop_updates.admin_token
+    return effective_admin_token(_config)
 
 
 async def require_admin(
@@ -487,6 +503,7 @@ async def _apply_hot_config(
                 base_url=spec.base_url or None,
                 name=spec.name,
                 default_model=spec.default_model,
+                tool_use_models=spec.tool_use_models,
             )
             await brain.upsert_provider(provider)
         removed = current_specs.keys() - desired_specs.keys()
@@ -808,6 +825,7 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
 
     brain = _require_brain()
+    config = _require_config()
     from coworker.brain.factory import available_models, available_types
 
     providers: list[dict[str, object]] = []
@@ -818,6 +836,11 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
         "providers": providers,
+        "defaults": {
+            "locale": config.i18n.locale.value,
+            "max_tokens": config.llm.max_tokens,
+            "passive_mode": config.agent.passive_mode,
+        },
     }
 
 
@@ -830,69 +853,119 @@ async def complete_bootstrap(
     """Persist the first provider connection and restart into normal operation."""
 
     global _pending_restart
-    config = _require_config()
-    brain = _require_brain()
-    if brain.active_provider is not None:
-        raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
+    async with _config_write_lock:
+        config = _require_config()
+        brain = _require_brain()
+        if brain.active_provider is not None or _pending_restart:
+            raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
 
-    from coworker.brain.factory import build_provider
+        from coworker.brain.factory import available_models, build_provider
 
-    provider_type = payload.provider_type.strip()
-    model = payload.model.strip()
-    api_key = payload.api_key.strip()
-    base_url = payload.base_url.strip()
-    provider = build_provider(
-        provider_type,
-        api_key,
-        base_url=base_url or None,
-        name=provider_type,
-        default_model=model,
-    )
-    if not provider.supports_tool_use(model):
-        raise HTTPException(
-            status_code=422,
-            detail=tr(
-                "api.admin.unsupported_tool_model",
-                model=repr(model),
-                provider=provider_type,
-            ),
+        provider_type = payload.provider_type.strip()
+        model = payload.model.strip()
+        api_key = payload.api_key.strip()
+        base_url = payload.base_url.strip()
+        if not model:
+            raise HTTPException(status_code=422, detail=tr("api.admin.model_required"))
+        if not api_key:
+            raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
+
+        provider = build_provider(
+            provider_type,
+            api_key,
+            base_url=base_url or None,
+            name=provider_type,
+            default_model=model,
         )
+        catalog_models = available_models(provider_type)
+        custom_model = model not in catalog_models
+        if custom_model and not payload.allow_unverified_model:
+            raise HTTPException(
+                status_code=422,
+                detail=tr(
+                    "api.admin.custom_model_confirmation_required",
+                    model=repr(model),
+                    provider=provider_type,
+                ),
+            )
+        if not custom_model and not provider.supports_tool_use(model):
+            raise HTTPException(
+                status_code=422,
+                detail=tr(
+                    "api.admin.unsupported_tool_model",
+                    model=repr(model),
+                    provider=provider_type,
+                ),
+            )
 
-    path = Path(config.admin.config_file)
-    current_overrides = load_admin_overrides(path)
-    changes: JsonObject = {
-        "llm": {
-            "default_provider": provider_type,
-            "default_model": model,
-            "managed_providers": [
-                {
-                    "name": provider_type,
-                    "type": provider_type,
-                    "api_key": api_key,
-                    "base_url": base_url,
-                    "default_model": model,
-                }
-            ],
-        },
-        "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
-    }
-    next_overrides = _deep_merge(current_overrides, changes)
-    try:
-        Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
+        locale = payload.locale or config.i18n.locale.value
+        max_tokens = payload.max_tokens if payload.max_tokens is not None else config.llm.max_tokens
+        path = Path(config.admin.config_file)
+        current_overrides = load_admin_overrides(path)
+        changes: JsonObject = {
+            "llm": {
+                "default_provider": provider_type,
+                "default_model": model,
+                "max_tokens": max_tokens,
+                "managed_providers": [
+                    {
+                        "name": provider_type,
+                        "type": provider_type,
+                        "api_key": api_key,
+                        "base_url": base_url,
+                        "default_model": model,
+                        "tool_use_models": [model] if custom_model else [],
+                    }
+                ],
+            },
+            "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
+            "i18n": {"locale": locale},
+            "agent": {"passive_mode": payload.passive_mode},
+        }
+        next_overrides = _deep_merge(current_overrides, changes)
+        try:
+            Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
 
-    _write_json_atomic(path, next_overrides)
-    if payload.coworker_name.strip():
-        identity = _require_agent()._identity
-        identity._dir.mkdir(parents=True, exist_ok=True)
-        (identity._dir / "name.txt").write_text(payload.coworker_name.strip(), encoding="utf-8")
-        identity.load()
+        agent = _require_agent()
+        if payload.coworker_name.strip():
+            identity = agent._identity
+            identity._dir.mkdir(parents=True, exist_ok=True)
+            (identity._dir / "name.txt").write_text(
+                payload.coworker_name.strip(), encoding="utf-8"
+            )
+            identity.load()
 
-    _pending_restart = True
-    _audit(request, "bootstrap.complete", f"{provider_type}/{model}")
-    asyncio.get_running_loop().call_later(0.5, _require_agent().request_restart)
-    return {"accepted": True, "restarting": True}
+        write_bootstrap_startup_intent(
+            config.memory.db_path,
+            provider=provider_type,
+            model=model,
+        )
+        try:
+            _write_json_atomic(path, next_overrides)
+        except Exception:
+            clear_startup_intent(config.memory.db_path)
+            raise
+
+        _pending_restart = True
+        try:
+            asyncio.get_running_loop().call_later(
+                0.5, lambda: agent.request_restart(reason="bootstrap")
+            )
+        except Exception:
+            _pending_restart = False
+            clear_startup_intent(config.memory.db_path)
+            raise
+        try:
+            _audit(
+                request,
+                "bootstrap.complete",
+                f"{provider_type}/{model} locale={locale} max_tokens={max_tokens} passive_mode={payload.passive_mode} custom_model={custom_model}",
+            )
+        except OSError as error:
+            logger.warning(f"Failed to write bootstrap audit entry: {error}")
+        return {"accepted": True, "restarting": True}
 
 
 @router.get("/overview")
@@ -955,6 +1028,13 @@ async def patch_config(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
+    async with _config_write_lock:
+        if _pending_restart and _require_brain().active_provider is None:
+            raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
+        return await _patch_config_locked(payload, request)
+
+
+async def _patch_config_locked(payload: ConfigPatch, request: Request) -> ApiResponse:
     global _pending_restart
     config = _require_config()
     path = Path(config.admin.config_file)

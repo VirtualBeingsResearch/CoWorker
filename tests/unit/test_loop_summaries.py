@@ -82,6 +82,30 @@ async def test_setup_mode_waits_without_consuming_inbox_or_calling_model():
     brain.think.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_setup_restart_wakes_waiter_without_saving_snapshot(tmp_path):
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    loop = _make_loop(brain, mem)
+    loop._stop_event = asyncio.Event()
+    loop._inbox.message_event = asyncio.Event()
+    loop._snapshot_path = tmp_path / "short_term_snapshot.json"
+    loop.state.setup_mode = True
+    loop.state.restart_requested = False
+    loop.state.restart_reason = ""
+
+    waiter = asyncio.create_task(loop.wait_until_stopped())
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    loop.request_restart(reason="bootstrap")
+    await waiter
+
+    assert loop.state.restart_requested is True
+    assert loop.state.restart_reason == "bootstrap"
+    assert not loop._snapshot_path.exists()
+
+
 def _make_brain(content="ok", tool_calls=None, stop_reason="end_turn", usage=None):
     response = LLMResponse(
         content=content,

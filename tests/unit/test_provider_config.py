@@ -4,11 +4,12 @@ import json
 
 import pytest
 
+from coworker.__main__ import _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import available_models, available_types, build_provider
 from coworker.brain.zhipu_provider import ZhipuProvider
-from coworker.core.config import LLMConfig
+from coworker.core.config import Config, LLMConfig
 from coworker.core.exceptions import ModelNotSupportedError
 from coworker.core.model_config import (
     RuntimeModelConfig,
@@ -235,3 +236,51 @@ async def test_switch_model_no_model_and_no_default_raises():
     brain.register_provider(build_provider("zhipu", "k", name="zhipu-b"))  # 无 default_model
     with pytest.raises(ModelNotSupportedError):
         await brain.switch_model("zhipu-b")
+
+
+def test_register_providers_skips_empty_credentials():
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "anthropic",
+                "default_model": "claude-sonnet-4-8",
+                "providers_file": "",
+                "managed_providers": [
+                    {"name": "anthropic", "type": "anthropic", "api_key": ""}
+                ],
+            }
+        }
+    )
+    brain = Brain("anthropic", "claude-sonnet-4-8")
+
+    _register_providers(brain, config)
+
+    assert brain.active_provider is None
+    assert brain.list_providers() == []
+
+
+@pytest.mark.asyncio
+async def test_confirmed_custom_model_survives_provider_hot_update():
+    model = "custom-tool-model"
+    brain = Brain("openai", model)
+    original = build_provider(
+        "openai",
+        "sk-original",
+        name="openai",
+        default_model=model,
+        tool_use_models=[model],
+    )
+    brain.register_provider(original)
+    replacement = build_provider(
+        "openai",
+        "sk-replacement",
+        base_url="https://example.test/v1",
+        name="openai",
+        default_model=model,
+        tool_use_models=[model],
+    )
+
+    await brain.upsert_provider(replacement)
+
+    assert brain.active_provider is replacement
+    assert replacement.can_use_tools(model) is True

@@ -10,8 +10,8 @@ mode_invalid_trigger = "MODE file {{path}} has invalid trigger='{{value}}'; fall
 mode_invalid_context_builder = "MODE file {{path}} has invalid context_builder='{{value}}'; falling back to 'short_term'."
 
 [cli]
-first_run_token = '''Coworker is starting for the first time. Open {{admin_url}} with this initial administrator token:
+first_run_token = '''Coworker setup is not complete. Open {{admin_url}} with this administrator token:
 
   {{token}}
 
-The token was saved to {{path}} and remains valid after initialization.'''
+The active token is shown on every command-line start until setup is complete.'''

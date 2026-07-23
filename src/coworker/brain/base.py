@@ -56,6 +56,22 @@ class BaseLLMProvider(ABC):
 
     def __init__(self, name: str | None = None) -> None:
         self.provider_name = name or type(self).provider_type
+        self._tool_use_models: set[str] = set()
+
+    def allow_tool_use_model(self, model_id: str) -> None:
+        """Trust an administrator-confirmed model outside the static catalog."""
+
+        if model_id:
+            models = getattr(self, "_tool_use_models", None)
+            if models is None:
+                models = set()
+                self._tool_use_models = models
+            models.add(model_id)
+
+    def can_use_tools(self, model_id: str) -> bool:
+        return model_id in getattr(self, "_tool_use_models", set()) or self.supports_tool_use(
+            model_id
+        )
 
     @abstractmethod
     async def complete(

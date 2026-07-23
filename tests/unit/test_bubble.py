@@ -44,6 +44,7 @@ def mock_brain():
     provider.provider_name = "mock"
     provider.default_model = "mock-model"
     provider.supports_tool_use.return_value = True
+    provider.can_use_tools.side_effect = provider.supports_tool_use
     provider.supports_vision.return_value = False
     provider.complete = AsyncMock(return_value=_make_response(content="done"))
     brain = MagicMock()

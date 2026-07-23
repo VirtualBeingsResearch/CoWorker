@@ -47,7 +47,10 @@ def client(tmp_path):
     api_app._communicate = None
     api_app._collector = None
     api_app._shutting_down = False
-    return TestClient(api_app.app)
+    api_app.set_setup_required(False)
+    with TestClient(api_app.app) as test_client:
+        yield test_client
+    api_app.set_setup_required(False)
 
 
 def test_api_defaults_bind_locally_and_require_desktop_authentication():
@@ -63,6 +66,81 @@ def test_admin_ui_is_bundled(client):
 
     assert response.status_code == 200
     assert '<div id="root"></div>' in response.text
+
+
+class TestSetupRedirect:
+    @pytest.mark.parametrize(
+        "path",
+        ["/", "/status", "/profile", "/unknown", "/api/admin/config", "/assets-secret"],
+    )
+    def test_redirects_non_setup_http_paths(self, client, path):
+        api_app.set_setup_required(True)
+
+        response = client.get(path, follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/admin"
+        assert response.headers["cache-control"] == "no-store"
+
+    def test_redirect_uses_path_without_query_string(self, client):
+        api_app.set_setup_required(True)
+
+        response = client.get("/status?detail=1", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/admin"
+
+    def test_redirects_write_methods_without_preserving_method(self, client):
+        api_app.set_setup_required(True)
+
+        message = client.post(
+            "/messages",
+            json={"sender_id": "alice", "content": "hi"},
+            follow_redirects=False,
+        )
+        wrong_verify_method = client.get(
+            "/api/admin/session/verify", follow_redirects=False
+        )
+        wrong_bootstrap_method = client.patch(
+            "/api/admin/bootstrap", json={}, follow_redirects=False
+        )
+        cors_preflight = client.options(
+            "/messages",
+            headers={
+                "Origin": "http://localhost:8000",
+                "Access-Control-Request-Method": "POST",
+            },
+            follow_redirects=False,
+        )
+
+        assert message.status_code == 303
+        assert wrong_verify_method.status_code == 303
+        assert wrong_bootstrap_method.status_code == 303
+        assert cors_preflight.status_code == 303
+        assert message.headers["location"] == "/admin"
+
+    def test_allows_admin_assets_and_bootstrap_endpoints(self, client):
+        api_app.set_setup_required(True)
+
+        assert client.get("/admin", follow_redirects=False).status_code == 200
+        assert client.get("/admin/", follow_redirects=False).status_code == 200
+        assert client.get("/assets/missing.js", follow_redirects=False).status_code == 404
+        assert client.get("/favicon.png", follow_redirects=False).status_code == 200
+        assert client.post(
+            "/api/admin/session/verify", follow_redirects=False
+        ).status_code != 303
+        assert client.get("/api/admin/bootstrap", follow_redirects=False).status_code != 303
+        assert client.post(
+            "/api/admin/bootstrap", json={}, follow_redirects=False
+        ).status_code != 303
+
+    def test_guard_can_be_disabled_on_same_app(self, client):
+        api_app.set_setup_required(True)
+        assert client.get("/status", follow_redirects=False).status_code == 303
+
+        api_app.set_setup_required(False)
+
+        assert client.get("/status", follow_redirects=False).status_code != 303
 
 
 class TestPostMessages:
@@ -490,6 +568,15 @@ class TestConnectionRejection:
         response = client.get("/sse/codex-bridge:old")
         assert response.status_code == 410
 
+    def test_websocket_rejects_messages_while_agent_is_not_ready(self, client):
+        api_app.setup_ws(None, None)
+
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/alice") as socket:
+                socket.receive_text()
+
+        assert exc.value.code == 1013
+
 
 class TestCommunicateRegistrationAPI:
     def test_legacy_codex_bridge_registration_is_rejected(self, client, tmp_path):
@@ -657,6 +744,7 @@ class TestGetStatus:
         data = resp.json()
         assert data["is_running"] is True
         assert data["cycle_count"] == 7
+        assert data["setup_mode"] is False
         assert data["provider"] == "anthropic"
         assert data["model"] == "claude-sonnet-4-6"
         assert data["providers"] == ["anthropic", "zhipu-userA"]

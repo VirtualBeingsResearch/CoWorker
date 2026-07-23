@@ -25,7 +25,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles as _StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -67,6 +67,36 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(admin_router)
+app.state.setup_required = False
+
+
+def set_setup_required(required: bool) -> None:
+    app.state.setup_required = required
+
+
+def _setup_request_allowed(method: str, path: str) -> bool:
+    if method in {"GET", "HEAD"} and (
+        path in {"/admin", "/admin/", "/favicon.png"}
+        or path.startswith("/assets/")
+    ):
+        return True
+    if path == "/api/admin/session/verify":
+        return method == "POST"
+    if path == "/api/admin/bootstrap":
+        return method in {"GET", "POST"}
+    return False
+
+
+@app.middleware("http")
+async def redirect_to_setup(request: Request, call_next):
+    if not app.state.setup_required or _setup_request_allowed(
+        request.method, request.url.path
+    ):
+        return await call_next(request)
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 _inbox: InboxWatcher | None = None
 _communicate: CommunicateTool | None = None
@@ -170,7 +200,10 @@ def _rejected_sse_response(participant_id: str) -> StreamingResponse:
     )
 
 
-def setup_ws(inbox: InboxWatcher, communicate: CommunicateTool) -> None:
+def setup_ws(
+    inbox: InboxWatcher | None,
+    communicate: CommunicateTool | None,
+) -> None:
     global _inbox, _communicate
     _inbox = inbox
     _communicate = communicate
@@ -702,7 +735,7 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
             await ws.close(code=1008, reason=str(error.detail))
             return
     if _communicate is None:
-        await ws.close(code=_DUPLICATE_CLOSE_CODE, reason="communicate tool not ready")
+        await ws.close(code=1013, reason=tr("api.state.agent_not_ready"))
         return
     queue: asyncio.Queue = asyncio.Queue()
     sender_task: asyncio.Task | None = None

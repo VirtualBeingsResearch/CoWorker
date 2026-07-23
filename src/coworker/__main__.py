@@ -37,11 +37,18 @@ from coworker.channels.desktop import (
     DesktopRegistry,
 )
 from coworker.channels.wecom import WeComChannel, WeComRunner
-from coworker.core.config import Config, LLMConfig, apply_admin_config_file, ensure_admin_token
+from coworker.core.config import (
+    Config,
+    LLMConfig,
+    apply_admin_config_file,
+    effective_admin_token,
+    ensure_admin_token,
+)
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
+from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
@@ -231,6 +238,9 @@ def _pick_api_key(llm_cfg: LLMConfig, provider: str) -> str:
 
 def _register_providers(brain: Brain, config: Config) -> None:
     for spec in config.llm.resolved_providers():
+        if not spec.api_key.strip():
+            logger.warning(f"Skipping LLM provider {spec.name!r}: API key is empty")
+            continue
         try:
             brain.register_provider(
                 build_provider(
@@ -239,6 +249,7 @@ def _register_providers(brain: Brain, config: Config) -> None:
                     base_url=spec.base_url or None,
                     name=spec.name,
                     default_model=spec.default_model,
+                    tool_use_models=spec.tool_use_models,
                 )
             )
         except ValueError as e:
@@ -370,35 +381,57 @@ async def _run_backfill() -> int:
         return 1
 
 
+def _print_setup_admin_token(config: Config) -> None:
+    """Show the active setup credential without copying it into persistent logs."""
+
+    token = effective_admin_token(config)
+    if not token:
+        return
+    print(
+        "\n"
+        + "=" * 68
+        + "\n"
+        + tr(
+            "cli.first_run_token",
+            admin_url=f"http://127.0.0.1:{config.api.port}/admin",
+            token=token,
+        )
+        + "\n"
+        + "=" * 68
+        + "\n",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 async def _main() -> bool:
     """主入口。返回 True 表示请求重启，由 main_sync() 调用 _exec_replace() 处理。"""
     config = _load_config()
     _setup_logging(config.agent.logs_dir)
-    generated_admin_token = ensure_admin_token(config)
-    if generated_admin_token:
-        # Deliberately bypass loguru: the one-time credential must not be copied
-        # into the persistent coworker.log file.
-        print(
-            "\n"
-            + "=" * 68
-            + "\n"
-            + tr(
-                "cli.first_run_token",
-                admin_url=f"http://127.0.0.1:{config.api.port}/admin",
-                token=generated_admin_token,
-                path=config.admin.config_file,
-            )
-            + "\n"
-            + "=" * 68
-            + "\n",
-            file=sys.stderr,
-            flush=True,
-        )
+    ensure_admin_token(config)
     logger.info("Starting coworker")
-    first_run_setup = not any(
-        spec.name == config.llm.default_provider and bool(spec.api_key)
-        for spec in config.llm.resolved_providers()
+    brain = Brain(
+        config.llm.default_provider,
+        config.llm.default_model,
+        message_time_prefix=config.agent.message_time_prefix,
+        max_tokens=config.llm.max_tokens,
+        fallbacks=config.llm.fallbacks,
+        summary_provider=config.llm.summary_provider,
+        summary_model=config.llm.summary_model,
+        summary_thinking=config.llm.summary_thinking,
+        vision_provider=config.llm.vision_provider,
+        vision_model=config.llm.vision_model,
+        vision_thinking=config.llm.vision_thinking,
     )
+    _register_providers(brain, config)
+    await _validate_model_runtime_config(brain, config)
+    setup_required = brain.active_provider is None
+    api_app.set_setup_required(setup_required)
+    if setup_required:
+        _print_setup_admin_token(config)
+        config.agent.tick = False
+        logger.warning("No active LLM provider; running in first-run setup mode")
+
     interaction_log = InteractionLogger(
         f"{config.agent.logs_dir}/interactions.jsonl",
         rotation_bytes=config.agent.interaction_log_rotation_bytes,
@@ -413,14 +446,14 @@ async def _main() -> bool:
         llm_model=config.memory.mem0_llm_model,
         embedder_model=config.memory.mem0_embedder_model,
     )
-    if first_run_setup:
+    if setup_required:
         Path(config.memory.db_path).mkdir(parents=True, exist_ok=True)
         logger.warning("Long-term memory initialization deferred until first-run setup completes")
     else:
         await long_term.initialize()
 
     recent_activity: RecentActivityMemory | None = None
-    if config.memory.recent_activity_enabled and not first_run_setup:
+    if config.memory.recent_activity_enabled and not setup_required:
         recent_activity = RecentActivityMemory(
             db_path=config.memory.db_path,
             log_store=log_store,
@@ -451,8 +484,23 @@ async def _main() -> bool:
     if env_diff:
         logger.info(f"Environment changed since last run: {env_diff}")
 
-    # 快照自检：损坏则删除，降级为全新启动
-    snapshot_valid = snapshot_path.exists() and _validate_snapshot(snapshot_path)
+    startup_intent = load_bootstrap_startup_intent(
+        config.memory.db_path,
+        provider=config.llm.default_provider,
+        model=config.llm.default_model,
+        available_providers=set(brain.list_providers()),
+    )
+    bootstrap_clean_start = startup_intent is not None
+    if bootstrap_clean_start and snapshot_path.exists():
+        snapshot_path.unlink()
+        logger.info("Discarded pre-bootstrap short-term snapshot")
+
+    # 快照自检：损坏则删除，降级为全新启动。首次初始化重启始终干净启动。
+    snapshot_valid = (
+        not bootstrap_clean_start
+        and snapshot_path.exists()
+        and _validate_snapshot(snapshot_path)
+    )
     is_restart = snapshot_valid
     if snapshot_path.exists() and not snapshot_valid:
         snapshot_path.unlink()
@@ -511,29 +559,14 @@ async def _main() -> bool:
     if recent_activity is not None:
         recent_activity.start_background_initialization(short_term.raw_primary_boundary())
 
-    brain = Brain(
-        config.llm.default_provider,
-        config.llm.default_model,
-        message_time_prefix=config.agent.message_time_prefix,
-        max_tokens=config.llm.max_tokens,
-        fallbacks=config.llm.fallbacks,
-        summary_provider=config.llm.summary_provider,
-        summary_model=config.llm.summary_model,
-        summary_thinking=config.llm.summary_thinking,
-        vision_provider=config.llm.vision_provider,
-        vision_model=config.llm.vision_model,
-        vision_thinking=config.llm.vision_thinking,
-    )
-    _register_providers(brain, config)
-    await _validate_model_runtime_config(brain, config)
-
-    if brain.active_provider is None:
-        # A fresh installation should expose the API and setup UI without
-        # autonomously attempting calls against an unconfigured provider.
-        config.agent.tick = False
-        logger.warning("No active LLM provider; running in first-run setup mode")
-
-    if short_term.active_provider and short_term.active_model:
+    if (
+        short_term.active_provider
+        and short_term.active_model
+        and (
+            short_term.active_provider != brain.current_provider_name
+            or short_term.active_model != brain.current_model
+        )
+    ):
         try:
             await brain.switch_model(short_term.active_provider, short_term.active_model)
             logger.info(
@@ -562,7 +595,7 @@ async def _main() -> bool:
         current_provider=brain.current_provider_name,
         current_model=brain.current_model,
         tick=config.agent.tick,
-        setup_mode=first_run_setup,
+        setup_mode=setup_required,
     )
 
     # 运行日志采集器：作为 InteractionLogger 的唯一 tap，把每条日志条目实时扇出给
@@ -757,7 +790,7 @@ async def _main() -> bool:
         inbox_watcher.add_interceptor(BubbleMessageRouter(bubble_store))
     registry.register(ClearShortTermMemoryTool(short_term, brain, subconscious))
 
-    if is_restart:
+    if not setup_required and is_restart:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         restart_msg = tr("startup.system_restarted", time=now_str)
         if restored_alarms:
@@ -773,7 +806,7 @@ async def _main() -> bool:
                 source="system",
             )
         )
-    elif env_diff or locale_diff:
+    elif not setup_required and (env_diff or locale_diff):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         await inbox_watcher.push(
             IncomingEvent(
@@ -808,7 +841,7 @@ async def _main() -> bool:
     )
 
     setup_routes(
-        inbox_watcher,
+        None if setup_required else inbox_watcher,
         agent_loop,
         brain,
         config.agent.inbox_dir,
@@ -828,14 +861,18 @@ async def _main() -> bool:
         mode_loader=mode_loader,
     )
     api_app.setup_desktop_updates(config.desktop_updates, config.admin.token)
-    api_app.setup_ws(inbox_watcher, communicate)
+    api_app.setup_ws(
+        None if setup_required else inbox_watcher,
+        None if setup_required else communicate,
+    )
     api_app.set_collector(event_collector)
 
-    desktop_sender = DesktopCommunicateSender(communicate)
-    communicate.register_channel(DesktopChannel(desktop_sender, desktop_registry))
+    if not setup_required:
+        desktop_sender = DesktopCommunicateSender(communicate)
+        communicate.register_channel(DesktopChannel(desktop_sender, desktop_registry))
 
     wecom_runner: WeComRunner | None = None
-    if config.wecom.enabled:
+    if not setup_required and config.wecom.enabled:
         if not config.wecom.bot_id or not config.wecom.secret:
             logger.warning("WeCom enabled but bot_id/secret missing; skipping")
         else:
@@ -856,6 +893,9 @@ async def _main() -> bool:
                 "pid": os.getpid(),
                 "started_at": datetime.now().isoformat(),
                 "is_restart": is_restart,
+                "startup_reason": "bootstrap" if bootstrap_clean_start else "restart" if is_restart else "start",
+                "setup_mode": setup_required,
+                "agent_loop_started": not setup_required,
                 "messages_restored": len(short_term.primary),
                 "alarms_restored": restored_alarms,
             },
@@ -864,6 +904,8 @@ async def _main() -> bool:
         ),
         encoding="utf-8",
     )
+    if bootstrap_clean_start:
+        clear_startup_intent(config.memory.db_path)
     logger.info(f"Instance ready (pid={os.getpid()}, is_restart={is_restart})")
 
     uv_config = uvicorn.Config(
@@ -886,18 +928,35 @@ async def _main() -> bool:
     )
     server = uvicorn.Server(uv_config)
 
-    inbox_task = asyncio.create_task(inbox_watcher.start(), name="inbox")
     server_task = asyncio.create_task(server.serve(), name="server")
-    loop_task = asyncio.create_task(agent_loop.run(), name="loop")
+    inbox_task: asyncio.Task | None = None
+    loop_task: asyncio.Task | None = None
+    if setup_required:
+        lifecycle_task = asyncio.create_task(
+            agent_loop.wait_until_stopped(), name="setup-waiter"
+        )
+    else:
+        inbox_task = asyncio.create_task(inbox_watcher.start(), name="inbox")
+        loop_task = asyncio.create_task(agent_loop.run(), name="loop")
+        lifecycle_task = loop_task
     wecom_task: asyncio.Task | None = None
     if wecom_runner is not None:
         wecom_task = asyncio.create_task(wecom_runner.start(), name="wecom")
 
     try:
-        # 等待 agent_loop 退出（正常关闭或重启请求），然后关闭其他服务
-        await loop_task
+        done, _ = await asyncio.wait(
+            {server_task, lifecycle_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if server_task in done:
+            agent_loop.stop()
+            await lifecycle_task
+            server_task.result()
+        else:
+            await lifecycle_task
     finally:
-        reason = "restart" if agent_state.restart_requested else "shutdown"
+        reason = agent_state.restart_reason or (
+            "restart" if agent_state.restart_requested else "shutdown"
+        )
         logger.info(f"Teardown begin (reason={reason}); stopping server + background tasks")
         # 退出/重启前先拍一张事件循环快照：哪些 task 还活着、各自挂在哪个 await。
         # 这正是定位「卡着到不了退出那一步」的根因证据，无需复现即可在日志中留痕。
@@ -920,13 +979,19 @@ async def _main() -> bool:
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
         server.should_exit = True
-        inbox_watcher.stop()
+        if inbox_task is not None:
+            inbox_watcher.stop()
         if wecom_runner is not None:
             await wecom_runner.stop()
             logger.info("WeCom runner stopped")
-        background = [inbox_task, server_task]
+        background = [server_task]
+        if inbox_task is not None:
+            background.append(inbox_task)
         if wecom_task is not None:
             background.append(wecom_task)
+        if not lifecycle_task.done():
+            agent_loop.stop()
+            background.append(lifecycle_task)
         # 用 asyncio.wait（不取消 pending，便于如实记录谁卡住），超时后再点名 + 打栈 + 取消。
         _, pending = await asyncio.wait(background, timeout=10)
         if pending:
@@ -947,7 +1012,7 @@ async def _main() -> bool:
         await browser_store.stop()
         logger.info("Browser store stopped")
 
-        if not agent_state.restart_requested:
+        if not agent_state.restart_requested and not setup_required:
             short_term.active_provider = brain.current_provider_name
             short_term.active_model = brain.current_model
             short_term.save_to_file(snapshot_path)
@@ -965,21 +1030,33 @@ def _exec_replace() -> None:
     """跨平台进程替换。
 
     Unix: os.execv 原地替换（同 PID，继承所有 FD）。
-    Windows: 模拟 cargo-util exec_replace —— 父进程忽略 Ctrl-C（Windows 会把 Ctrl-C 广播给
-    同一 console group 的所有进程，子进程自然收到），spawn 子进程并阻塞等待，最终以子进程退出码退出。
+    Windows: spawn 子进程并阻塞等待，最终以子进程退出码退出。
     终端始终保持连接，子进程行为对用户透明。
     """
     argv = [sys.executable, "-m", "coworker"] + sys.argv[1:]
     if sys.platform == "win32":
-        import ctypes
         import subprocess
 
-        # SetConsoleCtrlHandler(NULL, TRUE): 父进程忽略 Ctrl-C，
-        # 子进程作为同一 console group 成员会直接收到信号。
-        ctypes.windll.kernel32.SetConsoleCtrlHandler(None, True)
+        # 不要在父进程调用 SetConsoleCtrlHandler(NULL, TRUE)。Windows 会把“忽略 Ctrl-C”
+        # 状态继承给子进程，导致重启后的 coworker 也无法再被 Ctrl-C 中断。
+        # 父子进程留在同一 console group：用户按 Ctrl-C 时子进程正常收到信号；父进程的
+        # wait() 也会被打断，这里只负责等待子进程收尾，避免留下孤儿进程。
         proc = subprocess.Popen(argv)
-        proc.wait()
-        sys.exit(proc.returncode)
+        try:
+            returncode = proc.wait()
+        except KeyboardInterrupt:
+            try:
+                returncode = proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try:
+                    returncode = proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    returncode = proc.wait()
+            if returncode == 0:
+                returncode = 130
+        sys.exit(returncode)
     else:
         logger.info("Replacing process via os.execv...")
         os.execv(sys.executable, argv)

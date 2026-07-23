@@ -224,7 +224,7 @@ class BubbleSpawnTool(Tool):
                 content=tr("tool_result.bubble.provider_no_model", provider=provider),
                 is_error=True,
             )
-        if not provider_obj.supports_tool_use(model):
+        if not provider_obj.can_use_tools(model):
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.bubble.model_no_tools", model=model, provider=provider),

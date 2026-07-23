@@ -38,6 +38,7 @@ def build_provider(
     base_url: str | None = None,
     name: str | None = None,
     default_model: str | None = None,
+    tool_use_models: list[str] | None = None,
 ) -> BaseLLMProvider:
     """按类型实例化一个 provider，并以 name 作为注册名（缺省等于类型名）。
 
@@ -53,4 +54,6 @@ def build_provider(
     provider = provider_factory(api_key, base_url=base_url or None, name=name)
     if default_model:
         provider.default_model = default_model
+    for model_id in tool_use_models or []:
+        provider.allow_tool_use_model(model_id)
     return provider
