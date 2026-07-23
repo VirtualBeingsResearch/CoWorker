@@ -122,7 +122,9 @@ uv run python scripts/check_version.py
 
 `bump_version.py` 会优先使用最近的 `vX.Y.Z` tag 之后的提交补充 `CHANGELOG.md`；迁移期间也会识别历史 `coworker-desktop-vX.Y.Z` tag。没有 release tag 时，退回到上一次修改 `VERSION` 的提交之后。通用 `## Unreleased` 中的人工内容会移动到目标版本的 `## X.Y.Z - Unreleased` 章节，顶部保留一个空的 `## Unreleased` 供后续开发继续填写；已有目标版本的人工内容不会被覆盖。提交主题除 merge 与版本发布噪声外不再做内部类别过滤。
 
-推荐从 Actions 手动运行 `.github/workflows/prepare-release.yml` 中的 `Prepare CoWorker Release`，从默认分支输入不带 `v` 的版本号。流程会运行 `bump_version.py`、版本校验、lint 和相关测试，只允许脚本修改预期的版本与 changelog 文件，然后创建 `chore/release-vX.Y.Z` 分支和版本准备 PR。仓库需要允许 GitHub Actions 创建 PR。审核并合并该 PR 后，再运行 `Create CoWorker Release` 输入对应的 `vX.Y.Z` tag。
+推荐从 Actions 手动运行 `.github/workflows/prepare-release.yml` 中的 `Prepare CoWorker Release`，从默认分支输入不带 `v` 的版本号。流程会运行 `bump_version.py`、版本校验、lint 和相关测试，只允许脚本修改预期的版本与 changelog 文件，然后创建 `chore/release-vX.Y.Z` 分支和版本准备 PR。
+
+运行前，在仓库 Actions secrets 中配置 `RELEASE_PR_TOKEN`。建议使用仅授予该仓库权限的 GitHub App installation token 或 fine-grained PAT，并至少授予 **Pull requests: write**；该令牌仅用于创建版本准备 PR，不用于推送版本分支。这样流程不依赖仓库级的“允许 GitHub Actions 创建和批准 PR”开关。审核并合并该 PR 后，再运行 `Create CoWorker Release` 输入对应的 `vX.Y.Z` tag。
 
 开发运行：
 

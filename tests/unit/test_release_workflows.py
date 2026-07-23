@@ -10,7 +10,9 @@ def test_prepare_release_bumps_version_and_opens_a_pull_request() -> None:
 
     assert 'description: "Release version without the v prefix' in workflow
     assert 'python scripts/bump_version.py "$RELEASE_VERSION"' in workflow
-    assert "pull-requests: write" in workflow
+    assert "Validate release pull request token" in workflow
+    assert "Missing RELEASE_PR_TOKEN" in workflow
+    assert "GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}" in workflow
     assert "gh pr create" in workflow
     assert 'gh workflow run ci.yml --repo "$GITHUB_REPOSITORY"' in workflow
     assert "Refusing generated change outside the version file allowlist" in workflow
