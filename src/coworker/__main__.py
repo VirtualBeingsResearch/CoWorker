@@ -26,16 +26,17 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
 from coworker.api.admin import setup_admin
+from coworker.api.routes import set_desktop_dispatcher
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
 from coworker.channels.desktop import (
-    DESKTOP_PREFIX,
+    DesktopChannel,
     DesktopCommunicateSender,
     DesktopDispatcher,
     DesktopRegistry,
 )
-from coworker.channels.wecom import WeComRunner
+from coworker.channels.wecom import WeComChannel, WeComRunner
 from coworker.core.config import (
     Config,
     LLMConfig,
@@ -83,7 +84,7 @@ from coworker.tools.code_tools import (
     GetCodeResultTool,
     KillCodeJobTool,
 )
-from coworker.tools.communicate_tool import CommunicateTool, ListWSConnectionsTool
+from coworker.tools.communicate_tool import CommunicateTool, ListConnectionTool
 from coworker.tools.file_tools import (
     FindFilesTool,
     GrepFilesTool,
@@ -648,11 +649,14 @@ async def _main() -> bool:
     short_term.unpin("codex_registry")
 
     desktop_dispatcher = DesktopDispatcher(desktop_registry)
-    inbox_watcher.set_interceptor(desktop_dispatcher)
     communicate.add_connection_listener(
-        lambda: desktop_registry.update_connections(set(communicate.list_connected()))
+        lambda: desktop_registry.update_connections(
+            set(communicate.list_live_stream_participant_ids())
+        )
     )
-    desktop_registry.update_connections(set(communicate.list_connected()))
+    desktop_registry.update_connections(
+        set(communicate.list_live_stream_participant_ids())
+    )
     registry.register(TaskCreateTool(task_store))
     registry.register(TaskGetTool(task_store))
     registry.register(TaskListTool(task_store))
@@ -698,7 +702,7 @@ async def _main() -> bool:
     registry.register(ListAlarmsTool(alarm_manager))
     registry.register(CancelAlarmTool(alarm_manager))
     registry.register(communicate)
-    registry.register(ListWSConnectionsTool(communicate))
+    registry.register(ListConnectionTool(communicate))
     registry.register(GetSkillTool(skill_loader, agent_state))
     registry.register(GetContextTool(brain, short_term, agent_state))
     registry.register(ManagePinnedContextTool(short_term))
@@ -846,6 +850,7 @@ async def _main() -> bool:
         config.api.communication_token,
         config.api.development_mode,
     )
+    set_desktop_dispatcher(desktop_dispatcher)
     setup_admin(
         agent=agent_loop,
         brain=brain,
@@ -864,7 +869,7 @@ async def _main() -> bool:
 
     if not setup_required:
         desktop_sender = DesktopCommunicateSender(communicate)
-        communicate.register_sender(DESKTOP_PREFIX, desktop_sender.send, supports_extra=True)
+        communicate.register_channel(DesktopChannel(desktop_sender, desktop_registry))
 
     wecom_runner: WeComRunner | None = None
     if not setup_required and config.wecom.enabled:
@@ -877,7 +882,7 @@ async def _main() -> bool:
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
             )
-            communicate.register_sender("wecom:", wecom_runner.sender, wecom_runner.checker)
+            communicate.register_channel(WeComChannel(wecom_runner))
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
 
     # 写入实例状态文件（新旧交接标记）

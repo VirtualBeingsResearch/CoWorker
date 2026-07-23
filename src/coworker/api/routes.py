@@ -13,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
+from coworker.channels.desktop import inbound as desktop_inbound
 from coworker.core.ids import new_compact_id
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import AttachmentData, IncomingEvent, SummaryResult
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
+    from coworker.channels.desktop.dispatcher import DesktopDispatcher
 
 router = APIRouter()
 
@@ -37,6 +39,13 @@ _communication_token = ""
 # Authentication is the safe baseline.  Tests and explicitly local-only
 # callers can opt into development mode through ``setup(..., True)``.
 _development_mode = False
+_desktop_dispatcher: DesktopDispatcher | None = None
+
+
+def set_desktop_dispatcher(dispatcher: DesktopDispatcher) -> None:
+    """Inject the desktop dispatcher used to render inbound desktop envelopes."""
+    global _desktop_dispatcher
+    _desktop_dispatcher = dispatcher
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
 # bridge 在 HTTP POST 成功但响应丢失/超时会重发同一 message_id，这里命中后直接 ack 且不再入队，
@@ -241,42 +250,49 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
     inbox = _inbox
     if inbox is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    content = message.content
-    attachment_schemas = list(message.attachments)
     if source_is_desktop:
-        desktop_payload = message.payload or {}
+        if _desktop_dispatcher is None:
+            raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
+        # Render the envelope to final text structurally (no json.dumps/loads
+        # round-trip). None means the dispatcher consumed it (snapshot/ack).
+        text = desktop_inbound.render(
+            _desktop_envelope(message), message.sender_id, _desktop_dispatcher
+        )
+        if text is None:
+            return
+        attachment_schemas = list(message.attachments)
         if message.type == "desktop.thread.event":
-            raw_message = desktop_payload.get("message")
-            content = raw_message if isinstance(raw_message, str) else ""
-            raw_attachments = desktop_payload.get("attachments")
+            raw_attachments = (message.payload or {}).get("attachments")
             if isinstance(raw_attachments, list):
                 attachment_schemas.extend(
                     AttachmentSchema.model_validate(item) for item in raw_attachments
                 )
-        else:
-            content = json.dumps(
-                _desktop_envelope(message),
-                ensure_ascii=False,
-                separators=(",", ":"),
+        # Desktop attachments: persist files at the boundary, pass only local
+        # references onward so base64 data never enters short-term context.
+        attachments = [_save_attachment(a, keep_inline_data=False) for a in attachment_schemas]
+        await inbox.push(
+            IncomingEvent(
+                participant_id=message.sender_id,
+                content=text,
+                conversation_id=message.conversation_id,
+                timestamp=datetime.now(),
+                source="coworker_desktop",
+                attachments=attachments,
             )
-    # Desktop envelopes can contain inline attachments. Persist their files at
-    # the boundary and pass only local references onward so base64 data never
-    # enters the agent's generic short-term context.
-    attachments = [
-        _save_attachment(a, keep_inline_data=not source_is_desktop) for a in attachment_schemas
-    ]
-    source: Literal["coworker_desktop", "rest"] = (
-        "coworker_desktop" if source_is_desktop else "rest"
+        )
+        return
+    # Plain REST message.
+    attachments = [_save_attachment(a, keep_inline_data=True) for a in message.attachments]
+    await inbox.push(
+        IncomingEvent(
+            participant_id=message.sender_id,
+            content=message.content,
+            conversation_id=message.conversation_id,
+            timestamp=datetime.now(),
+            source="rest",
+            attachments=attachments,
+        )
     )
-    event = IncomingEvent(
-        participant_id=message.sender_id,
-        content=content,
-        conversation_id=message.conversation_id,
-        timestamp=datetime.now(),
-        source=source,
-        attachments=attachments,
-    )
-    await inbox.push(event)
 
 
 def _desktop_envelope(message: MessagePayload) -> dict[str, Any]:

@@ -36,7 +36,7 @@ def _subconscious_extra_intercepts() -> dict[str, str]:
     return {
         "switch_model": tr("subconscious.intercept_switch_model"),
         "communicate": tr("subconscious.intercept_communicate"),
-        "list_ws_connections": tr("subconscious.intercept_connections"),
+        "list_connections": tr("subconscious.intercept_connections"),
         "set_alarm": tr("subconscious.intercept_set_alarm"),
         "cancel_alarm": tr("subconscious.intercept_cancel_alarm"),
         "list_alarms": tr("subconscious.intercept_list_alarms"),

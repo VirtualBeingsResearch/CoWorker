@@ -12,6 +12,7 @@ from coworker.agent.bubble import Bubble, BubbleStore
 from coworker.agent.bubble_handoff import BubbleHandoffMatcher
 from coworker.agent.bubble_loop import BubbleMiniLoop, _build_merge_message
 from coworker.agent.usage_stats import UsageStatsCollector
+from coworker.channels.base import InlineChannel
 from coworker.core.types import AttachmentData, IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.tools.bubble_tools import (
     BubbleCancelTool,
@@ -683,7 +684,7 @@ class TestBubbleMiniLoop:
 
         registry = ToolRegistry()
         communicate = CommunicateTool(str(tmp_path / "outbox"))
-        communicate.register_sender("wecom:", sender)
+        communicate.register_channel(InlineChannel("wecom:", sender))
         registry.register(communicate)
         mock_brain.think = AsyncMock(
             side_effect=[
@@ -761,11 +762,11 @@ class TestBubbleMiniLoop:
         registry = ToolRegistry()
         communicate = CommunicateTool(str(tmp_path / "outbox"))
         supports_extra = participant_id.startswith("coworker-desktop:")
-        communicate.register_sender(
+        communicate.register_channel(InlineChannel(
             f"{participant_id.split(':', 1)[0]}:",
             sender,
             supports_extra=supports_extra,
-        )
+        ))
         registry.register(communicate)
         mock_brain.think = AsyncMock(
             side_effect=[
@@ -1179,11 +1180,11 @@ class TestBubbleSpawnTool:
             return ToolResult(tool_call_id="", content="sent")
 
         communicate = CommunicateTool(str(tmp_path / "outbox"))
-        communicate.register_sender(
+        communicate.register_channel(InlineChannel(
             "wecom:",
             sender,
             lambda pid: f"wecom:single:{pid}" if pid == "alice" else None,
-        )
+        ))
         tool = self._make_tool(
             store,
             mock_short_term,
@@ -1222,8 +1223,8 @@ class TestBubbleSpawnTool:
             return ToolResult(tool_call_id="", content="sent")
 
         communicate = CommunicateTool(str(tmp_path / "outbox"))
-        communicate.register_sender("chan_a:", sender, lambda pid: f"chan_a:{pid}")
-        communicate.register_sender("chan_b:", sender, lambda pid: f"chan_b:{pid}")
+        communicate.register_channel(InlineChannel("chan_a:", sender, lambda pid: f"chan_a:{pid}"))
+        communicate.register_channel(InlineChannel("chan_b:", sender, lambda pid: f"chan_b:{pid}"))
         tool = self._make_tool(
             store,
             mock_short_term,
@@ -1263,7 +1264,7 @@ class TestBubbleSpawnTool:
             return ToolResult(tool_call_id="", content="sent")
 
         communicate = CommunicateTool(str(tmp_path / "outbox"))
-        communicate.register_sender("wecom:", sender)
+        communicate.register_channel(InlineChannel("wecom:", sender))
         tool = self._make_tool(
             store,
             mock_short_term,
@@ -1486,7 +1487,7 @@ class TestBubbleSpawnTool:
             return ToolResult(tool_call_id="", content="sent")
 
         communicate = CommunicateTool(str(tmp_path / "outbox"))
-        communicate.register_sender("wecom:", sender)
+        communicate.register_channel(InlineChannel("wecom:", sender))
         tool = self._make_tool(
             store,
             mock_short_term,
@@ -2243,7 +2244,7 @@ class TestToolForkBubbleScope:
             return ToolResult(tool_call_id="", content="sent")
 
         tool = CommunicateTool(str(tmp_path / "outbox"))
-        tool.register_sender("wecom:", sender)
+        tool.register_channel(InlineChannel("wecom:", sender))
         scope = ToolScope(
             task_store=TaskStore(store_path=None),
             job_store=BackgroundJobStore(),

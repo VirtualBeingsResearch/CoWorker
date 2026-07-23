@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.channels.base import InlineChannel
 from coworker.core.types import (
     AgentState,
     CommunicateRequest,
@@ -1214,8 +1215,8 @@ class TestCommunicateToolCheckers:
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender("plain:", sender)
-        tool.register_sender("rich:", sender, supports_extra=True)
+        tool.register_channel(InlineChannel("plain:", sender))
+        tool.register_channel(InlineChannel("rich:", sender, supports_extra=True))
         queue: asyncio.Queue = asyncio.Queue()
         tool.register_ws("stream-client", queue)
 
@@ -1230,11 +1231,11 @@ class TestCommunicateToolCheckers:
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender(
+        tool.register_channel(InlineChannel(
             "chan:",
             sender,
             lambda pid: f"chan:single:{pid}" if pid == "alice" else None,
-        )
+        ))
 
         assert tool.resolve_participant_id("alice") == "chan:single:alice"
         assert tool.resolve_participant_id("chan:single:alice") == "chan:single:alice"
@@ -1249,7 +1250,7 @@ class TestCommunicateToolCheckers:
             sent.append(request.participant_id)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender("chan:", sender, lambda pid: f"chan:{pid}")
+        tool.register_channel(InlineChannel("chan:", sender, lambda pid: f"chan:{pid}"))
         result = await tool.execute(message="hi", participant_id="chan:alice")
         assert not result.is_error
         assert sent == ["chan:alice"]
@@ -1263,11 +1264,11 @@ class TestCommunicateToolCheckers:
             sent.append(request.participant_id)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender(
+        tool.register_channel(InlineChannel(
             "chan:",
             sender,
             lambda pid: f"chan:single:{pid}" if pid == "alice" else None,
-        )
+        ))
         result = await tool.execute(message="hi", participant_id="alice")
         assert not result.is_error
         assert sent == ["chan:single:alice"]
@@ -1282,8 +1283,8 @@ class TestCommunicateToolCheckers:
         async def sender_b(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender("chan_a:", sender_a, lambda pid: f"chan_a:{pid}")
-        tool.register_sender("chan_b:", sender_b, lambda pid: f"chan_b:{pid}")
+        tool.register_channel(InlineChannel("chan_a:", sender_a, lambda pid: f"chan_a:{pid}"))
+        tool.register_channel(InlineChannel("chan_b:", sender_b, lambda pid: f"chan_b:{pid}"))
         result = await tool.execute(message="hi", participant_id="alice")
         assert result.is_error
         assert "多个信道" in result.content
@@ -1299,7 +1300,7 @@ class TestCommunicateToolCheckers:
             seen.append(request)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender("rich:", sender)
+        tool.register_channel(InlineChannel("rich:", sender))
 
         result = await tool.execute(
             participant_id="rich:alice",
@@ -1333,8 +1334,8 @@ class TestCommunicateToolCheckers:
             seen.append("specific")
             return ToolResult(tool_call_id="", content="specific")
 
-        tool.register_sender("rich:", generic_sender)
-        tool.register_sender("rich:team:", specific_sender)
+        tool.register_channel(InlineChannel("rich:", generic_sender))
+        tool.register_channel(InlineChannel("rich:team:", specific_sender))
 
         result = await tool.execute(participant_id="rich:team:alice", message="hi")
 
@@ -1350,7 +1351,7 @@ class TestCommunicateToolCheckers:
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_sender("chan:", sender, lambda pid: None)
+        tool.register_channel(InlineChannel("chan:", sender, lambda pid: None))
         result = await tool.execute(message="hello", participant_id="unknown_user")
         assert not result.is_error
         files = list(outbox.glob("*unknown_user*"))
@@ -1388,7 +1389,7 @@ class TestCommunicateToolCheckers:
 
         tool = CommunicateTool(str(tmp_path / "outbox"))
         sender = DesktopCommunicateSender(tool)
-        tool.register_sender(DESKTOP_PREFIX, sender.send)
+        tool.register_channel(InlineChannel(DESKTOP_PREFIX, sender.send))
         queue: asyncio.Queue = asyncio.Queue()
         participant_id = "coworker-desktop:desk-1:claude:cw-1:abcd1234"
         assert tool.register_ws(participant_id, queue) is True

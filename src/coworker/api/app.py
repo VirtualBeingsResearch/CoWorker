@@ -38,7 +38,7 @@ from coworker.api.routes import (
     router,
     verify_communication_authorization,
 )
-from coworker.api.ws import SHUTDOWN_SENTINEL, ConnectionPool, serialize_outbound_message
+from coworker.api.ws import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
@@ -98,7 +98,6 @@ async def redirect_to_setup(request: Request, call_next):
     return response
 
 
-_pool = ConnectionPool()
 _inbox: InboxWatcher | None = None
 _communicate: CommunicateTool | None = None
 _collector: RuntimeEventCollector | None = None
@@ -152,17 +151,15 @@ def signal_shutdown() -> None:
     （进而触发 CancelledError 噪声）。"""
     global _shutting_down
     _shutting_down = True
-    queues: list[Any] = []
+    # Wake live WS/SSE outbox queues via the single stream registry.
     if _communicate is not None:
-        queues.extend(_communicate._ws_connections.values())
-    queues.extend(_pool._outboxes.values())
+        _communicate.shutdown()
     if _collector is not None:
-        queues.extend(_collector.subscribers())  # /logs/stream SSE 订阅者
-    for q in list(queues):
-        try:
-            q.put_nowait(SHUTDOWN_SENTINEL)
-        except Exception:
-            pass
+        for q in list(_collector.subscribers()):  # /logs/stream SSE 订阅者
+            try:
+                q.put_nowait(SHUTDOWN_SENTINEL)
+            except Exception:
+                pass
 
 
 def _format_sse(message: Any) -> str:
@@ -737,39 +734,27 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
         except HTTPException as error:
             await ws.close(code=1008, reason=str(error.detail))
             return
-    if _inbox is None:
+    if _communicate is None:
         await ws.close(code=1013, reason=tr("api.state.agent_not_ready"))
         return
     queue: asyncio.Queue = asyncio.Queue()
-    registered = False
     sender_task: asyncio.Task | None = None
 
-    if _communicate:
-        registered = _communicate.register_ws(
-            participant_id,
-            queue,
-            transport="websocket",
-        )
-        if not registered:
-            logger.info(f"WS rejected duplicate participant_id: {participant_id}")
-            await _reject_websocket(ws, participant_id)
-            return
-    elif _pool.is_connected(participant_id):
+    if not _communicate.register_ws(participant_id, queue, transport="websocket"):
         logger.info(f"WS rejected duplicate participant_id: {participant_id}")
         await _reject_websocket(ws, participant_id)
         return
 
     try:
         try:
-            queue = await _pool.connect(participant_id, ws, queue)
+            queue = await _communicate.stream.connect(participant_id, ws, queue)
         except ValueError:
-            if registered and _communicate:
-                _communicate.unregister_ws(participant_id, queue)
+            _communicate.unregister_ws(participant_id, queue)
             logger.info(f"WS rejected duplicate participant_id: {participant_id}")
             await _reject_websocket(ws, participant_id)
             return
 
-        sender_task = asyncio.create_task(_pool.run_sender(participant_id, queue, ws))
+        sender_task = asyncio.create_task(_communicate.stream.run_sender(participant_id, queue, ws))
         while True:
             text = await ws.receive_text()
             if _inbox:
@@ -801,9 +786,8 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
     except WebSocketDisconnect:
         logger.info(f"WS client disconnected: {participant_id}")
     finally:
-        _pool.disconnect(participant_id, ws=ws, queue=queue)
-        if registered and _communicate:
-            _communicate.unregister_ws(participant_id, queue)
+        _communicate.stream.disconnect(participant_id, ws=ws, queue=queue)
+        _communicate.unregister_ws(participant_id, queue)
         if sender_task is not None:
             sender_task.cancel()
 

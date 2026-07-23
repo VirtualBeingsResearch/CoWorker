@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import time
 from pathlib import Path
 
 from coworker.channels.desktop import DesktopDispatcher, DesktopRegistry
-from coworker.core.types import IncomingEvent
+from coworker.channels.desktop.dispatcher import DesktopEnvelope
 from coworker.memory.short_term import ShortTermMemory
+
+_PARTICIPANT = "cw-desktop:desk:claude:cw:p"
 
 
 def _detail_path_from(content: str) -> str:
@@ -23,32 +24,20 @@ def _envelope(
     *,
     conversation_id: str | None = None,
     request_id: str | None = None,
-) -> str:
-    envelope: dict = {
-        "protocol_version": 1,
+    protocol_version: int = 1,
+) -> DesktopEnvelope:
+    data: dict = {
+        "protocol_version": protocol_version,
         "message_id": "msg-1",
         "created_at": "2026-07-15T00:00:00Z",
         "type": event_type,
         "payload": payload or {},
     }
     if request_id is not None:
-        envelope["request_id"] = request_id
+        data["request_id"] = request_id
     if conversation_id is not None:
-        envelope["conversation_id"] = conversation_id
-    return json.dumps(envelope, ensure_ascii=False)
-
-
-def _event(
-    content: str,
-    *,
-    participant_id: str = "cw-desktop:desk:claude:cw:p",
-    conversation_id: str | None = None,
-) -> IncomingEvent:
-    return IncomingEvent(
-        participant_id=participant_id,
-        content=content,
-        conversation_id=conversation_id,
-    )
+        data["conversation_id"] = conversation_id
+    return DesktopEnvelope.model_validate(data)
 
 
 def _dispatcher(tmp_path) -> DesktopDispatcher:
@@ -58,42 +47,47 @@ def _dispatcher(tmp_path) -> DesktopDispatcher:
 def test_snapshot_is_consumed_and_feeds_registry(tmp_path):
     dispatcher = _dispatcher(tmp_path)
     payload = {"desktop_id": "desk-a", "actor_id": "claude", "display_name": "Desk A"}
-    event = _event(_envelope("desktop.actor.snapshot", payload))
 
-    assert dispatcher(event) is True
+    assert dispatcher.route(_envelope("desktop.actor.snapshot", payload), _PARTICIPANT) is None
     assert "desk-a:claude" in dispatcher._registry.actors
 
 
 def test_command_result_ok_is_suppressed(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event(_envelope("desktop.command.result", {"request_id": "r-1", "ok": True}))
-    assert dispatcher(event) is True
+    assert (
+        dispatcher.route(
+            _envelope("desktop.command.result", {"request_id": "r-1", "ok": True}), _PARTICIPANT
+        )
+        is None
+    )
 
 
 def test_command_result_failure_is_rendered_and_wakes_agent(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event(_envelope("desktop.command.result", {"request_id": "r-1", "ok": False}))
-
-    assert dispatcher(event) is False
-    assert "错误" in event.content
-    assert "r-1" not in event.content or "错误" in event.content  # content rewritten
+    result = dispatcher.route(
+        _envelope("desktop.command.result", {"request_id": "r-1", "ok": False}), _PARTICIPANT
+    )
+    assert result is not None
+    assert "错误" in result
 
 
 def test_server_request_resolved_is_suppressed(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event(
-        _envelope("desktop.server_request.resolved", {"server_request_id": "0", "params": {}})
+    assert (
+        dispatcher.route(
+            _envelope("desktop.server_request.resolved", {"server_request_id": "0", "params": {}}),
+            _PARTICIPANT,
+        )
+        is None
     )
-    assert dispatcher(event) is True
 
 
 def test_error_is_rendered_and_wakes_agent(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event(_envelope("desktop.error", {"message": "boom"}))
-
-    assert dispatcher(event) is False
-    assert "错误" in event.content
-    assert "boom" in event.content
+    result = dispatcher.route(_envelope("desktop.error", {"message": "boom"}), _PARTICIPANT)
+    assert result is not None
+    assert "错误" in result
+    assert "boom" in result
 
 
 def test_codex_approval_renders_server_request_id_template(tmp_path):
@@ -105,19 +99,18 @@ def test_codex_approval_renders_server_request_id_template(tmp_path):
         "params": {"command": "git push"},
         "status": "pending",
     }
-    event = _event(
+    result = dispatcher.route(
         _envelope("desktop.approval.requested", payload, conversation_id="thread-1"),
-        conversation_id="thread-1",
+        _PARTICIPANT,
     )
-
-    assert dispatcher(event) is False
-    assert "审批请求" in event.content
-    assert "Codex" in event.content
-    assert "server_request_id" in event.content
-    assert "srv-123" in event.content
-    assert "decision" in event.content
-    assert "communicate(" in event.content
-    assert "thread-1" in event.content
+    assert result is not None
+    assert "审批请求" in result
+    assert "Codex" in result
+    assert "server_request_id" in result
+    assert "srv-123" in result
+    assert "decision" in result
+    assert "communicate(" in result
+    assert "thread-1" in result
 
 
 def test_claude_approval_renders_request_id_template(tmp_path):
@@ -129,16 +122,15 @@ def test_claude_approval_renders_request_id_template(tmp_path):
         "tool_name": "Bash",
         "input": {"command": "rm -rf /"},
     }
-    event = _event(
+    result = dispatcher.route(
         _envelope("desktop.approval.requested", payload, conversation_id="session-1"),
-        conversation_id="session-1",
+        _PARTICIPANT,
     )
-
-    assert dispatcher(event) is False
-    assert "Claude" in event.content
-    assert "request_id" in event.content
-    assert "req-abc" in event.content
-    assert "decision" in event.content
+    assert result is not None
+    assert "Claude" in result
+    assert "request_id" in result
+    assert "req-abc" in result
+    assert "decision" in result
 
 
 def test_claude_askuserquestion_renders_questions_and_answers_template(tmp_path):
@@ -157,87 +149,98 @@ def test_claude_askuserquestion_renders_questions_and_answers_template(tmp_path)
             ]
         },
     }
-    event = _event(
+    result = dispatcher.route(
         _envelope("desktop.user_input.requested", payload, conversation_id="session-1"),
-        conversation_id="session-1",
+        _PARTICIPANT,
     )
+    assert result is not None
+    assert "提问请求" in result
+    assert "Which database should we use?" in result
+    assert "SQLite" in result
+    assert "user_input_request_id" in result
+    assert "q-1" in result
+    assert "answers" in result
 
-    assert dispatcher(event) is False
-    assert "提问请求" in event.content
-    assert "Which database should we use?" in event.content
-    assert "SQLite" in event.content
-    assert "user_input_request_id" in event.content
-    assert "q-1" in event.content
-    assert "answers" in event.content
 
-
-def test_thread_event_envelope_falls_back_to_message(tmp_path):
+def test_codex_user_input_without_questions_renders_decision_template(tmp_path):
+    # Non-AskUserQuestion input request (e.g. Codex requestUserInput): routed
+    # through the approval-style decision template.
     dispatcher = _dispatcher(tmp_path)
-    event = _event(_envelope("desktop.thread.event", {"message": "hello there"}))
+    payload = {
+        "codex_id": "codex-local",
+        "server_request_id": "srv-in-1",
+        "method": "requestUserInput",
+        "params": {"prompt": "enter a value"},
+    }
+    result = dispatcher.route(
+        _envelope("desktop.user_input.requested", payload, conversation_id="thread-1"),
+        _PARTICIPANT,
+    )
+    assert result is not None
+    assert "server_request_id" in result
+    assert "srv-in-1" in result
+    assert "decision" in result
 
-    assert dispatcher(event) is False
-    assert event.content == "hello there"
 
-
-def test_non_json_content_passes_through(tmp_path):
+def test_thread_event_returns_message_text(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event("just a plain chat message")
+    result = dispatcher.route(
+        _envelope("desktop.thread.event", {"message": "hello there"}), _PARTICIPANT
+    )
+    assert result == "hello there"
 
-    assert dispatcher(event) is False
-    assert event.content == "just a plain chat message"
 
-
-def test_unknown_desktop_type_passes_through(tmp_path):
+def test_unknown_desktop_type_renders_summary(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    original = _envelope("desktop.something.new", {"foo": "bar"})
-    event = _event(original)
-
-    assert dispatcher(event) is False
-    assert event.content == original
+    result = dispatcher.route(
+        _envelope("desktop.something.new", {"foo": "bar"}), _PARTICIPANT
+    )
+    assert result is not None
+    assert "desktop.something.new" in result
 
 
 def test_unsupported_protocol_version_is_consumed(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    raw = json.dumps(
-        {
-            "protocol_version": 99,
-            "message_id": "m",
-            "type": "desktop.command.result",
-            "payload": {"ok": True},
-        }
+    assert (
+        dispatcher.route(
+            _envelope(
+                "desktop.command.result",
+                {"ok": True},
+                protocol_version=99,
+            ),
+            _PARTICIPANT,
+        )
+        is None
     )
-    event = _event(raw)
-
-    assert dispatcher(event) is True
 
 
 def test_short_error_is_not_folded(tmp_path):
     dispatcher = _dispatcher(tmp_path)
-    event = _event(_envelope("desktop.error", {"message": "boom"}, request_id="err-2"))
-
-    assert dispatcher(event) is False
-    assert event.content == "[CoWorker Desktop 错误]\n内容：boom"
-    assert "read_file" not in event.content
+    result = dispatcher.route(
+        _envelope("desktop.error", {"message": "boom"}, request_id="err-2"), _PARTICIPANT
+    )
+    assert result == "[CoWorker Desktop 错误]\n内容：boom"
+    assert "read_file" not in result
 
 
 def test_long_error_is_folded_with_read_file_pointer(tmp_path):
     dispatcher = _dispatcher(tmp_path)
     long_message = "boom-" * 200  # ~1000 chars, well past the fold threshold
-    event = _event(_envelope("desktop.error", {"message": long_message}, request_id="err-1"))
-
-    assert dispatcher(event) is False
-    content = event.content
-    assert "[CoWorker Desktop 错误]" in content
-    assert "read_file" in content
+    result = dispatcher.route(
+        _envelope("desktop.error", {"message": long_message}, request_id="err-1"), _PARTICIPANT
+    )
+    assert result is not None
+    assert "[CoWorker Desktop 错误]" in result
+    assert "read_file" in result
     # inline keeps a prefix of the message but not the whole thing
-    assert "boom-" in content
-    assert long_message not in content
+    assert "boom-" in result
+    assert long_message not in result
 
-    path = _detail_path_from(content)
+    path = _detail_path_from(result)
     full = Path(path).read_text(encoding="utf-8")
     assert "[CoWorker Desktop 错误]" in full
     assert long_message in full
-    assert len(content) < len(full)
+    assert len(result) < len(full)
 
 
 def test_long_askuserquestion_folds_descriptions_to_detail_file(tmp_path):
@@ -260,43 +263,40 @@ def test_long_askuserquestion_folds_descriptions_to_detail_file(tmp_path):
         "tool_name": "AskUserQuestion",
         "input": {"questions": questions},
     }
-    event = _event(
+    result = dispatcher.route(
         _envelope("desktop.user_input.requested", payload, conversation_id="session-1"),
-        conversation_id="session-1",
+        _PARTICIPANT,
     )
-
-    assert dispatcher(event) is False
-    content = event.content
+    assert result is not None
     # folded: pointer present
-    assert "read_file" in content
+    assert "read_file" in result
     # questions, labels and answers template stay inline so the coworker can answer
-    assert "第 1 题" in content
-    assert "选项A0" in content
-    assert "answers" in content
-    assert "user_input_request_id" in content
+    assert "第 1 题" in result
+    assert "选项A0" in result
+    assert "answers" in result
+    assert "user_input_request_id" in result
     # verbose descriptions are NOT inline...
-    assert long_desc not in content
+    assert long_desc not in result
     # ...only in the detail file
-    path = _detail_path_from(content)
+    path = _detail_path_from(result)
     full = Path(path).read_text(encoding="utf-8")
     assert long_desc in full
     assert "第 1 题" in full
-    assert len(content) < len(full)
+    assert len(result) < len(full)
 
 
 def test_long_thread_event_message_is_folded(tmp_path):
     dispatcher = _dispatcher(tmp_path)
     long_message = "hello-" * 200
-    event = _event(
-        _envelope("desktop.thread.event", {"message": long_message}, request_id="t-1")
+    result = dispatcher.route(
+        _envelope("desktop.thread.event", {"message": long_message}, request_id="t-1"),
+        _PARTICIPANT,
     )
-
-    assert dispatcher(event) is False
-    content = event.content
-    assert "read_file" in content
-    assert long_message not in content
-    assert "hello-" in content  # prefix survives
-    path = _detail_path_from(content)
+    assert result is not None
+    assert "read_file" in result
+    assert long_message not in result
+    assert "hello-" in result  # prefix survives
+    path = _detail_path_from(result)
     assert Path(path).read_text(encoding="utf-8") == long_message
 
 
@@ -319,7 +319,7 @@ def test_detail_files_are_pruned_by_age(tmp_path):
 
 def test_detail_files_are_pruned_by_count(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "coworker.channels.desktop.registry._DETAIL_MAX_FILES", 2
+        "coworker.channels.desktop.detail_store._DETAIL_MAX_FILES", 2
     )
     dispatcher = _dispatcher(tmp_path)
     registry = dispatcher._registry
@@ -331,4 +331,3 @@ def test_detail_files_are_pruned_by_count(tmp_path, monkeypatch):
     assert paths[-1].exists()
     assert paths[-2].exists()
     assert not paths[0].exists()
-

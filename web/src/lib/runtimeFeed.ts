@@ -89,7 +89,7 @@ export interface FeedRow {
 interface ToolMeta { icon: string; family: string; }
 const TOOL_META: Record<string, ToolMeta> = {
   communicate: { icon: '📡', family: 'comm' },
-  list_ws_connections: { icon: '📡', family: 'comm' },
+  list_connections: { icon: '📡', family: 'comm' },
   query_memory: { icon: '🗂️', family: 'mem' },
   manage_memory: { icon: '🗂️', family: 'mem' },
   get_context: { icon: '🗂️', family: 'mem' },

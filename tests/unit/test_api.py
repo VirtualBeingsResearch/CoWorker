@@ -16,6 +16,7 @@ from coworker.api import app as api_app
 from coworker.api.routes import setup as setup_routes
 from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
+from coworker.channels.desktop import DesktopDispatcher, DesktopRegistry
 from coworker.core.config import APIConfig
 from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
@@ -25,7 +26,7 @@ from tests.conftest import MockProvider
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     # reset module-level state before each test
     import coworker.api.routes as routes_mod
     routes_mod._inbox = None
@@ -37,12 +38,14 @@ def client():
     routes_mod._communication_token = ""
     routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
+    routes_mod.set_desktop_dispatcher(
+        DesktopDispatcher(DesktopRegistry(ShortTermMemory(), tmp_path / "desktop_registry"))
+    )
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
     api_app._inbox = None
     api_app._communicate = None
     api_app._collector = None
-    api_app._pool = ConnectionPool()
     api_app._shutting_down = False
     api_app.set_setup_required(False)
     with TestClient(api_app.app) as test_client:
@@ -317,9 +320,9 @@ class TestPostMessages:
         response = client.post("/messages", json=request)
 
         assert response.status_code == 200
-        event = mock_inbox.push.call_args.args[0]
-        envelope = json.loads(event.content)
-        assert envelope == {key: value for key, value in request.items() if key != "sender_id"}
+        # Snapshots are consumed at the inbound boundary (registry ingest),
+        # not pushed to the inbox.
+        mock_inbox.push.assert_not_awaited()
 
     def test_desktop_message_requires_matching_bearer_by_default(self, client):
         mock_inbox = MagicMock()
@@ -424,7 +427,7 @@ class TestSSE:
         pool._connections["alice"] = FakeWebSocket()
         pool._outboxes["alice"] = asyncio.Queue()
 
-        await pool.send(
+        await pool.transmit(
             "alice",
             CommunicateRequest(
                 participant_id="alice",
@@ -453,24 +456,24 @@ class TestUnregisterWsGuard:
         second_q: asyncio.Queue = asyncio.Queue()
         assert comm.register_ws("alice", first_q) is True
         assert comm.register_ws("alice", second_q) is False
-        assert comm._ws_connections.get("alice") is first_q
+        assert comm.outbound_queue("alice") is first_q
         # 被拒绝的 queue 不应删掉先到的连接
         comm.unregister_ws("alice", second_q)
-        assert comm._ws_connections.get("alice") is first_q
+        assert comm.outbound_queue("alice") is first_q
         # 用匹配的 queue 注销才生效
         comm.unregister_ws("alice", first_q)
-        assert "alice" not in comm._ws_connections
+        assert comm.outbound_queue("alice") is None
 
     def test_no_queue_arg_removes_unconditionally(self):
         comm = CommunicateTool("unused")
         comm.register_ws("bob", asyncio.Queue())
         comm.unregister_ws("bob")  # 向后兼容：不传 queue 直接删
-        assert "bob" not in comm._ws_connections
+        assert comm.outbound_queue("bob") is None
 
     def test_connection_listener_only_fires_on_real_connection_changes(self):
         comm = CommunicateTool("unused")
         events: list[list[str]] = []
-        comm.add_connection_listener(lambda: events.append(comm.list_connected()))
+        comm.add_connection_listener(lambda: events.append(comm.list_live_stream_participant_ids()))
 
         first_q: asyncio.Queue = asyncio.Queue()
         second_q: asyncio.Queue = asyncio.Queue()
@@ -540,9 +543,9 @@ class TestConnectionRejection:
                     duplicate.receive_text()
                 assert exc.value.code == 1008
 
-            assert "alice" in comm._ws_connections
+            assert comm.outbound_queue("alice") is not None
 
-        assert "alice" not in comm._ws_connections
+        assert comm.outbound_queue("alice") is None
 
     def test_sse_duplicate_gets_rejection_event(self, client, tmp_path):
         comm = CommunicateTool(str(tmp_path))
@@ -746,6 +749,8 @@ class TestGetStatus:
         assert data["model"] == "claude-sonnet-4-6"
         assert data["providers"] == ["anthropic", "zhipu-userA"]
         assert data["model_config"]["fallbacks"] == []
+        assert "ws_connections" not in data
+        assert "ws_connection_count" not in data
 
     def test_returns_usage_stats_when_available(self, client):
         mock_inbox = MagicMock()

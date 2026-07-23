@@ -89,7 +89,7 @@ export interface BranchState {
   system_prompt_override_active?: boolean;
   system_prompt_override_text?: string | null;
   tool_intercepts?: Record<string, string>;
-  ws_connections?: string[];
+  virtual_connections?: string[];
   outbound_messages?: OutboundMessage[];
   subconscious_enabled?: boolean;
   usage_stats?: unknown;
