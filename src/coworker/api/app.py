@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
-import re
 import secrets
 import tempfile
-from datetime import datetime
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -39,6 +38,17 @@ from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest
+from coworker.desktop_updates import (
+    DesktopReleaseStore,
+    DesktopReleaseStoreError,
+    InvalidReleaseDataError,
+    ReleaseExistsError,
+    ReleaseNotFoundError,
+    SemVer,
+    SemVerError,
+    UnsafePathError,
+    normalize_version,
+)
 from coworker.i18n import tr
 from coworker.version import __version__
 
@@ -99,6 +109,7 @@ _communicate: CommunicateTool | None = None
 _collector: RuntimeEventCollector | None = None
 _desktop_updates_effective: DesktopUpdatesConfig | None = None
 _desktop_updates_admin_token = ""
+_desktop_release_store_effective: DesktopReleaseStore | None = None
 _shutting_down = False
 
 _SSE_HEARTBEAT = 15.0  # 秒；无消息时发心跳注释保活，防代理 idle 超时
@@ -128,17 +139,6 @@ class DesktopPublishPayload(BaseModel):
     platforms: list[str] | None = None
 
 
-_SEMVER_RE = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$")
-_PLATFORM_RE = re.compile(r"^(windows|linux|darwin)-(x86_64|i686|aarch64|armv7)$")
-_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.+@()-]+")
-_ARCH_FILENAME_ALIASES = {
-    "x86_64": ("x86_64", "x64", "amd64", "intel"),
-    "aarch64": ("aarch64", "arm64", "apple-silicon", "applesilicon"),
-    "i686": ("i686", "x86"),
-    "armv7": ("armv7", "armhf"),
-}
-_LATEST_FILE = "latest.json"
-_RELEASE_FILE = "release.json"
 
 
 def signal_shutdown() -> None:
@@ -213,11 +213,16 @@ def set_collector(collector: RuntimeEventCollector) -> None:
     _collector = collector
 
 
-def setup_desktop_updates(config: DesktopUpdatesConfig, admin_token: str = "") -> None:
-    """Use the same effective config and admin credential as the management UI."""
-    global _desktop_updates_effective, _desktop_updates_admin_token
+def setup_desktop_updates(
+    config: DesktopUpdatesConfig,
+    admin_token: str = "",
+    store: DesktopReleaseStore | None = None,
+) -> None:
+    """Use the same effective config, store, and admin credential as the management UI."""
+    global _desktop_updates_effective, _desktop_updates_admin_token, _desktop_release_store_effective
     _desktop_updates_effective = config
     _desktop_updates_admin_token = admin_token
+    _desktop_release_store_effective = store or DesktopReleaseStore(config.dir)
 
 
 def _require_communicate() -> CommunicateTool:
@@ -232,40 +237,34 @@ def _desktop_updates_config() -> DesktopUpdatesConfig:
     return _desktop_updates_effective or DesktopUpdatesConfig()
 
 
-def _updates_root() -> _Path:
-    cfg = _desktop_updates_config()
-    return _Path(cfg.dir)
-
-
-def _release_dir(version: str) -> _Path:
-    return _updates_root() / "releases" / version
-
-
-def _release_path(version: str) -> _Path:
-    return _release_dir(version) / _RELEASE_FILE
-
-
-def _latest_path() -> _Path:
-    return _updates_root() / _LATEST_FILE
+def _desktop_release_store() -> DesktopReleaseStore:
+    global _desktop_release_store_effective
+    configured_root = _Path(_desktop_updates_config().dir)
+    if (
+        _desktop_release_store_effective is None
+        or _desktop_release_store_effective.root.resolve() != configured_root.resolve()
+    ):
+        _desktop_release_store_effective = DesktopReleaseStore(configured_root)
+    return _desktop_release_store_effective
 
 
 def _normalize_version(value: str) -> str:
-    value = value.strip()
-    match = _SEMVER_RE.match(value)
-    if not match:
-        raise HTTPException(status_code=422, detail=tr("api.desktop.version_semver"))
-    return value.removeprefix("v")
-
-
-def _version_tuple(value: str) -> tuple[int, int, int]:
-    match = _SEMVER_RE.match(value.strip())
-    if not match:
-        return (0, 0, 0)
-    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    try:
+        return normalize_version(value)
+    except (SemVerError, UnsafePathError) as error:
+        raise HTTPException(status_code=422, detail=tr("api.desktop.version_semver")) from error
 
 
 def _is_newer(candidate: str, current: str) -> bool:
-    return _version_tuple(candidate) > _version_tuple(current)
+    try:
+        candidate_version = SemVer.parse(candidate)
+    except SemVerError:
+        return False
+    try:
+        current_version = SemVer.parse(current)
+    except SemVerError:
+        return True
+    return candidate_version > current_version
 
 
 def _enqueue_desktop_update_checks(version: str) -> dict[str, int]:
@@ -327,70 +326,36 @@ def _require_admin(authorization: str | None) -> None:
         raise HTTPException(status_code=403, detail=tr("api.auth.bearer_token_invalid"))
 
 
-def _read_json_file(path: _Path) -> dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise HTTPException(
-            status_code=404, detail=tr("api.desktop.release_missing")
-        ) from error
-    except json.JSONDecodeError as error:
-        raise HTTPException(
-            status_code=500,
-            detail=tr("api.desktop.release_metadata_invalid", error=error),
-        ) from error
-
-
-def _write_json_atomic(path: _Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
-def _read_release(version: str) -> dict[str, Any]:
-    return _read_json_file(_release_path(_normalize_version(version)))
-
-
-def _safe_filename(filename: str) -> str:
-    leaf = filename.replace("\\", "/").split("/")[-1].strip(" .")
-    safe = _SAFE_FILENAME_RE.sub("-", leaf).strip(" .-")
-    if not safe:
-        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_filename_empty"))
-    return safe
-
-
-def _filename_mentions_arch(filename: str, platform: str) -> bool:
-    try:
-        _, arch = platform.split("-", 1)
-    except ValueError:
-        return False
-    compact = re.sub(r"[^a-z0-9]+", "", filename.lower())
-    return any(
-        re.sub(r"[^a-z0-9]+", "", alias.lower()) in compact
-        for alias in _ARCH_FILENAME_ALIASES.get(arch, (arch,))
-    )
-
-
-def _stored_asset_filename(filename: str, platform: str, kind: str) -> str:
-    safe = _safe_filename(filename)
-    if kind == "updater" and platform.startswith("darwin-") and not _filename_mentions_arch(safe, platform):
-        return _safe_filename(f"{platform}-{safe}")
-    return safe
+def _desktop_store_http_error(error: DesktopReleaseStoreError) -> HTTPException:
+    if isinstance(error, ReleaseNotFoundError):
+        return HTTPException(status_code=404, detail=tr("api.desktop.release_missing"))
+    if isinstance(error, ReleaseExistsError):
+        return HTTPException(status_code=409, detail=tr("api.desktop.release_exists"))
+    if isinstance(error, UnsafePathError):
+        return HTTPException(status_code=400, detail=tr("api.desktop.asset_path_invalid"))
+    if isinstance(error, InvalidReleaseDataError):
+        return HTTPException(status_code=422, detail=str(error))
+    return HTTPException(status_code=500, detail=str(error))
 
 
 def _asset_path(version: str, filename: str) -> _Path:
-    safe = _safe_filename(filename)
-    root = (_release_dir(_normalize_version(version)) / "assets").resolve()
-    path = (root / safe).resolve()
-    if path.parent != root:
-        raise HTTPException(status_code=400, detail=tr("api.desktop.asset_path_invalid"))
-    return path
+    try:
+        return _desktop_release_store().asset_path(_normalize_version(version), filename)
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
 
 
 def _asset_url(request: Request, version: str, filename: str) -> str:
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/desktop-updates/assets/{quote(version)}/{quote(filename)}"
+
+
+def _feed_asset_url(version: str, filename: str) -> str:
+    return f"/api/desktop-updates/assets/{quote(version)}/{quote(filename)}"
+
+
+def _manifest_url(version: str) -> str:
+    return f"/api/desktop-updates/feed/v1/releases/{quote(version)}"
 
 
 def _summarize_release(data: dict[str, Any]) -> dict[str, Any]:
@@ -403,6 +368,7 @@ def _summarize_release(data: dict[str, Any]) -> dict[str, Any]:
         "installers": sorted((data.get("installers") or {}).keys()),
         "created_at": data.get("created_at"),
         "updated_at": data.get("updated_at"),
+        "source": data.get("source"),
     }
 
 
@@ -418,77 +384,89 @@ def _latest_response(latest: dict[str, Any], request: Request) -> dict[str, Any]
     return response
 
 
-def _publish_release(
+def _require_feed_access(authorization: str | None) -> None:
+    token = _desktop_updates_config().feed_token
+    if not token:
+        raise HTTPException(status_code=404, detail=tr("api.desktop.feed_disabled"))
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail=tr("api.auth.invalid_bearer"))
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(supplied, token):
+        raise HTTPException(status_code=403, detail=tr("api.auth.forbidden"))
+
+
+def _published_release_summary(release: dict[str, Any]) -> dict[str, Any]:
+    version = str(release.get("version") or "")
+    source = release.get("source") if isinstance(release.get("source"), dict) else {}
+    prerelease = bool(source.get("prerelease")) if isinstance(source, dict) else False
+    return {
+        "id": version,
+        "version": version,
+        "notes": str(release.get("notes") or ""),
+        "pub_date": str(release.get("pub_date") or release.get("updated_at") or ""),
+        "prerelease": prerelease,
+        "manifest_url": _manifest_url(version),
+    }
+
+
+async def _published_release_manifest(release: dict[str, Any]) -> dict[str, Any]:
+    version = str(release.get("version") or "")
+    source = release.get("source") if isinstance(release.get("source"), dict) else {}
+    prerelease = bool(source.get("prerelease")) if isinstance(source, dict) else False
+    assets: list[dict[str, Any]] = []
+    for collection_name in ("platforms", "installers"):
+        collection = release.get(collection_name) or {}
+        if not isinstance(collection, dict):
+            continue
+        for platform, asset in sorted(collection.items()):
+            if not isinstance(asset, dict):
+                continue
+            filename = str(asset.get("file") or "")
+            if not filename:
+                continue
+            sha256 = str(asset.get("sha256") or "").lower()
+            if not sha256:
+                sha256 = await _desktop_release_store().asset_sha256(version, filename)
+            kind = str(asset.get("kind") or ("updater" if collection_name == "platforms" else "installer"))
+            assets.append(
+                {
+                    "platform": str(platform),
+                    "kind": kind,
+                    "file": filename,
+                    "size": int(asset.get("size") or _asset_path(version, filename).stat().st_size),
+                    "sha256": sha256,
+                    "signature": str(asset.get("signature") or ""),
+                    "download_url": _feed_asset_url(version, filename),
+                }
+            )
+    revision_digest = hashlib.sha256(
+        json.dumps(assets, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {
+        "schema_version": 1,
+        "release": {
+            "id": version,
+            "version": version,
+            "notes": str(release.get("notes") or ""),
+            "pub_date": str(release.get("pub_date") or release.get("updated_at") or ""),
+            "prerelease": prerelease,
+            "revision": f"sha256:{revision_digest}",
+            "assets": assets,
+        },
+    }
+
+
+async def _publish_release(
     version: str,
     request: Request,
     platforms: list[str] | None = None,
 ) -> dict[str, Any]:
     version = _normalize_version(version)
-    release = _read_release(version)
-    platform_map = release.get("platforms") or {}
-    selected = platforms or sorted(platform_map.keys())
-    if not selected:
-        raise HTTPException(
-            status_code=422, detail=tr("api.desktop.release_platforms_empty")
-        )
-    latest_platforms: dict[str, dict[str, str]] = {}
-
-    publish_platforms = list(selected)
-    if platforms is not None and _latest_path().exists():
-        current_latest = _read_json_file(_latest_path())
-        if str(current_latest.get("version") or "") == version:
-            current_platforms = current_latest.get("platforms") or {}
-            if isinstance(current_platforms, dict):
-                selected_set = set(selected)
-                preserved = sorted(
-                    platform
-                    for platform in current_platforms
-                    if platform not in selected_set and platform in platform_map
-                )
-                publish_platforms = preserved + publish_platforms
-
-    for platform in publish_platforms:
-        if not _PLATFORM_RE.match(platform):
-            raise HTTPException(
-                status_code=422,
-                detail=tr("api.desktop.platform_invalid", platform=platform),
-            )
-        asset = platform_map.get(platform)
-        if not isinstance(asset, dict):
-            raise HTTPException(
-                status_code=422,
-                detail=tr("api.desktop.platform_asset_missing", platform=platform),
-            )
-        filename = str(asset.get("file") or "")
-        signature = str(asset.get("signature") or "").strip()
-        path = _asset_path(version, filename)
-        if not filename or not path.is_file():
-            raise HTTPException(
-                status_code=422,
-                detail=tr("api.desktop.platform_file_missing", platform=platform),
-            )
-        if not signature:
-            raise HTTPException(
-                status_code=422,
-                detail=tr("api.desktop.platform_signature_missing", platform=platform),
-            )
-        latest_platforms[platform] = {
-            "file": filename,
-            "signature": signature,
-        }
-
-    now = datetime.now().astimezone().isoformat()
-    latest = {
-        "version": version,
-        "notes": release.get("notes", ""),
-        "pub_date": release.get("pub_date") or now,
-        "platforms": latest_platforms,
-    }
-    _write_json_atomic(_latest_path(), latest)
-    release["published"] = True
-    release["updated_at"] = now
-    _write_json_atomic(_release_path(version), release)
-    response = _latest_response(latest, request)
+    try:
+        result = await _desktop_release_store().publish_release(version, platforms)
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    response = _latest_response(result["latest"], request)
     response["push"] = _enqueue_desktop_update_checks(version)
     return response
 
@@ -553,43 +531,37 @@ async def create_desktop_release(
     authorization: str | None = Header(default=None),
 ):
     _require_admin(authorization)
-    version = _normalize_version(payload.version)
-    path = _release_path(version)
-    if path.exists():
-        raise HTTPException(status_code=409, detail=tr("api.desktop.release_exists"))
-    now = datetime.now().astimezone().isoformat()
-    release = {
-        "version": version,
-        "notes": payload.notes,
-        "pub_date": payload.pub_date,
-        "published": False,
-        "created_at": now,
-        "updated_at": now,
-        "platforms": {},
-        "installers": {},
-    }
-    _write_json_atomic(path, release)
-    return release
+    try:
+        return await _desktop_release_store().create_release(
+            _normalize_version(payload.version),
+            notes=payload.notes,
+            pub_date=payload.pub_date,
+        )
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
 
 
 @app.get("/api/desktop-updates/releases")
 async def list_desktop_releases(authorization: str | None = Header(default=None)):
     _require_admin(authorization)
-    releases_root = _updates_root() / "releases"
-    releases = []
-    if releases_root.is_dir():
-        for path in sorted(releases_root.glob(f"*/{_RELEASE_FILE}"), reverse=True):
-            releases.append(_summarize_release(_read_json_file(path)))
-    latest_version = None
-    if _latest_path().exists():
-        latest_version = _read_json_file(_latest_path()).get("version")
-    return {"latest_version": latest_version, "releases": releases}
+    try:
+        release_data = await _desktop_release_store().list_releases()
+        latest = await _desktop_release_store().read_latest()
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    return {
+        "latest_version": latest.get("version") if latest else None,
+        "releases": [_summarize_release(release) for release in release_data],
+    }
 
 
 @app.get("/api/desktop-updates/releases/{version}")
 async def get_desktop_release(version: str, authorization: str | None = Header(default=None)):
     _require_admin(authorization)
-    return _read_release(version)
+    try:
+        return await _desktop_release_store().read_release(_normalize_version(version))
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
 
 
 @app.post("/api/desktop-updates/releases/{version}/assets")
@@ -602,38 +574,18 @@ async def upload_desktop_release_asset(
     authorization: str | None = Header(default=None),
 ):
     _require_admin(authorization)
-    version = _normalize_version(version)
-    if not _PLATFORM_RE.match(platform):
-        raise HTTPException(status_code=422, detail=tr("api.desktop.platform_format"))
-    if kind not in {"updater", "installer"}:
-        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_kind_invalid"))
-    release = _read_release(version)
-    signature = signature.strip()
-    if kind == "updater" and not signature:
-        raise HTTPException(status_code=422, detail=tr("api.desktop.signature_required"))
-    filename = _stored_asset_filename(file.filename or "", platform, kind)
-    path = _asset_path(version, filename)
-    path.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read()
-    if not content:
-        raise HTTPException(status_code=422, detail=tr("api.desktop.asset_empty"))
-    path.write_bytes(content)
-    asset = {
-        "file": filename,
-        "signature": signature,
-        "kind": kind,
-        "size": len(content),
-        "uploaded_at": datetime.now().astimezone().isoformat(),
-    }
-    if kind == "updater":
-        platforms = release.setdefault("platforms", {})
-        platforms[platform] = asset
-    else:
-        installers = release.setdefault("installers", {})
-        installers[platform] = asset
-    release["updated_at"] = datetime.now().astimezone().isoformat()
-    _write_json_atomic(_release_path(version), release)
-    return release
+    try:
+        return await _desktop_release_store().upload_asset(
+            _normalize_version(version),
+            platform=platform,
+            signature=signature,
+            kind=kind,
+            filename=file.filename or "",
+            content=content,
+        )
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
 
 
 @app.post("/api/desktop-updates/releases/{version}/publish")
@@ -644,7 +596,7 @@ async def publish_desktop_release(
     authorization: str | None = Header(default=None),
 ):
     _require_admin(authorization)
-    return _publish_release(version, request, payload.platforms if payload else None)
+    return await _publish_release(version, request, payload.platforms if payload else None)
 
 
 @app.post("/api/desktop-updates/releases/{version}/rollback")
@@ -655,12 +607,82 @@ async def rollback_desktop_release(
     authorization: str | None = Header(default=None),
 ):
     _require_admin(authorization)
-    return _publish_release(version, request, payload.platforms if payload else None)
+    return await _publish_release(version, request, payload.platforms if payload else None)
+
+
+@app.get("/api/desktop-updates/feed/v1/releases")
+async def list_desktop_release_feed(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
+):
+    _require_feed_access(authorization)
+    try:
+        releases = await _desktop_release_store().list_releases()
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    payload = {
+        "schema_version": 1,
+        "releases": [
+            _published_release_summary(release)
+            for release in releases
+            if release.get("published") is True
+        ][:limit],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    etag = '"sha256:' + hashlib.sha256(encoded).hexdigest() + '"'
+    if if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False),
+        media_type="application/json",
+        headers={"ETag": etag},
+    )
+
+
+@app.get("/api/desktop-updates/feed/v1/releases/{version}")
+async def get_desktop_release_feed_manifest(
+    version: str,
+    authorization: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
+):
+    _require_feed_access(authorization)
+    normalized = _normalize_version(version)
+    try:
+        release = await _desktop_release_store().read_release(normalized)
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    if release.get("published") is not True:
+        raise HTTPException(status_code=404, detail=tr("api.desktop.release_missing"))
+    payload = await _published_release_manifest(release)
+    revision = str(payload["release"]["revision"])
+    etag = '"' + revision + '"'
+    if if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False),
+        media_type="application/json",
+        headers={"ETag": etag},
+    )
 
 
 @app.get("/api/desktop-updates/assets/{version}/{filename}")
-async def download_desktop_release_asset(version: str, filename: str):
-    path = _asset_path(version, filename)
+async def download_desktop_release_asset(
+    version: str,
+    filename: str,
+    authorization: str | None = Header(default=None),
+):
+    normalized = _normalize_version(version)
+    try:
+        release = await _desktop_release_store().read_release(normalized)
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    if release.get("published") is not True:
+        if authorization is None:
+            raise HTTPException(status_code=404, detail=tr("api.desktop.update_asset_missing"))
+        _require_admin(authorization)
+
+    path = _asset_path(normalized, filename)
     if not path.is_file():
         raise HTTPException(status_code=404, detail=tr("api.desktop.update_asset_missing"))
     return FileResponse(path)
@@ -673,9 +695,12 @@ async def check_desktop_update(
     current_version: str,
     request: Request,
 ):
-    if not _latest_path().exists():
+    try:
+        latest = await _desktop_release_store().read_latest()
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    if latest is None:
         return Response(status_code=204)
-    latest = _read_json_file(_latest_path())
     latest_version = str(latest.get("version") or "")
     if not latest_version or not _is_newer(latest_version, current_version):
         return Response(status_code=204)
@@ -687,7 +712,11 @@ async def check_desktop_update(
     if not filename:
         # Existing latest.json files stored an absolute URL. Recover the release
         # filename so address changes also work without republishing.
-        release_asset = (_read_release(latest_version).get("platforms") or {}).get(platform)
+        try:
+            release = await _desktop_release_store().read_release(latest_version)
+        except DesktopReleaseStoreError:
+            release = {}
+        release_asset = (release.get("platforms") or {}).get(platform)
         if isinstance(release_asset, dict):
             filename = str(release_asset.get("file") or "")
     url = _asset_url(request, latest_version, filename) if filename else str(asset.get("url") or "")

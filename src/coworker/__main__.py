@@ -49,6 +49,7 @@ from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
 from coworker.core.types import AgentState, IncomingEvent, Message
+from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
 from coworker.memory.long_term import LongTermMemory
@@ -840,6 +841,20 @@ async def _main() -> bool:
         recent_activity=recent_activity,
     )
 
+    desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)
+    desktop_update_runtime = build_runtime_spec(config.desktop_updates)
+    desktop_update_sync = SyncService(
+        desktop_release_store,
+        desktop_update_runtime.source,
+        interval_seconds=desktop_update_runtime.interval_seconds,
+        enabled=desktop_update_runtime.enabled,
+        ready=desktop_update_runtime.ready,
+        readiness=desktop_update_runtime.readiness,
+        source_summary=desktop_update_runtime.source_summary,
+        runtime_key=desktop_update_runtime.runtime_key,
+        token=desktop_update_runtime.token,
+    )
+
     setup_routes(
         None if setup_required else inbox_watcher,
         agent_loop,
@@ -859,8 +874,13 @@ async def _main() -> bool:
         skill_loader=skill_loader,
         palace_loader=palace_loader,
         mode_loader=mode_loader,
+        desktop_update_sync=desktop_update_sync,
     )
-    api_app.setup_desktop_updates(config.desktop_updates, config.admin.token)
+    api_app.setup_desktop_updates(
+        config.desktop_updates,
+        config.admin.token,
+        desktop_release_store,
+    )
     api_app.setup_ws(
         None if setup_required else inbox_watcher,
         None if setup_required else communicate,
@@ -934,6 +954,7 @@ async def _main() -> bool:
     )
     server = uvicorn.Server(uv_config)
 
+    await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
     server_task = asyncio.create_task(server.serve(), name="server")
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
@@ -987,6 +1008,8 @@ async def _main() -> bool:
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()
+        await desktop_update_sync.stop()
+        logger.info("Desktop update sync stopped")
         if wecom_runner is not None:
             await wecom_runner.stop()
             logger.info("WeCom runner stopped")

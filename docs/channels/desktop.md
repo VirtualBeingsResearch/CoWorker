@@ -246,7 +246,20 @@ DESKTOP_UPDATES__DIR=data/desktop_updates
 DESKTOP_UPDATES__ADMIN_TOKEN=change-me
 ```
 
-上传签名产物并发布：通过管理员界面进行发布管理
+上传签名产物并发布：通过管理员界面进行发布管理。
+
+也可以让 Coworker 定期从 GitHub-compatible Release API 自动导入**本地草稿**：
+
+```env
+DESKTOP_UPDATES__SYNC_SOURCES='[{"id":"11111111-1111-4111-8111-111111111111","name":"GitHub official","type":"github","api_base_url":"https://api.github.com","repository":"owner/coworker","token":"","include_drafts":false,"include_prereleases":false}]'
+DESKTOP_UPDATES__SYNC_ACTIVE_SOURCE=11111111-1111-4111-8111-111111111111
+DESKTOP_UPDATES__SYNC_INTERVAL_SECONDS=21600
+DESKTOP_UPDATES__SYNC_ON_START=true
+```
+
+API Base URL 可以指向 GitHub Enterprise（例如 `https://github.company/api/v3`）或兼容代理。同步请求使用配置的域名，Token 只发送给 Base URL 同源请求，asset 跨域跳转时不会继续携带。
+
+同步器可以导入只包含部分规范桌面资产的 Release；优先使用 `SHA256SUMS.txt`，没有时使用 GitHub asset 的 `digest` 校验下载内容。`.sig` 仍必须是 Tauri updater 的真实签名，不能用 SHA-256 digest 替代。同步成功只会在服务端创建 `published: false` 的草稿，不会修改 `latest.json`、不会通知客户端，也不会重签名。管理员仍需在“桌面发布”页面检查版本、平台和签名后手动 Publish。上游签名必须与下游客户端内置的 Tauri updater 公钥匹配。
 
 也可以用 `examples/api_test.html` 的 Desktop Release 区域手工创建 release、上传单个平台 asset、publish 或 rollback。
 桌面端启动后会请求 `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`；无更新返回 `204`，有更新返回 Tauri updater 需要的 `version/url/signature`。

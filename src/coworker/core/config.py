@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import json
 import os
+import re
 import secrets
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
+from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -21,6 +26,10 @@ from coworker.i18n import SupportedLocale, normalize_locale
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
 _FLAT_PROVIDER_TYPES = ("anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax")
+_GITHUB_REPOSITORY_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$"
+)
 
 
 class ProviderSpec(BaseModel):
@@ -205,6 +214,75 @@ class APIConfig(_EnvSettings):
     )
 
 
+class DesktopUpdateSourceBase(BaseModel):
+    """A named upstream connection.  ``id`` is the durable identity; ``name`` is display-only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+    token: str = Field(default="", repr=False)
+    include_prereleases: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("desktop update source name must not be empty")
+        if len(value) > 120:
+            raise ValueError("desktop update source name must not exceed 120 characters")
+        return value
+
+
+class GitHubDesktopUpdateSource(DesktopUpdateSourceBase):
+    type: Literal["github"]
+    api_base_url: str = "https://api.github.com"
+    repository: str = ""
+    include_drafts: bool = False
+
+    @field_validator("repository")
+    @classmethod
+    def _validate_repository(cls, value: str) -> str:
+        value = value.strip().strip("/")
+        if value and not _GITHUB_REPOSITORY_RE.fullmatch(value):
+            raise ValueError("repository must use a safe owner/name form")
+        return value
+
+    @field_validator("api_base_url")
+    @classmethod
+    def _validate_api_base_url(cls, value: str) -> str:
+        return _normalize_source_base_url(value, field_name="api_base_url", allow_empty=False)
+
+
+class CoworkerDesktopUpdateSource(DesktopUpdateSourceBase):
+    type: Literal["coworker"]
+    base_url: str = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        return _normalize_source_base_url(value, field_name="base_url", allow_empty=True)
+
+
+DesktopUpdateSourceSpec = Annotated[
+    GitHubDesktopUpdateSource | CoworkerDesktopUpdateSource,
+    Field(discriminator="type"),
+]
+
+
+def _normalize_source_base_url(value: str, *, field_name: str, allow_empty: bool) -> str:
+    value = value.strip().rstrip("/")
+    if not value and allow_empty:
+        return ""
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"{field_name} must be an absolute HTTP(S) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError(f"{field_name} must not contain credentials, query, or fragment")
+    return value
+
+
 class DesktopUpdatesConfig(_EnvSettings):
     model_config = SettingsConfigDict(
         env_prefix="DESKTOP_UPDATES__",
@@ -214,6 +292,35 @@ class DesktopUpdatesConfig(_EnvSettings):
 
     dir: str = "data/desktop_updates"
     admin_token: str = ""
+    sync_sources: list[DesktopUpdateSourceSpec] = Field(default_factory=list)
+    sync_active_source: UUID | None = None
+    feed_token: str = Field(default="", repr=False)
+    sync_interval_seconds: int = Field(default=6 * 60 * 60, ge=300, le=7 * 24 * 60 * 60)
+    sync_on_start: bool = True
+    sync_max_asset_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1024)
+    sync_max_run_bytes: int = Field(default=4 * 1024 * 1024 * 1024, ge=1024)
+
+    @model_validator(mode="after")
+    def _validate_sources(self) -> DesktopUpdatesConfig:
+        source_ids = [source.id for source in self.sync_sources]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("desktop update source IDs must be unique")
+        normalized_names = [source.name.casefold() for source in self.sync_sources]
+        if len(normalized_names) != len(set(normalized_names)):
+            raise ValueError("desktop update source names must be unique")
+        if self.sync_active_source is not None and self.sync_active_source not in source_ids:
+            raise ValueError("sync_active_source must reference a configured source")
+        if self.sync_max_run_bytes < self.sync_max_asset_bytes:
+            raise ValueError("sync_max_run_bytes must be at least sync_max_asset_bytes")
+        return self
+
+    def active_source(self) -> DesktopUpdateSourceSpec | None:
+        if self.sync_active_source is None:
+            return None
+        return next(
+            (source for source in self.sync_sources if source.id == self.sync_active_source),
+            None,
+        )
 
 
 class AdminConfig(_EnvSettings):

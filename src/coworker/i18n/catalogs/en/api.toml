@@ -6,6 +6,7 @@ alarm_manager_not_ready = "Alarm manager is not ready"
 task_store_not_ready = "Task store is not ready"
 bubble_store_not_ready = "Bubble store is not ready"
 communicate_tool_not_ready = "Communication tool is not ready"
+desktop_update_sync_not_ready = "Desktop update sync service is not ready"
 loader_not_ready = "{{kind}} loader is not ready"
 
 [api.auth]
@@ -95,6 +96,9 @@ asset_empty = "Asset file is empty"
 update_asset_missing = "Desktop update asset not found"
 legacy_bridge_removed = "The codex-bridge protocol is no longer supported"
 connection_rejected = "Connection rejected: '{{participant}}' already has an active SSE/WS connection. Connections with the same name are first-come, first-served; close the existing connection or use a different participant_id."
+sync_disabled = "Desktop update sync is disabled"
+sync_repository_unconfigured = "GitHub upstream repository is not configured"
+feed_disabled = "Desktop update release feed is not enabled"
 
 [api.message]
 legacy_bridge_unsupported = "Legacy Codex Bridge messages are unsupported"

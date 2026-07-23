@@ -20,16 +20,12 @@ from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.core.config import (
-    Config,
-    _deep_merge,
-    effective_admin_token,
-    load_admin_overrides,
-)
+from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
 from coworker.core.startup_intent import (
     clear_startup_intent,
     write_bootstrap_startup_intent,
 )
+from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
 
 if TYPE_CHECKING:
@@ -37,6 +33,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
+    from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
     from coworker.tools.alarm_tools import AlarmManager
@@ -56,6 +53,7 @@ _alarms: AlarmManager | None = None
 _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
+_desktop_update_sync: SyncService | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
 _config_write_lock = asyncio.Lock()
@@ -63,6 +61,7 @@ _config_write_lock = asyncio.Lock()
 _SECRET_PATHS = {
     "admin.token",
     "desktop_updates.admin_token",
+    "desktop_updates.feed_token",
     "llm.anthropic_api_key",
     "llm.openai_api_key",
     "llm.deepseek_api_key",
@@ -74,6 +73,10 @@ _SECRET_PATHS = {
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
+_SOURCE_TOKEN_PATH_RE = re.compile(
+    r"^desktop_updates\.sync_sources\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.token$"
+)
+
 _HOT_CONFIG_PATHS = {
     "llm.max_tokens",
     "agent.idle_sleep_seconds",
@@ -178,6 +181,7 @@ def setup_admin(
     skill_loader: SkillLoader,
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
+    desktop_update_sync: SyncService | None = None,
 ) -> None:
     global \
         _agent, \
@@ -187,6 +191,7 @@ def setup_admin(
         _skill_loader, \
         _palace_loader, \
         _mode_loader, \
+        _desktop_update_sync, \
         _pending_restart, \
         _config_write_lock
     _agent = agent
@@ -196,6 +201,7 @@ def setup_admin(
     _skill_loader = skill_loader
     _palace_loader = palace_loader
     _mode_loader = mode_loader
+    _desktop_update_sync = desktop_update_sync
     _pending_restart = False
     _config_write_lock = asyncio.Lock()
 
@@ -222,6 +228,15 @@ def _require_alarms() -> AlarmManager:
     if _alarms is None:
         raise HTTPException(status_code=503, detail=tr("api.state.alarm_manager_not_ready"))
     return _alarms
+
+
+def _require_desktop_update_sync() -> SyncService:
+    if _desktop_update_sync is None:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.state.desktop_update_sync_not_ready"),
+        )
+    return _desktop_update_sync
 
 
 def _require_task_store() -> TaskStore:
@@ -396,6 +411,41 @@ def _remove_path(data: JsonObject, dotted: str) -> None:
         node.pop(int(parts[-1]))
 
 
+def _remove_source_tokens(data: JsonObject) -> None:
+    desktop = data.get("desktop_updates")
+    if not isinstance(desktop, dict):
+        return
+    sources = desktop.get("sync_sources")
+    if not isinstance(sources, list):
+        return
+    for item in sources:
+        if isinstance(item, dict):
+            item.pop("token", None)
+
+
+def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:
+    desktop = data.setdefault("desktop_updates", {})
+    if not isinstance(desktop, dict):
+        raise ValueError("desktop_updates override must be an object")
+    sources = desktop.get("sync_sources")
+    if not isinstance(sources, list):
+        raise ValueError("desktop_updates.sync_sources must be present before writing source token")
+    for item in sources:
+        if isinstance(item, dict) and str(item.get("id") or "").lower() == source_id:
+            item["token"] = value
+            return
+    raise ValueError(f"desktop update source does not exist: {source_id}")
+
+
+def _delete_removed_source_tokens(overrides: JsonObject, valid_ids: set[str]) -> None:
+    sources = _get_path(overrides, "desktop_updates.sync_sources")
+    if not isinstance(sources, list):
+        return
+    for item in sources:
+        if isinstance(item, dict) and str(item.get("id") or "") not in valid_ids:
+            item.pop("token", None)
+
+
 def _write_json_atomic(path: Path, payload: JsonObject) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -421,6 +471,19 @@ def _masked_config() -> tuple[JsonObject, dict[str, SecretStatus], list[JsonObje
         value = str(_get_path(data, path, "") or "")
         statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
         _set_path(data, path, "")
+    desktop_updates = data.get("desktop_updates")
+    sources = desktop_updates.get("sync_sources", []) if isinstance(desktop_updates, dict) else []
+    if isinstance(sources, list):
+        for item in sources:
+            if not isinstance(item, dict):
+                continue
+            source_id = str(item.get("id") or "")
+            if not source_id:
+                continue
+            value = str(item.get("token") or "")
+            path = f"desktop_updates.sync_sources.{source_id}.token"
+            statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
+            item["token"] = ""
     llm = data.get("llm")
     providers = llm.get("managed_providers", []) if isinstance(llm, dict) else []
     if not isinstance(providers, list):
@@ -471,10 +534,19 @@ async def _apply_hot_config(
     changed_paths: set[str],
 ) -> tuple[list[str], list[str]]:
     applied: list[str] = []
+    desktop_hot = {
+        path
+        for path in changed_paths
+        if path.startswith("desktop_updates.")
+        and not path.startswith("desktop_updates.dir")
+        and not path.startswith("desktop_updates.admin_token")
+    }
     restart = sorted(
         path
         for path in changed_paths
-        if path not in _HOT_CONFIG_PATHS and not path.startswith("llm.managed_providers")
+        if path not in _HOT_CONFIG_PATHS
+        and path not in desktop_hot
+        and not path.startswith("llm.managed_providers")
     )
     brain = _require_brain()
 
@@ -511,6 +583,19 @@ async def _apply_hot_config(
         applied.append("llm.managed_providers")
         if removed:
             restart.append("llm.managed_providers.removed")
+
+    if desktop_hot:
+        current.desktop_updates = desired.desktop_updates
+        sync = _desktop_update_sync
+        if sync is not None:
+            await sync.reconfigure(build_runtime_spec(desired.desktop_updates))
+        from coworker.api import app as api_app
+
+        api_app.setup_desktop_updates(
+            desired.desktop_updates,
+            desired.admin.token,
+        )
+        applied.append("desktop_updates")
 
     for path in sorted(changed_paths & _HOT_CONFIG_PATHS - {"llm.max_tokens"}):
         _assign_config_path(current, path, desired)
@@ -1011,7 +1096,7 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
         "config": data,
         "effective_providers": effective_providers,
         "secret_status": statuses,
-        "hot_reloadable": sorted(_HOT_CONFIG_PATHS | {"llm.managed_providers"}),
+        "hot_reloadable": sorted(_HOT_CONFIG_PATHS | {"llm.managed_providers", "desktop_updates"}),
         "override_path": config.admin.config_file,
         "pending_restart": _pending_restart,
         "sources": {
@@ -1040,14 +1125,29 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request) -> ApiRes
     path = Path(config.admin.config_file)
     current_overrides = load_admin_overrides(path)
     safe_changes = json.loads(json.dumps(payload.changes))
-    # GET 返回的密钥字段固定为空；普通表单保存不得把这些空串误解释为清除。
-    # 替换/清除密钥只能通过显式的 ``secrets`` 通道完成。
     for secret_path in _SECRET_PATHS:
         _remove_path(safe_changes, secret_path)
+    _remove_source_tokens(safe_changes)
     next_overrides = _deep_merge(current_overrides, safe_changes)
     effective: JsonObject = config.model_dump(mode="json")
+    explicit_source_secret_ids: set[str] = set()
 
     for secret_path, value in payload.secrets.items():
+        source_token_match = _SOURCE_TOKEN_PATH_RE.fullmatch(secret_path)
+        if source_token_match is not None:
+            source_id = source_token_match.group(1).lower()
+            if not isinstance(_get_path(next_overrides, "desktop_updates.sync_sources"), list):
+                _set_path(
+                    next_overrides,
+                    "desktop_updates.sync_sources",
+                    _get_path(effective, "desktop_updates.sync_sources", []),
+                )
+            try:
+                _set_source_token(next_overrides, source_id, value or "")
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            explicit_source_secret_ids.add(source_id)
+            continue
         if secret_path not in _SECRET_PATHS and not re.fullmatch(
             r"llm\.managed_providers\.\d+\.api_key", secret_path
         ):
@@ -1057,8 +1157,27 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request) -> ApiRes
             )
         _set_path(next_overrides, secret_path, value or "")
 
-    # Blank managed-provider keys preserve only the previous Admin overlay key.
-    # External providers remain owned by .env/providers.json and are never copied here.
+    desired_sources = _get_path(next_overrides, "desktop_updates.sync_sources")
+    if isinstance(desired_sources, list):
+        old_sources = {str(source.id).lower(): source for source in config.desktop_updates.sync_sources}
+        valid_ids: set[str] = set()
+        for item in desired_sources:
+            if not isinstance(item, dict):
+                continue
+            source_id = str(item.get("id") or "").lower()
+            if not source_id:
+                continue
+            valid_ids.add(source_id)
+            old_source = old_sources.get(source_id)
+            if (
+                source_id not in explicit_source_secret_ids
+                and old_source is not None
+                and str(item.get("type") or "") == old_source.type
+                and not item.get("token")
+            ):
+                item["token"] = old_source.token
+        _delete_removed_source_tokens(next_overrides, valid_ids)
+
     managed = _get_path(next_overrides, "llm.managed_providers")
     if isinstance(managed, list):
         old = {p.name: p for p in config.llm.managed_providers}
@@ -1103,6 +1222,63 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request) -> ApiRes
         "applied_now": applied_now,
         "requires_restart": requires_restart,
     }
+
+
+@router.get("/desktop-updates/providers")
+async def get_desktop_update_providers(_: None = Depends(require_admin)) -> ApiResponse:
+    return {"providers": provider_metadata()}
+
+
+@router.get("/desktop-updates/sync")
+async def get_desktop_update_sync(_: None = Depends(require_admin)) -> ApiResponse:
+    config = _require_config().desktop_updates
+    if _desktop_update_sync is None:
+        runtime = build_runtime_spec(config)
+        data: dict[str, object] = {
+            "enabled": runtime.enabled,
+            "ready": runtime.ready,
+            "readiness": runtime.readiness,
+            "outcome": "idle",
+            "phase": "idle",
+            "source": runtime.source_summary.model_dump(mode="json") if runtime.source_summary else None,
+        }
+    else:
+        status = await _desktop_update_sync.status()
+        data = status.model_dump(mode="json")
+    active = config.active_source()
+    return {
+        **data,
+        "active_source": str(config.sync_active_source) if config.sync_active_source else None,
+        "active_source_name": active.name if active else "",
+        "active_source_type": active.type if active else "",
+        "token_configured": bool(active.token) if active else False,
+        "providers": provider_metadata(),
+    }
+
+
+@router.post("/desktop-updates/sync", status_code=202)
+async def trigger_desktop_update_sync(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    config = _require_config().desktop_updates
+    active = config.active_source()
+    if active is None:
+        raise HTTPException(
+            status_code=409,
+            detail=tr("api.desktop.sync_disabled"),
+        )
+    try:
+        result = await _require_desktop_update_sync().request_sync("manual")
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    _audit(
+        request,
+        "desktop_updates.sync.trigger",
+        str(config.sync_active_source or "disabled"),
+        detail=f"run_id={result['run_id']}; coalesced={result['coalesced']}",
+    )
+    return {"accepted": True, **result}
 
 
 @router.get("/model")

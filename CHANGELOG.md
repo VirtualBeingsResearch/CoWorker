@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely
 - fix(channels): show the latest send and receive times for every listed channel in localized `list_connections` output instead of transient active/offline labels
 - refactor(channels): centralize normalized inbound event delivery through `ChannelHost` and remove WeCom Runner's direct `InboxWatcher` dependency
 - refactor(channels): route raw HTTP/WebSocket envelopes into their owning channels, which now normalize payloads, persist attachments, record receive activity, and publish inbound events
