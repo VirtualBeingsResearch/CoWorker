@@ -775,6 +775,7 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
                             attachments.append(_save_attachment(AttachmentSchema(**a)))
                 except (json.JSONDecodeError, Exception):
                     pass
+                _communicate.record_received(participant_id)
                 await _inbox.push(IncomingEvent(
                     participant_id=participant_id,
                     content=content,

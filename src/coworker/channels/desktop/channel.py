@@ -33,13 +33,18 @@ class DesktopChannel(InlineChannel):
     def list_connections(self) -> list[ConnectionInfo]:
         # The registry prunes actors whose participant_id is no longer live, so
         # every actor here is a currently-connected desktop participant.
-        return [
-            ConnectionInfo(
-                participant_id=state.participant_id,
-                channel="desktop",
-                kind=f"desktop:actor:{state.actor_id}",
-                display_name=state.display_name,
-                active=True,
+        out: list[ConnectionInfo] = []
+        for state in self._registry.actors.values():
+            last_sent_at, last_received_at = self.activity_for(state.participant_id)
+            out.append(
+                ConnectionInfo(
+                    participant_id=state.participant_id,
+                    channel="desktop",
+                    kind=f"desktop:actor:{state.actor_id}",
+                    display_name=state.display_name,
+                    active=True,
+                    last_sent_at=last_sent_at,
+                    last_received_at=last_received_at,
+                )
             )
-            for state in self._registry.actors.values()
-        ]
+        return out

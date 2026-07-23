@@ -5,6 +5,7 @@ import base64
 import json
 import re
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -40,6 +41,7 @@ _communication_token = ""
 # callers can opt into development mode through ``setup(..., True)``.
 _development_mode = False
 _desktop_dispatcher: DesktopDispatcher | None = None
+_communication_received: Callable[[str], None] | None = None
 
 
 def set_desktop_dispatcher(dispatcher: DesktopDispatcher) -> None:
@@ -84,9 +86,10 @@ def setup(
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
     development_mode: bool = False,
+    communication_received: Callable[[str], None] | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _attachments_dir, _model_config_path
-    global _communication_token, _development_mode
+    global _communication_token, _development_mode, _communication_received
     _inbox = inbox
     _agent = agent
     _brain = brain
@@ -96,6 +99,7 @@ def setup(
     _attachments_dir.mkdir(parents=True, exist_ok=True)
     _communication_token = communication_token.strip()
     _development_mode = development_mode
+    _communication_received = communication_received
     if _development_mode:
         logger.warning("Coworker communication API is running in unauthenticated development mode")
 
@@ -250,6 +254,8 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
     inbox = _inbox
     if inbox is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
+    if _communication_received is not None:
+        _communication_received(message.sender_id)
     if source_is_desktop:
         if _desktop_dispatcher is None:
             raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))

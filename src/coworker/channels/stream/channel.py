@@ -44,6 +44,8 @@ class StreamChannel:
         self._outbox = Path(outbox_dir)
         self._pool = ConnectionPool()
         self._registrations = RegistrationStore(registrations_path)
+        self._last_sent_at: dict[str, str] = {}
+        self._last_received_at: dict[str, str] = {}
 
     # ----------------------------------------------------- connection access
 
@@ -174,6 +176,7 @@ class StreamChannel:
         queue = self._pool.outbound_queue(request.participant_id)
         if queue is not None:
             await queue.put(request)
+            self._last_sent_at[request.participant_id] = _activity_timestamp()
             return ToolResult(
                 tool_call_id="",
                 content=tr(
@@ -214,6 +217,7 @@ class StreamChannel:
             )
             out_file = self._outbox / f"{ts}_{safe_participant_id}.md"
             out_file.write_text(request.message, encoding="utf-8")
+            self._last_sent_at[request.participant_id] = _activity_timestamp()
 
             logger.debug(f"No active WS for {request.participant_id}, message written to outbox only")
             return ToolResult(
@@ -234,9 +238,14 @@ class StreamChannel:
                 channel="stream",
                 kind=self._pool.live_stream_transport(pid) or "websocket",
                 active=True,
+                last_sent_at=self._last_sent_at.get(pid),
+                last_received_at=self._last_received_at.get(pid),
             )
             for pid in self._pool.list_live_stream_participant_ids()
         ]
+
+    def record_received(self, participant_id: str) -> None:
+        self._last_received_at[participant_id] = _activity_timestamp()
 
     def list_live_stream_participant_ids(self) -> list[str]:
         return self._pool.list_live_stream_participant_ids()
@@ -246,3 +255,7 @@ class StreamChannel:
 
     async def stop(self) -> None:
         """No background task to stop; connections are torn down via shutdown()."""
+
+
+def _activity_timestamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")

@@ -849,6 +849,7 @@ async def _main() -> bool:
         config.llm.runtime_config_file,
         config.api.communication_token,
         config.api.development_mode,
+        communicate.record_received,
     )
     set_desktop_dispatcher(desktop_dispatcher)
     setup_admin(

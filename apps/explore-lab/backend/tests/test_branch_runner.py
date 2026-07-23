@@ -355,7 +355,8 @@ class TestLabCommunicate:
 
         assert result.is_error is False
         assert "explore_lab:" in result.content
-        assert "explore_lab [virtual, active]" in result.content
+        assert "最近发送：无" in result.content
+        assert "最近接收：无" in result.content
 
     async def test_communicate_to_virtual_connection_records_outbound_message(self, tmp_path):
         controller = _make_controller(tmp_path)

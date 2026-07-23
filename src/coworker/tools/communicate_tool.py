@@ -200,6 +200,10 @@ class CommunicateTool(Tool):
         """Aggregate reachable participants across all channels (for list_connections tool)."""
         return self._host.list_connections()
 
+    def record_received(self, participant_id: str) -> None:
+        """Record an inbound message for the participant's selected channel."""
+        self._host.record_received(participant_id)
+
     def shutdown(self) -> None:
         """Wake all live WS/SSE queues so blocked senders can exit on shutdown."""
         self._stream.shutdown()

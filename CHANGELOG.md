@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- fix(channels): show the latest WeCom send and receive times in localized `list_connections` output instead of transient active/offline labels
+- fix(channels): show the latest send and receive times for every listed channel in localized `list_connections` output instead of transient active/offline labels
 - feat(first-run): add admin-only clean bootstrap setup with runtime language/token/passive-mode options, confirmed custom tool-capable models, setup redirects, and effective-token display while setup is incomplete
 - refactor(channels): introduce a unified `Channel`/`ChannelHost` abstraction, promote the generic WS/SSE transport to `channels/stream/` (consolidating the dual connection registry), replace `CommunicateTool.register_sender` with channel-owned routing, split `WeComRunner` into runner/sender/contacts, and split `DesktopRegistry` (detail store extracted, dead `intercept` removed). `list_ws_connections` is renamed to `list_connections` and now aggregates connections across all channels (WS/SSE streams, WeCom groups/users, Desktop actors); Explore Lab also exposes its virtual participants through the same tool and names its editable control-API field `virtual_connections`. `IncomingEvent.source` is now a plain `str`. Production wire contracts (URLs, register/SSE/WS/message shapes, participant_id assignment) are preserved; the Explore Lab control API intentionally drops its former connection-field name without an alias.
 - ci: add a reviewed version-preparation workflow, preserve generic Unreleased notes during version bumps, and include previously filtered internal commit subjects

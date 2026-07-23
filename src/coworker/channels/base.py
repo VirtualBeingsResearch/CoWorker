@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from coworker.core.types import CommunicateRequest, ToolResult
@@ -67,12 +68,23 @@ class InlineChannel:
         self._sender = sender
         self._checker = checker
         self._supports_extra = supports_extra
+        self._last_sent_at: dict[str, str] = {}
+        self._last_received_at: dict[str, str] = {}
 
     def resolve(self, participant_id: str) -> str | None:
         return self._checker(participant_id) if self._checker is not None else None
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
-        return await self._sender(request)
+        result = await self._sender(request)
+        if not result.is_error:
+            self._last_sent_at[request.participant_id] = _activity_timestamp()
+        return result
+
+    def record_received(self, participant_id: str) -> None:
+        self._last_received_at[participant_id] = _activity_timestamp()
+
+    def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
+        return self._last_sent_at.get(participant_id), self._last_received_at.get(participant_id)
 
     def supports_extra_for(self, participant_id: str) -> bool:
         return self._supports_extra
@@ -121,6 +133,10 @@ class Channel(Protocol):
 
     def list_connections(self) -> list[ConnectionInfo]:
         """Reachable participants on this channel."""
+        ...
+
+    def record_received(self, participant_id: str) -> None:
+        """Record an inbound message for a participant."""
         ...
 
     def list_live_stream_participant_ids(self) -> list[str]:
@@ -235,6 +251,13 @@ class ChannelHost:
             out.extend(channel.list_connections())
         return out
 
+    def record_received(self, participant_id: str) -> None:
+        """Record an inbound message on the channel selected for a participant."""
+        _, channel = self._resolve(participant_id)
+        target = channel if channel is not None else self._fallback
+        if target is not None:
+            target.record_received(participant_id)
+
     def list_live_stream_participant_ids(self) -> list[str]:
         """Return participant IDs with a currently live WS/SSE reply stream."""
         out: list[str] = []
@@ -261,3 +284,7 @@ class ChannelHost:
     @property
     def inbox_interceptors(self) -> list[Callable[[IncomingEvent], bool]]:
         return list(self._interceptors)
+
+
+def _activity_timestamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")

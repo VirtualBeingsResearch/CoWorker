@@ -364,6 +364,7 @@ class BranchController:
         self, content: str, participant_id: str, conversation_id: str | None,
     ) -> str:
         rt = self._require_runtime()
+        rt.communicate.record_received(participant_id)
         event = IncomingEvent(
             participant_id=participant_id,
             content=content,
