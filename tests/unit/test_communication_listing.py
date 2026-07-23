@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from coworker.channels.base import ConnectionInfo
+from coworker.i18n import locale_context
 from coworker.tools.communicate_tool import ListConnectionTool
 
 
@@ -28,3 +29,13 @@ async def test_list_connections_shows_activity_times_without_status_label():
     assert "最近发送：2026-07-23T10:20:30+08:00" in result.content
     assert "最近接收：2026-07-23T10:19:00+08:00" in result.content
     assert "[wecom:single, active]" not in result.content
+
+
+@pytest.mark.asyncio
+async def test_list_connections_uses_english_catalog():
+    with locale_context("en"):
+        result = await ListConnectionTool(_Communicate()).execute()
+
+    assert "last sent: 2026-07-23T10:20:30+08:00" in result.content
+    assert "last received: 2026-07-23T10:19:00+08:00" in result.content
+    assert "最近发送" not in result.content

@@ -360,10 +360,19 @@ class ListConnectionTool(Tool):
         for channel in sorted(by_channel):
             lines.append(f"{channel}:")
             for info in sorted(by_channel[channel], key=lambda i: i.participant_id):
-                label = f" ({info.display_name})" if info.display_name else ""
-                sent = info.last_sent_at or "无"
-                received = info.last_received_at or "无"
+                activity = tr(
+                    "tool_result.communicate.connection_activity",
+                    sent=info.last_sent_at or tr("tool_result.communicate.connection_none"),
+                    received=info.last_received_at
+                    or tr("tool_result.communicate.connection_none"),
+                )
+                display_name = f" ({info.display_name})" if info.display_name else ""
                 lines.append(
-                    f"  - {info.participant_id}（最近发送：{sent}，最近接收：{received}）{label}"
+                    tr(
+                        "tool_result.communicate.connection_line",
+                        participant=info.participant_id,
+                        activity=activity,
+                        display_name=display_name,
+                    )
                 )
         return ToolResult(tool_call_id="", content="\n".join(lines))
