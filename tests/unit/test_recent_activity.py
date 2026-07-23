@@ -14,6 +14,12 @@ from coworker.memory import recent_activity as recent_activity_module
 from coworker.memory.recent_activity import RecentActivityMemory, render_recent_activity_replay
 
 
+@pytest.fixture(autouse=True)
+def isolate_relative_storage(tmp_path, monkeypatch):
+    """Keep memory-store test paths out of the repository's ``data/`` tree."""
+    monkeypatch.chdir(tmp_path)
+
+
 def test_tool_exchange_wrappers_follow_locale_and_keep_bracket_shape():
     memory = object.__new__(RecentActivityMemory)
     entry = {

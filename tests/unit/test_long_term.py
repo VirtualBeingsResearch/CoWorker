@@ -9,6 +9,12 @@ import pytest
 from coworker.memory.long_term import LongTermMemory
 
 
+@pytest.fixture(autouse=True)
+def isolate_relative_storage(tmp_path, monkeypatch):
+    """Keep vector-store test paths out of the repository's ``data/`` tree."""
+    monkeypatch.chdir(tmp_path)
+
+
 def _mem(id_: str, tags: list[str], relevance: float) -> dict:
     return {
         "id": id_,

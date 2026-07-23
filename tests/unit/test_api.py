@@ -46,7 +46,7 @@ def client(tmp_path):
     routes_mod._agent = None
     routes_mod._brain = None
     routes_mod._usage_stats = None
-    routes_mod._model_config_path = Path("data/model_runtime_config.json")
+    routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
     routes_mod._communication = None
@@ -159,10 +159,10 @@ class TestPostMessages:
         resp = client.post("/messages", json={"sender_id": "alice", "content": "hi"})
         assert resp.status_code == 503
 
-    def test_queues_event_when_ready(self, client):
+    def test_queues_event_when_ready(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = CommunicateTool("data/test-api-outbox")
+        communication = CommunicateTool(str(tmp_path / "outbox"))
         communication.set_inbound_handler(mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
@@ -295,12 +295,12 @@ class TestPostMessages:
         assert event.attachments[0].data is None
         assert Path(event.attachments[0].saved_path).read_bytes() == b"image bytes"
 
-    def test_duplicate_desktop_message_id_is_acked_without_requeueing(self, client):
+    def test_duplicate_desktop_message_id_is_acked_without_requeueing(self, client, tmp_path):
         # bridge 出站是"至少一次"：HTTP POST 成功但响应丢失时它会用同一 message_id 重发。
         # coworker 必须按 message_id 幂等去重，第二条只 ack 不再 push。
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = _communication_with_desktop(Path("data/test-api-outbox"), mock_inbox.push)
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
@@ -336,7 +336,7 @@ class TestPostMessages:
 
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = _communication_with_desktop(Path("data/test-api-outbox"), mock_inbox.push)
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
@@ -360,10 +360,10 @@ class TestPostMessages:
         # not pushed to the inbox.
         mock_inbox.push.assert_not_awaited()
 
-    def test_desktop_message_requires_matching_bearer_by_default(self, client):
+    def test_desktop_message_requires_matching_bearer_by_default(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = CommunicateTool("data/test-api-outbox")
+        communication = CommunicateTool(str(tmp_path / "outbox"))
         communication.set_inbound_handler(mock_inbox.push)
         setup_routes(
             mock_inbox,
