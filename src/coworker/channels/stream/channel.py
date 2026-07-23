@@ -10,6 +10,7 @@ message to the outbox when no connection is live.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from datetime import datetime
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from coworker.channels.base import ConnectionInfo, InboundHandler
+from coworker.channels.inbound import AttachmentStore, InboundEnvelope
 from coworker.channels.stream.connection_pool import ConnectionPool
 from coworker.channels.stream.registration import (
     RegistrationStore,
@@ -44,6 +46,7 @@ class StreamChannel:
         self._outbox = Path(outbox_dir)
         self._pool = ConnectionPool()
         self._registrations = RegistrationStore(registrations_path)
+        self._attachments = AttachmentStore(Path(outbox_dir).parent / "attachments")
         self._last_sent_at: dict[str, str] = {}
         self._last_received_at: dict[str, str] = {}
         self._inbound_handler: InboundHandler | None = None
@@ -55,6 +58,51 @@ class StreamChannel:
         if self._inbound_handler is None:
             raise RuntimeError("no inbound handler registered")
         await self._inbound_handler(event)
+
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        raw = envelope.payload
+        text = str(raw.get("text") or "") if isinstance(raw, dict) else str(raw)
+        content = text
+        conversation_id = None
+        raw_attachments: list[dict[str, Any]] = []
+        if envelope.source == "websocket":
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict) and any(
+                    key in parsed for key in ("message", "conversation_id", "attachments")
+                ):
+                    content = str(parsed.get("message") or "")
+                    raw_conversation = parsed.get("conversation_id")
+                    conversation_id = (
+                        raw_conversation if isinstance(raw_conversation, str) else None
+                    )
+                    raw_attachments = [
+                        item for item in parsed.get("attachments", []) if isinstance(item, dict)
+                    ]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        else:
+            payload = raw if isinstance(raw, dict) else {}
+            content = str(payload.get("content") or "")
+            raw_conversation = payload.get("conversation_id")
+            conversation_id = raw_conversation if isinstance(raw_conversation, str) else None
+            raw_attachments = [
+                item for item in payload.get("attachments", []) if isinstance(item, dict)
+            ]
+        attachments = [
+            self._attachments.save(item, keep_inline_data=envelope.source != "desktop")
+            for item in raw_attachments
+        ]
+        self.record_received(envelope.participant_id)
+        await self.publish_inbound(
+            IncomingEvent(
+                participant_id=envelope.participant_id,
+                content=content,
+                conversation_id=conversation_id,
+                source=envelope.source,
+                attachments=attachments,
+            )
+        )
 
     # ----------------------------------------------------- connection access
 

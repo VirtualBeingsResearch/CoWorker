@@ -1,9 +1,8 @@
 """Desktop inbound: build a typed envelope and render it to final text.
 
-Replaces the old ``json.dumps`` (in ``routes.py``) -> ``json.loads`` (in the
-dispatcher interceptor) round-trip: the caller builds the envelope dict and
-passes it here, where it is validated into a :class:`DesktopEnvelope`
-structurally and rendered via :meth:`DesktopDispatcher.route`.
+The channel builds the envelope dict from the raw API payload and passes it
+here, where it is validated into a :class:`DesktopEnvelope` structurally and
+rendered via :meth:`DesktopDispatcher.route`.
 """
 
 from __future__ import annotations

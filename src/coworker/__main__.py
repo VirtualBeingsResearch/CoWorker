@@ -26,7 +26,6 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
 from coworker.api.admin import setup_admin
-from coworker.api.routes import set_desktop_dispatcher
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
@@ -850,10 +849,8 @@ async def _main() -> bool:
         config.llm.runtime_config_file,
         config.api.communication_token,
         config.api.development_mode,
-        communicate.record_received,
-        communicate.publish_inbound,
+        communication=communicate,
     )
-    set_desktop_dispatcher(desktop_dispatcher)
     setup_admin(
         agent=agent_loop,
         brain=brain,
@@ -872,7 +869,14 @@ async def _main() -> bool:
 
     if not setup_required:
         desktop_sender = DesktopCommunicateSender(communicate)
-        communicate.register_channel(DesktopChannel(desktop_sender, desktop_registry))
+        communicate.register_channel(
+            DesktopChannel(
+                desktop_sender,
+                desktop_registry,
+                desktop_dispatcher,
+                Path(config.agent.inbox_dir).parent / "attachments",
+            )
+        )
 
     wecom_runner: WeComRunner | None = None
     if not setup_required and config.wecom.enabled:

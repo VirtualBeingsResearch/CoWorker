@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import re
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,10 +11,9 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
-from coworker.channels.desktop import inbound as desktop_inbound
-from coworker.core.ids import new_compact_id
+from coworker.channels.inbound import InboundEnvelope
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
-from coworker.core.types import AttachmentData, IncomingEvent, SummaryResult
+from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
 
@@ -26,7 +22,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
-    from coworker.channels.desktop.dispatcher import DesktopDispatcher
+    from coworker.tools.communicate_tool import CommunicateTool
 
 router = APIRouter()
 
@@ -34,21 +30,12 @@ _inbox: InboxWatcher | None = None
 _agent: AgentLoop | None = None
 _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
-_attachments_dir: Path = Path("data/attachments")
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
 # Authentication is the safe baseline.  Tests and explicitly local-only
 # callers can opt into development mode through ``setup(..., True)``.
 _development_mode = False
-_desktop_dispatcher: DesktopDispatcher | None = None
-_communication_received: Callable[[str], None] | None = None
-_communication_publish: Callable[[IncomingEvent], Awaitable[None]] | None = None
-
-
-def set_desktop_dispatcher(dispatcher: DesktopDispatcher) -> None:
-    """Inject the desktop dispatcher used to render inbound desktop envelopes."""
-    global _desktop_dispatcher
-    _desktop_dispatcher = dispatcher
+_communication: CommunicateTool | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
 # bridge 在 HTTP POST 成功但响应丢失/超时会重发同一 message_id，这里命中后直接 ack 且不再入队，
@@ -71,9 +58,6 @@ def _remember_desktop_message_id(message_id: str) -> bool:
     return True
 
 
-_IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-_PDF_MEDIA_TYPES = {"application/pdf"}
-_UNSAFE_ATTACHMENT_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _PROFILE_README_INTERVAL = timedelta(days=14)  # 档案自述更新提醒间隔；默认两周一次
 _profile_readme_last_reminded_at: datetime | None = None
 
@@ -87,22 +71,18 @@ def setup(
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
     development_mode: bool = False,
-    communication_received: Callable[[str], None] | None = None,
-    communication_publish: Callable[[IncomingEvent], Awaitable[None]] | None = None,
+    communication: CommunicateTool | None = None,
 ) -> None:
-    global _inbox, _agent, _brain, _usage_stats, _attachments_dir, _model_config_path
-    global _communication_token, _development_mode, _communication_received, _communication_publish
+    global _inbox, _agent, _brain, _usage_stats, _model_config_path
+    global _communication_token, _development_mode, _communication
     _inbox = inbox
     _agent = agent
     _brain = brain
     _usage_stats = usage_stats
     _model_config_path = Path(model_config_path)
-    _attachments_dir = Path(inbox_dir).parent / "attachments"
-    _attachments_dir.mkdir(parents=True, exist_ok=True)
     _communication_token = communication_token.strip()
     _development_mode = development_mode
-    _communication_received = communication_received
-    _communication_publish = communication_publish
+    _communication = communication
     if _development_mode:
         logger.warning("Coworker communication API is running in unauthenticated development mode")
 
@@ -173,23 +153,6 @@ class RestoreBackupPayload(BaseModel):
     mode: Literal["full", "summarize"] = "full"
 
 
-def _save_attachment(att: AttachmentSchema, *, keep_inline_data: bool = True) -> AttachmentData:
-    raw = base64.b64decode(att.data)
-    leaf = re.split(r"[\\/]+", att.filename)[-1].strip(" .")
-    filename = _UNSAFE_ATTACHMENT_CHARS_RE.sub("-", leaf).strip(" .-") or "attachment"
-    dest = _attachments_dir / f"{new_compact_id()}_{filename}"
-    dest.write_bytes(raw)
-    keep_data = keep_inline_data and (
-        att.media_type in _IMAGE_MEDIA_TYPES or att.media_type in _PDF_MEDIA_TYPES
-    )
-    return AttachmentData(
-        filename=filename,
-        media_type=att.media_type,
-        saved_path=str(dest),
-        data=att.data if keep_data else None,
-    )
-
-
 def _model_config_response() -> dict:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
@@ -254,76 +217,15 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
 
 
 async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> None:
-    inbox = _inbox
-    if inbox is None:
+    if _communication is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    if _communication_received is not None:
-        _communication_received(message.sender_id)
-    if source_is_desktop:
-        if _desktop_dispatcher is None:
-            raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-        # Render the envelope to final text structurally (no json.dumps/loads
-        # round-trip). None means the dispatcher consumed it (snapshot/ack).
-        text = desktop_inbound.render(
-            _desktop_envelope(message), message.sender_id, _desktop_dispatcher
-        )
-        if text is None:
-            return
-        attachment_schemas = list(message.attachments)
-        if message.type == "desktop.thread.event":
-            raw_attachments = (message.payload or {}).get("attachments")
-            if isinstance(raw_attachments, list):
-                attachment_schemas.extend(
-                    AttachmentSchema.model_validate(item) for item in raw_attachments
-                )
-        # Desktop attachments: persist files at the boundary, pass only local
-        # references onward so base64 data never enters short-term context.
-        attachments = [_save_attachment(a, keep_inline_data=False) for a in attachment_schemas]
-        await _publish_inbound(
-            IncomingEvent(
-                participant_id=message.sender_id,
-                content=text,
-                conversation_id=message.conversation_id,
-                timestamp=datetime.now(),
-                source="coworker_desktop",
-                attachments=attachments,
-            )
-        )
-        return
-    # Plain REST message.
-    attachments = [_save_attachment(a, keep_inline_data=True) for a in message.attachments]
-    await _publish_inbound(
-        IncomingEvent(
+    await _communication.receive_raw(
+        InboundEnvelope(
             participant_id=message.sender_id,
-            content=message.content,
-            conversation_id=message.conversation_id,
-            timestamp=datetime.now(),
-            source="rest",
-            attachments=attachments,
+            source="desktop" if source_is_desktop else "rest",
+            payload=message.model_dump(),
         )
     )
-
-
-async def _publish_inbound(event: IncomingEvent) -> None:
-    if _communication_publish is not None:
-        await _communication_publish(event)
-    elif _inbox is not None:
-        await _inbox.push(event)
-
-
-def _desktop_envelope(message: MessagePayload) -> dict[str, Any]:
-    envelope: dict[str, Any] = {
-        "protocol_version": message.protocol_version,
-        "message_id": message.message_id,
-        "created_at": message.created_at,
-        "type": message.type,
-        "payload": message.payload,
-    }
-    if message.request_id is not None:
-        envelope["request_id"] = message.request_id
-    if message.conversation_id is not None:
-        envelope["conversation_id"] = message.conversation_id
-    return envelope
 
 
 @router.get("/status")

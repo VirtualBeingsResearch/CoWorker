@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
+from coworker.channels.inbound import InboundEnvelope
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
@@ -82,6 +83,9 @@ class InlineChannel:
             raise RuntimeError("no inbound handler registered")
         await self._inbound_handler(event)
 
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        raise NotImplementedError(f"channel {self.name} does not accept raw inbound payloads")
+
     async def send(self, request: CommunicateRequest) -> ToolResult:
         result = await self._sender(request)
         if not result.is_error:
@@ -133,6 +137,10 @@ class Channel(Protocol):
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         """Attach the host-owned handler for normalized inbound events."""
+        ...
+
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        """Normalize a raw protocol envelope and publish it through this channel."""
         ...
 
     def supports_extra_for(self, participant_id: str) -> bool:
@@ -199,6 +207,14 @@ class ChannelHost:
         if self._inbound_handler is None:
             raise RuntimeError("no inbound handler registered")
         await self._inbound_handler(event)
+
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        """Route a raw protocol envelope to its owning channel."""
+        _, channel = self._resolve(envelope.participant_id)
+        target = channel if channel is not None else self._fallback
+        if target is None:
+            raise RuntimeError("no channel registered for inbound message")
+        await target.receive_raw(envelope)
 
     # ------------------------------------------------------------------ routing
 

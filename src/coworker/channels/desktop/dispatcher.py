@@ -1,7 +1,7 @@
 """Render CoWorker Desktop envelopes to agent-visible text.
 
 The desktop bridge POSTs ``DesktopEnvelopeV1`` envelopes to ``/messages``.
-``routes.py`` hands each desktop envelope to
+:class:`DesktopChannel` hands each desktop envelope to
 :mod:`coworker.channels.desktop.inbound`, which builds a typed
 ``DesktopEnvelope`` structurally (no ``json.dumps``/``json.loads`` round-trip)
 and calls :meth:`DesktopDispatcher.route`, which routes by ``type``:
@@ -73,7 +73,7 @@ class DesktopDispatcher:
         """Render a desktop envelope to final agent-visible text, or None to consume.
 
         Replaces the old inbox-interceptor + json round-trip: the caller
-        (:mod:`coworker.channels.desktop.inbound`) builds the envelope
+        (:class:`DesktopChannel` via :mod:`coworker.channels.desktop.inbound`) builds the envelope
         structurally, and this returns the final text to place in
         ``IncomingEvent.content`` (or ``None`` to consume without waking the
         agent).

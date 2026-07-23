@@ -11,6 +11,7 @@ from coworker.channels.base import (
     InboundHandler,
     ParticipantIdResolutionError,
 )
+from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream import StreamChannel
 from coworker.core.types import (
     CommunicateRegistration,
@@ -221,6 +222,10 @@ class CommunicateTool(Tool):
     async def publish_inbound(self, event: IncomingEvent) -> None:
         """Publish a normalized inbound event through the channel host."""
         await self._host.publish_inbound(event)
+
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        """Route raw protocol input to the owning channel for normalization."""
+        await self._host.receive_raw(envelope)
 
     def shutdown(self) -> None:
         """Wake all live WS/SSE queues so blocked senders can exit on shutdown."""

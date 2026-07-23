@@ -16,13 +16,26 @@ from coworker.api import app as api_app
 from coworker.api.routes import setup as setup_routes
 from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
-from coworker.channels.desktop import DesktopDispatcher, DesktopRegistry
+from coworker.channels.desktop import DesktopChannel, DesktopDispatcher, DesktopRegistry
 from coworker.core.config import APIConfig
 from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.communicate_tool import CommunicateTool
 from tests.conftest import MockProvider
+
+
+def _communication_with_desktop(tmp_path, handler):
+    communication = CommunicateTool(str(tmp_path / "outbox"))
+    communication.set_inbound_handler(handler)
+    registry = DesktopRegistry(ShortTermMemory(), tmp_path / "desktop_registry")
+    dispatcher = DesktopDispatcher(registry)
+    sender = MagicMock()
+    sender.send = AsyncMock()
+    communication.register_channel(
+        DesktopChannel(sender, registry, dispatcher, tmp_path / "attachments")
+    )
+    return communication
 
 
 @pytest.fixture
@@ -36,11 +49,9 @@ def client(tmp_path):
     routes_mod._model_config_path = Path("data/model_runtime_config.json")
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
+    routes_mod._communication = None
     routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
-    routes_mod.set_desktop_dispatcher(
-        DesktopDispatcher(DesktopRegistry(ShortTermMemory(), tmp_path / "desktop_registry"))
-    )
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
     api_app._inbox = None
@@ -151,9 +162,11 @@ class TestPostMessages:
     def test_queues_event_when_ready(self, client):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = CommunicateTool("data/test-api-outbox")
+        communication.set_inbound_handler(mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain)
+        setup_routes(mock_inbox, mock_agent, mock_brain, communication=communication)
 
         resp = client.post("/messages", json={"sender_id": "alice", "content": "hello"})
         assert resp.status_code == 200
@@ -188,13 +201,20 @@ class TestPostMessages:
     def test_attachment_filename_is_sanitized(self, client, tmp_path, monkeypatch):
         compact_id_with_separator = "abcde_fghijk"
         monkeypatch.setattr(
-            "coworker.api.routes.new_compact_id", lambda: compact_id_with_separator
+            "coworker.channels.inbound.new_compact_id", lambda: compact_id_with_separator
         )
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain, inbox_dir=str(tmp_path / "inbox"))
+        setup_routes(
+            mock_inbox,
+            mock_agent,
+            mock_brain,
+            inbox_dir=str(tmp_path / "inbox"),
+            communication=communication,
+        )
 
         resp = client.post(
             "/messages",
@@ -226,12 +246,14 @@ class TestPostMessages:
     ):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
             MagicMock(),
             inbox_dir=str(tmp_path / "inbox"),
             development_mode=True,
+            communication=communication,
         )
         encoded = base64.b64encode(b"image bytes").decode("ascii")
         envelope = {
@@ -278,7 +300,14 @@ class TestPostMessages:
         # coworker 必须按 message_id 幂等去重，第二条只 ack 不再 push。
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        setup_routes(mock_inbox, MagicMock(), MagicMock(), development_mode=True)
+        communication = _communication_with_desktop(Path("data/test-api-outbox"), mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            development_mode=True,
+            communication=communication,
+        )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
             "protocol_version": 1,
@@ -307,7 +336,14 @@ class TestPostMessages:
 
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        setup_routes(mock_inbox, MagicMock(), MagicMock(), development_mode=True)
+        communication = _communication_with_desktop(Path("data/test-api-outbox"), mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            development_mode=True,
+            communication=communication,
+        )
         request = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
             "protocol_version": 1,
@@ -327,11 +363,14 @@ class TestPostMessages:
     def test_desktop_message_requires_matching_bearer_by_default(self, client):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
+        communication = CommunicateTool("data/test-api-outbox")
+        communication.set_inbound_handler(mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
             MagicMock(),
             communication_token="secret",
+            communication=communication,
         )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
