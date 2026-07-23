@@ -463,8 +463,20 @@ const BYTE_UNITS: Array<{ value: ByteUnit; bytes: number }> = [
   { value: 'GiB', bytes: 1024 * 1024 * 1024 },
 ];
 
+function createUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(bytes);
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function desktopSource(type: 'github' | 'coworker' = 'github'): DesktopUpdateSourceConfig {
-  const id = crypto.randomUUID();
+  const id = createUuid();
   return type === 'github'
     ? { id, name: t('GitHub 上游'), type, api_base_url: 'https://api.github.com', repository: '', token: '', include_drafts: false, include_prereleases: false }
     : { id, name: t('Coworker 上游'), type, base_url: '', token: '', include_prereleases: false };
@@ -537,7 +549,7 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
   const selectSource = (id: string, replace = false) => { setSelectedSourceId(id); setUrlSource(id, replace); };
   const addSource = (type: 'github' | 'coworker') => { const next = desktopSource(type); updateSources([...sources, next]); selectSource(next.id); };
   const duplicate = (source: DesktopUpdateSourceConfig) => {
-    const next = { ...source, id: crypto.randomUUID(), name: t('{{name}} 副本', { name: source.name || sourceProviderLabel(source) }), token: '' };
+    const next = { ...source, id: createUuid(), name: t('{{name}} 副本', { name: source.name || sourceProviderLabel(source) }), token: '' };
     updateSources([...sources, next]); setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([key]) => key !== sourceSecretPath(next.id)))); selectSource(next.id);
   };
   const remove = (id: string) => {
@@ -721,9 +733,9 @@ function Settings() {
         if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} min={path === 'llm.max_tokens' ? 1 : undefined} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
-      })}</div>
+      })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}</>}
+      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
     </Panel>
   </div>;
 }
