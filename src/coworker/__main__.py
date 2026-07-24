@@ -29,12 +29,12 @@ from coworker.api.admin import setup_admin
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
-from coworker.channels.desktop import (
-    DesktopChannel,
-    DesktopCommunicateSender,
+from coworker.channels.stream.desktop import (
     DesktopDispatcher,
+    DesktopProfile,
     DesktopRegistry,
 )
+from coworker.channels.system import create_channel_system
 from coworker.channels.wecom import WeComChannel, WeComRunner
 from coworker.core.config import (
     Config,
@@ -640,8 +640,9 @@ async def _main() -> bool:
 
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
-    communicate = CommunicateTool(config.agent.outbox_dir)
-    communicate.set_inbound_handler(inbox_watcher.push)
+    channel_system = create_channel_system(config.agent.outbox_dir)
+    channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
     registry = ToolRegistry()
@@ -650,73 +651,84 @@ async def _main() -> bool:
     short_term.unpin("codex_registry")
 
     desktop_dispatcher = DesktopDispatcher(desktop_registry)
-    communicate.add_connection_listener(
+    channel_system.stream_runtime.add_connection_listener(
         lambda: desktop_registry.update_connections(
-            set(communicate.list_live_stream_participant_ids())
+            set(channel_system.stream_runtime.list_live_stream_participant_ids())
         )
     )
     desktop_registry.update_connections(
-        set(communicate.list_live_stream_participant_ids())
+        set(channel_system.stream_runtime.list_live_stream_participant_ids())
     )
-    registry.register(TaskCreateTool(task_store))
-    registry.register(TaskGetTool(task_store))
-    registry.register(TaskListTool(task_store))
-    registry.register(TaskUpdateTool(task_store))
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ListDirectoryTool())
-    registry.register(FindFilesTool())
-    registry.register(GrepFilesTool())
-    registry.register(SearchWebTool())
-    registry.register(FetchURLTool())
-    registry.register(BrowserOpenTool(browser_store))
-    registry.register(BrowserScreenshotTool(browser_store))
-    registry.register(BrowserActionTool(browser_store))
-    registry.register(BrowserGetContentTool(browser_store))
-    registry.register(BrowserCloseTool(browser_store))
-    registry.register(BrowserListSessionsTool(browser_store))
-    registry.register(
-        BrowserViewTool(browser_store, max_dimension=config.agent.image_max_dimension)
+    registry.register_many(
+        [
+            TaskCreateTool(task_store),
+            TaskGetTool(task_store),
+            TaskListTool(task_store),
+            TaskUpdateTool(task_store),
+            ReadFileTool(),
+            WriteFileTool(),
+            ListDirectoryTool(),
+            FindFilesTool(),
+            GrepFilesTool(),
+            SearchWebTool(),
+            FetchURLTool(),
+            BrowserOpenTool(browser_store),
+            BrowserScreenshotTool(browser_store),
+            BrowserActionTool(browser_store),
+            BrowserGetContentTool(browser_store),
+            BrowserCloseTool(browser_store),
+            BrowserListSessionsTool(browser_store),
+            BrowserViewTool(
+                browser_store,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ExecuteCodeTool(
+                store=job_store,
+                hard_timeout=config.agent.code_hard_timeout,
+                inbox=inbox_watcher,
+            ),
+            GetCodeResultTool(job_store, inbox=inbox_watcher),
+            KillCodeJobTool(job_store),
+            QueryMemoryTool(
+                long_term,
+                short_term,
+                brain,
+                recent_activity=recent_activity,
+            ),
+            ManageMemoryTool(long_term),
+            SleepTool(inbox_watcher, config=config),
+            BreatheTool(),
+            SwitchModelTool(brain),
+        ]
     )
-    registry.register(
-        ExecuteCodeTool(
-            store=job_store, hard_timeout=config.agent.code_hard_timeout, inbox=inbox_watcher
-        )
-    )
-    registry.register(GetCodeResultTool(job_store, inbox=inbox_watcher))
-    registry.register(KillCodeJobTool(job_store))
-    registry.register(
-        QueryMemoryTool(
-            long_term,
-            short_term,
-            brain,
-            recent_activity=recent_activity,
-        )
-    )
-    registry.register(ManageMemoryTool(long_term))
-    registry.register(SleepTool(inbox_watcher, config=config))
-    registry.register(BreatheTool())
-    registry.register(SwitchModelTool(brain))
     alarm_manager = AlarmManager(inbox_watcher, persist_path=alarm_persist_path)
     restored_alarms = await alarm_manager.restore()
-    registry.register(SetAlarmTool(alarm_manager))
-    registry.register(ListAlarmsTool(alarm_manager))
-    registry.register(CancelAlarmTool(alarm_manager))
-    registry.register(communicate)
-    registry.register(ListConnectionTool(communicate))
-    registry.register(GetSkillTool(skill_loader, agent_state))
-    registry.register(GetContextTool(brain, short_term, agent_state))
-    registry.register(ManagePinnedContextTool(short_term))
-    registry.register(RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path))
+    registry.register_many(
+        [
+            SetAlarmTool(alarm_manager),
+            ListAlarmsTool(alarm_manager),
+            CancelAlarmTool(alarm_manager),
+            communicate,
+            ListConnectionTool(channel_system.registry),
+            GetSkillTool(skill_loader, agent_state),
+            GetContextTool(brain, short_term, agent_state),
+            ManagePinnedContextTool(short_term),
+            RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path),
+        ]
+    )
 
     from coworker.tools.vision_tools import ViewImageTool, VisualAnalysisTool
 
-    registry.register(
-        VisualAnalysisTool(
-            brain, inbox=inbox_watcher, max_dimension=config.agent.image_max_dimension
-        )
+    registry.register_many(
+        [
+            VisualAnalysisTool(
+                brain,
+                inbox=inbox_watcher,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ViewImageTool(max_dimension=config.agent.image_max_dimension),
+        ]
     )
-    registry.register(ViewImageTool(max_dimension=config.agent.image_max_dimension))
 
     prompt_builder = SystemPromptBuilder(
         identity,
@@ -747,17 +759,22 @@ async def _main() -> bool:
             skill_loader=skill_loader,
             long_term=long_term,
             communicate=communicate,
+            stream_runtime=channel_system.stream_runtime,
             handoff_matcher=BubbleHandoffMatcher.from_config(
                 participant_matches=(config.agent.bubble_handoff_transparency_participant_matches),
                 stream_transports=(config.agent.bubble_handoff_transparency_stream_transports),
             ),
         )
-        registry.register(bubble_spawn)
-        registry.register(BubbleCheckTool(bubble_store))
-        registry.register(BubbleSendTool(bubble_store, inbox_watcher))
-        registry.register(BubbleCancelTool(bubble_store))
-        registry.register(BubbleListTool(bubble_store))
-        registry.register(BubbleDoneTool())
+        registry.register_many(
+            [
+                bubble_spawn,
+                BubbleCheckTool(bubble_store),
+                BubbleSendTool(bubble_store, inbox_watcher),
+                BubbleCancelTool(bubble_store),
+                BubbleListTool(bubble_store),
+                BubbleDoneTool(),
+            ]
+        )
 
     subconscious: SubconsciousScheduler | None = None
     if config.agent.subconscious_thinking:
@@ -864,7 +881,7 @@ async def _main() -> bool:
         config.llm.runtime_config_file,
         config.api.communication_token,
         config.api.development_mode,
-        communication=communicate,
+        channels=channel_system.registry,
     )
     setup_admin(
         agent=agent_loop,
@@ -881,24 +898,17 @@ async def _main() -> bool:
         config.admin.token,
         desktop_release_store,
     )
-    api_app.setup_ws(
-        None if setup_required else inbox_watcher,
-        None if setup_required else communicate,
-    )
+    api_app.setup_channels(None if setup_required else channel_system)
     api_app.set_collector(event_collector)
 
     if not setup_required:
-        desktop_sender = DesktopCommunicateSender(communicate)
-        communicate.register_channel(
-            DesktopChannel(
-                desktop_sender,
+        channel_system.register_stream_profile(
+            DesktopProfile(
                 desktop_registry,
                 desktop_dispatcher,
-                Path(config.agent.inbox_dir).parent / "attachments",
             )
         )
 
-    wecom_runner: WeComRunner | None = None
     if not setup_required and config.wecom.enabled:
         if not config.wecom.bot_id or not config.wecom.secret:
             logger.warning("WeCom enabled but bot_id/secret missing; skipping")
@@ -908,7 +918,7 @@ async def _main() -> bool:
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
             )
-            communicate.register_channel(WeComChannel(wecom_runner))
+            channel_system.registry.register(WeComChannel(wecom_runner))
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
 
     # 写入实例状态文件（新旧交接标记）
@@ -955,6 +965,7 @@ async def _main() -> bool:
     server = uvicorn.Server(uv_config)
 
     await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
+    await channel_system.registry.start()
     server_task = asyncio.create_task(server.serve(), name="server")
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
@@ -966,10 +977,6 @@ async def _main() -> bool:
         inbox_task = asyncio.create_task(inbox_watcher.start(), name="inbox")
         loop_task = asyncio.create_task(agent_loop.run(), name="loop")
         lifecycle_task = loop_task
-    wecom_task: asyncio.Task | None = None
-    if wecom_runner is not None:
-        wecom_task = asyncio.create_task(wecom_runner.start(), name="wecom")
-
     try:
         done, _ = await asyncio.wait(
             {server_task, lifecycle_task}, return_when=asyncio.FIRST_COMPLETED
@@ -1005,19 +1012,15 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        await channel_system.registry.stop()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()
         await desktop_update_sync.stop()
         logger.info("Desktop update sync stopped")
-        if wecom_runner is not None:
-            await wecom_runner.stop()
-            logger.info("WeCom runner stopped")
         background = [server_task]
         if inbox_task is not None:
             background.append(inbox_task)
-        if wecom_task is not None:
-            background.append(wecom_task)
         if not lifecycle_task.done():
             agent_loop.stop()
             background.append(lifecycle_task)

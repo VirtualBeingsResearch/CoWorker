@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
-    from coworker.tools.communicate_tool import CommunicateTool
+    from coworker.channels.registry import ChannelRegistry
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ _communication_token = ""
 # Authentication is the safe baseline.  Tests and explicitly local-only
 # callers can opt into development mode through ``setup(..., True)``.
 _development_mode = False
-_communication: CommunicateTool | None = None
+_channels: ChannelRegistry | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
 # bridge 在 HTTP POST 成功但响应丢失/超时会重发同一 message_id，这里命中后直接 ack 且不再入队，
@@ -71,10 +71,10 @@ def setup(
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
     development_mode: bool = False,
-    communication: CommunicateTool | None = None,
+    channels: ChannelRegistry | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
-    global _communication_token, _development_mode, _communication
+    global _communication_token, _development_mode, _channels
     _inbox = inbox
     _agent = agent
     _brain = brain
@@ -82,7 +82,7 @@ def setup(
     _model_config_path = Path(model_config_path)
     _communication_token = communication_token.strip()
     _development_mode = development_mode
-    _communication = communication
+    _channels = channels
     if _development_mode:
         logger.warning("Coworker communication API is running in unauthenticated development mode")
 
@@ -166,11 +166,6 @@ def _model_config_response() -> dict:
 async def post_message(message: MessagePayload, authorization: str | None = Header(default=None)):
     if _inbox is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    if message.sender_id.startswith(("codex:", "local:", "codex-bridge:")):
-        raise HTTPException(
-            status_code=422,
-            detail=tr("api.message.legacy_bridge_unsupported"),
-        )
     is_desktop = (
         message.sender_id.startswith("coworker-desktop:")
         or message.message_id is not None
@@ -217,9 +212,9 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
 
 
 async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> None:
-    if _communication is None:
+    if _channels is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    await _communication.receive_raw(
+    await _channels.receive_raw(
         InboundEnvelope(
             participant_id=message.sender_id,
             source="desktop" if source_is_desktop else "rest",

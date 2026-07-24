@@ -1,8 +1,8 @@
 """Render CoWorker Desktop envelopes to agent-visible text.
 
 The desktop bridge POSTs ``DesktopEnvelopeV1`` envelopes to ``/messages``.
-:class:`DesktopChannel` hands each desktop envelope to
-:mod:`coworker.channels.desktop.inbound`, which builds a typed
+:class:`DesktopProfile` hands each desktop envelope to
+:mod:`coworker.channels.stream.desktop.inbound`, which builds a typed
 ``DesktopEnvelope`` structurally (no ``json.dumps``/``json.loads`` round-trip)
 and calls :meth:`DesktopDispatcher.route`, which routes by ``type``:
 
@@ -35,7 +35,7 @@ from typing import Any
 from loguru import logger
 from pydantic import BaseModel
 
-from coworker.channels.desktop.registry import DesktopRegistry
+from coworker.channels.stream.desktop.registry import DesktopRegistry
 from coworker.i18n import tr
 
 _DETAIL_LIMIT = 240
@@ -73,7 +73,7 @@ class DesktopDispatcher:
         """Render a desktop envelope to final agent-visible text, or None to consume.
 
         Replaces the old inbox-interceptor + json round-trip: the caller
-        (:class:`DesktopChannel` via :mod:`coworker.channels.desktop.inbound`) builds the envelope
+        (:class:`DesktopProfile` via :mod:`coworker.channels.stream.desktop.inbound`) builds the envelope
         structurally, and this returns the final text to place in
         ``IncomingEvent.content`` (or ``None`` to consume without waking the
         agent).

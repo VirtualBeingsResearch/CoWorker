@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from coworker.agent.interaction_log import InteractionLogger
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
+    from coworker.channels.stream import StreamRuntime
     from coworker.core.types import Message
     from coworker.memory.long_term import LongTermMemory
     from coworker.memory.short_term import ShortTermMemory
@@ -86,6 +87,7 @@ class BubbleSpawnTool(Tool):
         skill_loader: SkillLoader | None = None,
         long_term: LongTermMemory | None = None,
         communicate: CommunicateTool | None = None,
+        stream_runtime: StreamRuntime | None = None,
         handoff_matcher: BubbleHandoffMatcher | None = None,
     ) -> None:
         self._store = store
@@ -101,6 +103,7 @@ class BubbleSpawnTool(Tool):
         self._skill_loader = skill_loader
         self._long_term = long_term
         self._communicate = communicate
+        self._stream_runtime = stream_runtime
         self._handoff_matcher = handoff_matcher or BubbleHandoffMatcher()
 
     @property
@@ -463,8 +466,8 @@ class BubbleSpawnTool(Tool):
 
     def _should_use_handoff_transparency(self, participant_id: str) -> bool:
         stream_transport = (
-            self._communicate.live_stream_transport(participant_id)
-            if self._communicate is not None
+            self._stream_runtime.live_stream_transport(participant_id)
+            if self._stream_runtime is not None
             else None
         )
         return self._handoff_matcher.matches(

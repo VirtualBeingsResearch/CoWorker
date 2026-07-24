@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from coworker.channels.base import ConnectionInfo
-from coworker.channels.stream.channel import StreamChannel
+from coworker.channels.stream.runtime import StreamRuntime
 from coworker.core.types import CommunicateRequest
 from coworker.i18n import locale_context
 from coworker.tools.communicate_tool import ListConnectionTool
@@ -47,9 +47,9 @@ async def test_list_connections_uses_english_catalog():
 
 @pytest.mark.asyncio
 async def test_stream_connection_records_send_and_receive_times(tmp_path):
-    stream = StreamChannel(tmp_path / "outbox", tmp_path / "registrations.json")
+    stream = StreamRuntime(tmp_path / "outbox", tmp_path / "registrations.json")
     queue: asyncio.Queue = asyncio.Queue()
-    assert stream.register_ws("alice", queue)
+    assert stream.register_session("alice", queue)
 
     result = await stream.send(CommunicateRequest(participant_id="alice", message="hello"))
     stream.record_received("alice")

@@ -48,6 +48,16 @@ def participant_id_for(frame: dict[str, Any]) -> str:
     return f"wecom:single:{body['from']['userid']}"
 
 
+def conversation_id_for(frame: dict[str, Any]) -> str | None:
+    request_id = frame.get("headers", {}).get("req_id")
+    if isinstance(request_id, str) and request_id.strip():
+        return request_id.strip()
+    message_id = frame.get("body", {}).get("msgid")
+    if isinstance(message_id, str) and message_id.strip():
+        return message_id.strip()
+    return None
+
+
 def parse_participant(participant_id: str) -> tuple[str, str]:
     """wecom:single:<userid>  → ("single", userid)
     wecom:group:<chatid>      → ("group", chatid)
@@ -276,6 +286,7 @@ def frame_to_event(
     return IncomingEvent(
         participant_id=pid,
         content=content,
+        conversation_id=conversation_id_for(frame),
         timestamp=datetime.now(),
         source="wecom",
         attachments=attachments,

@@ -137,11 +137,12 @@ limit = "Maximum characters to return; 0 requests the largest page, and offset r
 job_id = "job_id returned by execute_code."
 
 [tool_schema.parameter.communicate]
-participant_id = "Recipient ID; a bubble bound to a participant cannot change it to another recipient."
+participant_id = "Recipient ID."
 message = "Message content to send."
 conversation_id = "Conversation ID under the same participant_id."
 attachments = "Optional attachments; exact support depends on the destination channel."
-extra = "Low-frequency channel extensions; the destination channel defines the allowlist."
+  extra = "Low-frequency channel extensions; the destination channel defines the allowlist. WeCom supports mentioned_list."
+  "extra.mentioned_list" = "WeCom user IDs to mention in the Markdown message."
 
 "attachments.item.type" = "Attachment type: image or file."
 "attachments.item.filename" = "Optional display filename; defaults to the filename from path."

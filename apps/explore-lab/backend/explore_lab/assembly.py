@@ -31,6 +31,7 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.system import create_channel_system
 from coworker.core.config import Config, LLMConfig
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.model_config import apply_runtime_model_config_file
@@ -325,59 +326,80 @@ async def assemble_runtime(workdir: Path) -> Runtime:
     task_store = TaskStore("data/tasks.json")
     thinking_path = Path("data/thinking.md")
 
-    registry.register(TaskCreateTool(task_store))
-    registry.register(TaskGetTool(task_store))
-    registry.register(TaskListTool(task_store))
-    registry.register(TaskUpdateTool(task_store))
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ListDirectoryTool())
-    registry.register(FindFilesTool())
-    registry.register(GrepFilesTool())
-    registry.register(SearchWebTool())
-    registry.register(FetchURLTool())
-    registry.register(BrowserOpenTool(browser_store))
-    registry.register(BrowserScreenshotTool(browser_store))
-    registry.register(BrowserActionTool(browser_store))
-    registry.register(BrowserGetContentTool(browser_store))
-    registry.register(BrowserCloseTool(browser_store))
-    registry.register(BrowserListSessionsTool(browser_store))
-    registry.register(BrowserViewTool(
-        browser_store, max_dimension=config.agent.image_max_dimension,
-    ))
-    registry.register(ExecuteCodeTool(
-        store=job_store, hard_timeout=config.agent.code_hard_timeout, inbox=inbox_watcher,
-    ))
-    registry.register(GetCodeResultTool(job_store, inbox=inbox_watcher))
-    registry.register(KillCodeJobTool(job_store))
-    registry.register(QueryMemoryTool(
-        long_term, short_term, brain, recent_activity=recent_activity,
-    ))
-    registry.register(ManageMemoryTool(long_term))
-    registry.register(SleepTool(inbox_watcher))
-    registry.register(BreatheTool())
-    registry.register(SwitchModelTool(brain))
+    registry.register_many(
+        [
+            TaskCreateTool(task_store),
+            TaskGetTool(task_store),
+            TaskListTool(task_store),
+            TaskUpdateTool(task_store),
+            ReadFileTool(),
+            WriteFileTool(),
+            ListDirectoryTool(),
+            FindFilesTool(),
+            GrepFilesTool(),
+            SearchWebTool(),
+            FetchURLTool(),
+            BrowserOpenTool(browser_store),
+            BrowserScreenshotTool(browser_store),
+            BrowserActionTool(browser_store),
+            BrowserGetContentTool(browser_store),
+            BrowserCloseTool(browser_store),
+            BrowserListSessionsTool(browser_store),
+            BrowserViewTool(
+                browser_store,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ExecuteCodeTool(
+                store=job_store,
+                hard_timeout=config.agent.code_hard_timeout,
+                inbox=inbox_watcher,
+            ),
+            GetCodeResultTool(job_store, inbox=inbox_watcher),
+            KillCodeJobTool(job_store),
+            QueryMemoryTool(
+                long_term,
+                short_term,
+                brain,
+                recent_activity=recent_activity,
+            ),
+            ManageMemoryTool(long_term),
+            SleepTool(inbox_watcher),
+            BreatheTool(),
+            SwitchModelTool(brain),
+        ]
+    )
 
     alarm_manager = AlarmManager(
         inbox_watcher, persist_path=Path(config.memory.db_path) / "alarms.json",
     )
     await alarm_manager.restore()
-    registry.register(SetAlarmTool(alarm_manager))
-    registry.register(ListAlarmsTool(alarm_manager))
-    registry.register(CancelAlarmTool(alarm_manager))
+    registry.register_many(
+        [
+            SetAlarmTool(alarm_manager),
+            ListAlarmsTool(alarm_manager),
+            CancelAlarmTool(alarm_manager),
+        ]
+    )
 
-    communicate = LabCommunicateTool(config.agent.outbox_dir)
-    registry.register(communicate)
-    registry.register(ListConnectionTool(communicate))
-    registry.register(GetSkillTool(skill_loader, agent_state))
-    registry.register(GetContextTool(brain, short_term, agent_state))
-    registry.register(ManagePinnedContextTool(short_term))
-    registry.register(RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path))
-
-    registry.register(VisualAnalysisTool(
-        brain, inbox=inbox_watcher, max_dimension=config.agent.image_max_dimension,
-    ))
-    registry.register(ViewImageTool(max_dimension=config.agent.image_max_dimension))
+    channel_system = create_channel_system(config.agent.outbox_dir)
+    channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    communicate = LabCommunicateTool(channel_system.registry)
+    registry.register_many(
+        [
+            communicate,
+            ListConnectionTool(communicate),
+            GetSkillTool(skill_loader, agent_state),
+            GetContextTool(brain, short_term, agent_state),
+            ManagePinnedContextTool(short_term),
+            RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path),
+            VisualAnalysisTool(
+                brain,
+                inbox=inbox_watcher,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ViewImageTool(max_dimension=config.agent.image_max_dimension),
+        ]
+    )
 
     prompt_builder = SystemPromptBuilder(
         identity, registry, skill_loader,
@@ -389,25 +411,30 @@ async def assemble_runtime(workdir: Path) -> Runtime:
     bubble_store: BubbleStore | None = None
     if config.agent.bubble_thinking:
         bubble_store = BubbleStore(max_concurrent=config.agent.bubble_max_concurrent)
-        registry.register(BubbleSpawnTool(
-            store=bubble_store,
-            short_term=short_term,
-            parent_brain=brain,
-            full_registry=registry,
-            system_prompt_builder=prompt_builder,
-            inbox=inbox_watcher,
-            logs_dir=config.agent.logs_dir,
-            parent_log=interaction_log,
-            usage_stats=usage_stats,
-            palace_loader=palace_loader,
-            skill_loader=skill_loader,
-            long_term=long_term,
-        ))
-        registry.register(BubbleCheckTool(bubble_store))
-        registry.register(BubbleSendTool(bubble_store, inbox_watcher))
-        registry.register(BubbleCancelTool(bubble_store))
-        registry.register(BubbleListTool(bubble_store))
-        registry.register(BubbleDoneTool())
+        registry.register_many(
+            [
+                BubbleSpawnTool(
+                    store=bubble_store,
+                    short_term=short_term,
+                    parent_brain=brain,
+                    full_registry=registry,
+                    system_prompt_builder=prompt_builder,
+                    inbox=inbox_watcher,
+                    logs_dir=config.agent.logs_dir,
+                    parent_log=interaction_log,
+                    usage_stats=usage_stats,
+                    palace_loader=palace_loader,
+                    skill_loader=skill_loader,
+                    long_term=long_term,
+                    stream_runtime=channel_system.stream_runtime,
+                ),
+                BubbleCheckTool(bubble_store),
+                BubbleSendTool(bubble_store, inbox_watcher),
+                BubbleCancelTool(bubble_store),
+                BubbleListTool(bubble_store),
+                BubbleDoneTool(),
+            ]
+        )
 
     clear_short_term_memory_tool = ClearShortTermMemoryTool(short_term, brain, None)
     registry.register(clear_short_term_memory_tool)

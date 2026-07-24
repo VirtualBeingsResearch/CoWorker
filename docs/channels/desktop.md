@@ -102,7 +102,7 @@ uv run coworker
 cargo run --bin coworker-desktop
 ```
 
-Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` participant，并启动周期性的 `desktop.actor.snapshot`。每个 actor 每轮只扫描一次近期会话，优先使用原生项目标识进行分组并限制每个项目主动展示的数量；无项目会话统一归入“对话”组。相同 snapshot 会跳过重复发布，但最多 5 分钟发送一次恢复心跳；一个 Coworker 发布失败不会阻塞其他 Coworker。Coworker 会把三个身份的连接状态与项目会话写入 pinned context，并为 Desktop 来源消息自动加载 `coworker-desktop` Skill。完整列表仍通过 `list_conversations` 查询。
+Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` participant，并启动周期性的 `desktop.actor.snapshot`。每个 actor 每轮只扫描一次近期会话，优先使用原生项目标识进行分组并限制每个项目主动展示的数量；无项目会话统一归入“对话”组。相同 snapshot 会跳过重复发布，但最多 5 分钟发送一次恢复心跳；一个 Coworker 发布失败不会阻塞其他 Coworker。Coworker 只把面向模型的紧凑索引写入 pinned context：同一 Desktop 下合并身份、保留精确 participant/project/conversation 标识，并为每个身份最多展示最新 4 个会话；原始 snapshot 与 Desktop 传输结构不变，完整列表仍通过 `list_conversations` 查询。Desktop 来源消息会自动加载 `coworker-desktop` Skill。
 
 ## 桌面版运行和打包
 

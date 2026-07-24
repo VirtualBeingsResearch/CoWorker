@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from coworker.channels.base import ConnectionInfo
+from coworker.channels.registry import ChannelRegistry
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.tools.communicate_tool import CommunicateTool
 
@@ -21,11 +22,12 @@ class LabCommunicateTool(CommunicateTool):
 
     def __init__(
         self,
-        outbox_dir: str,
+        channels: ChannelRegistry,
         *,
         virtual_connections: list[str] | tuple[str, ...] = DEFAULT_LAB_VIRTUAL_CONNECTIONS,
     ) -> None:
-        super().__init__(outbox_dir)
+        super().__init__(channels)
+        self._channel_registry = channels
         self._virtual_connections: set[str] = set()
         self._outbound_messages: list[dict[str, Any]] = []
         self._virtual_last_sent_at: dict[str, str] = {}
@@ -43,7 +45,7 @@ class LabCommunicateTool(CommunicateTool):
         return sorted(self._virtual_connections)
 
     def list_connections(self) -> list[ConnectionInfo]:
-        infos = super().list_connections()
+        infos = self._channel_registry.list_connections()
         known_participants = {info.participant_id for info in infos}
         infos.extend(
             ConnectionInfo(
@@ -67,7 +69,7 @@ class LabCommunicateTool(CommunicateTool):
                 timespec="seconds"
             )
             return
-        super().record_received(participant_id)
+        self._channel_registry.record_received(participant_id)
 
     async def execute(
         self,

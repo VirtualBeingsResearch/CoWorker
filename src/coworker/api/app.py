@@ -32,8 +32,8 @@ from starlette.background import BackgroundTask
 
 from coworker.api.admin import router as admin_router
 from coworker.api.routes import router, verify_communication_authorization
-from coworker.api.ws import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.channels.inbound import InboundEnvelope
+from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
@@ -54,8 +54,8 @@ from coworker.version import __version__
 
 if TYPE_CHECKING:
     from coworker.agent.event_collector import RuntimeEventCollector
-    from coworker.agent.inbox_watcher import InboxWatcher
-    from coworker.tools.communicate_tool import CommunicateTool
+    from coworker.channels.stream import StreamRuntime
+    from coworker.channels.system import ChannelSystem
 
 _api_defaults = APIConfig()
 _cors_origins = [
@@ -104,8 +104,7 @@ async def redirect_to_setup(request: Request, call_next):
     return response
 
 
-_inbox: InboxWatcher | None = None
-_communicate: CommunicateTool | None = None
+_channel_system: ChannelSystem | None = None
 _collector: RuntimeEventCollector | None = None
 _desktop_updates_effective: DesktopUpdatesConfig | None = None
 _desktop_updates_admin_token = ""
@@ -148,8 +147,8 @@ def signal_shutdown() -> None:
     global _shutting_down
     _shutting_down = True
     # Wake live WS/SSE outbox queues via the single stream registry.
-    if _communicate is not None:
-        _communicate.shutdown()
+    if _channel_system is not None:
+        _channel_system.stream_runtime.shutdown()
     if _collector is not None:
         for q in list(_collector.subscribers()):  # /logs/stream SSE 订阅者
             try:
@@ -196,15 +195,11 @@ def _rejected_sse_response(participant_id: str) -> StreamingResponse:
     )
 
 
-def setup_ws(
-    inbox: InboxWatcher | None,
-    communicate: CommunicateTool | None,
+def setup_channels(
+    channel_system: ChannelSystem | None,
 ) -> None:
-    global _inbox, _communicate
-    _inbox = inbox
-    _communicate = communicate
-    if _communicate is not None and _inbox is not None:
-        _communicate.set_inbound_handler(_inbox.push)
+    global _channel_system
+    _channel_system = channel_system
 
 
 def set_collector(collector: RuntimeEventCollector) -> None:
@@ -225,12 +220,12 @@ def setup_desktop_updates(
     _desktop_release_store_effective = store or DesktopReleaseStore(config.dir)
 
 
-def _require_communicate() -> CommunicateTool:
-    if _communicate is None:
+def _require_stream() -> StreamRuntime:
+    if _channel_system is None:
         raise HTTPException(
-            status_code=503, detail=tr("api.state.communicate_tool_not_ready")
+            status_code=503, detail=tr("api.state.channel_runtime_not_ready")
         )
-    return _communicate
+    return _channel_system.stream_runtime
 
 
 def _desktop_updates_config() -> DesktopUpdatesConfig:
@@ -268,11 +263,12 @@ def _is_newer(candidate: str, current: str) -> bool:
 
 
 def _enqueue_desktop_update_checks(version: str) -> dict[str, int]:
-    if _communicate is None:
+    if _channel_system is None:
         return {"eligible": 0, "enqueued": 0}
 
+    stream = _channel_system.stream_runtime
     desktops: dict[str, tuple[str, asyncio.Queue]] = {}
-    for registration in _communicate.registration_records():
+    for registration in stream.registration_records():
         metadata = registration.metadata
         capabilities = metadata.get("capabilities")
         if (
@@ -281,7 +277,7 @@ def _enqueue_desktop_update_checks(version: str) -> dict[str, int]:
             or "desktop_update_push" not in capabilities
         ):
             continue
-        queue = _communicate.outbound_queue(registration.participant_id)
+        queue = stream.outbound_queue(registration.participant_id)
         desktop_id = str(metadata.get("desktop_id") or "").strip()
         current_version = str(metadata.get("desktop_version") or "").strip()
         if not desktop_id or (current_version and not _is_newer(version, current_version)):
@@ -488,9 +484,9 @@ async def communicate_register(
             status_code=422,
             detail=tr("api.desktop.protocol_incompatible"),
         )
-    communicate = _require_communicate()
+    stream = _require_stream()
     try:
-        result = communicate.register_participant(
+        result = stream.register_participant(
             kind=payload.kind,
             client_id=payload.client_id,
             display_name=payload.display_name,
@@ -505,7 +501,7 @@ async def communicate_register(
 @app.get("/api/communicate/register")
 async def communicate_registrations(authorization: str | None = Header(default=None)):
     verify_communication_authorization(authorization)
-    return {"registrations": _require_communicate().list_registrations()}
+    return {"registrations": _require_stream().list_registrations()}
 
 
 @app.delete("/api/communicate/register/{registration_id}")
@@ -514,9 +510,9 @@ async def communicate_delete_registration(
     authorization: str | None = Header(default=None),
 ):
     verify_communication_authorization(authorization)
-    communicate = _require_communicate()
+    stream = _require_stream()
     try:
-        return {"deleted": communicate.delete_registration(registration_id)}
+        return {"deleted": stream.delete_registration(registration_id)}
     except KeyError as error:
         raise HTTPException(
             status_code=404, detail=tr("api.desktop.registration_missing")
@@ -752,39 +748,38 @@ async def export_config(authorization: str | None = Header(default=None)):
 
 @app.websocket("/ws/{participant_id}")
 async def websocket_endpoint(ws: WebSocket, participant_id: str):
-    if participant_id.startswith("codex-bridge:"):
-        await ws.close(code=1008, reason="codex-bridge protocol is no longer supported")
-        return
     if participant_id.startswith("coworker-desktop:"):
         try:
             verify_communication_authorization(ws.headers.get("authorization"))
         except HTTPException as error:
             await ws.close(code=1008, reason=str(error.detail))
             return
-    if _communicate is None:
+    if _channel_system is None:
         await ws.close(code=1013, reason=tr("api.state.agent_not_ready"))
         return
+    channels = _channel_system.registry
+    stream = _channel_system.stream_runtime
     queue: asyncio.Queue = asyncio.Queue()
     sender_task: asyncio.Task | None = None
 
-    if not _communicate.register_ws(participant_id, queue, transport="websocket"):
+    if not stream.register_session(participant_id, queue, transport="websocket"):
         logger.info(f"WS rejected duplicate participant_id: {participant_id}")
         await _reject_websocket(ws, participant_id)
         return
 
     try:
         try:
-            queue = await _communicate.stream.connect(participant_id, ws, queue)
+            queue = await stream.connect(participant_id, ws, queue)
         except ValueError:
-            _communicate.unregister_ws(participant_id, queue)
+            stream.unregister_session(participant_id, queue)
             logger.info(f"WS rejected duplicate participant_id: {participant_id}")
             await _reject_websocket(ws, participant_id)
             return
 
-        sender_task = asyncio.create_task(_communicate.stream.run_sender(participant_id, queue, ws))
+        sender_task = asyncio.create_task(stream.run_sender(participant_id, queue, ws))
         while True:
             text = await ws.receive_text()
-            await _communicate.receive_raw(
+            await channels.receive_raw(
                 InboundEnvelope(
                     participant_id=participant_id,
                     source="websocket",
@@ -794,8 +789,8 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
     except WebSocketDisconnect:
         logger.info(f"WS client disconnected: {participant_id}")
     finally:
-        _communicate.stream.disconnect(participant_id, ws=ws, queue=queue)
-        _communicate.unregister_ws(participant_id, queue)
+        stream.disconnect(participant_id, ws=ws, queue=queue)
+        stream.unregister_session(participant_id, queue)
         if sender_task is not None:
             sender_task.cancel()
 
@@ -806,16 +801,17 @@ async def sse_endpoint(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    """SSE 出站通道：与 WS 共用 CommunicateTool 的出站队列注册表，故 communicate
-    工具投递逻辑零改动。入站方向用现有 POST /messages。EventSource 原生自动重连。"""
-    if participant_id.startswith("codex-bridge:"):
-        raise HTTPException(status_code=410, detail=tr("api.desktop.legacy_bridge_removed"))
+    """SSE 出站通道，与 WS 共用 StreamRuntime 连接池。
+
+    入站方向使用 POST /messages；EventSource 原生自动重连。
+    """
     if participant_id.startswith("coworker-desktop:"):
         verify_communication_authorization(authorization)
     queue: asyncio.Queue = asyncio.Queue()
+    stream = _channel_system.stream_runtime if _channel_system is not None else None
     registered = False
-    if _communicate:
-        registered = _communicate.register_ws(
+    if stream is not None:
+        registered = stream.register_session(
             participant_id,
             queue,
             transport="sse",
@@ -842,8 +838,8 @@ async def sse_endpoint(
                     break
                 yield _format_sse(msg)
         finally:
-            if registered and _communicate:
-                _communicate.unregister_ws(participant_id, queue)
+            if registered and stream is not None:
+                stream.unregister_session(participant_id, queue)
             logger.info(f"SSE disconnected: {participant_id}")
 
     return StreamingResponse(

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- refactor(channels): replace `ChannelHost` with `ChannelRegistry` and a single `ChannelSystem` composition root, make `BaseChannel` the only Channel extension abstraction with a `from_sender` shortcut and declarative outbound capabilities, preserve message delivery while explicitly reporting omitted unsupported fields to AI callers, support WeCom `extra.mentioned_list` with Channel-owned unsupported-field diagnostics, move Stream sessions, registrations, attachments, outbox delivery, and lifecycle into `StreamRuntime`, route Desktop as an internal `StreamProfile`, compact Desktop pinned context without changing snapshot transport, lazily announce transparent Bubble handoff on the first real exchange, pair completion notices only with announced sessions, and aggregate invalid bound Bubble communication arguments while echoing the fixed target, match WeCom replies to their exact inbound frame through `conversation_id`, aggregate all Channel, profile, Runtime startup, and tool registration diagnostics, make tool batches atomic, inject channels directly into API routes, and remove obsolete communication-tool proxies and legacy bridge compatibility paths without changing current participant IDs or wire contracts
+
 ## 0.3.2 - 2026-07-23
 
 - feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely

@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from coworker.channels.desktop.dispatcher import DesktopEnvelope
+from coworker.channels.stream.desktop.dispatcher import DesktopEnvelope
 
 if TYPE_CHECKING:
-    from coworker.channels.desktop.dispatcher import DesktopDispatcher
+    from coworker.channels.stream.desktop.dispatcher import DesktopDispatcher
 
 
 def render(
