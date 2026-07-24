@@ -8,13 +8,14 @@ from dataclasses import replace
 from loguru import logger
 
 from coworker.channels.base import (
-    Channel,
+    BaseChannel,
     ConnectionInfo,
     InboundHandler,
     ParticipantIdResolutionError,
 )
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import ChannelRuntime
+from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
@@ -23,41 +24,29 @@ class ChannelRegistry:
     """Compose channels while leaving mutable transport state in their runtimes."""
 
     def __init__(self) -> None:
-        self._channels: list[Channel] = []
-        self._fallback: Channel | None = None
+        self._channels: list[BaseChannel] = []
+        self._fallback: BaseChannel | None = None
         self._inbound_handler: InboundHandler | None = None
         self._runtime_tasks: dict[int, asyncio.Task[None]] = {}
 
-    def register(self, channel: Channel) -> None:
-        if self._runtime_tasks:
-            raise RuntimeError("cannot register channels while the registry is running")
-        if not isinstance(channel.name, str):
-            raise TypeError("channel name must be a string")
-        if not channel.name.strip():
-            raise ValueError("channel name is required")
-        if not isinstance(channel.participant_prefix, str):
-            raise TypeError("channel participant_prefix must be a string")
-        if not isinstance(channel.runtime, ChannelRuntime):
-            raise TypeError(
-                f"channel runtime must implement ChannelRuntime: {channel.name}"
-            )
-        if channel in self._channels:
-            raise ValueError(f"channel already registered: {channel.name}")
-        if any(existing.name == channel.name for existing in self._channels):
-            raise ValueError(f"channel name already registered: {channel.name}")
-        if channel.participant_prefix == "" and self._fallback is not None:
-            raise ValueError("fallback channel already registered")
-        if any(
-            existing.participant_prefix == channel.participant_prefix
-            for existing in self._channels
-        ):
-            raise ValueError(
-                f"channel participant prefix already registered: {channel.participant_prefix!r}"
-            )
+    def register(self, channel: BaseChannel) -> None:
+        issues = self._registration_issues(channel)
+        if issues:
+            raise RegistrationError("channel", issues)
+        try:
+            channel.set_inbound_handler(self._inbound_handler)
+        except Exception as error:
+            raise RegistrationError(
+                "channel",
+                [f"set_inbound_handler failed: {error}"],
+            ) from error
         self._channels.append(channel)
-        channel.set_inbound_handler(self._inbound_handler)
         if channel.participant_prefix == "":
             self._fallback = channel
+
+    @property
+    def is_running(self) -> bool:
+        return bool(self._runtime_tasks)
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
@@ -124,18 +113,22 @@ class ChannelRegistry:
             task.add_done_callback(self._report_runtime_exit)
             self._runtime_tasks[id(runtime)] = task
         await asyncio.sleep(0)
-        failed_task = next(
-            (
-                task
-                for task in self._runtime_tasks.values()
-                if task.done() and not task.cancelled() and task.exception() is not None
-            ),
-            None,
-        )
-        if failed_task is not None:
-            error = failed_task.exception()
+        failures = [
+            task
+            for task in self._runtime_tasks.values()
+            if task.done() and not task.cancelled() and task.exception() is not None
+        ]
+        if failures:
+            issues = [
+                f"{task.get_name().removeprefix('channel-runtime:')}: {task.exception()}"
+                for task in failures
+            ]
             await self.stop()
-            raise RuntimeError(f"channel runtime failed to start: {error}") from error
+            details = "\n".join(f"  - {issue}" for issue in issues)
+            raise RuntimeError(
+                f"channel runtime startup failed with {len(issues)} "
+                f"{'issue' if len(issues) == 1 else 'issues'}:\n{details}"
+            )
 
     async def stop(self) -> None:
         """Stop every unique runtime and wait for its background task."""
@@ -149,12 +142,12 @@ class ChannelRegistry:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def _resolve(self, participant_id: str) -> tuple[str, Channel | None]:
+    def _resolve(self, participant_id: str) -> tuple[str, BaseChannel | None]:
         matched = self._longest_prefix_match(participant_id)
         if matched is not None:
             return participant_id, matched
 
-        resolved: dict[Channel, str] = {}
+        resolved: dict[BaseChannel, str] = {}
         for channel in self._channels:
             canonical = channel.resolve(participant_id)
             if canonical is not None:
@@ -172,8 +165,8 @@ class ChannelRegistry:
             )
         return participant_id, None
 
-    def _longest_prefix_match(self, participant_id: str) -> Channel | None:
-        matched: Channel | None = None
+    def _longest_prefix_match(self, participant_id: str) -> BaseChannel | None:
+        matched: BaseChannel | None = None
         for channel in self._channels:
             prefix = channel.participant_prefix
             if prefix and participant_id.startswith(prefix):
@@ -182,7 +175,7 @@ class ChannelRegistry:
         return matched
 
     @staticmethod
-    def _resolution_options(resolved: dict[Channel, str]) -> str:
+    def _resolution_options(resolved: dict[BaseChannel, str]) -> str:
         return "\n".join(
             tr(
                 "tool_result.communicate.option",
@@ -201,6 +194,50 @@ class ChannelRegistry:
                 seen.add(identity)
                 runtimes.append(channel.runtime)
         return runtimes
+
+    def _registration_issues(self, channel: BaseChannel) -> list[str]:
+        issues: list[str] = []
+        if self.is_running:
+            issues.append("cannot register while the registry is running")
+
+        name = getattr(channel, "name", None)
+        if not isinstance(name, str):
+            issues.append("name must be a string")
+        elif not name.strip():
+            issues.append("name is required")
+        elif name != name.strip():
+            issues.append("name must not have surrounding whitespace")
+
+        prefix = getattr(channel, "participant_prefix", None)
+        if not isinstance(prefix, str):
+            issues.append("participant_prefix must be a string")
+        elif prefix and (not prefix.strip() or prefix != prefix.strip()):
+            issues.append(
+                "participant_prefix must be empty or contain no surrounding whitespace"
+            )
+
+        runtime = getattr(channel, "runtime", None)
+        if not isinstance(runtime, ChannelRuntime):
+            issues.append("runtime must implement ChannelRuntime")
+        if not isinstance(channel, BaseChannel):
+            issues.append("channel must inherit BaseChannel")
+
+        if any(existing is channel for existing in self._channels):
+            issues.append("the same channel instance is already registered")
+        if isinstance(name, str) and any(
+            existing.name == name for existing in self._channels
+        ):
+            issues.append(f"name {name!r} is already registered")
+        if isinstance(prefix, str):
+            if prefix == "" and self._fallback is not None:
+                issues.append(
+                    f"fallback channel is already registered as {self._fallback.name!r}"
+                )
+            elif prefix and any(
+                existing.participant_prefix == prefix for existing in self._channels
+            ):
+                issues.append(f"participant_prefix {prefix!r} is already registered")
+        return issues
 
     @staticmethod
     def _contains_only_message(request: CommunicateRequest) -> bool:

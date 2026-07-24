@@ -1,4 +1,4 @@
-"""Channel protocol and shared extension defaults."""
+"""Channel base class and shared extension defaults."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import DEFAULT_RUNTIME, ChannelRuntime
@@ -173,52 +173,6 @@ class _SenderChannel(BaseChannel):
         if not result.is_error:
             self._record_sent(request.participant_id)
         return result
-
-@runtime_checkable
-class Channel(Protocol):
-    """One communication transport.
-
-    Subclass :class:`BaseChannel` for default inbound, capability, connection,
-    and activity behavior. ``participant_prefix`` routes full IDs; an empty
-    prefix identifies the fallback channel. ``resolve`` canonicalizes shorthand
-    IDs and returns ``None`` when the channel does not claim one.
-    """
-
-    name: str
-    participant_prefix: str
-
-    @property
-    def runtime(self) -> ChannelRuntime:
-        """Stateful runtime used by this channel profile."""
-        ...
-
-    def resolve(self, participant_id: str) -> str | None:
-        """Canonicalize a shorthand participant_id, or None if not claimed."""
-        ...
-
-    async def send(self, request: CommunicateRequest) -> ToolResult:
-        """Deliver a request to this channel's participant."""
-        ...
-
-    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
-        """Attach the host-owned handler for normalized inbound events."""
-        ...
-
-    async def receive_raw(self, envelope: InboundEnvelope) -> None:
-        """Normalize a raw protocol envelope and publish it through this channel."""
-        ...
-
-    def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
-        """Return optional outbound fields accepted for this participant."""
-        ...
-
-    def list_connections(self) -> list[ConnectionInfo]:
-        """Reachable participants on this channel."""
-        ...
-
-    def record_received(self, participant_id: str) -> None:
-        """Record an inbound message for a participant."""
-        ...
 
 def _activity_timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")

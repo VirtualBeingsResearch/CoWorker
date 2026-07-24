@@ -659,65 +659,76 @@ async def _main() -> bool:
     desktop_registry.update_connections(
         set(channel_system.stream_runtime.list_live_stream_participant_ids())
     )
-    registry.register(TaskCreateTool(task_store))
-    registry.register(TaskGetTool(task_store))
-    registry.register(TaskListTool(task_store))
-    registry.register(TaskUpdateTool(task_store))
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ListDirectoryTool())
-    registry.register(FindFilesTool())
-    registry.register(GrepFilesTool())
-    registry.register(SearchWebTool())
-    registry.register(FetchURLTool())
-    registry.register(BrowserOpenTool(browser_store))
-    registry.register(BrowserScreenshotTool(browser_store))
-    registry.register(BrowserActionTool(browser_store))
-    registry.register(BrowserGetContentTool(browser_store))
-    registry.register(BrowserCloseTool(browser_store))
-    registry.register(BrowserListSessionsTool(browser_store))
-    registry.register(
-        BrowserViewTool(browser_store, max_dimension=config.agent.image_max_dimension)
+    registry.register_many(
+        [
+            TaskCreateTool(task_store),
+            TaskGetTool(task_store),
+            TaskListTool(task_store),
+            TaskUpdateTool(task_store),
+            ReadFileTool(),
+            WriteFileTool(),
+            ListDirectoryTool(),
+            FindFilesTool(),
+            GrepFilesTool(),
+            SearchWebTool(),
+            FetchURLTool(),
+            BrowserOpenTool(browser_store),
+            BrowserScreenshotTool(browser_store),
+            BrowserActionTool(browser_store),
+            BrowserGetContentTool(browser_store),
+            BrowserCloseTool(browser_store),
+            BrowserListSessionsTool(browser_store),
+            BrowserViewTool(
+                browser_store,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ExecuteCodeTool(
+                store=job_store,
+                hard_timeout=config.agent.code_hard_timeout,
+                inbox=inbox_watcher,
+            ),
+            GetCodeResultTool(job_store, inbox=inbox_watcher),
+            KillCodeJobTool(job_store),
+            QueryMemoryTool(
+                long_term,
+                short_term,
+                brain,
+                recent_activity=recent_activity,
+            ),
+            ManageMemoryTool(long_term),
+            SleepTool(inbox_watcher, config=config),
+            BreatheTool(),
+            SwitchModelTool(brain),
+        ]
     )
-    registry.register(
-        ExecuteCodeTool(
-            store=job_store, hard_timeout=config.agent.code_hard_timeout, inbox=inbox_watcher
-        )
-    )
-    registry.register(GetCodeResultTool(job_store, inbox=inbox_watcher))
-    registry.register(KillCodeJobTool(job_store))
-    registry.register(
-        QueryMemoryTool(
-            long_term,
-            short_term,
-            brain,
-            recent_activity=recent_activity,
-        )
-    )
-    registry.register(ManageMemoryTool(long_term))
-    registry.register(SleepTool(inbox_watcher, config=config))
-    registry.register(BreatheTool())
-    registry.register(SwitchModelTool(brain))
     alarm_manager = AlarmManager(inbox_watcher, persist_path=alarm_persist_path)
     restored_alarms = await alarm_manager.restore()
-    registry.register(SetAlarmTool(alarm_manager))
-    registry.register(ListAlarmsTool(alarm_manager))
-    registry.register(CancelAlarmTool(alarm_manager))
-    registry.register(communicate)
-    registry.register(ListConnectionTool(channel_system.registry))
-    registry.register(GetSkillTool(skill_loader, agent_state))
-    registry.register(GetContextTool(brain, short_term, agent_state))
-    registry.register(ManagePinnedContextTool(short_term))
-    registry.register(RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path))
+    registry.register_many(
+        [
+            SetAlarmTool(alarm_manager),
+            ListAlarmsTool(alarm_manager),
+            CancelAlarmTool(alarm_manager),
+            communicate,
+            ListConnectionTool(channel_system.registry),
+            GetSkillTool(skill_loader, agent_state),
+            GetContextTool(brain, short_term, agent_state),
+            ManagePinnedContextTool(short_term),
+            RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path),
+        ]
+    )
 
     from coworker.tools.vision_tools import ViewImageTool, VisualAnalysisTool
 
-    registry.register(
-        VisualAnalysisTool(
-            brain, inbox=inbox_watcher, max_dimension=config.agent.image_max_dimension
-        )
+    registry.register_many(
+        [
+            VisualAnalysisTool(
+                brain,
+                inbox=inbox_watcher,
+                max_dimension=config.agent.image_max_dimension,
+            ),
+            ViewImageTool(max_dimension=config.agent.image_max_dimension),
+        ]
     )
-    registry.register(ViewImageTool(max_dimension=config.agent.image_max_dimension))
 
     prompt_builder = SystemPromptBuilder(
         identity,
@@ -754,12 +765,16 @@ async def _main() -> bool:
                 stream_transports=(config.agent.bubble_handoff_transparency_stream_transports),
             ),
         )
-        registry.register(bubble_spawn)
-        registry.register(BubbleCheckTool(bubble_store))
-        registry.register(BubbleSendTool(bubble_store, inbox_watcher))
-        registry.register(BubbleCancelTool(bubble_store))
-        registry.register(BubbleListTool(bubble_store))
-        registry.register(BubbleDoneTool())
+        registry.register_many(
+            [
+                bubble_spawn,
+                BubbleCheckTool(bubble_store),
+                BubbleSendTool(bubble_store, inbox_watcher),
+                BubbleCancelTool(bubble_store),
+                BubbleListTool(bubble_store),
+                BubbleDoneTool(),
+            ]
+        )
 
     subconscious: SubconsciousScheduler | None = None
     if config.agent.subconscious_thinking:

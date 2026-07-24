@@ -5,6 +5,7 @@ from pathlib import Path
 
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamChannel, StreamProfile, StreamRuntime
+from coworker.core.registration import RegistrationError
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,11 @@ class ChannelSystem:
     _stream_channel: StreamChannel = field(repr=False)
 
     def register_stream_profile(self, profile: StreamProfile) -> None:
+        if self.registry.is_running:
+            raise RegistrationError(
+                "stream profile",
+                ["cannot register while the channel system is running"],
+            )
         self._stream_channel.register_profile(profile)
 
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from coworker.channels.base import ChannelCapabilities, ConnectionInfo
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.desktop import inbound as desktop_inbound
+from coworker.channels.stream.profile import StreamProfile
 from coworker.channels.stream.runtime import StreamRuntime
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
@@ -25,7 +26,7 @@ _CAPABILITIES = ChannelCapabilities(
 )
 
 
-class DesktopProfile:
+class DesktopProfile(StreamProfile):
     """Desktop protocol semantics over StreamRuntime sessions and queues."""
 
     name = "desktop"

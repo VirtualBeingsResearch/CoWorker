@@ -7,16 +7,16 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.zh-CN.md)。
 
-所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream 或企业微信。进入 Stream 后，再由 `StreamChannel` 选择通用 WS/SSE 行为或 Desktop profile；Registry 不理解 Desktop participant 前缀。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，同时保留现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
+所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream 或企业微信。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelCapabilities, ChannelRuntime, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
-- `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox；`app.py` 只依赖这个宿主能力，不依赖 `CommunicateTool`。
+- `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
 
-新增独立传输时实现 `Channel` 协议并调用 `channel_system.registry.register(channel)`。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则实现 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，但复用 `StreamRuntime`。Desktop 就是内置的 Stream profile。`CommunicateTool` 只是 Registry 的模型工具适配器，不再兼任宿主、连接池或注册中心。
+新增独立传输时继承 `BaseChannel` 并调用 `channel_system.registry.register(channel)`。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
 
 最小出站 Channel 只需继承 `BaseChannel` 并实现 `send`；默认已包含空 Runtime、无简写解析、无入站、无连接列表和 activity 辅助方法：
 
@@ -79,8 +79,8 @@ curl -X POST http://localhost:8000/backfill_tree \
 curl http://localhost:8000/backfill_tree
 ```
 
-`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口保留旧版
-`by_model`（按模型名合并），并新增 `by_provider_model`（按 `provider/model` 精确区分）；
+`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
+`by_model`（按模型名合并）和 `by_provider_model`（按 `provider/model` 精确区分）；
 同时在 `by_scope` 中拆出 `main` / `summary` / `vision` / `bubble` / `subconscious` / `mem0`
 六类来源统计，结构与窗口总账一致。窗口总账与 `by_scope` 均包含 `thinking_calls`、
 `thinking_seconds`、`avg_thinking_seconds`，用于展示有 `thinking_start -> llm_response`

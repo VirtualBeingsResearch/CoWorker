@@ -9,6 +9,7 @@ from coworker.channels.base import BaseChannel, ChannelCapabilities, ConnectionI
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.profile import StreamProfile
 from coworker.channels.stream.runtime import StreamRuntime
+from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 
 
@@ -30,26 +31,9 @@ class StreamChannel(BaseChannel):
         return None
 
     def register_profile(self, profile: StreamProfile) -> None:
-        if not isinstance(profile.name, str):
-            raise TypeError("stream profile name must be a string")
-        if not profile.name.strip():
-            raise ValueError("stream profile name is required")
-        if not isinstance(profile.participant_prefix, str):
-            raise TypeError("stream profile participant_prefix must be a string")
-        if not profile.participant_prefix:
-            raise ValueError("stream profile participant_prefix is required")
-        if profile in self._profiles:
-            raise ValueError(f"stream profile already registered: {profile.name}")
-        if any(existing.name == profile.name for existing in self._profiles):
-            raise ValueError(f"stream profile name already registered: {profile.name}")
-        if any(
-            existing.participant_prefix == profile.participant_prefix
-            for existing in self._profiles
-        ):
-            raise ValueError(
-                "stream profile participant prefix already registered: "
-                f"{profile.participant_prefix!r}"
-            )
+        issues = self._profile_registration_issues(profile)
+        if issues:
+            raise RegistrationError("stream profile", issues)
         self._profiles.append(profile)
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
@@ -142,3 +126,36 @@ class StreamChannel(BaseChannel):
             ):
                 matched = profile
         return matched
+
+    def _profile_registration_issues(self, profile: StreamProfile) -> list[str]:
+        issues: list[str] = []
+        name = getattr(profile, "name", None)
+        if not isinstance(name, str):
+            issues.append("name must be a string")
+        elif not name.strip():
+            issues.append("name is required")
+        elif name != name.strip():
+            issues.append("name must not have surrounding whitespace")
+
+        prefix = getattr(profile, "participant_prefix", None)
+        if not isinstance(prefix, str):
+            issues.append("participant_prefix must be a string")
+        elif not prefix:
+            issues.append("participant_prefix is required")
+        elif not prefix.strip() or prefix != prefix.strip():
+            issues.append("participant_prefix must not have surrounding whitespace")
+
+        if not isinstance(profile, StreamProfile):
+            issues.append("profile must inherit StreamProfile")
+
+        if any(existing is profile for existing in self._profiles):
+            issues.append("the same profile instance is already registered")
+        if isinstance(name, str) and any(
+            existing.name == name for existing in self._profiles
+        ):
+            issues.append(f"name {name!r} is already registered")
+        if isinstance(prefix, str) and any(
+            existing.participant_prefix == prefix for existing in self._profiles
+        ):
+            issues.append(f"participant_prefix {prefix!r} is already registered")
+        return issues

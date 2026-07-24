@@ -80,11 +80,56 @@ class TextModelOnlyTool(Tool):
         return ToolResult(tool_call_id="", content="")
 
 
+class InvalidRegistrationTool:
+    definition = ToolDefinition(name=" ", description="", parameters={})
+    execute = None
+    fork = None
+
+
 class TestToolRegistry:
     def test_register_and_list(self):
         registry = ToolRegistry()
         registry.register(EchoTool())
         assert "echo" in registry.list_names()
+
+    def test_duplicate_registration_is_rejected_without_overwrite(self):
+        registry = ToolRegistry()
+        original = EchoTool()
+        registry.register(original)
+
+        with pytest.raises(ValueError, match="name 'echo' is already registered"):
+            registry.register(EchoTool())
+
+        assert registry._tools["echo"] is original
+
+    def test_batch_registration_reports_all_conflicts_atomically(self):
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+
+        with pytest.raises(ValueError) as error:
+            registry.register_many(
+                [
+                    EchoTool(),
+                    TextModelOnlyTool(),
+                    TextModelOnlyTool(),
+                ]
+            )
+
+        message = str(error.value)
+        assert "name 'echo' is already registered" in message
+        assert "name 'vision_only' duplicates item 2" in message
+        assert registry.list_names() == ["echo"]
+
+    def test_invalid_tool_reports_all_registration_issues(self):
+        registry = ToolRegistry()
+
+        with pytest.raises(ValueError) as error:
+            registry.register(InvalidRegistrationTool())
+
+        message = str(error.value)
+        assert "failed with 2 issues" in message
+        assert "tool must inherit Tool" in message
+        assert "name is required" in message
 
     def test_get_schemas(self):
         registry = ToolRegistry()
