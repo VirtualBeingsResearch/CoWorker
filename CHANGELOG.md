@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(container): initialize persistent Git workspaces from an embedded repository bundle, support configurable repository sources, and expose container health without application code changes
+
 ## 0.3.2 - 2026-07-23
 
 - feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely

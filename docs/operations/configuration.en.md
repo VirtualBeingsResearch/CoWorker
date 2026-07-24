@@ -144,6 +144,20 @@ language-transition system notice when it detects a locale change.
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
 
+### Container Git workspace
+
+| Variable | Default | Description |
+|---|---|---|
+| `COWORKER_BUNDLE_REPOSITORY_URL` | Official Coworker repository | Compatible repository converted to a Git bundle while building the image |
+| `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
+| `COWORKER_REPOSITORY_URL` | Empty | Repository cloned on first startup by a non-strict-offline image |
+| `COWORKER_REPOSITORY_REF` | Bundled commit or remote default branch | Branch, tag, or commit checked out during initialization |
+| `COWORKER_REPOSITORY_BUNDLE` | Bundle embedded in the image | Path to an explicitly mounted custom bundle |
+
+Repository settings only apply to an empty workspace volume. The strict offline image refuses
+network access through `COWORKER_REPOSITORY_URL`. Generate private-repository bundles in a
+controlled build environment; do not put credentials in URLs or image build arguments.
+
 ## Supported models
 
 The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and

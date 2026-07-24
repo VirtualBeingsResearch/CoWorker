@@ -109,6 +109,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
+          build-args: |
+            COWORKER_IMAGE_REVISION=${{ github.sha }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.release.outputs.runtime_tags }}
@@ -123,6 +125,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: with-embedder
+          build-args: |
+            COWORKER_IMAGE_REVISION=${{ github.sha }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.release.outputs.embedder_tags }}
@@ -137,6 +141,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: offline
+          build-args: |
+            COWORKER_IMAGE_REVISION=${{ github.sha }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.release.outputs.offline_tags }}
