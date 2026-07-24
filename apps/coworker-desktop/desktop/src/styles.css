@@ -458,7 +458,9 @@ p {
 }
 
 .ledger {
+  align-content: start;
   display: grid;
+  grid-auto-rows: min-content;
   height: 100%;
   max-height: none;
   min-height: 0;
@@ -1894,6 +1896,38 @@ p {
   padding: 3px 7px;
 }
 
+.messageActions {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.sessionMessage:hover .messageActions,
+.sessionMessage:focus-within .messageActions {
+  opacity: 1;
+}
+
+.messageActions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0;
+  width: 24px;
+}
+
+.messageActions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
 .messageToolResult {
   border-top: 1px dashed var(--border);
   display: grid;
@@ -2436,6 +2470,19 @@ p {
 .onboardingEntry:hover {
   background: var(--surface-hover);
   color: var(--fg);
+}
+
+.shell[data-sidebar="collapsed"] .onboardingEntry {
+  align-self: center;
+  justify-content: center;
+  margin: 6px auto 0;
+  min-height: 40px;
+  padding: 0;
+  width: 40px;
+}
+
+.shell[data-sidebar="collapsed"] .onboardingEntry span {
+  display: none;
 }
 
 .ledgerRow[role="button"] {

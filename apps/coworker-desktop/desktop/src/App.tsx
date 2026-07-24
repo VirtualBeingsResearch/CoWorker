@@ -74,15 +74,18 @@ import {
   ConfigValue,
   LogOutputLevel,
   BridgeStatus,
+  ActorStreamEvent,
   CommunicateRegistration,
   DesktopUpdateInfo,
   DiagnosticResult,
   DesktopApproval,
+  type DesktopActorId,
   ResolveApprovalResult,
   startBridge,
   startBridgeLogStream,
   stopBridge,
   stopBridgeLogStream,
+  setCloseToTray,
   setTrayCopy,
 } from "./tauri";
 import { ConfigView } from "./views/ConfigView";
@@ -95,12 +98,66 @@ const defaultPath = "coworker_desktop.json";
 const lifePanelStorageKey = "coworker-desktop-life-panel-collapsed";
 const onboardingCompletedStorageKey = "coworker-desktop-onboarding-completed";
 
+type ActiveConversation = {
+  actorId: DesktopActorId;
+  conversationId: string;
+};
+
 function readInitialLifePanelCollapsed() {
   try {
     return window.localStorage.getItem(lifePanelStorageKey) === "true";
   } catch {
     return false;
   }
+}
+
+export function shouldNotifyActorEvent(
+  update: ActorStreamEvent,
+  notifiedIds: Set<string>,
+): boolean {
+  const eventType = String(update.event.type ?? "");
+  const message = update.event.message && typeof update.event.message === "object" && !Array.isArray(update.event.message)
+    ? update.event.message as Record<string, unknown>
+    : null;
+  const metadata = message?.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+    ? message.metadata as Record<string, unknown>
+    : null;
+  const authorKind = String(message?.author_kind ?? "");
+  const messageKind = String(metadata?.kind ?? "");
+  const streaming = metadata?.streaming === true;
+  const isIncomingCoworker = eventType === "conversation_updated"
+    && (
+      authorKind === "coworker"
+      || (message === null && update.message_id !== null && (update.actor_id === "local" || update.actor_id === "claude"))
+    );
+  const isCodexTerminalMessage = update.actor_id === "codex"
+    && eventType === "conversation_updated"
+    && !streaming
+    && (
+      (authorKind === "codex" && messageKind === "message")
+      || (authorKind === "system" && ["empty_response", "plan", "system"].includes(messageKind))
+    );
+  const isClaudeResult = update.actor_id === "claude" && eventType === "result";
+  if (!isIncomingCoworker && !isCodexTerminalMessage && !isClaudeResult) return false;
+  const notificationId = update.message_id
+    ?? `${update.actor_id}:${update.conversation_id}:${eventType}`;
+  if (notifiedIds.has(notificationId)) return false;
+  notifiedIds.add(notificationId);
+  return true;
+}
+
+export function isActiveConversationEvent(
+  update: ActorStreamEvent,
+  activeConversation: ActiveConversation | null,
+): boolean {
+  return activeConversation?.actorId === update.actor_id
+    && activeConversation.conversationId === update.conversation_id;
+}
+
+export function shouldSendNativeNotification(
+  page: Pick<Document, "hasFocus" | "visibilityState"> = document,
+): boolean {
+  return page.visibilityState !== "visible" || !page.hasFocus();
 }
 
 export function App() {
@@ -147,6 +204,8 @@ export function App() {
   const desktopUpdateCheckInFlightRef = useRef(false);
   const handledDesktopUpdatePushesRef = useRef(new Set<string>());
   const notifiedDesktopUpdateVersionsRef = useRef(new Set<string>());
+  const notifiedMessageIdsRef = useRef(new Set<string>());
+  const activeConversationRef = useRef<ActiveConversation | null>(null);
   const toastIdRef = useRef(0);
   const toastTimersRef = useRef<Map<number, number>>(new Map());
   const savedConfigRef = useRef<ConfigValue>({});
@@ -291,6 +350,10 @@ export function App() {
       quit: t("tray.quit"),
     }).catch(() => undefined);
   }, [lang, t]);
+
+  useEffect(() => {
+    void setCloseToTray(config.close_to_tray !== false).catch(() => undefined);
+  }, [config.close_to_tray]);
 
   useEffect(() => {
     return () => {
@@ -519,6 +582,30 @@ export function App() {
   }, [bootstrapPhase, config.desktop_update_url, desktopUpdateUrlPlaceholder]);
 
   useEffect(() => {
+    if (bootstrapPhase !== "ready") return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listenActorStreamEvents((update) => {
+      if (!shouldNotifyActorEvent(update, notifiedMessageIdsRef.current)) return;
+      if (!shouldSendNativeNotification()) {
+        if (isActiveConversationEvent(update, activeConversationRef.current)) return;
+        showToast(t("messages.notification.title", { actor: actorDisplayName(update.actor_id) }), "info");
+        return;
+      }
+      notifyIncomingMessage(update.actor_id).catch(() => undefined);
+    })
+      .then((nextUnlisten) => {
+        if (disposed) nextUnlisten();
+        else unlisten = nextUnlisten;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [bootstrapPhase, lang]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       getBridgeStatus().then(setStatus).catch(() => undefined);
     }, 3000);
@@ -718,6 +805,26 @@ export function App() {
     }
   }
 
+  async function notifyIncomingMessage(actorId: string) {
+    try {
+      const permissionGranted = await isPermissionGranted();
+      if (permissionGranted || (await requestPermission()) === "granted") {
+        sendNotification({
+          title: t("messages.notification.title", { actor: actorDisplayName(actorId) }),
+          body: t("messages.notification.body"),
+        });
+      }
+    } catch {
+      // Conversation updates remain visible in the app when native notifications fail.
+    }
+  }
+
+  function actorDisplayName(actorId: string) {
+    if (actorId === "local") return t("actors.local");
+    if (actorId === "claude") return t("actors.claude");
+    return t("actors.codex");
+  }
+
   async function installUpdate() {
     if (!desktopUpdate) return;
     setDesktopUpdateState("downloading");
@@ -822,6 +929,20 @@ export function App() {
     });
     setConfig({ ...config, coworkers: nextCoworkers });
     if (field === "coworker_id") setSelectedCoworkerId(String(value ?? ""));
+    markDirty();
+  }
+
+  function moveSelectedCoworker(offset: -1 | 1) {
+    const nextIndex = selectedIndex + offset;
+    if (nextIndex < 0 || nextIndex >= coworkers.length) return;
+    const nextCoworkers = [...coworkers];
+    [nextCoworkers[selectedIndex], nextCoworkers[nextIndex]] = [
+      nextCoworkers[nextIndex],
+      nextCoworkers[selectedIndex],
+    ];
+    setConfig({ ...config, coworkers: nextCoworkers });
+    setSelectedCoworkerIndex(nextIndex);
+    setSelectedCoworkerId(nextCoworkers[nextIndex]?.coworker_id ?? "");
     markDirty();
   }
 
@@ -1197,6 +1318,7 @@ export function App() {
               setSelectedCoworkerId(coworkers[index]?.coworker_id ?? "");
             }}
             updateCoworker={updateCoworker}
+            onMoveSelectedCoworker={moveSelectedCoworker}
             onAddCoworker={addCoworker}
             onRemoveSelectedCoworker={removeSelectedCoworker}
             selectedRegistrations={selectedRegistrations}
@@ -1218,6 +1340,9 @@ export function App() {
             if (index >= 0) setSelectedCoworkerIndex(index);
           }}
           feedback={conversationFeedback}
+          onActiveConversationChange={(activeConversation) => {
+            activeConversationRef.current = activeConversation;
+          }}
         />
 
         {desktopApprovals[0] && (

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App";
+import { App, shouldNotifyActorEvent } from "./App";
 import { LanguageProvider } from "./i18n";
 import * as tauri from "./tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -62,6 +62,7 @@ vi.mock("./tauri", () => ({
   listenBridgeLogChunks: vi.fn(),
   startBridgeLogStream: vi.fn(),
   stopBridgeLogStream: vi.fn(),
+  setCloseToTray: vi.fn(),
   setTrayCopy: vi.fn(),
 }));
 
@@ -184,6 +185,7 @@ function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigVal
   vi.mocked(tauri.listenBridgeLogChunks).mockResolvedValue(vi.fn());
   vi.mocked(tauri.startBridgeLogStream).mockResolvedValue(undefined);
   vi.mocked(tauri.stopBridgeLogStream).mockResolvedValue(undefined);
+  vi.mocked(tauri.setCloseToTray).mockResolvedValue(undefined);
   vi.mocked(tauri.setTrayCopy).mockResolvedValue(undefined);
   vi.mocked(openDialog).mockResolvedValue(null);
   vi.mocked(saveDialog).mockResolvedValue(null);
@@ -264,6 +266,107 @@ describe("App backend operation wiring", () => {
       quit: "退出",
     }));
     window.localStorage.setItem("coworker-desktop-lang", "en");
+  });
+
+  it("lets closing the main window exit instead of always hiding to the tray", async () => {
+    const user = await renderApp();
+    await waitFor(() => expect(tauri.setCloseToTray).toHaveBeenCalledWith(true));
+    await openConfig(user);
+
+    await user.click(inputById("close-to-tray"));
+
+    await waitFor(() => expect(tauri.setCloseToTray).toHaveBeenLastCalledWith(false));
+  });
+
+  it("reorders connection profiles", async () => {
+    const user = await renderApp();
+    await openConfig(user);
+    await user.click(screen.getByRole("tab", { name: "Partner Two" }));
+
+    await user.click(screen.getByRole("button", { name: "Move selected profile earlier" }));
+
+    const tabs = within(screen.getByRole("tablist", { name: "Connection profiles" })).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Partner Two", "Partner One"]);
+  });
+
+  it("only sends native message notifications while the window is in the background", async () => {
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    await renderApp(runningStatus);
+    vi.mocked(sendNotification).mockClear();
+
+    act(() => actorStreamHandlers.forEach((handler) => handler({
+      actor_id: "local",
+      conversation_id: "local-thread",
+      message_id: "incoming-local-foreground",
+      event: { type: "conversation_updated" },
+    })));
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(await screen.findByText("New Local message")).toBeInTheDocument();
+
+    hasFocus.mockReturnValue(false);
+    act(() => actorStreamHandlers.forEach((handler) => handler({
+      actor_id: "local",
+      conversation_id: "local-thread",
+      message_id: "incoming-local-background",
+      event: { type: "conversation_updated" },
+    })));
+
+    await waitFor(() => expect(sendNotification).toHaveBeenCalledWith({
+      title: "New Local message",
+      body: "Open CoWorker Desktop to view the conversation.",
+    }));
+    hasFocus.mockRestore();
+  });
+
+  it("notifies for Coworker writes and terminal results but ignores Codex intermediate events", () => {
+    const notifiedIds = new Set<string>();
+    const event = (
+      messageId: string,
+      authorKind: string,
+      kind: string,
+      streaming = false,
+    ): ActorStreamEvent => ({
+      actor_id: "codex",
+      conversation_id: "thread-1",
+      message_id: messageId,
+      event: {
+        type: "conversation_updated",
+        message: {
+          author_kind: authorKind,
+          metadata: { kind, streaming },
+        },
+      },
+    });
+
+    expect(shouldNotifyActorEvent(event("coworker-1", "coworker", "message"), notifiedIds)).toBe(true);
+    expect(shouldNotifyActorEvent(event("final-1", "codex", "message"), notifiedIds)).toBe(true);
+    expect(shouldNotifyActorEvent(event("tool-1", "tool", "tool_call"), notifiedIds)).toBe(false);
+    expect(shouldNotifyActorEvent(event("reasoning-1", "codex", "reasoning"), notifiedIds)).toBe(false);
+    expect(shouldNotifyActorEvent(event("stream-1", "codex", "message", true), notifiedIds)).toBe(false);
+  });
+
+  it("does not toast for the conversation currently visible in the focused window", async () => {
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const user = await renderApp(runningStatus);
+    await openSessions(user);
+    await user.click(await screen.findByRole("button", { name: /Bridge thread/ }));
+
+    act(() => actorStreamHandlers.forEach((handler) => handler({
+      actor_id: "codex",
+      conversation_id: "thread-1",
+      message_id: "coworker-active-thread",
+      event: {
+        type: "conversation_updated",
+        message: {
+          author_kind: "coworker",
+          metadata: { kind: "message", streaming: false },
+        },
+      },
+    })));
+
+    expect(screen.queryByText("New Codex message")).not.toBeInTheDocument();
+    expect(sendNotification).not.toHaveBeenCalled();
+    hasFocus.mockRestore();
   });
 
   it("refreshes approvals from lifecycle events without polling", async () => {
@@ -735,6 +838,45 @@ describe("App backend operation wiring", () => {
     await waitFor(() => expect(tauri.copyDesktopAttachment).toHaveBeenCalledWith("D:\\tmp\\summary.md", "D:\\downloads\\summary.md"));
   });
 
+  it("copies and quotes conversation messages", async () => {
+    const user = await renderApp(runningStatus);
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await openSessions(user);
+
+    await user.click(await screen.findByRole("button", { name: "Copy message" }));
+    expect(writeText).toHaveBeenCalledWith("Ready");
+
+    await user.click(screen.getByRole("button", { name: "Quote message" }));
+    expect(screen.getByLabelText("Session message")).toHaveValue("> Ready\n\n");
+
+    writeText.mockRejectedValueOnce(new Error("clipboard permission denied"));
+    await user.click(screen.getByRole("button", { name: "Copy message" }));
+    expect(await screen.findByText("Couldn't copy the message. Check the system clipboard permission and try again.")).toBeInTheDocument();
+  });
+
+  it("localizes empty Codex responses in the conversation", async () => {
+    const user = await renderApp(runningStatus);
+    vi.mocked(tauri.loadDesktopMessages).mockResolvedValue({
+      messages: [{
+        ...assistantMessage,
+        id: "empty-response",
+        author_kind: "system",
+        content: "",
+        metadata: {
+          ...assistantMessage.metadata,
+          author_label: "System",
+          kind: "empty_response",
+        },
+      }],
+      next_before_cursor: null,
+    });
+    await openSessions(user);
+
+    expect(await screen.findByText(/Codex finished this turn without returning a message/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Toggle language" }));
+    expect(await screen.findByText(/Codex 已结束本轮，但没有返回任何消息/)).toBeInTheDocument();
+  });
+
   it("adds dropped files to the active session composer", async () => {
     const user = await renderApp(runningStatus);
     await openSessions(user);
@@ -946,6 +1088,8 @@ describe("App backend operation wiring", () => {
 
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("history available")).toBeInTheDocument();
+    expect(screen.getByText("History remains available offline. Start the Bridge to continue this conversation.")).toBeInTheDocument();
+    expect(screen.queryByText(/comes from local history/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Session message")).toBeDisabled();
     expect(screen.getByRole("button", { name: /New conversation/ })).toBeDisabled();
     expect(tauri.listDesktopConversations).toHaveBeenCalledWith("codex", "coworker_desktop.json", 120);

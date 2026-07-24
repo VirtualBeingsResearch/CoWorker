@@ -62,6 +62,10 @@ type WorkspaceProps = {
   selectedCoworkerId: string;
   onSelectCoworker: (coworkerId: string) => void;
   feedback: Feedback;
+  onActiveConversationChange: (activeConversation: {
+    actorId: DesktopActorId;
+    conversationId: string;
+  } | null) => void;
 };
 
 function useLatest<T>(value: T) {
@@ -104,6 +108,7 @@ function ConversationController({
   selectedCoworkerId,
   onSelectCoworker,
   feedback,
+  onActiveConversationChange,
 }: Omit<WorkspaceProps, "status"> & { actor: DesktopActorId; running: boolean }) {
   const { t } = useI18n();
   const actorLabel = actor === "codex" ? t("actors.codex") : actor === "claude" ? t("actors.claude") : t("actors.local");
@@ -148,6 +153,13 @@ function ConversationController({
   const selected = sessions.find((session) => session.conversation_id === selectedId) ?? null;
   const canUseComposer = running && (!selected || selected.writable);
   const sessionMode = selected?.mode ?? composerMode;
+
+  useEffect(() => {
+    if (!active) return;
+    onActiveConversationChange(selectedId
+      ? { actorId: actor, conversationId: selectedId }
+      : null);
+  }, [active, actor, onActiveConversationChange, selectedId]);
 
   function conversationKey(conversationId: string) {
     return `${configPath}\0${actor}\0${conversationId}`;
@@ -673,6 +685,7 @@ function ConversationController({
     }).then((value) => {
       if (typeof value === "string") setDraftProjectPath(value);
     }).catch(feedback.error)}
+    onCopyMessageError={() => feedback.toast(t("sessions.toast.copyFailed"), "error")}
     onSubmitMessage={(coworkerId) => void submit(coworkerId).catch(feedback.error)}
     onSendToCoworker={(coworkerId) => void submit(coworkerId, true).catch(feedback.error)}
     sessionMode={sessionMode ?? "default"}
@@ -701,8 +714,13 @@ export function ConversationsWorkspace({
   selectedCoworkerId,
   onSelectCoworker,
   feedback,
+  onActiveConversationChange,
 }: WorkspaceProps) {
   const [actor, setActor] = useState<DesktopActorId>("codex");
+
+  useEffect(() => {
+    if (!active) onActiveConversationChange(null);
+  }, [active, onActiveConversationChange]);
 
   return <div className={active ? "unifiedSessions" : undefined} hidden={!active}>
     <ActorRail actor={actor} health={status?.actors ?? []} onChange={setActor} />
@@ -718,6 +736,7 @@ export function ConversationsWorkspace({
         selectedCoworkerId={selectedCoworkerId}
         onSelectCoworker={onSelectCoworker}
         feedback={feedback}
+        onActiveConversationChange={onActiveConversationChange}
       />
     ))}
   </div>;

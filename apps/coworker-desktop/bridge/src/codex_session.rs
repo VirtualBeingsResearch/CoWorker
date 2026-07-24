@@ -22,8 +22,7 @@ const DEFAULT_PAGE_SIZE: usize = 80;
 const MAX_PAGE_SIZE: usize = 200;
 const MAX_TEXT_CHARS: usize = 16 * 1024;
 const JSONL_TAIL_CHUNK_BYTES: u64 = 256 * 1024;
-const EMPTY_RESPONSE_MESSAGE: &str =
-    "Codex 已结束本轮，但没有返回任何消息。请重试；如果仍然发生，请重启桌面端以重新连接 Codex。";
+const EMPTY_RESPONSE_KIND: &str = "empty_response";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionSummary {
@@ -573,9 +572,10 @@ fn summary_from_thread(
                         .into_iter()
                         .find(|entry| entry.thread_id == thread_id)
                         .map(|entry| entry.title)
+                        .filter(|title| !title.trim().is_empty())
                 })
             })
-            .unwrap_or_else(|| "未命名会话".to_owned()),
+            .unwrap_or_else(|| fallback_session_title(config, &thread_id)),
         project_id: project_id_from_thread(obj, project, meta.as_ref()),
         project_name: project_name_from_thread(obj, project, meta.as_ref()),
         project_path: project_path_from_thread(obj, project, meta.as_ref()),
@@ -614,8 +614,8 @@ fn summary_from_index(
         .unwrap_or_else(|| "notLoaded".to_owned());
     SessionSummary {
         thread_id: entry.thread_id.clone(),
-        title: if entry.title.is_empty() {
-            "未命名会话".to_owned()
+        title: if entry.title.trim().is_empty() {
+            fallback_session_title(config, &entry.thread_id)
         } else {
             entry.title
         },
@@ -660,7 +660,7 @@ fn fallback_summary(
     let owned = is_owned_by_bridge(thread_id, meta.as_ref(), &persisted, runtime);
     SessionSummary {
         thread_id: thread_id.to_owned(),
-        title: "未命名会话".to_owned(),
+        title: fallback_session_title(config, thread_id),
         project_id: meta.as_ref().and_then(|m| m.cwd.clone()),
         project_name: meta
             .as_ref()
@@ -686,6 +686,50 @@ fn fallback_summary(
         source: None,
         participants: participants(owned),
     }
+}
+
+fn fallback_session_title(config: &BridgeConfig, thread_id: &str) -> String {
+    first_session_prompt(config, thread_id).unwrap_or_else(|| {
+        let short_id = thread_id.chars().take(12).collect::<String>();
+        format!("Codex {short_id}")
+    })
+}
+
+fn first_session_prompt(config: &BridgeConfig, thread_id: &str) -> Option<String> {
+    let path = find_session_file(config, thread_id).ok().flatten()?;
+    let file = fs::File::open(path).ok()?;
+    let mut call_names = HashMap::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let Ok(line) = line else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(message) = parse_codex_message(thread_id, line_index, &value, &mut call_names)
+        else {
+            continue;
+        };
+        if !matches!(message.author_kind.as_str(), "local" | "coworker") {
+            continue;
+        }
+        let normalized = message
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if normalized.is_empty() {
+            continue;
+        }
+        let mut chars = normalized.chars();
+        let title = chars.by_ref().take(72).collect::<String>();
+        return Some(if chars.next().is_some() {
+            format!("{title}…")
+        } else {
+            title
+        });
+    }
+    None
 }
 
 fn participants(owned: bool) -> Vec<String> {
@@ -999,7 +1043,7 @@ fn finalize_tail_messages(
             if message.kind == "plan" {
                 pending_plan_turn = Some(message.turn_id.clone());
             }
-            if message.text == EMPTY_RESPONSE_MESSAGE {
+            if message.kind == EMPTY_RESPONSE_KIND {
                 let plan_is_this_turn = pending_plan_turn.as_ref().is_some_and(|plan_turn| {
                     plan_turn.is_none() || plan_turn.as_ref() == message.turn_id.as_ref()
                 });
@@ -1180,12 +1224,9 @@ fn parse_event_msg(
                         .unwrap_or_default()
                 ),
             ),
-            "task_complete" if payload.get("last_agent_message").is_none_or(Value::is_null) => (
-                "system",
-                "系统",
-                "system",
-                EMPTY_RESPONSE_MESSAGE.to_owned(),
-            ),
+            "task_complete" if payload.get("last_agent_message").is_none_or(Value::is_null) => {
+                ("system", "系统", EMPTY_RESPONSE_KIND, String::new())
+            }
             "item_completed" => {
                 let item = payload.get("item").and_then(Value::as_object)?;
                 if first_string(Some(item), &["type"]).as_deref() != Some("Plan") {
@@ -2081,6 +2122,40 @@ mod tests {
     }
 
     #[test]
+    fn unnamed_session_uses_first_user_prompt_as_title() {
+        let root = std::env::temp_dir().join(format!("session-title-test-{}", now_millis()));
+        let config = test_config(&root);
+        let session_dir = Path::new(&config.codex_home_dir).join("sessions");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-thr_prompt.jsonl"),
+            [
+                r#"{"type":"session_meta","payload":{"id":"thr_prompt"}}"#,
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the desktop sidebar collapse"}]}}"#,
+            ]
+            .join("\n"),
+        )
+        .expect("session");
+
+        assert_eq!(
+            fallback_session_title(&config, "thr_prompt"),
+            "Fix the desktop sidebar collapse"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn empty_session_uses_stable_codex_title() {
+        let root = std::env::temp_dir().join(format!("session-title-empty-{}", now_millis()));
+        let config = test_config(&root);
+
+        assert_eq!(
+            fallback_session_title(&config, "019f9478-dbf2-7723"),
+            "Codex 019f9478-dbf"
+        );
+    }
+
+    #[test]
     fn normalizes_numeric_session_timestamps_for_display() {
         assert_eq!(
             newest_timestamp(vec![Some("1784042516".to_owned())]),
@@ -2522,7 +2597,8 @@ mod tests {
         let msg = parse_codex_message("thr", 0, &value, &mut HashMap::new()).expect("message");
 
         assert_eq!(msg.author_kind, "system");
-        assert!(msg.text.contains("没有返回任何消息"));
+        assert_eq!(msg.kind, EMPTY_RESPONSE_KIND);
+        assert!(msg.text.is_empty());
         assert_eq!(msg.turn_id.as_deref(), Some("turn_1"));
     }
 

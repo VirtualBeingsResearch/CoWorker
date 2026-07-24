@@ -136,6 +136,8 @@ export function actorMessagesToTimelineMessages(
       author_id: typeof message.metadata?.author_id === "string" ? message.metadata.author_id : null,
       author_label: bubble
         ? t("actors.bubble")
+        : message.author_kind === "system"
+          ? t("actors.system")
         : typeof message.metadata?.author_label === "string"
         ? message.metadata.author_label
         : message.author_kind === "local"

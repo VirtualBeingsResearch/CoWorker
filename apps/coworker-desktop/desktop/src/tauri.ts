@@ -120,6 +120,7 @@ export type ConfigValue = {
   permissions_mode?: PermissionsMode;
   approvals_reviewer?: ApprovalsReviewer;
   approval_timeout_seconds?: number;
+  close_to_tray?: boolean;
   coworkers?: BridgeCoworker[];
   [key: string]: unknown;
 };
@@ -196,6 +197,10 @@ export function setTrayCopy(copy: {
   quit: string;
 }): Promise<void> {
   return invoke("set_tray_copy", copy);
+}
+
+export function setCloseToTray(enabled: boolean): Promise<void> {
+  return invoke("set_close_to_tray", { enabled });
 }
 
 export function listDesktopConversations(
