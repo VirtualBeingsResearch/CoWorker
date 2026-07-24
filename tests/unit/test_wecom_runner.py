@@ -99,8 +99,9 @@ async def test_send_uses_reply_stream_when_frame_cached(tmp_path):
 @pytest.mark.asyncio
 async def test_inbound_frame_is_published_through_channel_handler(tmp_path):
     runner = _make_runner(tmp_path)
+    channel = WeComChannel(runner)
     handler = AsyncMock()
-    runner.set_inbound_handler(handler)
+    channel.set_inbound_handler(handler)
 
     await runner._on_text_like(_frame_single())
 

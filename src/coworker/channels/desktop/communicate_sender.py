@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
-if TYPE_CHECKING:
-    from coworker.tools.communicate_tool import CommunicateTool
-
 DESKTOP_PREFIX = "coworker-desktop:"
 
 
+class OutboundQueueProvider(Protocol):
+    def outbound_queue(self, participant_id: str) -> asyncio.Queue | None: ...
+
+
 class DesktopCommunicateSender:
-    def __init__(self, communicate: CommunicateTool) -> None:
+    def __init__(self, communicate: OutboundQueueProvider) -> None:
         self._communicate = communicate
 
     async def send(self, request: CommunicateRequest) -> ToolResult:

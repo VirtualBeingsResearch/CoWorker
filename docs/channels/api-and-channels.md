@@ -9,6 +9,11 @@
 
 所有出站通信统一由 `ChannelHost` 路由到对应信道：通用 WS/SSE 流、企业微信或 Coworker Desktop。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
 
+入站消息由实际接收它的传输入口交给所属信道：REST/WebSocket 进入通用 Stream
+信道，Desktop 协议进入 Desktop 信道，企业微信 SDK 进入 WeCom 信道。信道负责把各自的
+原始协议转换为统一的 `IncomingEvent`。入站归属不通过 `participant_id` 猜测，因此即使
+不同传输使用了相同或相似的对象 ID，也不会被错误送进另一个信道的协议解析器。
+
 ## REST API
 
 ```bash

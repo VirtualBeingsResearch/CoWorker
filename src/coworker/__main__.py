@@ -898,7 +898,6 @@ async def _main() -> bool:
             )
         )
 
-    wecom_runner: WeComRunner | None = None
     if not setup_required and config.wecom.enabled:
         if not config.wecom.bot_id or not config.wecom.secret:
             logger.warning("WeCom enabled but bot_id/secret missing; skipping")
@@ -966,9 +965,9 @@ async def _main() -> bool:
         inbox_task = asyncio.create_task(inbox_watcher.start(), name="inbox")
         loop_task = asyncio.create_task(agent_loop.run(), name="loop")
         lifecycle_task = loop_task
-    wecom_task: asyncio.Task | None = None
-    if wecom_runner is not None:
-        wecom_task = asyncio.create_task(wecom_runner.start(), name="wecom")
+    channel_task: asyncio.Task | None = None
+    if not setup_required:
+        channel_task = asyncio.create_task(communicate.run_channels(), name="channels")
 
     try:
         done, _ = await asyncio.wait(
@@ -1010,14 +1009,13 @@ async def _main() -> bool:
             inbox_watcher.stop()
         await desktop_update_sync.stop()
         logger.info("Desktop update sync stopped")
-        if wecom_runner is not None:
-            await wecom_runner.stop()
-            logger.info("WeCom runner stopped")
+        await communicate.stop_channels()
+        logger.info("Communication channels stopped")
         background = [server_task]
         if inbox_task is not None:
             background.append(inbox_task)
-        if wecom_task is not None:
-            background.append(wecom_task)
+        if channel_task is not None:
+            background.append(channel_task)
         if not lifecycle_task.done():
             agent_loop.stop()
             background.append(lifecycle_task)

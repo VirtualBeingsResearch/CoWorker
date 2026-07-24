@@ -16,6 +16,7 @@ exposes live WS/SSE participant IDs for internal stream-lifecycle consumers.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -62,9 +63,11 @@ class InlineChannel:
         *,
         supports_extra: bool = False,
         name: str | None = None,
+        inbound_sources: frozenset[str] = frozenset(),
     ) -> None:
         self.name = name or prefix.rstrip(":") or "inline"
         self.participant_prefix = prefix
+        self.inbound_sources = inbound_sources
         self._sender = sender
         self._checker = checker
         self._supports_extra = supports_extra
@@ -126,6 +129,7 @@ class Channel(Protocol):
 
     name: str
     participant_prefix: str
+    inbound_sources: frozenset[str]
 
     def resolve(self, participant_id: str) -> str | None:
         """Canonicalize a shorthand participant_id, or None if not claimed."""
@@ -183,7 +187,7 @@ class ChannelHost:
     def __init__(self) -> None:
         self._channels: list[Channel] = []
         self._fallback: Channel | None = None
-        self._interceptors: list[Callable[[IncomingEvent], bool]] = []
+        self._inbound_channels: dict[str, Channel] = {}
         self._inbound_handler: InboundHandler | None = None
 
     @property
@@ -191,8 +195,29 @@ class ChannelHost:
         return list(self._channels)
 
     def register(self, channel: Channel) -> None:
+        for registered in self._channels:
+            if registered.name == channel.name:
+                raise ValueError(f"channel name {channel.name!r} is already registered")
+            if (
+                channel.participant_prefix
+                and registered.participant_prefix == channel.participant_prefix
+            ):
+                raise ValueError(
+                    f"participant prefix {channel.participant_prefix!r} "
+                    f"is already owned by channel {registered.name!r}"
+                )
+        if channel.participant_prefix == "" and self._fallback is not None:
+            raise ValueError("only one empty-prefix fallback channel may be registered")
+        for source in channel.inbound_sources:
+            owner = self._inbound_channels.get(source)
+            if owner is not None:
+                raise ValueError(
+                    f"inbound source {source!r} is already owned by channel {owner.name!r}"
+                )
         self._channels.append(channel)
         channel.set_inbound_handler(self._inbound_handler)
+        for source in channel.inbound_sources:
+            self._inbound_channels[source] = channel
         if channel.participant_prefix == "":
             self._fallback = channel
 
@@ -209,12 +234,16 @@ class ChannelHost:
         await self._inbound_handler(event)
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
-        """Route a raw protocol envelope to its owning channel."""
-        _, channel = self._resolve(envelope.participant_id)
-        target = channel if channel is not None else self._fallback
-        if target is None:
-            raise RuntimeError("no channel registered for inbound message")
-        await target.receive_raw(envelope)
+        """Deliver a raw protocol envelope to the channel owning its source.
+
+        Inbound ownership comes from the transport endpoint that received the
+        payload. Participant IDs are outbound addresses and must not be used to
+        infer which protocol produced an inbound message.
+        """
+        channel = self._inbound_channels.get(envelope.source)
+        if channel is None:
+            raise RuntimeError(f"no channel registered for inbound source {envelope.source!r}")
+        await channel.receive_raw(envelope)
 
     # ------------------------------------------------------------------ routing
 
@@ -295,10 +324,10 @@ class ChannelHost:
 
     def record_received(self, participant_id: str) -> None:
         """Record an inbound message on the channel selected for a participant."""
-        _, channel = self._resolve(participant_id)
+        canonical, channel = self._resolve(participant_id)
         target = channel if channel is not None else self._fallback
         if target is not None:
-            target.record_received(participant_id)
+            target.record_received(canonical)
 
     def list_live_stream_participant_ids(self) -> list[str]:
         """Return participant IDs with a currently live WS/SSE reply stream."""
@@ -310,22 +339,14 @@ class ChannelHost:
     # ----------------------------------------------------------------- lifecycle
 
     async def start_all(self) -> None:
-        for channel in self._channels:
-            await channel.start()
+        """Run all channel lifecycles concurrently until they stop."""
+        async with asyncio.TaskGroup() as group:
+            for channel in self._channels:
+                group.create_task(channel.start(), name=f"channel:{channel.name}")
 
     async def stop_all(self) -> None:
-        for channel in self._channels:
-            await channel.stop()
-
-    # -------------------------------------------------------- inbox interceptors
-
-    def add_inbox_interceptor(self, interceptor: Callable[[IncomingEvent], bool]) -> None:
-        """Register an InboxWatcher interceptor (ordering is explicit, not call-order)."""
-        self._interceptors.append(interceptor)
-
-    @property
-    def inbox_interceptors(self) -> list[Callable[[IncomingEvent], bool]]:
-        return list(self._interceptors)
+        """Ask every channel to stop, unwinding in reverse registration order."""
+        await asyncio.gather(*(channel.stop() for channel in reversed(self._channels)))
 
 
 def _activity_timestamp() -> str:

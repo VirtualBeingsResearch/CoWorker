@@ -16,9 +16,10 @@ from coworker.api import app as api_app
 from coworker.api.routes import setup as setup_routes
 from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
+from coworker.channels.base import InlineChannel
 from coworker.channels.desktop import DesktopChannel, DesktopDispatcher, DesktopRegistry
 from coworker.core.config import APIConfig
-from coworker.core.types import AgentState, CommunicateRequest
+from coworker.core.types import AgentState, CommunicateRequest, ToolResult
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.communicate_tool import CommunicateTool
@@ -174,6 +175,45 @@ class TestPostMessages:
         assert body["status"] == "queued"
         assert body["sender_id"] == "alice"
         mock_inbox.push.assert_called_once()
+
+    def test_rest_ingress_does_not_use_outbound_channel_resolution(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = CommunicateTool(str(tmp_path / "outbox"))
+        communication.set_inbound_handler(mock_inbox.push)
+
+        async def send(_request):
+            return ToolResult(tool_call_id="", content="sent")
+
+        communication.register_channel(
+            InlineChannel(
+                "wecom:",
+                send,
+                checker=lambda participant_id: (
+                    f"wecom:single:{participant_id}"
+                    if participant_id == "known-chat"
+                    else None
+                ),
+                name="wecom",
+            )
+        )
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication=communication,
+        )
+
+        response = client.post(
+            "/messages",
+            json={"sender_id": "known-chat", "content": "hello"},
+        )
+
+        assert response.status_code == 200
+        event = mock_inbox.push.call_args.args[0]
+        assert event.participant_id == "known-chat"
+        assert event.source == "rest"
+        assert event.content == "hello"
 
 
     @pytest.mark.parametrize(
@@ -363,8 +403,7 @@ class TestPostMessages:
     def test_desktop_message_requires_matching_bearer_by_default(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = CommunicateTool(str(tmp_path / "outbox"))
-        communication.set_inbound_handler(mock_inbox.push)
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),

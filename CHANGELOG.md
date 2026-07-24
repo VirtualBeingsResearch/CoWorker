@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fix(channels): route inbound payloads by their owning transport instead of outbound participant resolution, pass WeCom events through `WeComChannel`, and run channel lifecycles concurrently under `ChannelHost`
+
 ## 0.3.2 - 2026-07-23
 
 - feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely

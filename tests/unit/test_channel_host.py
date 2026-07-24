@@ -1,7 +1,8 @@
-"""Unit tests for ChannelHost routing (Phase 1 abstraction, not yet wired)."""
+"""Unit tests for ChannelHost routing, ingress ownership, and lifecycle."""
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,6 +12,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     ParticipantIdResolutionError,
 )
+from coworker.channels.inbound import InboundEnvelope
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 
 
@@ -25,15 +27,19 @@ class _FakeChannel:
         supports_extra: bool = False,
         resolver=None,
         live: tuple[str, ...] = (),
+        inbound_sources: tuple[str, ...] = (),
     ) -> None:
         self.name = name
         self.participant_prefix = prefix
+        self.inbound_sources = frozenset(inbound_sources)
         self._supports_extra = supports_extra
         self._resolver = resolver or (lambda pid: None)
         self._live = set(live)
         self.sent: list[CommunicateRequest] = []
         self.started = False
         self.stopped = False
+        self.raw_received: list[InboundEnvelope] = []
+        self.received: list[str] = []
 
     def set_inbound_handler(self, handler) -> None:
         self.inbound_handler = handler
@@ -44,6 +50,12 @@ class _FakeChannel:
     async def send(self, request: CommunicateRequest) -> ToolResult:
         self.sent.append(request)
         return ToolResult(tool_call_id="", content=f"sent:{self.name}")
+
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        self.raw_received.append(envelope)
+
+    def record_received(self, participant_id: str) -> None:
+        self.received.append(participant_id)
 
     def supports_extra_for(self, participant_id: str) -> bool:
         if self.participant_prefix == "":
@@ -223,6 +235,78 @@ async def test_inbound_events_are_delivered_by_the_host() -> None:
     handler.assert_awaited_once_with(event)
 
 
+@pytest.mark.asyncio
+async def test_raw_inbound_routes_by_transport_source_not_participant_address() -> None:
+    host = ChannelHost()
+    stream = _FakeChannel(
+        "stream",
+        "",
+        inbound_sources=("rest", "websocket"),
+    )
+    wecom = _FakeChannel(
+        "wecom",
+        "wecom:",
+        resolver=lambda pid: f"wecom:single:{pid}" if pid == "known-chat" else None,
+    )
+    host.register(stream)
+    host.register(wecom)
+    envelope = InboundEnvelope(
+        participant_id="known-chat",
+        source="rest",
+        payload={"content": "hello"},
+    )
+
+    await host.receive_raw(envelope)
+
+    assert stream.raw_received == [envelope]
+    assert wecom.raw_received == []
+
+
+def test_duplicate_inbound_source_is_rejected() -> None:
+    host = ChannelHost()
+    host.register(_FakeChannel("stream", "", inbound_sources=("rest",)))
+
+    with pytest.raises(ValueError, match="rest"):
+        host.register(_FakeChannel("other", "other:", inbound_sources=("rest",)))
+
+
+def test_duplicate_fallback_is_rejected_without_partial_registration() -> None:
+    host = ChannelHost()
+    first = _FakeChannel("first", "")
+    second = _FakeChannel("second", "")
+    host.register(first)
+
+    with pytest.raises(ValueError, match="fallback"):
+        host.register(second)
+
+    assert host.channels == [first]
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "error"),
+    [
+        (
+            _FakeChannel("shared", "first:"),
+            _FakeChannel("shared", "second:"),
+            "name",
+        ),
+        (
+            _FakeChannel("first", "shared:"),
+            _FakeChannel("second", "shared:"),
+            "prefix",
+        ),
+    ],
+)
+def test_duplicate_channel_identity_is_rejected(first, second, error) -> None:
+    host = ChannelHost()
+    host.register(first)
+
+    with pytest.raises(ValueError, match=error):
+        host.register(second)
+
+    assert host.channels == [first]
+
+
 # --------------------------------------------------------------------- lifecycle
 
 
@@ -238,3 +322,33 @@ async def test_start_all_and_stop_all(host: ChannelHost) -> None:
 
     await host.stop_all()
     assert stream.stopped and wecom.stopped
+
+
+@pytest.mark.asyncio
+async def test_long_running_channel_lifecycles_start_concurrently() -> None:
+    host = ChannelHost()
+    started = [asyncio.Event(), asyncio.Event()]
+    stop = asyncio.Event()
+
+    class _LongRunningChannel(_FakeChannel):
+        def __init__(self, index: int) -> None:
+            super().__init__(f"channel-{index}", f"channel-{index}:")
+            self._index = index
+
+        async def start(self) -> None:
+            started[self._index].set()
+            await stop.wait()
+
+        async def stop(self) -> None:
+            stop.set()
+
+    host.register(_LongRunningChannel(0))
+    host.register(_LongRunningChannel(1))
+    lifecycle = asyncio.create_task(host.start_all())
+
+    await asyncio.wait_for(
+        asyncio.gather(*(event.wait() for event in started)),
+        timeout=1,
+    )
+    await host.stop_all()
+    await lifecycle

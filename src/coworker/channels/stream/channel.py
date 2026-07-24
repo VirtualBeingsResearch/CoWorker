@@ -41,6 +41,7 @@ class StreamChannel:
 
     name = "stream"
     participant_prefix = ""
+    inbound_sources = frozenset({"rest", "websocket"})
 
     def __init__(self, outbox_dir: str | Path, registrations_path: str | Path) -> None:
         self._outbox = Path(outbox_dir)

@@ -9,6 +9,12 @@
 
 All outbound communication is routed by `ChannelHost` to the appropriate channel: the generic WS/SSE stream, WeCom, or Coworker Desktop. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. `/status` reports runtime, model, and usage state only; connection discovery is handled exclusively by `list_connections`.
 
+Inbound messages are handed to the channel that owns the transport which actually received them:
+REST/WebSocket enters the generic Stream channel, Desktop protocol messages enter the Desktop
+channel, and the WeCom SDK enters the WeCom channel. Each channel converts its raw protocol into a
+normalized `IncomingEvent`. Inbound ownership is never inferred from `participant_id`, so similar
+identifiers used by different transports cannot select the wrong protocol parser.
+
 ## REST API
 
 ```bash

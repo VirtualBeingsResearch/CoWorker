@@ -8,10 +8,10 @@ into WeCom reachables), including the latest send and receive times.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
-from coworker.channels.base import ConnectionInfo, InboundHandler, InlineChannel
+from coworker.channels.base import ConnectionInfo, InlineChannel
+from coworker.channels.inbound import InboundEnvelope
 
 if TYPE_CHECKING:
     from coworker.channels.wecom.runner import WeComRunner
@@ -27,19 +27,20 @@ class WeComChannel(InlineChannel):
             checker=runner.checker,
             supports_extra=False,
             name="wecom",
+            inbound_sources=frozenset({"wecom"}),
         )
         self._runner = runner
+        self._runner.set_channel_receiver(self.receive_raw)
 
-    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
-        super().set_inbound_handler(handler)
-        self._runner.set_inbound_handler(handler)
+    async def receive_raw(self, envelope: InboundEnvelope) -> None:
+        if not isinstance(envelope.payload, dict):
+            raise TypeError("WeCom inbound payload must be an SDK frame object")
+        event = await self._runner.normalize_inbound(envelope.payload)
+        await self.publish_inbound(event)
 
     def list_connections(self) -> list[ConnectionInfo]:
-        now = time.monotonic()
         out: list[ConnectionInfo] = []
-        for chat_id, chat_type in self._runner._contacts.items():
-            item = self._runner._frame_cache.get(chat_id)
-            active = item is not None and now < item[1]
+        for chat_id, chat_type, active in self._runner.contact_states():
             participant_id = f"wecom:{chat_type}:{chat_id}"
             last_sent_at, last_received_at = self._runner.activity_for(participant_id)
             out.append(

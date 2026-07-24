@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.channels.base import InboundHandler
+from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.wecom import adapter
 from coworker.channels.wecom.contacts import ContactsStore, normalize_chat_type
 from coworker.channels.wecom.sender import WeComSender
@@ -57,8 +58,8 @@ class WeComRunner:
 
     Outbound delivery is delegated to :class:`WeComSender`; contact persistence
     to :class:`ContactsStore`. This class owns the WS client, the inbound frame
-    cache, and the channel-facing ``checker``/``sender`` adapters. Normalized
-    inbound events are emitted through the handler installed by ``WeComChannel``.
+    cache, and the channel-facing ``checker``/``sender`` adapters. Raw SDK
+    frames are handed to the owning ``WeComChannel`` for inbound processing.
     """
 
     def __init__(
@@ -79,10 +80,13 @@ class WeComRunner:
         self._sender = WeComSender(lambda: self._client, self._take_fresh_frame)
         self._stop = asyncio.Event()
         self._kicked = False
-        self._inbound_handler: InboundHandler | None = None
+        self._channel_receiver: Callable[[InboundEnvelope], Awaitable[Any]] | None = None
 
-    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
-        self._inbound_handler = handler
+    def set_channel_receiver(
+        self,
+        receiver: Callable[[InboundEnvelope], Awaitable[Any]] | None,
+    ) -> None:
+        self._channel_receiver = receiver
 
     async def start(self) -> None:
         from wecom_aibot_sdk import WSClient
@@ -134,18 +138,13 @@ class WeComRunner:
 
     async def _on_text_like(self, frame: dict[str, Any]) -> None:
         try:
-            event = adapter.frame_to_event(frame, attachments=[])
-            self._cache_frame(adapter.participant_id_for(frame), frame)
-            await self._publish_inbound(event)
+            await self._publish_raw(frame)
         except Exception as e:
             logger.error(f"WeCom text handler error: {e}")
 
     async def _on_with_attachments(self, frame: dict[str, Any]) -> None:
         try:
-            atts = await adapter.collect_attachments(self._client, frame, self._attachments_dir)
-            event = adapter.frame_to_event(frame, attachments=atts)
-            self._cache_frame(adapter.participant_id_for(frame), frame)
-            await self._publish_inbound(event)
+            await self._publish_raw(frame)
         except Exception as e:
             logger.error(f"WeCom attachment handler error: {e}")
 
@@ -153,11 +152,17 @@ class WeComRunner:
         stream_id = frame.get("body", {}).get("stream", {}).get("id", "?")
         logger.debug(f"WeCom stream notify id={stream_id}")
 
-    async def _publish_inbound(self, event: IncomingEvent) -> None:
-        if self._inbound_handler is None:
+    async def _publish_raw(self, frame: dict[str, Any]) -> None:
+        if self._channel_receiver is None:
             logger.warning("Dropping WeCom inbound event: no channel host handler is configured")
             return
-        await self._inbound_handler(event)
+        await self._channel_receiver(
+            InboundEnvelope(
+                participant_id=adapter.participant_id_for(frame),
+                source="wecom",
+                payload=frame,
+            )
+        )
 
     async def _on_kicked(self, frame: dict[str, Any]) -> None:
         logger.warning("WeCom kicked by a newer connection; will not auto-reconnect")
@@ -206,6 +211,30 @@ class WeComRunner:
         """Return the latest successful outbound and inbound times for a chat."""
         _, chat_id = adapter.parse_participant(participant_id)
         return self._last_sent_at.get(chat_id), self._last_received_at.get(chat_id)
+
+    def contact_states(self) -> list[tuple[str, str, bool]]:
+        """Return known chats without exposing the runner's mutable stores."""
+        now = time.monotonic()
+        return [
+            (
+                chat_id,
+                chat_type,
+                (item := self._frame_cache.get(chat_id)) is not None and now < item[1],
+            )
+            for chat_id, chat_type in self._contacts.items()
+        ]
+
+    async def normalize_inbound(self, frame: dict[str, Any]) -> IncomingEvent:
+        """Decode one SDK frame and update the runner's reply/contact state."""
+        msgtype = frame.get("body", {}).get("msgtype")
+        attachments = (
+            await adapter.collect_attachments(self._client, frame, self._attachments_dir)
+            if msgtype in {"image", "file", "mixed", "video"}
+            else []
+        )
+        event = adapter.frame_to_event(frame, attachments=attachments)
+        self._cache_frame(event.participant_id, frame)
+        return event
 
     # ── adapter for CommunicateTool ──────────────────────────────────────
 

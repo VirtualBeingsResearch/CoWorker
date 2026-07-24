@@ -129,13 +129,7 @@ class _BoundCommunicateTool(Tool):
 
 
 class CommunicateTool(Tool):
-    """Outbound communication tool.
-
-    Routing (prefix senders + checkers) still lives here during the channel
-    refactor; it moves to :class:`~coworker.channels.base.ChannelHost` in a
-    later phase. Transport (WS/SSE connections, participant registrations,
-    outbox fallback) is delegated to the composed :class:`StreamChannel`.
-    """
+    """Communication tool facade backed by a ChannelHost and StreamChannel."""
 
     def __init__(self, outbox_dir: str) -> None:
         self._stream = StreamChannel(
@@ -226,6 +220,14 @@ class CommunicateTool(Tool):
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         """Route raw protocol input to the owning channel for normalization."""
         await self._host.receive_raw(envelope)
+
+    async def run_channels(self) -> None:
+        """Run registered channel lifecycles concurrently until they stop."""
+        await self._host.start_all()
+
+    async def stop_channels(self) -> None:
+        """Stop every registered channel lifecycle."""
+        await self._host.stop_all()
 
     def shutdown(self) -> None:
         """Wake all live WS/SSE queues so blocked senders can exit on shutdown."""
