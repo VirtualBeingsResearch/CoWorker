@@ -7,7 +7,7 @@
 > The current v0.x releases should be used only locally or on a trusted network. Read the
 > [security policy](../../SECURITY.md) before deployment.
 
-All outbound communication is routed by `ChannelHost` to the appropriate channel: the generic WS/SSE stream, WeCom, or Coworker Desktop. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. `/status` reports runtime, model, and usage state only; connection discovery is handled exclusively by `list_connections`.
+All outbound communication is routed by `ChannelRegistry` to the appropriate channel: the generic WS/SSE stream or WeCom. Coworker Desktop is a protocol profile on the Stream Runtime, sharing its registration, connection, queue, and lifecycle management while preserving the existing participant IDs and message protocol. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. `/status` reports runtime, model, and usage state only; connection discovery is handled exclusively by `list_connections`.
 
 ## REST API
 

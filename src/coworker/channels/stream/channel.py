@@ -3,7 +3,7 @@
 Owns the consolidated live-connection registry (:class:`ConnectionPool`),
 persistent participant registrations (:class:`RegistrationStore`), and the
 outbox-file fallback. This is the empty-prefix fallback channel in
-:class:`~coworker.channels.base.ChannelHost`: it handles any participant_id
+:class:`~coworker.channels.registry.ChannelRegistry`: it handles any participant_id
 no other channel claims -- delivering to a live WS/SSE queue, or writing the
 message to the outbox when no connection is live.
 """
@@ -50,6 +50,11 @@ class StreamChannel:
         self._last_sent_at: dict[str, str] = {}
         self._last_received_at: dict[str, str] = {}
         self._inbound_handler: InboundHandler | None = None
+
+    @property
+    def runtime(self) -> StreamChannel:
+        """The stream transport owns its own stateful runtime."""
+        return self
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler

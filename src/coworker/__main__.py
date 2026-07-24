@@ -888,7 +888,7 @@ async def _main() -> bool:
     api_app.set_collector(event_collector)
 
     if not setup_required:
-        desktop_sender = DesktopCommunicateSender(communicate)
+        desktop_sender = DesktopCommunicateSender(communicate.stream)
         communicate.register_channel(
             DesktopChannel(
                 desktop_sender,
@@ -898,7 +898,6 @@ async def _main() -> bool:
             )
         )
 
-    wecom_runner: WeComRunner | None = None
     if not setup_required and config.wecom.enabled:
         if not config.wecom.bot_id or not config.wecom.secret:
             logger.warning("WeCom enabled but bot_id/secret missing; skipping")
@@ -955,6 +954,7 @@ async def _main() -> bool:
     server = uvicorn.Server(uv_config)
 
     await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
+    await communicate.start()
     server_task = asyncio.create_task(server.serve(), name="server")
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
@@ -966,10 +966,6 @@ async def _main() -> bool:
         inbox_task = asyncio.create_task(inbox_watcher.start(), name="inbox")
         loop_task = asyncio.create_task(agent_loop.run(), name="loop")
         lifecycle_task = loop_task
-    wecom_task: asyncio.Task | None = None
-    if wecom_runner is not None:
-        wecom_task = asyncio.create_task(wecom_runner.start(), name="wecom")
-
     try:
         done, _ = await asyncio.wait(
             {server_task, lifecycle_task}, return_when=asyncio.FIRST_COMPLETED
@@ -1005,19 +1001,15 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        await communicate.stop()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()
         await desktop_update_sync.stop()
         logger.info("Desktop update sync stopped")
-        if wecom_runner is not None:
-            await wecom_runner.stop()
-            logger.info("WeCom runner stopped")
         background = [server_task]
         if inbox_task is not None:
             background.append(inbox_task)
-        if wecom_task is not None:
-            background.append(wecom_task)
         if not lifecycle_task.done():
             agent_loop.stop()
             background.append(lifecycle_task)

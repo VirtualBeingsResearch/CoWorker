@@ -8,17 +8,17 @@ from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
-    from coworker.tools.communicate_tool import CommunicateTool
+    from coworker.channels.stream import StreamChannel
 
 DESKTOP_PREFIX = "coworker-desktop:"
 
 
 class DesktopCommunicateSender:
-    def __init__(self, communicate: CommunicateTool) -> None:
-        self._communicate = communicate
+    def __init__(self, runtime: StreamChannel) -> None:
+        self.runtime = runtime
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
-        queue = self._communicate.outbound_queue(request.participant_id)
+        queue = self.runtime.outbound_queue(request.participant_id)
         if queue is None:
             return ToolResult(
                 tool_call_id="",

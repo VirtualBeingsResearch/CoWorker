@@ -37,6 +37,7 @@ class DesktopChannel(InlineChannel):
             sender.send,
             supports_extra=True,
             name="desktop",
+            runtime=sender.runtime,
         )
         self._registry = registry
         self._dispatcher = dispatcher

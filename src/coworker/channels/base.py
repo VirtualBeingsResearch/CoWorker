@@ -1,18 +1,4 @@
-"""Channel abstraction: unified inbound/outbound/lifecycle/state contract.
-
-A :class:`Channel` is one communication transport -- the generic WS/SSE
-stream, WeCom, or Desktop. :class:`ChannelHost` owns the participant_id
-routing that previously lived in :class:`~coworker.tools.communicate_tool.CommunicateTool`:
-
-* longest non-empty prefix match,
-* checker auto-resolution (``Channel.resolve``) with multi-match ambiguity,
-* fallback to the empty-prefix stream channel (live WS/SSE queue or outbox).
-
-Channels are registered once and started/stopped together. The host also
-owns the normalized inbound event delivery port, aggregates
-:meth:`ConnectionInfo` across channels for the ``list_connections`` tool, and
-exposes live WS/SSE participant IDs for internal stream-lifecycle consumers.
-"""
+"""Channel protocol and lightweight inline implementation."""
 
 from __future__ import annotations
 
@@ -22,8 +8,8 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from coworker.channels.inbound import InboundEnvelope
+from coworker.channels.runtime import ChannelRuntime, InlineRuntime
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
-from coworker.i18n import tr
 
 InboundHandler = Callable[[IncomingEvent], Awaitable[Any]]
 
@@ -62,12 +48,14 @@ class InlineChannel:
         *,
         supports_extra: bool = False,
         name: str | None = None,
+        runtime: ChannelRuntime | None = None,
     ) -> None:
         self.name = name or prefix.rstrip(":") or "inline"
         self.participant_prefix = prefix
         self._sender = sender
         self._checker = checker
         self._supports_extra = supports_extra
+        self.runtime = runtime or InlineRuntime()
         self._last_sent_at: dict[str, str] = {}
         self._last_received_at: dict[str, str] = {}
         self._inbound_handler: InboundHandler | None = None
@@ -104,16 +92,6 @@ class InlineChannel:
     def list_connections(self) -> list[ConnectionInfo]:
         return []
 
-    def list_live_stream_participant_ids(self) -> list[str]:
-        return []
-
-    async def start(self) -> None:
-        pass
-
-    async def stop(self) -> None:
-        pass
-
-
 @runtime_checkable
 class Channel(Protocol):
     """One communication transport.
@@ -126,6 +104,11 @@ class Channel(Protocol):
 
     name: str
     participant_prefix: str
+
+    @property
+    def runtime(self) -> ChannelRuntime:
+        """Stateful runtime used by this channel profile."""
+        ...
 
     def resolve(self, participant_id: str) -> str | None:
         """Canonicalize a shorthand participant_id, or None if not claimed."""
@@ -158,175 +141,6 @@ class Channel(Protocol):
     def record_received(self, participant_id: str) -> None:
         """Record an inbound message for a participant."""
         ...
-
-    def list_live_stream_participant_ids(self) -> list[str]:
-        """Live participant_ids (WS/SSE stream connections); non-stream channels return []."""
-        ...
-
-    async def start(self) -> None:
-        """Start background transport (no-op for channels without one)."""
-        ...
-
-    async def stop(self) -> None:
-        """Stop background transport (no-op for channels without one)."""
-        ...
-
-
-class ChannelHost:
-    """Owns channel registration, participant_id routing, and lifecycle.
-
-    The empty-prefix channel (the stream) is the fallback: it receives any
-    request no other channel claims by prefix or checker, and owns the live
-    WS/SSE queue plus the outbox-file fallback.
-    """
-
-    def __init__(self) -> None:
-        self._channels: list[Channel] = []
-        self._fallback: Channel | None = None
-        self._interceptors: list[Callable[[IncomingEvent], bool]] = []
-        self._inbound_handler: InboundHandler | None = None
-
-    @property
-    def channels(self) -> list[Channel]:
-        return list(self._channels)
-
-    def register(self, channel: Channel) -> None:
-        self._channels.append(channel)
-        channel.set_inbound_handler(self._inbound_handler)
-        if channel.participant_prefix == "":
-            self._fallback = channel
-
-    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
-        """Set the single owner of normalized inbound event delivery."""
-        self._inbound_handler = handler
-        for channel in self._channels:
-            channel.set_inbound_handler(handler)
-
-    async def publish_inbound(self, event: IncomingEvent) -> None:
-        """Deliver a normalized inbound event to the configured inbox owner."""
-        if self._inbound_handler is None:
-            raise RuntimeError("no inbound handler registered")
-        await self._inbound_handler(event)
-
-    async def receive_raw(self, envelope: InboundEnvelope) -> None:
-        """Route a raw protocol envelope to its owning channel."""
-        _, channel = self._resolve(envelope.participant_id)
-        target = channel if channel is not None else self._fallback
-        if target is None:
-            raise RuntimeError("no channel registered for inbound message")
-        await target.receive_raw(envelope)
-
-    # ------------------------------------------------------------------ routing
-
-    def resolve_participant_id(self, participant_id: str) -> str:
-        """Expand a shorthand participant_id without sending (raises on ambiguity)."""
-        canonical, _ = self._resolve(participant_id)
-        return canonical
-
-    def supports_message_extra(self, participant_id: str) -> bool:
-        """Whether the participant's selected transport accepts structured ``extra``."""
-        canonical, channel = self._resolve(participant_id)
-        if channel is not None:
-            return channel.supports_extra_for(canonical)
-        if self._fallback is not None:
-            return self._fallback.supports_extra_for(canonical)
-        return False
-
-    async def send(self, request: CommunicateRequest) -> ToolResult:
-        """Route a request to the matching channel (or stream fallback)."""
-        canonical, channel = self._resolve(request.participant_id)
-        target = channel if channel is not None else self._fallback
-        if target is None:
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.communicate.failed", error="no channel registered"),
-                is_error=True,
-            )
-        from dataclasses import replace
-
-        return await target.send(replace(request, participant_id=canonical))
-
-    def _resolve(self, participant_id: str) -> tuple[str, Channel | None]:
-        # 1. Longest non-empty prefix match wins.
-        matched: Channel | None = None
-        for channel in self._channels:
-            prefix = channel.participant_prefix
-            if prefix and participant_id.startswith(prefix):
-                if matched is None or len(prefix) > len(matched.participant_prefix):
-                    matched = channel
-        if matched is not None:
-            return participant_id, matched
-
-        # 2. Checker resolution across all channels.
-        resolved: dict[Channel, str] = {}
-        for channel in self._channels:
-            canonical = channel.resolve(participant_id)
-            if canonical is not None:
-                resolved[channel] = canonical
-        if len(resolved) == 1:
-            channel, canonical = next(iter(resolved.items()))
-            return canonical, channel
-        if len(resolved) > 1:
-            options = "\n".join(
-                tr(
-                    "tool_result.communicate.option",
-                    id=cid,
-                    prefix=channel.participant_prefix or channel.name,
-                )
-                for channel, cid in resolved.items()
-            )
-            raise ParticipantIdResolutionError(
-                tr(
-                    "tool_result.communicate.ambiguous",
-                    participant=participant_id,
-                    options=options,
-                )
-            )
-        return participant_id, None
-
-    # ------------------------------------------------ connections / live streams
-
-    def list_connections(self) -> list[ConnectionInfo]:
-        """Aggregate reachable participants across all channels."""
-        out: list[ConnectionInfo] = []
-        for channel in self._channels:
-            out.extend(channel.list_connections())
-        return out
-
-    def record_received(self, participant_id: str) -> None:
-        """Record an inbound message on the channel selected for a participant."""
-        _, channel = self._resolve(participant_id)
-        target = channel if channel is not None else self._fallback
-        if target is not None:
-            target.record_received(participant_id)
-
-    def list_live_stream_participant_ids(self) -> list[str]:
-        """Return participant IDs with a currently live WS/SSE reply stream."""
-        out: list[str] = []
-        for channel in self._channels:
-            out.extend(channel.list_live_stream_participant_ids())
-        return out
-
-    # ----------------------------------------------------------------- lifecycle
-
-    async def start_all(self) -> None:
-        for channel in self._channels:
-            await channel.start()
-
-    async def stop_all(self) -> None:
-        for channel in self._channels:
-            await channel.stop()
-
-    # -------------------------------------------------------- inbox interceptors
-
-    def add_inbox_interceptor(self, interceptor: Callable[[IncomingEvent], bool]) -> None:
-        """Register an InboxWatcher interceptor (ordering is explicit, not call-order)."""
-        self._interceptors.append(interceptor)
-
-    @property
-    def inbox_interceptors(self) -> list[Callable[[IncomingEvent], bool]]:
-        return list(self._interceptors)
-
 
 def _activity_timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")

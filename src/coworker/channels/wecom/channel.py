@@ -27,6 +27,7 @@ class WeComChannel(InlineChannel):
             checker=runner.checker,
             supports_extra=False,
             name="wecom",
+            runtime=runner,
         )
         self._runner = runner
 
@@ -53,9 +54,3 @@ class WeComChannel(InlineChannel):
                 )
             )
         return out
-
-    async def start(self) -> None:
-        await self._runner.start()
-
-    async def stop(self) -> None:
-        await self._runner.stop()

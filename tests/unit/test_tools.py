@@ -1388,7 +1388,7 @@ class TestCommunicateToolCheckers:
         from coworker.channels.desktop import DESKTOP_PREFIX, DesktopCommunicateSender
 
         tool = CommunicateTool(str(tmp_path / "outbox"))
-        sender = DesktopCommunicateSender(tool)
+        sender = DesktopCommunicateSender(tool.stream)
         tool.register_channel(InlineChannel(DESKTOP_PREFIX, sender.send))
         queue: asyncio.Queue = asyncio.Queue()
         participant_id = "coworker-desktop:desk-1:claude:cw-1:abcd1234"

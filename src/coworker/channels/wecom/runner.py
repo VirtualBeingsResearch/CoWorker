@@ -61,6 +61,8 @@ class WeComRunner:
     inbound events are emitted through the handler installed by ``WeComChannel``.
     """
 
+    name = "wecom"
+
     def __init__(
         self,
         cfg: WeComConfig,

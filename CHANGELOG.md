@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- refactor(channels): replace `ChannelHost` with a thin `ChannelRegistry`, move lifecycle ownership to shared channel runtimes, and make Desktop reuse the Stream runtime without changing participant IDs, APIs, or communication tool behavior
+
 ## 0.3.2 - 2026-07-23
 
 - feat(desktop-updates): synchronize partial GitHub Releases using asset digests, preserve domain-based requests, and render imported release notes safely

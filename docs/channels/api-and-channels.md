@@ -7,7 +7,7 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.zh-CN.md)。
 
-所有出站通信统一由 `ChannelHost` 路由到对应信道：通用 WS/SSE 流、企业微信或 Coworker Desktop。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
+所有出站通信统一由 `ChannelRegistry` 路由到对应信道：通用 WS/SSE 流或企业微信。Coworker Desktop 作为 Stream Runtime 上的协议 profile，共享同一套注册、连接、队列与生命周期管理，同时保留现有 participant ID 和消息协议。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
 
 ## REST API
 
