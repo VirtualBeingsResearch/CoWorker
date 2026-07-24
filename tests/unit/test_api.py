@@ -14,28 +14,37 @@ from starlette.websockets import WebSocketDisconnect
 
 from coworker.api import app as api_app
 from coworker.api.routes import setup as setup_routes
-from coworker.api.ws import ConnectionPool, serialize_outbound_message
 from coworker.brain.brain import Brain
 from coworker.channels.desktop import DesktopChannel, DesktopDispatcher, DesktopRegistry
+from coworker.channels.stream import ConnectionPool, serialize_outbound_message
+from coworker.channels.system import ChannelSystem, create_channel_system
 from coworker.core.config import APIConfig
 from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
-from coworker.tools.communicate_tool import CommunicateTool
 from tests.conftest import MockProvider
 
 
-def _communication_with_desktop(tmp_path, handler):
-    communication = CommunicateTool(str(tmp_path / "outbox"))
-    communication.set_inbound_handler(handler)
+def _channel_system(tmp_path, handler=None) -> ChannelSystem:
+    channels = create_channel_system(tmp_path / "outbox")
+    channels.registry.set_inbound_handler(handler)
+    return channels
+
+
+def _communication_with_desktop(tmp_path, handler) -> ChannelSystem:
+    communication = _channel_system(tmp_path, handler)
     registry = DesktopRegistry(ShortTermMemory(), tmp_path / "desktop_registry")
     dispatcher = DesktopDispatcher(registry)
     sender = MagicMock()
     sender.send = AsyncMock()
-    communication.register_channel(
+    communication.registry.register(
         DesktopChannel(sender, registry, dispatcher, tmp_path / "attachments")
     )
     return communication
+
+
+def _setup_api_channels(communication: ChannelSystem) -> None:
+    api_app.setup_channels(communication)
 
 
 @pytest.fixture
@@ -49,13 +58,13 @@ def client(tmp_path):
     routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
-    routes_mod._communication = None
+    routes_mod._channels = None
     routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
-    api_app._inbox = None
-    api_app._communicate = None
+    api_app._channels = None
+    api_app._stream = None
     api_app._collector = None
     api_app._shutting_down = False
     api_app.set_setup_required(False)
@@ -162,11 +171,10 @@ class TestPostMessages:
     def test_queues_event_when_ready(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = CommunicateTool(str(tmp_path / "outbox"))
-        communication.set_inbound_handler(mock_inbox.push)
+        communication = _channel_system(tmp_path, mock_inbox.push)
         mock_agent = MagicMock()
         mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain, communication=communication)
+        setup_routes(mock_inbox, mock_agent, mock_brain, channels=communication.registry)
 
         resp = client.post("/messages", json={"sender_id": "alice", "content": "hello"})
         assert resp.status_code == 200
@@ -175,28 +183,6 @@ class TestPostMessages:
         assert body["sender_id"] == "alice"
         mock_inbox.push.assert_called_once()
 
-
-    @pytest.mark.parametrize(
-        "sender_id", ["codex:codex-local", "local:codex-local", "codex-bridge:old"]
-    )
-    def test_legacy_desktop_sender_is_rejected(self, client, sender_id):
-        mock_inbox = MagicMock()
-        mock_inbox.push = AsyncMock()
-        mock_agent = MagicMock()
-        mock_brain = MagicMock()
-        setup_routes(mock_inbox, mock_agent, mock_brain)
-
-        resp = client.post(
-            "/messages",
-            json={
-                "sender_id": sender_id,
-                "conversation_id": "thr_1",
-                "content": "done",
-            },
-        )
-
-        assert resp.status_code == 422
-        mock_inbox.push.assert_not_awaited()
 
     def test_attachment_filename_is_sanitized(self, client, tmp_path, monkeypatch):
         compact_id_with_separator = "abcde_fghijk"
@@ -213,7 +199,7 @@ class TestPostMessages:
             mock_agent,
             mock_brain,
             inbox_dir=str(tmp_path / "inbox"),
-            communication=communication,
+            channels=communication.registry,
         )
 
         resp = client.post(
@@ -253,7 +239,7 @@ class TestPostMessages:
             MagicMock(),
             inbox_dir=str(tmp_path / "inbox"),
             development_mode=True,
-            communication=communication,
+            channels=communication.registry,
         )
         encoded = base64.b64encode(b"image bytes").decode("ascii")
         envelope = {
@@ -306,7 +292,7 @@ class TestPostMessages:
             MagicMock(),
             MagicMock(),
             development_mode=True,
-            communication=communication,
+            channels=communication.registry,
         )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
@@ -342,7 +328,7 @@ class TestPostMessages:
             MagicMock(),
             MagicMock(),
             development_mode=True,
-            communication=communication,
+            channels=communication.registry,
         )
         request = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
@@ -363,14 +349,13 @@ class TestPostMessages:
     def test_desktop_message_requires_matching_bearer_by_default(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        communication = CommunicateTool(str(tmp_path / "outbox"))
-        communication.set_inbound_handler(mock_inbox.push)
+        communication = _channel_system(tmp_path, mock_inbox.push)
         setup_routes(
             mock_inbox,
             MagicMock(),
             MagicMock(),
             communication_token="secret",
-            communication=communication,
+            channels=communication.registry,
         )
         message = {
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
@@ -463,8 +448,10 @@ class TestSSE:
                 sent.append(message)
 
         pool = ConnectionPool()
-        pool._connections["alice"] = FakeWebSocket()
-        pool._outboxes["alice"] = asyncio.Queue()
+        socket = FakeWebSocket()
+        queue = asyncio.Queue()
+        pool._connections["alice"] = socket
+        pool._outboxes["alice"] = queue
 
         await pool.transmit(
             "alice",
@@ -473,6 +460,8 @@ class TestSSE:
                 message="hi",
                 conversation_id="thr_1",
             ),
+            socket,
+            queue,
         )
 
         assert sent == [
@@ -490,41 +479,37 @@ class TestSSE:
 
 class TestUnregisterWsGuard:
     def test_duplicate_registration_is_rejected_and_first_queue_kept(self):
-        comm = CommunicateTool("unused")
+        stream = create_channel_system("unused").stream_runtime
         first_q: asyncio.Queue = asyncio.Queue()
         second_q: asyncio.Queue = asyncio.Queue()
-        assert comm.register_ws("alice", first_q) is True
-        assert comm.register_ws("alice", second_q) is False
-        assert comm.outbound_queue("alice") is first_q
+        assert stream.register_ws("alice", first_q) is True
+        assert stream.register_ws("alice", second_q) is False
+        assert stream.outbound_queue("alice") is first_q
         # 被拒绝的 queue 不应删掉先到的连接
-        comm.unregister_ws("alice", second_q)
-        assert comm.outbound_queue("alice") is first_q
+        stream.unregister_ws("alice", second_q)
+        assert stream.outbound_queue("alice") is first_q
         # 用匹配的 queue 注销才生效
-        comm.unregister_ws("alice", first_q)
-        assert comm.outbound_queue("alice") is None
-
-    def test_no_queue_arg_removes_unconditionally(self):
-        comm = CommunicateTool("unused")
-        comm.register_ws("bob", asyncio.Queue())
-        comm.unregister_ws("bob")  # 向后兼容：不传 queue 直接删
-        assert comm.outbound_queue("bob") is None
+        stream.unregister_ws("alice", first_q)
+        assert stream.outbound_queue("alice") is None
 
     def test_connection_listener_only_fires_on_real_connection_changes(self):
-        comm = CommunicateTool("unused")
+        stream = create_channel_system("unused").stream_runtime
         events: list[list[str]] = []
-        comm.add_connection_listener(lambda: events.append(comm.list_live_stream_participant_ids()))
+        stream.add_connection_listener(
+            lambda: events.append(stream.list_live_stream_participant_ids())
+        )
 
         first_q: asyncio.Queue = asyncio.Queue()
         second_q: asyncio.Queue = asyncio.Queue()
 
-        assert comm.register_ws("alice", first_q) is True
+        assert stream.register_ws("alice", first_q) is True
         assert events == [["alice"]]
 
-        assert comm.register_ws("alice", second_q) is False
-        comm.unregister_ws("alice", second_q)
+        assert stream.register_ws("alice", second_q) is False
+        stream.unregister_ws("alice", second_q)
         assert events == [["alice"]]
 
-        comm.unregister_ws("alice", first_q)
+        stream.unregister_ws("alice", first_q)
         assert events == [["alice"], []]
 
 
@@ -532,7 +517,8 @@ class TestConnectionRejection:
     def test_desktop_websocket_requires_bearer_in_production(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        api_app.setup_ws(mock_inbox, CommunicateTool(str(tmp_path / "outbox")))
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        _setup_api_channels(communication)
         setup_routes(
             mock_inbox,
             MagicMock(),
@@ -555,8 +541,8 @@ class TestConnectionRejection:
     def test_websocket_json_message_uses_message_field(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        comm = CommunicateTool(str(tmp_path))
-        api_app.setup_ws(mock_inbox, comm)
+        comm = _channel_system(tmp_path, mock_inbox.push)
+        _setup_api_channels(comm)
 
         with client.websocket_connect("/ws/alice") as ws:
             ws.send_json({"message": "hi", "conversation_id": "thr_1"})
@@ -570,8 +556,8 @@ class TestConnectionRejection:
     def test_websocket_duplicate_gets_rejection_message(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()
-        comm = CommunicateTool(str(tmp_path))
-        api_app.setup_ws(mock_inbox, comm)
+        comm = _channel_system(tmp_path, mock_inbox.push)
+        _setup_api_channels(comm)
 
         with client.websocket_connect("/ws/alice"):
             with client.websocket_connect("/ws/alice") as duplicate:
@@ -582,14 +568,14 @@ class TestConnectionRejection:
                     duplicate.receive_text()
                 assert exc.value.code == 1008
 
-            assert comm.outbound_queue("alice") is not None
+            assert comm.stream_runtime.outbound_queue("alice") is not None
 
-        assert comm.outbound_queue("alice") is None
+        assert comm.stream_runtime.outbound_queue("alice") is None
 
     def test_sse_duplicate_gets_rejection_event(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path))
-        assert comm.register_ws("alice", asyncio.Queue()) is True
-        api_app.setup_ws(MagicMock(), comm)
+        comm = _channel_system(tmp_path)
+        assert comm.stream_runtime.register_ws("alice", asyncio.Queue()) is True
+        _setup_api_channels(comm)
 
         resp = client.get("/sse/alice")
 
@@ -598,17 +584,8 @@ class TestConnectionRejection:
         assert "data: 连接被拒绝" in resp.text
         assert "先到先得" in resp.text
 
-    def test_legacy_codex_bridge_connections_are_rejected(self, client):
-        with pytest.raises(WebSocketDisconnect) as exc:
-            with client.websocket_connect("/ws/codex-bridge:old") as socket:
-                socket.receive_text()
-        assert exc.value.code == 1008
-
-        response = client.get("/sse/codex-bridge:old")
-        assert response.status_code == 410
-
     def test_websocket_rejects_messages_while_agent_is_not_ready(self, client):
-        api_app.setup_ws(None, None)
+        api_app.setup_channels(None)
 
         with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect("/ws/alice") as socket:
@@ -618,15 +595,15 @@ class TestConnectionRejection:
 
 
 class TestCommunicateRegistrationAPI:
-    def test_legacy_codex_bridge_registration_is_rejected(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path / "outbox"))
-        api_app.setup_ws(MagicMock(), comm)
+    def test_unsupported_registration_kind_is_rejected(self, client, tmp_path):
+        comm = _channel_system(tmp_path)
+        _setup_api_channels(comm)
 
         response = client.post(
             "/api/communicate/register",
             json={
-                "kind": "codex-bridge",
-                "client_id": "codex-local:cw_default",
+                "kind": "unsupported-channel",
+                "client_id": "unsupported-client",
                 "metadata": {"protocol_versions": [1]},
             },
         )
@@ -634,8 +611,8 @@ class TestCommunicateRegistrationAPI:
         assert response.status_code == 422
 
     def test_desktop_registration_negotiates_protocol_or_rejects(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path / "outbox"))
-        api_app.setup_ws(MagicMock(), comm)
+        comm = _channel_system(tmp_path)
+        _setup_api_channels(comm)
         setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
 
         incompatible = client.post(
@@ -660,8 +637,8 @@ class TestCommunicateRegistrationAPI:
         assert compatible.json()["negotiated_protocol_version"] == 1
 
     def test_register_lists_and_deletes_inactive_registration(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path / "outbox"))
-        api_app.setup_ws(MagicMock(), comm)
+        comm = _channel_system(tmp_path)
+        _setup_api_channels(comm)
         setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
 
         resp = client.post(
@@ -693,8 +670,8 @@ class TestCommunicateRegistrationAPI:
         assert client.get("/api/communicate/register").json()["registrations"] == []
 
     def test_register_reuses_inactive_registration(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path / "outbox"))
-        api_app.setup_ws(MagicMock(), comm)
+        comm = _channel_system(tmp_path)
+        _setup_api_channels(comm)
         setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
 
         first = client.post(
@@ -718,8 +695,8 @@ class TestCommunicateRegistrationAPI:
         assert second["participant_id"] == first["participant_id"]
 
     def test_active_registration_gets_new_id_and_cannot_be_deleted(self, client, tmp_path):
-        comm = CommunicateTool(str(tmp_path / "outbox"))
-        api_app.setup_ws(MagicMock(), comm)
+        comm = _channel_system(tmp_path)
+        _setup_api_channels(comm)
         setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
         first = client.post(
             "/api/communicate/register",
@@ -729,7 +706,7 @@ class TestCommunicateRegistrationAPI:
                 "metadata": {"protocol_versions": [1]},
             },
         ).json()
-        assert comm.register_ws(first["participant_id"], asyncio.Queue()) is True
+        assert comm.stream_runtime.register_ws(first["participant_id"], asyncio.Queue()) is True
 
         second = client.post(
             "/api/communicate/register",
@@ -1339,11 +1316,11 @@ class TestDesktopUpdatesAPI:
         self, client, monkeypatch, tmp_path
     ):
         headers = _desktop_update_env(monkeypatch, tmp_path)
-        communicate = CommunicateTool(str(tmp_path / "outbox"))
-        api_app._communicate = communicate
+        communicate = _channel_system(tmp_path)
+        _setup_api_channels(communicate)
 
         def register(client_id, desktop_id, version, capabilities):
-            registration = communicate.register_participant(
+            registration = communicate.stream_runtime.register_participant(
                 kind="coworker-desktop",
                 client_id=client_id,
                 metadata={
@@ -1353,7 +1330,7 @@ class TestDesktopUpdatesAPI:
                 },
             )
             queue = asyncio.Queue()
-            communicate.register_ws(registration["participant_id"], queue)
+            communicate.stream_runtime.register_ws(registration["participant_id"], queue)
             return queue
 
         old_local = register("desk-old:local:cw", "desk-old", "0.1.0", ["desktop_update_push"])
@@ -1362,7 +1339,7 @@ class TestDesktopUpdatesAPI:
             "desk-current:local:cw", "desk-current", "0.2.0", ["desktop_update_push"]
         )
         legacy = register("desk-legacy:local:cw", "desk-legacy", "0.1.0", [])
-        communicate.register_participant(
+        communicate.stream_runtime.register_participant(
             kind="coworker-desktop",
             client_id="desk-offline:local:cw",
             metadata={

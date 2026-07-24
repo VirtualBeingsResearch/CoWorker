@@ -1,16 +1,7 @@
-"""Consolidated live WS/SSE connection registry for the stream channel.
+"""Live WS/SSE connection state owned by ``StreamRuntime``.
 
-This absorbs the old ``api/ws.py`` ``ConnectionPool`` (ws sockets + sender
-loop) and the WS/SSE queue bookkeeping that previously lived in
-``CommunicateTool`` (``_ws_connections`` / ``_stream_transports`` /
-connection listeners). There is now a single registry: one queue map
-(``_outboxes``) instead of the previous dual ``_ws_connections`` +
-``ConnectionPool._outboxes`` pointing at the same queues.
-
-WS endpoints register a queue (:meth:`register_ws`) then attach the socket
-(:meth:`connect`) and run :meth:`run_sender` to drain it. SSE endpoints
-register a queue and drain it directly from their streaming response -- no
-socket is attached.
+WebSocket endpoints register a queue, attach its socket, then run a sender
+task. SSE endpoints register and drain the queue directly.
 """
 
 from __future__ import annotations
@@ -62,14 +53,8 @@ class ConnectionPool:
         self._notify_connection_listeners()
         return True
 
-    def unregister_ws(self, participant_id: str, queue: asyncio.Queue | None = None) -> None:
-        # Identity guard: when a queue is passed, only remove it if it is the
-        # currently registered one. Prevents SSE and WS sharing a participant_id
-        # from deleting each other's queue, and fixes a race where an old WS
-        # disconnect could delete a new connection's queue.
-        if queue is not None and self._outboxes.get(participant_id) is not queue:
-            return
-        if participant_id not in self._outboxes:
+    def unregister_ws(self, participant_id: str, queue: asyncio.Queue) -> None:
+        if self._outboxes.get(participant_id) is not queue:
             return
         self._outboxes.pop(participant_id, None)
         self._transports.pop(participant_id, None)
@@ -103,34 +88,31 @@ class ConnectionPool:
         self,
         participant_id: str,
         ws: WebSocket,
-        queue: asyncio.Queue | None = None,
+        queue: asyncio.Queue,
     ) -> asyncio.Queue:
-        if participant_id in self._connections:
+        if (
+            participant_id in self._connections
+            or self._outboxes.get(participant_id) is not queue
+        ):
             raise ValueError(
                 tr("api.attachment.participant_connected", participant=participant_id)
             )
         await ws.accept()
         self._connections[participant_id] = ws
-        queue = queue or self._outboxes.get(participant_id) or asyncio.Queue()
-        self._outboxes.setdefault(participant_id, queue)
         logger.info(f"WS connected: {participant_id}")
         return queue
 
     def disconnect(
         self,
         participant_id: str,
-        ws: WebSocket | None = None,
-        queue: asyncio.Queue | None = None,
+        ws: WebSocket,
+        queue: asyncio.Queue,
     ) -> None:
-        if ws is not None and self._connections.get(participant_id) is not ws:
+        if self._connections.get(participant_id) is not ws:
             return
-        if queue is not None and self._outboxes.get(participant_id) is not queue:
+        if self._outboxes.get(participant_id) is not queue:
             return
         self._connections.pop(participant_id, None)
-        # Drop the queue + transport too: with a single registry this is the
-        # WS teardown point (SSE tears down via unregister_ws). Notifying here
-        # keeps connection listeners (e.g. desktop registry) accurate even
-        # though unregister_ws becomes a no-op when the queue is already gone.
         removed = participant_id in self._outboxes
         self._outboxes.pop(participant_id, None)
         self._transports.pop(participant_id, None)
@@ -141,37 +123,32 @@ class ConnectionPool:
     def is_connected(
         self,
         participant_id: str,
-        ws: WebSocket | None = None,
-        queue: asyncio.Queue | None = None,
+        ws: WebSocket,
+        queue: asyncio.Queue,
     ) -> bool:
-        if participant_id not in self._connections:
-            return False
-        if ws is not None and self._connections.get(participant_id) is not ws:
-            return False
-        if queue is not None and self._outboxes.get(participant_id) is not queue:
-            return False
-        return True
+        return (
+            self._connections.get(participant_id) is ws
+            and self._outboxes.get(participant_id) is queue
+        )
 
     async def transmit(
         self,
         participant_id: str,
         message: Any,
-        ws: WebSocket | None = None,
-        queue: asyncio.Queue | None = None,
+        ws: WebSocket,
+        queue: asyncio.Queue,
     ) -> None:
-        ws = ws or self._connections.get(participant_id)
-        if ws:
-            try:
-                await ws.send_text(serialize_outbound_message(message))
-            except Exception as e:
-                logger.warning(f"Failed to send WS message to {participant_id}: {e}")
-                self.disconnect(participant_id, ws=ws, queue=queue)
+        try:
+            await ws.send_text(serialize_outbound_message(message))
+        except Exception as error:
+            logger.warning(f"Failed to send WS message to {participant_id}: {error}")
+            self.disconnect(participant_id, ws=ws, queue=queue)
 
     async def run_sender(
         self,
         participant_id: str,
         queue: asyncio.Queue,
-        ws: WebSocket | None = None,
+        ws: WebSocket,
     ) -> None:
         while self.is_connected(participant_id, ws=ws, queue=queue):
             try:
@@ -181,8 +158,8 @@ class ConnectionPool:
                 await self.transmit(participant_id, message, ws=ws, queue=queue)
             except TimeoutError:
                 continue
-            except Exception as e:
-                logger.error(f"WS sender error for {participant_id}: {e}")
+            except Exception as error:
+                logger.error(f"WS sender error for {participant_id}: {error}")
                 break
 
     # ---------------------------------------------------------- shutdown
@@ -205,4 +182,4 @@ class ConnectionPool:
             try:
                 listener()
             except Exception as error:
-                logger.warning(f"Communicate connection listener raised, ignored: {error}")
+                logger.warning(f"Stream connection listener raised, ignored: {error}")

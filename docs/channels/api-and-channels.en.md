@@ -9,6 +9,15 @@
 
 All outbound communication is routed by `ChannelRegistry` to the appropriate channel: the generic WS/SSE stream or WeCom. Coworker Desktop is a protocol profile on the Stream Runtime, sharing its registration, connection, queue, and lifecycle management while preserving the existing participant IDs and message protocol. `communicate` selects a target by full participant prefix or channel resolver, while `list_connections` aggregates participants that are currently online or otherwise known to be reachable across all channels. `/status` reports runtime, model, and usage state only; connection discovery is handled exclusively by `list_connections`.
 
+## Channel development model
+
+`from coworker.channels import Channel, ChannelRuntime, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir)` is the application's single communication composition root. It returns:
+
+- `registry`, which registers Channels, routes inbound and outbound traffic, and starts or stops each shared Runtime exactly once.
+- `stream_runtime`, which owns WS/SSE connections, participant registrations, attachment storage, and offline outbox delivery. `app.py` consumes these host capabilities directly rather than depending on `CommunicateTool`.
+
+To add a Channel, implement the `Channel` protocol and call `channel_system.registry.register(channel)`. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. Multiple protocol profiles may share one Runtime, as Desktop and the generic Stream Channel share `StreamRuntime`. `CommunicateTool` is only the model-tool adapter for the Registry and no longer acts as a host, connection pool, or registration center.
+
 ## REST API
 
 ```bash

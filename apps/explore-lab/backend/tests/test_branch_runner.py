@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from coworker.agent.loop import AgentLoop
+from coworker.channels.system import create_channel_system
 from coworker.core.types import AgentState, LLMResponse, ToolCall
 from fastapi.testclient import TestClient
 
@@ -76,7 +77,8 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     long_term = MagicMock()
     long_term._mem = None
 
-    communicate = LabCommunicateTool(str(tmp_path / "outbox"))
+    channel_system = create_channel_system(tmp_path / "outbox")
+    communicate = LabCommunicateTool(channel_system.registry)
     tools = ToolRegistry()
     tools.register(communicate)
     tools.register(ListConnectionTool(communicate))
@@ -339,7 +341,7 @@ class TestLabCommunicate:
         snapshot = controller.state_snapshot()
 
         assert snapshot["virtual_connections"] == ["explore_lab"]
-        assert controller.runtime.communicate.list_live_stream_participant_ids() == []
+        assert controller.runtime.communicate.channels.list_connections() == []
         assert "communicate" not in snapshot["tool_intercepts"]
         assert "list_connections" not in snapshot["tool_intercepts"]
 

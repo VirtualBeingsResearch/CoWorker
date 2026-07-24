@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- refactor(channels): replace `ChannelHost` with a thin `ChannelRegistry`, move lifecycle ownership to shared channel runtimes, and make Desktop reuse the Stream runtime without changing participant IDs, APIs, or communication tool behavior
+- refactor(channels): replace `ChannelHost` with `ChannelRegistry` and a single `ChannelSystem` composition root, move Stream connections, registrations, attachments, outbox delivery, and lifecycle into `StreamRuntime`, make Desktop reuse that runtime, inject channels directly into API routes, and remove obsolete communication-tool proxies and legacy bridge compatibility paths without changing current participant IDs or wire contracts
 
 ## 0.3.2 - 2026-07-23
 

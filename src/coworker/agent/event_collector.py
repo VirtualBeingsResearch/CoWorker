@@ -8,7 +8,7 @@ from typing import Any
 from loguru import logger
 
 from coworker.agent.log_store import LogStore
-from coworker.api.ws import SHUTDOWN_SENTINEL
+from coworker.channels.stream import SHUTDOWN_SENTINEL
 
 # 进入运行日志的条目类型（用户可感知的叙事性运行事实）。其余条目——system_prompt（体量大）、
 # message_tick（内部 tick）、auto_recall / palace_injection / pin_reinjected（系统注入）、

@@ -8,13 +8,13 @@ from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
-    from coworker.channels.stream import StreamChannel
+    from coworker.channels.stream import StreamRuntime
 
 DESKTOP_PREFIX = "coworker-desktop:"
 
 
 class DesktopCommunicateSender:
-    def __init__(self, runtime: StreamChannel) -> None:
+    def __init__(self, runtime: StreamRuntime) -> None:
         self.runtime = runtime
 
     async def send(self, request: CommunicateRequest) -> ToolResult:

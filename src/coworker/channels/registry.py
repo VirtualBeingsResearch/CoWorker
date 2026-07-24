@@ -91,14 +91,6 @@ class ChannelRegistry:
         if target is not None:
             target.record_received(participant_id)
 
-    def list_live_stream_participant_ids(self) -> list[str]:
-        participant_ids: list[str] = []
-        for runtime in self._runtimes():
-            list_live = getattr(runtime, "list_live_stream_participant_ids", None)
-            if list_live is not None:
-                participant_ids.extend(list_live())
-        return participant_ids
-
     async def start(self) -> None:
         """Start every unique runtime once, including runtimes shared by profiles."""
         if self._runtime_tasks:

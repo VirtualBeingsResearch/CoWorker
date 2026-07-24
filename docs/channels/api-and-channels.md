@@ -9,6 +9,15 @@
 
 所有出站通信统一由 `ChannelRegistry` 路由到对应信道：通用 WS/SSE 流或企业微信。Coworker Desktop 作为 Stream Runtime 上的协议 profile，共享同一套注册、连接、队列与生命周期管理，同时保留现有 participant ID 和消息协议。`communicate` 按完整 participant 前缀或信道解析器选择目标；`list_connections` 聚合各信道当前在线或已知可达的通信对象。`/status` 只报告运行、模型与用量状态，连接发现统一通过 `list_connections` 完成。
 
+## Channel 开发模型
+
+`from coworker.channels import Channel, ChannelRuntime, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir)` 是应用唯一的通信装配入口，返回：
+
+- `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
+- `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox；`app.py` 只依赖这个宿主能力，不依赖 `CommunicateTool`。
+
+新增 Channel 时实现 `Channel` 协议并调用 `channel_system.registry.register(channel)` 即可。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。多个协议 profile 可以共享同一个 Runtime，Desktop 就与通用 Stream Channel 共享 `StreamRuntime`。`CommunicateTool` 只是 Registry 的模型工具适配器，不再兼任宿主、连接池或注册中心。
+
 ## REST API
 
 ```bash

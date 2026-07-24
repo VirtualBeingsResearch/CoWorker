@@ -15,7 +15,8 @@ from coworker.core.config_export import build_config_bundle, load_effective_conf
 @pytest.fixture
 def client():
     api_app._inbox = None
-    api_app._communicate = None
+    api_app._channels = None
+    api_app._stream = None
     api_app._collector = None
     return TestClient(api_app.app)
 

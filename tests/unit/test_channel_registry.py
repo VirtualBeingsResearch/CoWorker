@@ -57,9 +57,6 @@ class _FakeChannel:
             for participant_id in self._live
         ]
 
-    def list_live_stream_participant_ids(self) -> list[str]:
-        return list(self._live) if self.participant_prefix == "" else []
-
     async def start(self) -> None:
         self.started = True
 
@@ -187,18 +184,6 @@ def test_supports_extra_follows_selected_transport(registry: ChannelRegistry) ->
     assert registry.supports_message_extra("rich:alice")
     assert registry.supports_message_extra("stream-client")
     assert not registry.supports_message_extra("offline-client")
-
-
-def test_list_live_stream_participant_ids_uses_unique_runtimes(
-    registry: ChannelRegistry,
-) -> None:
-    stream = _FakeChannel("stream", "", live=("a", "b"))
-    desktop = _FakeChannel("desktop", "coworker-desktop:", live=("ignored",))
-    desktop.runtime = stream.runtime
-    registry.register(stream)
-    registry.register(desktop)
-
-    assert sorted(registry.list_live_stream_participant_ids()) == ["a", "b"]
 
 
 def test_list_connections_aggregates_across_channels(registry: ChannelRegistry) -> None:

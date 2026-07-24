@@ -1,7 +1,6 @@
 """Wire-format helpers for the stream channel: outbound serialization.
 
-Leaf module (no imports from ``api`` or ``connection_pool``) so
-``connection_pool`` and ``api.ws`` can both depend on it without cycles.
+Leaf module with no imports from the API or connection pool.
 """
 
 from __future__ import annotations

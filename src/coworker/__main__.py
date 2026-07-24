@@ -35,6 +35,7 @@ from coworker.channels.desktop import (
     DesktopDispatcher,
     DesktopRegistry,
 )
+from coworker.channels.system import create_channel_system
 from coworker.channels.wecom import WeComChannel, WeComRunner
 from coworker.core.config import (
     Config,
@@ -640,8 +641,9 @@ async def _main() -> bool:
 
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
-    communicate = CommunicateTool(config.agent.outbox_dir)
-    communicate.set_inbound_handler(inbox_watcher.push)
+    channel_system = create_channel_system(config.agent.outbox_dir)
+    channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
     registry = ToolRegistry()
@@ -650,13 +652,13 @@ async def _main() -> bool:
     short_term.unpin("codex_registry")
 
     desktop_dispatcher = DesktopDispatcher(desktop_registry)
-    communicate.add_connection_listener(
+    channel_system.stream_runtime.add_connection_listener(
         lambda: desktop_registry.update_connections(
-            set(communicate.list_live_stream_participant_ids())
+            set(channel_system.stream_runtime.list_live_stream_participant_ids())
         )
     )
     desktop_registry.update_connections(
-        set(communicate.list_live_stream_participant_ids())
+        set(channel_system.stream_runtime.list_live_stream_participant_ids())
     )
     registry.register(TaskCreateTool(task_store))
     registry.register(TaskGetTool(task_store))
@@ -703,7 +705,7 @@ async def _main() -> bool:
     registry.register(ListAlarmsTool(alarm_manager))
     registry.register(CancelAlarmTool(alarm_manager))
     registry.register(communicate)
-    registry.register(ListConnectionTool(communicate))
+    registry.register(ListConnectionTool(channel_system.registry))
     registry.register(GetSkillTool(skill_loader, agent_state))
     registry.register(GetContextTool(brain, short_term, agent_state))
     registry.register(ManagePinnedContextTool(short_term))
@@ -747,6 +749,7 @@ async def _main() -> bool:
             skill_loader=skill_loader,
             long_term=long_term,
             communicate=communicate,
+            stream_runtime=channel_system.stream_runtime,
             handoff_matcher=BubbleHandoffMatcher.from_config(
                 participant_matches=(config.agent.bubble_handoff_transparency_participant_matches),
                 stream_transports=(config.agent.bubble_handoff_transparency_stream_transports),
@@ -864,7 +867,7 @@ async def _main() -> bool:
         config.llm.runtime_config_file,
         config.api.communication_token,
         config.api.development_mode,
-        communication=communicate,
+        channels=channel_system.registry,
     )
     setup_admin(
         agent=agent_loop,
@@ -881,15 +884,12 @@ async def _main() -> bool:
         config.admin.token,
         desktop_release_store,
     )
-    api_app.setup_ws(
-        None if setup_required else inbox_watcher,
-        None if setup_required else communicate,
-    )
+    api_app.setup_channels(None if setup_required else channel_system)
     api_app.set_collector(event_collector)
 
     if not setup_required:
-        desktop_sender = DesktopCommunicateSender(communicate.stream)
-        communicate.register_channel(
+        desktop_sender = DesktopCommunicateSender(channel_system.stream_runtime)
+        channel_system.registry.register(
             DesktopChannel(
                 desktop_sender,
                 desktop_registry,
@@ -907,7 +907,7 @@ async def _main() -> bool:
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
             )
-            communicate.register_channel(WeComChannel(wecom_runner))
+            channel_system.registry.register(WeComChannel(wecom_runner))
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
 
     # 写入实例状态文件（新旧交接标记）
@@ -954,7 +954,7 @@ async def _main() -> bool:
     server = uvicorn.Server(uv_config)
 
     await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
-    await communicate.start()
+    await channel_system.registry.start()
     server_task = asyncio.create_task(server.serve(), name="server")
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
@@ -1001,7 +1001,7 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
-        await communicate.stop()
+        await channel_system.registry.stop()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()

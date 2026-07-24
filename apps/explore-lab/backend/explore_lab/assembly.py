@@ -31,6 +31,7 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.system import create_channel_system
 from coworker.core.config import Config, LLMConfig
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.model_config import apply_runtime_model_config_file
@@ -366,7 +367,9 @@ async def assemble_runtime(workdir: Path) -> Runtime:
     registry.register(ListAlarmsTool(alarm_manager))
     registry.register(CancelAlarmTool(alarm_manager))
 
-    communicate = LabCommunicateTool(config.agent.outbox_dir)
+    channel_system = create_channel_system(config.agent.outbox_dir)
+    channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    communicate = LabCommunicateTool(channel_system.registry)
     registry.register(communicate)
     registry.register(ListConnectionTool(communicate))
     registry.register(GetSkillTool(skill_loader, agent_state))
@@ -402,6 +405,7 @@ async def assemble_runtime(workdir: Path) -> Runtime:
             palace_loader=palace_loader,
             skill_loader=skill_loader,
             long_term=long_term,
+            stream_runtime=channel_system.stream_runtime,
         ))
         registry.register(BubbleCheckTool(bubble_store))
         registry.register(BubbleSendTool(bubble_store, inbox_watcher))

@@ -1,32 +1,22 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable, Iterable
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from coworker.channels.base import (
-    Channel,
-    InboundHandler,
-    ParticipantIdResolutionError,
-)
-from coworker.channels.inbound import InboundEnvelope
+from coworker.channels.base import ConnectionInfo, ParticipantIdResolutionError
 from coworker.channels.registry import ChannelRegistry
-from coworker.channels.stream import StreamChannel
 from coworker.core.types import (
-    CommunicateRegistration,
     CommunicateRequest,
-    IncomingEvent,
     ToolResult,
 )
 from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
 
-ConnectionListener = Callable[[], None]
-
-
 if TYPE_CHECKING:
     from coworker.core.tool_scope import ToolScope
+
+
+class ConnectionSource(Protocol):
+    def list_connections(self) -> list[ConnectionInfo]: ...
 
 
 class _BoundCommunicateTool(Tool):
@@ -131,28 +121,12 @@ class _BoundCommunicateTool(Tool):
 class CommunicateTool(Tool):
     """Tool boundary for communication through the channel registry."""
 
-    def __init__(self, outbox_dir: str) -> None:
-        self._stream = StreamChannel(
-            outbox_dir, Path(outbox_dir).parent / "communicate_registrations.json"
-        )
-        self._registry = ChannelRegistry()
-        self._registry.register(self._stream)
+    def __init__(self, channels: ChannelRegistry) -> None:
+        self._channels = channels
 
     @property
-    def stream(self) -> StreamChannel:
-        """The underlying WS/SSE stream channel (transport + registrations)."""
-        return self._stream
-
-    @property
-    def registry(self) -> ChannelRegistry:
-        return self._registry
-
-    def register_channel(self, channel: Channel) -> None:
-        """Register a communication channel (e.g. desktop, wecom)."""
-        self._registry.register(channel)
-
-    def add_connection_listener(self, listener: ConnectionListener) -> None:
-        self._stream.add_connection_listener(listener)
+    def channels(self) -> ChannelRegistry:
+        return self._channels
 
     def fork(self, scope: ToolScope) -> Tool:
         participant_id = str(getattr(scope, "communicate_participant_id", "")).strip()
@@ -169,100 +143,9 @@ class CommunicateTool(Tool):
             message_extra if isinstance(message_extra, dict) else {},
         )
 
-    # --------------------------------------------------- stream transport delegates
-
-    def register_ws(
-        self,
-        participant_id: str,
-        queue: asyncio.Queue,
-        *,
-        transport: str = "websocket",
-    ) -> bool:
-        return self._stream.register_ws(participant_id, queue, transport=transport)
-
-    def unregister_ws(self, participant_id: str, queue: asyncio.Queue | None = None) -> None:
-        self._stream.unregister_ws(participant_id, queue)
-
-    def outbound_queue(self, participant_id: str) -> asyncio.Queue | None:
-        return self._stream.outbound_queue(participant_id)
-
-    def live_stream_transport(self, participant_id: str) -> str | None:
-        return self._stream.live_stream_transport(participant_id)
-
-    def has_live_stream_connection(
-        self,
-        participant_id: str,
-        *,
-        transports: Iterable[str] | None = None,
-    ) -> bool:
-        return self._stream.has_live_stream_connection(participant_id, transports=transports)
-
-    def list_live_stream_participant_ids(self) -> list[str]:
-        return self._registry.list_live_stream_participant_ids()
-
-    def list_connections(self) -> list:
-        """Aggregate reachable participants across all channels (for list_connections tool)."""
-        return self._registry.list_connections()
-
-    def record_received(self, participant_id: str) -> None:
-        """Record an inbound message for the participant's selected channel."""
-        self._registry.record_received(participant_id)
-
-    def set_inbound_handler(self, handler: InboundHandler | None) -> None:
-        """Attach the inbox owner to all registered communication channels."""
-        self._registry.set_inbound_handler(handler)
-
-    async def publish_inbound(self, event: IncomingEvent) -> None:
-        """Publish a normalized inbound event through the channel registry."""
-        await self._registry.publish_inbound(event)
-
-    async def receive_raw(self, envelope: InboundEnvelope) -> None:
-        """Route raw protocol input to the owning channel for normalization."""
-        await self._registry.receive_raw(envelope)
-
-    async def start(self) -> None:
-        """Start every unique communication runtime."""
-        await self._registry.start()
-
-    async def stop(self) -> None:
-        """Stop every unique communication runtime."""
-        await self._registry.stop()
-
-    def shutdown(self) -> None:
-        """Wake all live WS/SSE queues so blocked senders can exit on shutdown."""
-        self._stream.shutdown()
-
-    # ---------------------------------------------------------- registration delegates
-
-    def register_participant(
-        self,
-        *,
-        kind: str,
-        client_id: str,
-        display_name: str = "",
-        metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self._stream.register_participant(
-            kind=kind,
-            client_id=client_id,
-            display_name=display_name,
-            metadata=metadata,
-        )
-
-    def list_registrations(self) -> list[dict[str, Any]]:
-        return self._stream.list_registrations()
-
-    def registration_records(self) -> list[CommunicateRegistration]:
-        return self._stream.registration_records()
-
-    def delete_registration(self, registration_id: str) -> dict[str, Any]:
-        return self._stream.delete_registration(registration_id)
-
-    # ------------------------------------------------------------------ routing
-
     def supports_message_extra(self, participant_id: str) -> bool:
         """Whether the participant's selected transport accepts structured ``extra``."""
-        return self._registry.supports_message_extra(participant_id)
+        return self._channels.supports_message_extra(participant_id)
 
     def resolve_participant_id(self, participant_id: str) -> str:
         """Expand a shorthand participant ID without sending a message.
@@ -272,7 +155,7 @@ class CommunicateTool(Tool):
         way as :meth:`execute`, so callers such as ``bubble_spawn`` cannot bind
         an ambiguous recipient.
         """
-        return self._registry.resolve_participant_id(participant_id)
+        return self._channels.resolve_participant_id(participant_id)
 
     @property
     def definition(self) -> ToolDefinition:
@@ -354,14 +237,14 @@ class CommunicateTool(Tool):
             extra=extra,
         )
         try:
-            return await self._registry.send(request)
+            return await self._channels.send(request)
         except ParticipantIdResolutionError as error:
             return ToolResult(tool_call_id="", content=str(error), is_error=True)
 
 
 class ListConnectionTool(Tool):
-    def __init__(self, communicate: CommunicateTool) -> None:
-        self._communicate = communicate
+    def __init__(self, source: ConnectionSource) -> None:
+        self._source = source
 
     @property
     def definition(self) -> ToolDefinition:
@@ -376,7 +259,7 @@ class ListConnectionTool(Tool):
         )
 
     async def execute(self, **_) -> ToolResult:
-        infos = self._communicate.list_connections()
+        infos = self._source.list_connections()
         if not infos:
             return ToolResult(
                 tool_call_id="", content=tr("tool_result.communicate.no_connections")
