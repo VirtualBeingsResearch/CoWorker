@@ -20,12 +20,6 @@ curl -X POST http://localhost:8000/messages \
 # 查看状态
 curl http://localhost:8000/status
 
-# 进程存活探针；运行时尚未初始化也返回 200
-curl http://localhost:8000/health/live
-
-# 运行时就绪探针；尚未初始化返回 503
-curl --fail http://localhost:8000/health/ready
-
 # 切换模型（provider 为已注册的实例名；省略 model_id 则用该实例配置的 default_model）
 curl -X POST http://localhost:8000/switch_model \
   -H "Content-Type: application/json" \
@@ -45,9 +39,6 @@ curl -X POST http://localhost:8000/backfill_tree \
 # 查询回溯进度（{running, done, total}）
 curl http://localhost:8000/backfill_tree
 ```
-
-`/health/live` 与 `/health/ready` 是无需鉴权的最小机器探针，不返回模型、用量或工作区内容。
-Docker 镜像和 Compose 使用 readiness 端点报告 `healthy` / `unhealthy`。
 
 `/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口保留旧版
 `by_model`（按模型名合并），并新增 `by_provider_model`（按 `provider/model` 精确区分）；

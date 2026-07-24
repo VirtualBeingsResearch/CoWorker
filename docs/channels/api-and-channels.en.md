@@ -20,12 +20,6 @@ curl -X POST http://localhost:8000/messages \
 # Check status
 curl http://localhost:8000/status
 
-# Liveness probe; returns 200 even before the runtime is initialized
-curl http://localhost:8000/health/live
-
-# Readiness probe; returns 503 until the runtime is initialized
-curl --fail http://localhost:8000/health/ready
-
 # Switch models (provider is a registered instance name; omit model_id to use its default_model)
 curl -X POST http://localhost:8000/switch_model \
   -H "Content-Type: application/json" \
@@ -46,10 +40,6 @@ curl -X POST http://localhost:8000/backfill_tree \
 # Query backfill progress ({running, done, total})
 curl http://localhost:8000/backfill_tree
 ```
-
-`/health/live` and `/health/ready` are minimal unauthenticated machine probes. They do not expose
-models, usage, or workspace contents. The Docker image and Compose use readiness to report
-`healthy` or `unhealthy`.
 
 The `usage_stats` object in the `/status` response contains `today`, `last_7_days`, and `lifetime` windows. Each window retains the legacy `by_model` aggregation by model name and adds `by_provider_model` for exact `provider/model` attribution. `by_scope` divides usage into six sources—`main`, `summary`, `vision`, `bubble`, `subconscious`, and `mem0`—using the same structure as the window total. Both window totals and `by_scope` include `thinking_calls`, `thinking_seconds`, and `avg_thinking_seconds`, which report average thinking time for lifecycles with a `thinking_start -> llm_response` sequence. Auxiliary summary, vision, and mem0 calls without a start event are excluded from that average. Historical logs without provider information are grouped under `unknown/<model>`. When source-level statistics are introduced during an upgrade, Coworker first rebuilds them from logs; if the raw logs have been lost, the source attribution of older aggregate data cannot be recovered.
 

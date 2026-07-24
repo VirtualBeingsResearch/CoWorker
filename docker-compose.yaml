@@ -4,36 +4,23 @@ services:
       context: .
       dockerfile: Dockerfile
       target: ${COWORKER_BUILD_TARGET:-offline}
-      args:
-        COWORKER_IMAGE_REVISION: ${COWORKER_IMAGE_REVISION:-}
     image: ${COWORKER_IMAGE:-ghcr.io/virtualbeingsresearch/coworker:offline}
     container_name: coworker
     restart: unless-stopped
     ports:
       # The container needs 0.0.0.0 internally; keep the host port private by default.
       - "127.0.0.1:8000:8000"
-    env_file:
-      - path: .env
-        required: false
     environment:
       - API__HOST=0.0.0.0
-      - COWORKER_REPOSITORY_URL=${COWORKER_REPOSITORY_URL-https://github.com/VirtualBeingsResearch/CoWorker.git}
-      - COWORKER_REPOSITORY_REF=${COWORKER_REPOSITORY_REF:-}
       - HF_HOME=/opt/huggingface
       - TZ=Asia/Shanghai
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
-      interval: 30s
-      timeout: 5s
-      start_period: 2m
-      retries: 3
     volumes:
+      - .:/app
       - type: volume
-        source: coworker-workspace
-        target: /workspace
-      - type: volume
-        source: coworker-state
-        target: /var/lib/coworker
+        source: coworker-home
+        target: /root
+        volume:
+          nocopy: true
       # The default offline image populates an empty volume with its preloaded model.
       # Override the build target to runtime to download the model lazily instead.
       - type: volume
@@ -41,6 +28,5 @@ services:
         target: /opt/huggingface
 
 volumes:
-  coworker-workspace:
-  coworker-state:
+  coworker-home:
   coworker-models:

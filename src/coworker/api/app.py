@@ -81,8 +81,6 @@ def set_setup_required(required: bool) -> None:
 
 
 def _setup_request_allowed(method: str, path: str) -> bool:
-    if method in {"GET", "HEAD"} and path in {"/health/live", "/health/ready"}:
-        return True
     if method in {"GET", "HEAD"} and (
         path in {"/admin", "/admin/", "/favicon.png"}
         or path.startswith("/assets/")

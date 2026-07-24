@@ -183,29 +183,6 @@ Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
 docker compose up --build
 ```
 
-容器首次启动时会把与镜像版本对应的官方仓库检出到 `coworker-workspace` 卷，并在
-`coworker-state` 卷中保存 `data/` 下的身份、记忆和运行状态。Agent 的工作目录是这个
-持久化 Git checkout；镜像内 `/app` 的已发布程序保持不可变。容器重建或镜像升级不会覆盖
-已有 checkout，也不会丢弃其中的本地提交。
-
-可以为新工作区指定兼容的 Coworker fork、分支、tag 或 commit：
-
-```bash
-COWORKER_REPOSITORY_URL=git@github.com:your-org/CoWorker.git \
-COWORKER_REPOSITORY_REF=main \
-docker compose up --build
-```
-
-仓库地址只在工作区卷为空时生效；后续修改变量不会替换已有仓库。需要切换仓库时，请先备份
-工作区和状态卷，再使用新的 Compose project 或显式创建新卷。私有仓库应通过 SSH agent、
-只读 deploy key 或外部 credential helper 授权，不要把 token 写进镜像或仓库 URL。把
-`COWORKER_REPOSITORY_URL` 显式设为空可以从镜像内源码创建一个无远端的本地 Git 基线。
-
-> [!IMPORTANT]
-> 旧版 Compose 使用 `.:/app`，运行数据通常直接写在宿主仓库的 `data/` 中。升级到命名卷
-> 前先备份该目录；新版不会自动导入旧数据。不要用 `docker compose down -v` 清除包含身份、
-> 记忆或本地提交的卷，除非已确认备份可恢复。
-
 只构建镜像：
 
 ```bash
@@ -250,8 +227,7 @@ COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/cowor
 
 该变体会在预置完成后设置 `HF_HUB_OFFLINE=1`。运行时配置的 embedding 模型必须与
 镜像中预置的模型一致，且 `coworker-models` 卷必须包含该模型；新卷会由镜像自动初始化。
-否则会直接失败而不会尝试联网下载。这里的“离线”仅指 Hugging Face；新工作区仍需访问
-配置的 Git 仓库。完全无网络初始化时，将 `COWORKER_REPOSITORY_URL` 设为空。
+否则会直接失败而不会尝试联网下载。
 
 </details>
 

@@ -228,18 +228,6 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
     )
 
 
-@router.get("/health/live", include_in_schema=False)
-async def health_live() -> dict[str, str]:
-    return {"status": "live"}
-
-
-@router.get("/health/ready", include_in_schema=False)
-async def health_ready() -> dict[str, str]:
-    if _agent is None or _brain is None:
-        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    return {"status": "ready"}
-
-
 @router.get("/status")
 async def get_status():
     if _agent is None:

@@ -6,9 +6,9 @@
 
 ## Basic configuration
 
-Coworker can run from either a source checkout or a container. Common settings can be supplied
-through the first-run setup wizard, `.env`, or environment variables. Variable names use double
-underscores to separate groups; start with the repository's `.env.example` for unattended
+Coworker currently supports running from a source checkout only. Common settings can be
+supplied through the first-run setup wizard, `.env`, or environment variables. Variable names use
+double underscores to separate groups; start with the repository's `.env.example` for unattended
 configuration.
 
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
@@ -17,22 +17,6 @@ vision settings changed at runtime. When a container or service manager injects 
 variables, make sure the working directory does not contain conflicting `.env` values.
 
 Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
-
-### Container Git workspace
-
-| Variable | Default | Description |
-|---|---|---|
-| `COWORKER_REPOSITORY_URL` | Official CoWorker GitHub repository | Compatible repository or fork cloned for a new container workspace; accepts HTTPS, SSH, local paths, and `file://` |
-| `COWORKER_REPOSITORY_REF` | Image revision, or the repository's default branch | Branch, tag, or commit checked out for a new workspace |
-| `COWORKER_WORKSPACE_PATH` | `/workspace/CoWorker` | Persistent Git checkout path inside the container |
-| `COWORKER_STATE_PATH` | `/var/lib/coworker` | Persistent state directory linked into the checkout as `data/` |
-
-The repository URL and ref initialize only an empty workspace; restarts and image upgrades never
-replace an existing checkout. An explicitly empty URL creates a local Git baseline from the source
-in the image without configuring a remote. HTTP(S) URLs must not embed a username, password, or
-token. Authenticate private repositories through an SSH agent, deploy key, or credential helper.
-Compose injects an optional host `.env` into the container but does not mount the whole host
-repository over `/app`.
 
 ### Runtime language
 

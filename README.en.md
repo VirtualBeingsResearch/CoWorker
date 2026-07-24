@@ -185,33 +185,6 @@ Hugging Face at runtime:
 docker compose up --build
 ```
 
-On first start, the container checks out the official repository revision associated with the
-image into the `coworker-workspace` volume. Identity, memory, and other `data/` runtime state live
-in the separate `coworker-state` volume. The agent works in that persistent Git checkout, while
-the released program under `/app` remains immutable. Recreating the container or upgrading the
-image does not overwrite the checkout or discard its local commits.
-
-Configure a compatible Coworker fork and an optional branch, tag, or commit for a new workspace:
-
-```bash
-COWORKER_REPOSITORY_URL=git@github.com:your-org/CoWorker.git \
-COWORKER_REPOSITORY_REF=main \
-docker compose up --build
-```
-
-The repository settings apply only while the workspace volume is empty. Changing them later never
-replaces an existing repository. To switch repositories, back up both volumes and use a new Compose
-project or explicitly created volumes. Authenticate private repositories through an SSH agent,
-read-only deploy key, or external credential helper; do not put tokens in the image or repository
-URL. Explicitly setting `COWORKER_REPOSITORY_URL` to an empty value creates a local Git baseline
-from the source bundled in the image, without configuring a remote.
-
-> [!IMPORTANT]
-> Older Compose configurations used `.:/app`, so runtime state was commonly written to the host
-> checkout's `data/` directory. Back it up before moving to named volumes; the new configuration
-> does not import it automatically. Do not run `docker compose down -v` against volumes containing
-> identity, memory, or local commits unless a verified backup exists.
-
 To build the image without starting it:
 
 ```bash
@@ -259,9 +232,7 @@ COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/cowor
 This variant sets `HF_HUB_OFFLINE=1` only after preloading the model. Its runtime
 embedding-model setting must match the model in the image, and the `coworker-models`
 volume must contain that model; a new volume is initialized from the image. Otherwise it
-fails instead of downloading at runtime. “Offline” here applies only to Hugging Face; a new
-workspace still contacts its configured Git repository. Set `COWORKER_REPOSITORY_URL` to an empty
-value for fully networkless workspace initialization.
+fails instead of downloading at runtime.
 
 </details>
 

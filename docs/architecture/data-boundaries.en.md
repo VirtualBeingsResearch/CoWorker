@@ -16,8 +16,6 @@ The following paths are relative to Coworker's working directory unless configur
 | `data/admin_config.json` | Administrator token and settings saved through the administration page, which may include API keys |
 | `data/` | Identity, memory stores, tasks, inboxes and outboxes, attachments, screenshots, runtime state, and logs |
 | `.coworker/` | Skills, memory palaces, subconscious modes, and user changes to them |
-| Container `coworker-workspace` volume | The agent's writable Git checkout, local branches, commits, and `.coworker/` |
-| Container `coworker-state` volume | Persistent identity, memory, and runtime state linked into the checkout as `data/` |
 | Desktop application data directory | Desktop settings, credentials, bridge state, and logs; the operating system determines the exact location |
 
 These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you. Protect them with operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and must be handled as credential files.
@@ -31,9 +29,6 @@ The default configuration does not automatically synchronize the entire `data/` 
 - Search tools send queries. Browser tools visit target websites and are subject to those sites' logging, cookie, and session policies.
 - WeCom, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.
 - Installing dependencies, Playwright browsers, or local embedding models connects to package registries, browser download servers, or model repositories.
-- Initializing a container workspace contacts the Git repository configured by
-  `COWORKER_REPOSITORY_URL`, which defaults to the official CoWorker repository. Set the variable
-  explicitly to an empty value to create a local Git baseline from the source in the image.
 
 If data must not be shared with an external service, do not configure that service for Coworker and do not let the agent read the relevant files. A self-hosted model changes only the model boundary; it does not automatically restrict search, browser, or other integrations.
 
@@ -57,6 +52,6 @@ When resetting runtime data, prefer backing it up before deletion:
 uv run python scripts/cleanup.py backup-delete
 ```
 
-`cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container. `docker compose down -v` also deletes the `coworker-workspace`, `coworker-state`, and model volumes, which may contain local commits, identity, and memory. Run it only after verifying a recoverable backup.
+`cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container.
 
 [← Back to project home](../../README.en.md)

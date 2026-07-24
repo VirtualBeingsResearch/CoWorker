@@ -72,28 +72,6 @@ def test_api_defaults_bind_locally_and_require_desktop_authentication():
     assert "*" not in config.cors_origins
 
 
-def test_liveness_does_not_require_initialized_runtime(client):
-    response = client.get("/health/live")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "live"}
-
-
-def test_readiness_reports_uninitialized_runtime(client):
-    response = client.get("/health/ready")
-
-    assert response.status_code == 503
-
-
-def test_readiness_reports_initialized_runtime(client):
-    setup_routes(MagicMock(), MagicMock(), MagicMock())
-
-    response = client.get("/health/ready")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
-
-
 def test_admin_ui_is_bundled(client):
     response = client.get("/admin")
 
@@ -155,8 +133,6 @@ class TestSetupRedirect:
     def test_allows_admin_assets_and_bootstrap_endpoints(self, client):
         api_app.set_setup_required(True)
 
-        assert client.get("/health/live", follow_redirects=False).status_code == 200
-        assert client.get("/health/ready", follow_redirects=False).status_code == 503
         assert client.get("/admin", follow_redirects=False).status_code == 200
         assert client.get("/admin/", follow_redirects=False).status_code == 200
         assert client.get("/assets/missing.js", follow_redirects=False).status_code == 404
