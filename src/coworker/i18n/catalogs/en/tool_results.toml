@@ -165,7 +165,7 @@ binding = '''
 Communication binding: {{participant}}{{conversation}} (subsequent matching messages go directly to this bubble)'''
 conversation = " / {{conversation}}"
 transparent = '''
-Transparent communication labels: enabled (handoff, replies, and completion are disclosed to the participant)'''
+Transparent communication labels: enabled (takeover starts on the first real exchange, replies are labeled, and completion follows only an announced handoff)'''
 created = '''Bubble created: id={{id}}
 Goal: {{goal}}
 Maximum cycles: {{cycles}}

@@ -125,16 +125,19 @@ no_detail = "(no details)"
 no_question = "(no question text)"
 option = "   - {{label}}: {{description}}"
 pin_label = "CoWorker Desktop registry"
-pin_intro = '''Load the `coworker-desktop` Skill before using CoWorker Desktop.
-participant selects the local/codex/claude identity; never reuse a conversation_id across identities.
-Conversations are grouped by project. This is only a recent snapshot; use list_conversations for the complete list.'''
-projects_none = "  Projects: none"
-conversations = "  Conversations:"
+pin_intro = "Available CoWorker Desktop identities and recent conversations. Load the `coworker-desktop` Skill first; copy the exact participant_id and conversation_id when calling tools, and never reuse a conversation across identities. Use list_conversations for the complete list."
+desktop = "- {{name}}"
+actor = "  - {{actor}} → participant_id={{participant}}"
+projects_none = "    - No recent conversations"
+conversations = "    - Conversations"
 unknown_project = "unrecognized project"
-project = "  Project: {{name}} ({{id}})"
-recent_none = "{{indent}}Recent conversations: none"
+project = "    - {{name}} · project_id={{id}}{{path}}{{summary}}"
+project_path = " · path={{path}}"
+project_partial = " · showing {{shown}}/{{matched}} recent"
+project_incomplete = " · recent list incomplete"
 unnamed_conversation = "unnamed conversation"
 conversation_details = "({{details}})"
+conversation = "      - {{id}} · {{title}}{{details}}"
 
 [attachment_fallback]
 image_name = "image"
@@ -180,7 +183,7 @@ intercept_communicate = "This bubble is not bound to a participant and cannot co
 bound_conversation = ", conversation {{conversation}}"
 bound = '''- This bubble is bound to participant {{participant}}{{conversation}}. New messages from that participant are routed directly to you. Reply with communicate(message=...), which is fixed to that participant; do not use it to contact anyone else.
 '''
-handoff_transparency = '''- The system labels your direct replies and notifies the participant when the Bubble starts and ends.
+handoff_transparency = '''- The system announces takeover only before the first inbound message or direct reply. It sends the matching completion notice only after a takeover notice was delivered. Direct replies are labeled automatically; do not repeat these notices.
 '''
 unbound = '''- This bubble is not bound to an external participant and cannot contact users through a communication channel. Send anything that must be surfaced through bubble_send(target='main').
 '''

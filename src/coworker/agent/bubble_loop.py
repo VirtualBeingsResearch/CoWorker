@@ -8,11 +8,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from coworker.agent.bubble_handoff import (
-    BubbleHandoffNotifier,
-    bubble_reply_fallback_prefix,
-    bubble_reply_message_extra,
-)
+from coworker.agent.bubble_communication import BubbleCommunicator
+from coworker.agent.bubble_handoff import BubbleHandoffNotifier
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.types import IncomingEvent, Message, SummaryResult
 from coworker.i18n import tr
@@ -77,6 +74,11 @@ class BubbleMiniLoop:
         self._long_term = long_term
         self._communicate = communicate
         self._handoff_notifier = BubbleHandoffNotifier(communicate)
+        self._bubble_communicator = (
+            BubbleCommunicator(communicate, bubble, self._handoff_notifier)
+            if communicate is not None and bubble.participant_id
+            else None
+        )
         # 默认 None：泡泡用一次性内存 TaskStore，任务不外泄到主线。
         # 注入真实 task_store 时（如潜意识 introspect），泡泡内 task_create 直写主线持久任务。
         self._task_store_override = task_store
@@ -94,10 +96,6 @@ class BubbleMiniLoop:
     async def run(self) -> None:
         bubble = self._bubble
         try:
-            await self._handoff_notifier.announce_started(
-                bubble,
-                resumed=bubble.resume_count > 0,
-            )
             await self._run_inner()
         except asyncio.CancelledError:
             bubble.status = "cancelled"
@@ -125,7 +123,7 @@ class BubbleMiniLoop:
     def _tool_intercepts(self) -> dict[str, str]:
         """Tools to intercept in this loop: {name: reason}. Override to extend."""
         intercepts = _bubble_base_intercepts()
-        if not self._bubble.participant_id:
+        if not self._bubble.participant_id or self._communicate is None:
             intercepts["communicate"] = tr("bubble.intercept_communicate")
         return intercepts
 
@@ -240,25 +238,6 @@ class BubbleMiniLoop:
             allow_block=True,
             brain=bubble.brain,
             short_term=self._stm,
-            communicate_participant_id=bubble.participant_id,
-            communicate_conversation_id=bubble.conversation_id,
-            communicate_message_prefix=(
-                bubble_reply_fallback_prefix(bubble.participant_id)
-                if bubble.handoff_transparency
-                else ""
-            ),
-            communicate_message_extra=(
-                bubble_reply_message_extra(bubble.id)
-                if (
-                    bubble.handoff_transparency
-                    and self._communicate is not None
-                    and self._communicate.supports_message_extra(
-                        bubble.participant_id,
-                        bubble_reply_message_extra(bubble.id),
-                    )
-                )
-                else {}
-            ),
         )
         scoped_tools = self._tools.scoped(self._scope)
         intercepts = self._tool_intercepts()
@@ -279,6 +258,8 @@ class BubbleMiniLoop:
             tool_schemas = scoped_tools.get_schemas(
                 model_has_vision=self._brain.current_model_has_vision
             )
+            if self._bubble_communicator is not None:
+                tool_schemas = self._bubble_communicator.adapt_schemas(tool_schemas)
 
             if self._ilog:
                 self._ilog.log_thinking_start(cycle, thinking=bool(self._brain.thinking))
@@ -347,6 +328,7 @@ class BubbleMiniLoop:
             try:
                 item = bubble.inbox.get_nowait()
                 if isinstance(item, IncomingEvent):
+                    await self._announce_handoff_started()
                     self._short_term.primary.append(
                         Message(
                             role="user",
@@ -374,6 +356,12 @@ class BubbleMiniLoop:
                         )
             except asyncio.QueueEmpty:
                 break
+
+    async def _announce_handoff_started(self) -> None:
+        await self._handoff_notifier.announce_started(
+            self._bubble,
+            resumed=self._bubble.resume_count > 0,
+        )
 
     def _warn_if_bursting(self, cycle: int, max_cycles: int) -> None:
         # 进入最后一轮前给出预警：泡泡即将破灭，给它机会主动收尾、保存工作并通知主线，
@@ -425,6 +413,10 @@ class BubbleMiniLoop:
                 content = await self._handle_send(
                     tc.arguments.get("target", ""), tc.arguments.get("message", "")
                 )
+            elif tc.name == "communicate" and self._bubble_communicator is not None:
+                result = await self._bubble_communicator.send(**tc.arguments)
+                content = result.content if isinstance(result.content, str) else str(result.content)
+                is_error = result.is_error
             else:
                 result = await scoped_tools.execute(tc)
                 content = result.content if isinstance(result.content, str) else str(result.content)

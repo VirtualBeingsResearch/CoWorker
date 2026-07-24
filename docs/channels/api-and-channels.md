@@ -120,7 +120,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","coworker-desk
 
 `*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。
 
-所有在线通用 WebSocket/SSE 会话默认都会看到 Bubble 接管、带来源的回复和结束提示，对应默认配置为：
+所有在线通用 WebSocket/SSE 会话默认启用透明 Bubble 生命周期：Bubble 首次收到该会话的新消息，或首次准备直接回复时，才会发送接管提示；只有接管提示成功发送后，Bubble 结束时才会发送对应的结束提示。仅创建或绑定 Bubble 不会产生外部通知。对应默认配置为：
 
 ```env
 AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
@@ -144,7 +144,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 }
 ```
 
-结束通知使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信）不会收到这段元数据，仍通过 `🫧 泡泡：` 文本前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
+已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信）不会收到这段元数据，仍通过 `🫧 泡泡：` 文本前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。只有将服务端和 Desktop 配置都显式设为

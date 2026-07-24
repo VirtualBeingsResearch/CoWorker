@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,8 @@ from coworker.i18n import tr
 from coworker.memory.short_term import ShortTermMemory
 
 _PIN_ID = "coworker_desktop_registry"
-_RECENT_CONVERSATIONS_IN_PIN = 5
+_RECENT_CONVERSATIONS_PER_ACTOR = 4
+_CONVERSATION_TITLE_LIMIT = 24
 
 
 @dataclass
@@ -87,37 +89,22 @@ class DesktopRegistry:
 
     def render_pinned_context(self) -> str:
         lines = [*tr("channel.desktop.pin_intro").splitlines(), ""]
-        for state in sorted(
-            self._actors.values(), key=lambda item: (item.desktop_id, item.actor_id)
-        ):
-            lines.extend(
-                [
-                    f"- {state.display_name} / {state.actor_id}",
-                    f"  participant_id: {state.participant_id}",
-                    f"  desktop_id: {state.desktop_id}",
-                    "  status: connected",
-                ]
+        for desktop_states in _group_by_desktop(self._actors.values()):
+            lines.append(
+                tr(
+                    "channel.desktop.desktop",
+                    name=desktop_states[0].display_name,
+                )
             )
-            projects = _dict_list(state.snapshot.get("projects"))
-            if not projects:
-                lines.append(tr("channel.desktop.projects_none"))
-                continue
-            for project in projects:
-                conversation_only = project.get("scope") == "conversation"
-                if conversation_only:
-                    lines.append(tr("channel.desktop.conversations"))
-                else:
-                    name = str(project.get("name") or tr("channel.desktop.unknown_project"))
-                    project_id = str(project.get("project_id") or "unknown")
-                    lines.append(tr("channel.desktop.project", name=name, id=project_id))
-                    path = project.get("path")
-                    if isinstance(path, str) and path:
-                        lines.append(f"    path: {path}")
-                counts = _project_counts(project)
-                if counts:
-                    lines.append(f"    conversation_count: {counts}")
-                conversations = _dict_list(project.get("recent_conversations"))
-                _append_conversations(lines, conversations, "    ")
+            for state in desktop_states:
+                lines.append(
+                    tr(
+                        "channel.desktop.actor",
+                        actor=state.actor_id,
+                        participant=state.participant_id,
+                    )
+                )
+                _append_actor_projects(lines, state.snapshot)
         return "\n".join(lines)
 
     def _persist(self, state: DesktopActorState) -> None:
@@ -156,45 +143,134 @@ def _dict_list(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
-def _project_counts(project: dict[str, Any]) -> str:
-    fields = (
-        ("shown", "shown_conversation_count"),
-        ("matched", "matched_conversation_count"),
-        ("complete", "complete"),
-        ("truncated", "truncated"),
+def _group_by_desktop(
+    actors: Iterable[DesktopActorState],
+) -> list[list[DesktopActorState]]:
+    grouped: dict[str, list[DesktopActorState]] = {}
+    for actor in sorted(actors, key=lambda item: (item.desktop_id, item.actor_id)):
+        grouped.setdefault(actor.desktop_id, []).append(actor)
+    return list(grouped.values())
+
+
+def _append_actor_projects(lines: list[str], snapshot: dict[str, Any]) -> None:
+    projects = _dict_list(snapshot.get("projects"))
+    visible = _recent_projects(projects)
+    if not visible:
+        lines.append(tr("channel.desktop.projects_none"))
+        return
+    for project, conversations in visible:
+        _append_project(lines, project, len(conversations))
+        _append_conversations(lines, conversations)
+
+
+def _recent_projects(
+    projects: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    ranked: list[tuple[str, int, int, dict[str, Any]]] = []
+    for project_index, project in enumerate(projects):
+        for conversation_index, conversation in enumerate(
+            _dict_list(project.get("recent_conversations"))
+        ):
+            updated_at = conversation.get("updated_at")
+            rank = updated_at if isinstance(updated_at, str) else ""
+            ranked.append((rank, project_index, conversation_index, conversation))
+    selected = sorted(
+        ranked,
+        key=lambda item: (item[0], -item[1], -item[2]),
+        reverse=True,
+    )[:_RECENT_CONVERSATIONS_PER_ACTOR]
+    conversations_by_project: dict[int, list[dict[str, Any]]] = {}
+    for _, project_index, _, conversation in selected:
+        conversations_by_project.setdefault(project_index, []).append(conversation)
+    return [
+        (projects[project_index], conversations)
+        for project_index, conversations in conversations_by_project.items()
+    ]
+
+
+def _append_project(
+    lines: list[str],
+    project: dict[str, Any],
+    visible_conversation_count: int,
+) -> None:
+    if project.get("scope") == "conversation":
+        lines.append(tr("channel.desktop.conversations"))
+        return
+    name = str(project.get("name") or tr("channel.desktop.unknown_project"))
+    project_id = str(project.get("project_id") or "unknown")
+    path = project.get("path")
+    path_note = (
+        tr("channel.desktop.project_path", path=path)
+        if isinstance(path, str)
+        and path
+        and _normalize_path(path) != _normalize_path(project_id)
+        else ""
     )
-    parts = []
-    for label, key in fields:
-        value = project.get(key)
-        if isinstance(value, bool):
-            parts.append(f"{label}={str(value).lower()}")
-        elif isinstance(value, int):
-            parts.append(f"{label}={value}")
-    return ", ".join(parts)
+    summary = _project_summary(project, visible_conversation_count)
+    lines.append(
+        tr(
+            "channel.desktop.project",
+            name=name,
+            id=project_id,
+            path=path_note,
+            summary=summary,
+        )
+    )
+
+
+def _project_summary(
+    project: dict[str, Any],
+    visible_conversation_count: int,
+) -> str:
+    available = len(_dict_list(project.get("recent_conversations")))
+    matched = project.get("matched_conversation_count")
+    total = max(matched, available) if isinstance(matched, int) else available
+    if total > visible_conversation_count:
+        return tr(
+            "channel.desktop.project_partial",
+            shown=visible_conversation_count,
+            matched=total,
+        )
+    if project.get("truncated") is True or project.get("complete") is False:
+        return tr("channel.desktop.project_incomplete")
+    return ""
+
+
+def _normalize_path(value: str) -> str:
+    return value.replace("\\", "/").rstrip("/").casefold()
 
 
 def _append_conversations(
-    lines: list[str], conversations: list[dict[str, Any]], indent: str
+    lines: list[str],
+    conversations: list[dict[str, Any]],
 ) -> None:
-    if not conversations:
-        lines.append(tr("channel.desktop.recent_none", indent=indent))
-        return
-    for conversation in conversations[:_RECENT_CONVERSATIONS_IN_PIN]:
+    for conversation in conversations:
         conversation_id = str(conversation.get("conversation_id") or "unknown")
         title = " ".join(
             str(conversation.get("title") or tr("channel.desktop.unnamed_conversation")).split()
         )
-        title = title if len(title) <= 12 else f"{title[:11]}…"
+        title = (
+            title
+            if len(title) <= _CONVERSATION_TITLE_LIMIT
+            else f"{title[: _CONVERSATION_TITLE_LIMIT - 1]}…"
+        )
         details = []
         mode = conversation.get("mode")
-        if isinstance(mode, str) and mode:
-            details.append(f"mode={mode}")
+        if isinstance(mode, str) and mode and mode != "default":
+            details.append(mode)
         updated_at = conversation.get("updated_at")
         if isinstance(updated_at, str) and updated_at:
-            details.append(f"updated_at={updated_at}")
+            details.append(updated_at.split("T", 1)[0])
         suffix = (
             tr("channel.desktop.conversation_details", details=", ".join(details))
             if details
             else ""
         )
-        lines.append(f"{indent}- {conversation_id} {title}{suffix}")
+        lines.append(
+            tr(
+                "channel.desktop.conversation",
+                id=conversation_id,
+                title=title,
+                details=suffix,
+            )
+        )

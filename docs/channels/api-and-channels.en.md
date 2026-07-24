@@ -114,7 +114,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","coworker-desk
 
 `*`, `?`, and `[...]` are glob wildcards; an entry without wildcards is an exact `participant_id`. These defaults make WeCom and the Desktop `local` actor transparent. Set `[]` to disable those default matches.
 
-Every live generic WebSocket/SSE session receives the visible Bubble handoff, labeled replies, and completion notice by default. The corresponding default is:
+Every live generic WebSocket/SSE session enables a transparent Bubble lifecycle by default. The takeover notice is delayed until the Bubble first receives a new message from that conversation or is about to reply directly. A matching completion notice is sent only after takeover was announced successfully; merely creating or binding a Bubble emits nothing externally. The corresponding default is:
 
 ```env
 AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
@@ -138,7 +138,7 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 }
 ```
 
-Completion notices use `phase: "end"`. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, do not receive this metadata and retain the `🫧 泡泡：` text prefix instead; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
+An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, do not receive this metadata and retain the `🫧 泡泡：` text prefix instead; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
 Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
 

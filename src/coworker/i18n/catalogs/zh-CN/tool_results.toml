@@ -165,7 +165,7 @@ binding = '''
 通信绑定：{{participant}}{{conversation}}（后续匹配消息会直接转交给此泡泡）'''
 conversation = " / {{conversation}}"
 transparent = '''
-通信透明标识：已启用（转交、回复和结束会向对方说明）'''
+通信透明标识：已启用（首次真实收发时公告接手，直接回复标识来源，已公告接手才发送结束提示）'''
 created = '''泡泡已创建：id={{id}}
 目标：{{goal}}
 最大轮次：{{cycles}}
