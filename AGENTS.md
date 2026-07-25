@@ -14,7 +14,7 @@
 
 ## Synchronize before starting work
 
-Before starting every new feature or substantial fix, update the primary `main` worktree from upstream and mirror the result to the fork:
+Before starting every new feature or substantial fix from `main`, update the local `main` branch from upstream and mirror the result to the fork:
 
 ```bash
 git switch main
@@ -25,23 +25,14 @@ git push origin main
 
 - Start new work only from this synchronized `main`.
 - Keep `main` free of feature commits. If the fast-forward merge fails, stop and inspect the divergence instead of creating a synchronization merge commit or forcing the branch.
-- Do not overwrite, stash, commit, or otherwise absorb unrelated changes already present in the primary worktree.
-- These synchronization commands apply when starting from the primary `main` worktree. When the current directory is an already-isolated task worktree, keep its task branch and do not switch it to `main` merely to begin or continue the assigned work.
+- Do not overwrite, stash, commit, or otherwise absorb unrelated local changes.
+- When the current branch already belongs to the assigned work, keep that branch and do not switch it to `main` merely to begin or continue the task.
 
 The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWorker --source VirtualBeingsResearch/CoWorker --branch main`, followed by a fast-forward-only local pull. Do not use `--force` automatically.
 
-## Branches and worktrees
+## Branches
 
-- If the current directory is already a clean, task-specific Git worktree supplied for the work, use it directly. Do not create a nested or sibling worktree merely to satisfy this section.
-- Before reusing a supplied worktree, verify its branch and status. Preserve any unrelated user changes; if the branch belongs to different work or the changes cannot be isolated safely, use a separate worktree.
-- Every large or non-trivial feature must be developed on a dedicated branch in an independent Git worktree. A feature is non-trivial when it spans multiple components, is expected to take several commits, or benefits from isolation from other ongoing work.
 - Use a focused branch name such as `feat/<slug>`, `fix/<slug>`, or `chore/<slug>`.
-- A typical worktree creation command is:
-
-  ```bash
-  git worktree add ../CoWorker-<slug> -b feat/<slug> main
-  ```
-
 - Keep one logical change per branch and pull request. Do not mix unrelated cleanup or user-owned changes into the feature commit.
 
 ## Localization and i18n
@@ -79,7 +70,7 @@ The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWor
 
 ## Push and pull-request workflow
 
-Push the worktree's feature branch to the developer's fork, not to upstream:
+Push the feature branch to the developer's fork, not to upstream:
 
 ```bash
 git push -u origin <feature-branch>
@@ -117,4 +108,4 @@ gh pr create \
 - A general request to implement, complete, ship, or deliver work authorizes commit, push, and pull-request creation, but does not authorize merging. Merge only when the user explicitly asks to merge that specific pull request in the current conversation.
 - Report the PR URL, validation status, and any remaining review or CI requirements. If checks are pending, they may be monitored, but passing checks do not change the manual-merge requirement.
 
-Do not merge the feature branch into the local or fork `main` before opening the pull request. The pull request branch is the integration boundary. After the pull request is merged upstream, synchronize `main` from `upstream/main`, push the synchronized `main` to `origin`, and only then remove the feature worktree and delete the feature branch after verifying that it contains no uncommitted work.
+Do not merge the feature branch into the local or fork `main` before opening the pull request. The pull request branch is the integration boundary. After the pull request is merged upstream, synchronize `main` from `upstream/main`, push the synchronized `main` to `origin`, and only then delete the feature branch after verifying that it contains no uncommitted work.
