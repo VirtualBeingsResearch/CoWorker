@@ -88,13 +88,6 @@ class CommunicateTool(Tool):
                     "extra": {
                         "type": "object",
                         "description": "低频信道扩展；具体白名单由目标信道决定。",
-                        "properties": {
-                            "mentioned_list": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "企业微信 Markdown 中需要提醒的 userid 列表。",
-                            },
-                        },
                     },
                 },
                 "required": ["participant_id"],
