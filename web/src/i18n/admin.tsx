@@ -1062,6 +1062,7 @@ const STATUS_ENGLISH_PHRASES: Record<string, string> = {
   '分裂泡泡': 'Spawn bubble',
   '{{tool}}() 调用中': '{{tool}}() in progress',
   '休眠 {{seconds}}秒 · 仅保留心跳与轻量监听': 'Sleeping for {{seconds}} sec · keeping only heartbeat and lightweight listening',
+  '持续等待外部消息、闹钟或任务唤醒': 'Waiting for an external message, alarm, or task to wake the runtime',
   '进入低频待机 · 仅保留心跳与轻量监听': 'Entering low-frequency standby · keeping only heartbeat and lightweight listening',
   '已唤醒': 'Awake',
   '已从休眠中恢复运行': 'Resumed from sleep',
