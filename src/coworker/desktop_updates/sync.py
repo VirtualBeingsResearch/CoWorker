@@ -45,6 +45,8 @@ class ReleaseSource(Protocol):
 
     def fetch_releases(self, etag: str | None = None) -> Awaitable[ReleasePage]: ...
 
+    def fingerprint_release(self, release: SourceRelease) -> str | None: ...
+
     def download_release(
         self,
         release: SourceRelease,
@@ -434,6 +436,21 @@ class SyncService:
             self._active_status = running
             await self.store.write_sync_state(running)
             existing, latest = await self.store.read_release_and_latest(version)
+
+            if existing is not None:
+                fingerprint = source.fingerprint_release(candidate)
+                if fingerprint is not None:
+                    return await self._finish_existing(
+                        running,
+                        run_id=run_id,
+                        version=version,
+                        existing=existing,
+                        fingerprint=fingerprint,
+                        etag=page.etag,
+                        checked=checked,
+                        skipped=skipped,
+                        rate_limit=page.rate_limit,
+                    )
 
             if existing is None and latest is not None:
                 latest_value = str(latest.get("version") or "")

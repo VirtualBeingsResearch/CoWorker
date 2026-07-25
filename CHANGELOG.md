@@ -5,6 +5,7 @@
 - fix(runtime): keep one lightweight Windows supervisor, hard-exit the fully torn-down worker on restart, and relaunch a single replacement worker so Python threads and application memory do not accumulate across restarts
 - fix(memory): resolve mem0 through the same named Brain provider credentials and effective base URL, adapt all OpenAI-compatible providers by API dialect without a second model allowlist, and isolate mem0 from unrelated OpenRouter environment settings
 - fix(memory): keep Mem0 configuration provider names within its validated API dialects while replacing their implementations with Coworker endpoint and TLS adapters
+- fix(desktop): use complete GitHub release-asset digests to detect identical or conflicting imported releases before downloading binaries, while retaining download verification for legacy APIs without digests
 - fix(admin): give all management form fields one top-aligned layout contract so labels, controls, hints, and switches stay aligned without Provider- or Desktop-specific sizing patches
 - feat(admin): add an authenticated, uncached, read-only view of the exact system prompt currently used by the agent
 - fix(desktop): fall back to the administrator token for Desktop communication, expose a redacted dedicated-token setting, and preserve API error details in Desktop

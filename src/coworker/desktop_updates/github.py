@@ -170,6 +170,14 @@ class GitHubReleaseSource:
 
     list_releases = fetch_releases
 
+    def fingerprint_release(self, release: SourceRelease) -> str | None:
+        checksums: dict[str, str] = {}
+        for name, asset in release.assets.items():
+            if asset.digest is None:
+                return None
+            checksums[name] = asset.digest
+        return release_fingerprint(self.config.repository, release, checksums)
+
     def _filter_release(self, payload: GitHubReleasePayload) -> tuple[SourceRelease | None, str]:
         label = payload.tag_name or "<missing tag>"
         if payload.draft and not self.config.include_drafts:

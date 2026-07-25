@@ -184,6 +184,9 @@ class CoworkerReleaseSource:
 
     list_releases = fetch_releases
 
+    def fingerprint_release(self, release: SourceRelease) -> str | None:
+        return None
+
     def _filter_release(self, payload: CoworkerFeedRelease) -> tuple[SourceRelease | None, str]:
         label = payload.version or payload.id or "<missing version>"
         try:
