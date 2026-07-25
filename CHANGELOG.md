@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.3 - Unreleased
+
 - feat(container): initialize persistent Git workspaces from an embedded repository bundle, support configurable repository sources, and expose container health without application code changes
 - feat(desktop): improve the collapsed sidebar and short log ledger, let users choose and remember the close behavior on first close, reorder connection profiles, preserve each conversation's scroll position across actor switches, add message copy/quote actions, local Markdown and attachment image previews, contextual incoming/completion notifications with the bundled app icon, and 25-item Codex/Claude history paging, clarify offline history, derive missing Codex and local-chat titles from their first meaningful message without repeatedly scanning full histories, safely resume native Codex App/CLI sessions from CoWorker, discover Codex App bundled binaries on Windows, macOS, and Linux, including npm Node resolution, recover actor registration and streams while the Coworker channel runtime starts or restarts, and preserve server error details such as an unconfigured communication token
 - fix(runtime): keep one lightweight Windows supervisor, hard-exit the fully torn-down worker on restart, and relaunch a single replacement worker so Python threads and application memory do not accumulate across restarts
