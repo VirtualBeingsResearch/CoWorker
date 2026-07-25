@@ -72,7 +72,9 @@ The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWor
 - These commit, push, and pull-request steps are authorized by default for completed feature work. Perform them automatically without waiting for a separate confirmation unless the user explicitly asks not to, authentication is unavailable, validation has materially failed, the remote/branch target is ambiguous, or the operation risks overwriting or publishing unrelated work.
 - Pull-request creation is the automatic delivery boundary. Creating a PR never grants permission to merge it, enable auto-merge, or enqueue it in a merge queue.
 - Use clear, conventional commit messages. Prefer small coherent commits when they improve reviewability, but do not split a tightly coupled change mechanically.
-- Before delivery, review the final diff and confirm that required tests, documentation, examples, paired localized docs, and `CHANGELOG.md` updates have been handled according to `CONTRIBUTING.md`.
+- Before delivery, review the final diff and confirm that required tests, documentation, examples, and paired localized docs have been handled according to `CONTRIBUTING.md`.
+- Do not edit `CHANGELOG.md` in feature, fix, documentation, dependency, or routine maintenance pull requests. Keep the hand-written `Unreleased` section, but update it only in dedicated release-preparation or changelog-maintenance work so concurrent pull requests do not contend on the same file.
+- Use clear conventional commit and pull-request titles so the release maintainer can assemble the hand-written `Unreleased` notes accurately.
 - If some relevant check cannot be run, do not conceal it; document the exact unrun or failing check in the pull request.
 
 ## Push and pull-request workflow
