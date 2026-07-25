@@ -112,7 +112,7 @@ fn resolve_unix_command(command: &str) -> io::Result<ResolvedCommand> {
         home.as_deref(),
     );
     let Some(resolved) = resolved else {
-        let checked = default_unix_codex_paths(command, home.as_deref())
+        let checked = default_unix_command_paths(command, home.as_deref())
             .into_iter()
             .map(|candidate| candidate.display().to_string())
             .collect::<Vec<_>>();
@@ -130,7 +130,7 @@ fn resolve_unix_command(command: &str) -> io::Result<ResolvedCommand> {
         .with_path_entries(default_unix_runtime_bin_paths(home.as_deref())))
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 fn resolve_unix_name(
     command: &str,
     path_value: Option<&OsStr>,
@@ -140,13 +140,27 @@ fn resolve_unix_name(
         .map(|dir| dir.join(command))
         .find(|candidate| candidate.is_file())
         .or_else(|| {
-            default_unix_codex_paths(command, home_value)
+            default_unix_command_paths(command, home_value)
                 .into_iter()
                 .find(|candidate| candidate.is_file())
         })
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
+fn default_unix_command_paths(command: &str, home_value: Option<&OsStr>) -> Vec<PathBuf> {
+    let mut candidates = default_unix_runtime_bin_paths(home_value)
+        .into_iter()
+        .map(|bin| bin.join(command))
+        .collect::<Vec<_>>();
+    for candidate in default_unix_codex_paths(command, home_value) {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+#[cfg(any(not(windows), test))]
 fn default_unix_codex_paths(command: &str, home_value: Option<&OsStr>) -> Vec<PathBuf> {
     if command != "codex" {
         return Vec::new();
@@ -210,7 +224,7 @@ fn default_macos_codex_app_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
         .collect()
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 fn default_unix_runtime_bin_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
     let mut paths = vec![
         PathBuf::from("/opt/homebrew/bin"),
@@ -231,7 +245,7 @@ fn default_unix_runtime_bin_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
     paths
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 fn nvm_bin_paths(home: &Path) -> Vec<PathBuf> {
     let nvm_versions = home.join(".nvm").join("versions").join("node");
     let Ok(entries) = std::fs::read_dir(nvm_versions) else {
@@ -519,8 +533,8 @@ mod tests {
     }
 }
 
-#[cfg(all(test, not(windows)))]
-mod tests {
+#[cfg(test)]
+mod unix_path_tests {
     use super::*;
     use std::{
         fs,
@@ -555,15 +569,30 @@ mod tests {
     }
 
     #[test]
-    fn does_not_use_home_local_bin_for_other_commands() {
-        let home = temp_dir("home-other");
+    fn resolves_claude_from_home_local_bin_when_missing_from_path() {
+        let home = temp_dir("home-claude");
         let local_bin = home.join(".local").join("bin");
         fs::create_dir_all(&local_bin).unwrap();
-        fs::write(local_bin.join("node"), "#!/bin/sh\n").unwrap();
+        let script = local_bin.join("claude");
+        fs::write(&script, "#!/bin/sh\n").unwrap();
 
-        let resolved = resolve_unix_name("node", None, Some(home.as_os_str()));
+        let resolved = resolve_unix_name("claude", None, Some(home.as_os_str())).unwrap();
 
-        assert!(resolved.is_none());
+        assert_eq!(resolved, script);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn resolves_custom_command_from_npm_global_bin_when_missing_from_path() {
+        let home = temp_dir("home-custom");
+        let npm_bin = home.join(".npm-global").join("bin");
+        fs::create_dir_all(&npm_bin).unwrap();
+        let script = npm_bin.join("custom-agent");
+        fs::write(&script, "#!/bin/sh\n").unwrap();
+
+        let resolved = resolve_unix_name("custom-agent", None, Some(home.as_os_str())).unwrap();
+
+        assert_eq!(resolved, script);
         let _ = fs::remove_dir_all(home);
     }
 
