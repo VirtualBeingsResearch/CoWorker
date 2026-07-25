@@ -112,7 +112,7 @@ language-transition system notice when it detects a locale change.
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom and the Desktop `local` actor; set `[]` to disable every default participant match. |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom, Weixin Claw, and the Desktop `local` actor; set `[]` to disable every default participant match. |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON transport array accepting `websocket` and `sse`; both are enabled by default, so live generic streams use transparent handoff automatically. A Desktop actor that does not match a participant glob never falls through to this rule, so `claude` and `codex` remain excluded. Set `[]` to disable transport matching. |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | Grace period in seconds for continuing a Bubble with `bubble_spawn(bubble_id=...)` after it reaches its cycle limit; set to `0` to disable. |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
@@ -143,8 +143,12 @@ language-transition system notice when it detects a locale change.
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
+| `WEIXIN__ENABLED` | `false` | Whether the personal-Weixin ClawBot channel is enabled |
+| `WEIXIN__ACCOUNTS` | `[]` | JSON array of ClawBot connection accounts; use the administration QR flow to add and manage them without exposing tokens |
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
+
+The Weixin Claw administration panel is registered through the extensible settings-panel registry. A confirmed scan adds a new instance-level ClawBot connection and starts it immediately; the participant that received the QR code is not bound to that connection. A Weixin contact's first message creates a new `weixin:<account_uuid>:<weixin_user_id>` participant, whose contact relationships are organized by the agent. See [Weixin Claw](../channels/weixin-claw.en.md).
 
 ### Container Git workspace
 

@@ -3,6 +3,7 @@ file = "文件投递"
 rest = "REST API"
 websocket = "WebSocket"
 wecom = "企业微信"
+weixin = "微信"
 coworker_desktop = "桌面端"
 bubble = "气泡"
 codex = "Codex"
@@ -92,6 +93,24 @@ quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}} {{type}} 消息（无法预览）]
 '''
+
+[channel.weixin]
+image = "[图片]"
+voice = "[未提供转写的语音消息]"
+file = "[文件]"
+video = "[视频]"
+unsupported = "[暂不支持的微信消息]"
+config_missing = "微信 Claw 已启用但还没有连接账号；请在管理控制台扫码添加"
+prepared = "微信 Claw 运行时已就绪，共 {{count}} 个连接账号"
+poll_failed = "微信 Claw 账号 {{account}} 长轮询失败：{{error}}"
+inbound_unhandled = "微信 Claw 入站事件因未配置信道处理器而被丢弃"
+state_load_failed = "微信 Claw 状态加载失败：{{error}}"
+state_save_failed = "微信 Claw 状态保存失败：{{error}}"
+connection_invitation = '''微信 Claw 连接
+打开或扫描这个一次性二维码添加 ClawBot 连接：{{url}}
+连接成功后，请从微信发一条消息。第一条消息会产生新的 participant，不会自动关联当前聊天。'''
+connection_confirmed = "ClawBot 连接 {{account}} 已就绪。微信联系人首次发消息后会产生新的 participant。"
+connection_status = "微信连接状态：{{status}}。"
 
 [channel.desktop]
 command_rejected = "命令未被接受"

@@ -25,7 +25,7 @@ from coworker.agent.subconscious import SubconsciousScheduler
 from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
-from coworker.api.admin import setup_admin
+from coworker.api.admin import setup_admin, setup_weixin_admin
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import api_dialect, build_provider, resolve_base_url
@@ -36,6 +36,7 @@ from coworker.channels.stream.desktop import (
 )
 from coworker.channels.system import create_channel_system
 from coworker.channels.wecom import WeComChannel, WeComRunner
+from coworker.channels.weixin import WeixinChannel, WeixinChannelAction, WeixinRunner
 from coworker.core.config import (
     Config,
     LLMConfig,
@@ -665,6 +666,18 @@ async def _main() -> bool:
         Path(config.memory.db_path) / "channel_activity.json",
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    weixin_runner: WeixinRunner | None = None
+    if not setup_required:
+        weixin_runner = WeixinRunner(
+            config.weixin,
+            Path(config.memory.db_path) / "weixin_state.json",
+            channel_system.activity,
+        )
+        channel_system.registry.register(WeixinChannel(weixin_runner))
+        channel_system.registry.register_action(
+            "weixin",
+            WeixinChannelAction(weixin_runner, channel_system.registry),
+        )
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
@@ -908,6 +921,15 @@ async def _main() -> bool:
             logger.warning("WeCom enabled but bot_id/secret missing; runtime is waiting for configuration")
         elif config.wecom.enabled:
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
+        if config.weixin.enabled and not config.weixin.accounts:
+            logger.warning(tr("channel.weixin.config_missing"))
+        elif config.weixin.enabled:
+            logger.info(
+                tr(
+                    "channel.weixin.prepared",
+                    count=len(config.weixin.accounts),
+                )
+            )
 
     setup_routes(
         None if setup_required else inbox_watcher,
@@ -931,6 +953,7 @@ async def _main() -> bool:
         desktop_update_sync=desktop_update_sync,
         wecom_runner=wecom_runner,
     )
+    setup_weixin_admin(weixin_runner)
     api_app.setup_desktop_updates(
         config.desktop_updates,
         config.admin.token,

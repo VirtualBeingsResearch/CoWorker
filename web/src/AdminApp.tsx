@@ -6,6 +6,7 @@ import {
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw,
 } from 'lucide-react';
 import './admin.css';
+import { settingsPanelLabels, settingsPanelRegistration } from './admin/settings/registry';
 import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
@@ -450,7 +451,7 @@ function Models() {
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
-const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端' };
+const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
@@ -715,6 +716,7 @@ function Settings() {
   const activeAdminToken = adminToken?.configured ? adminToken : fallbackToken;
   const providerSource = data.sources?.providers ? t('、{{source}}', { source: data.sources.providers }) : '';
   const configNote = t('有效配置来自 {{env}}{{providers}}，并由 {{override}} 覆盖。', { env: '.env', providers: providerSource, override: data.override_path });
+  const CustomSettingsPanel = settingsPanelRegistration(group)?.component;
   return <div className="settings-layout">
     <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} onClick={() => selectGroup(k)} key={k}>{t(GROUP_LABELS[k])}<ChevronRight size={14} /></button>)}</nav>
     <Panel title={GROUP_LABELS[group]} note={configNote} className="config-panel">
@@ -723,7 +725,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} onApplied={reload} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -773,7 +775,7 @@ function Settings() {
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -823,7 +825,7 @@ function MemoryCenter({ coworkerName }: { coworkerName: string }) {
 
 const MEMORY_ROLE: Record<string, string> = { user: '消息', assistant: '搭档', system: '系统', tool: '工具结果' };
 const MEMORY_SOURCE: Record<string, string> = {
-  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信',
+  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信', weixin: '微信 Claw',
   coworker_desktop: '桌面端', codex: 'Codex', bubble: '气泡', alarm: '闹钟提醒',
   code_job: '代码任务', task_reminder: '任务提醒', system: '系统', '并行思考': '并行思考',
   system_recovery: '系统恢复', system_error: '系统错误', skill_warning: '技能提醒',

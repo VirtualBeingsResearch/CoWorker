@@ -106,7 +106,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
@@ -137,8 +137,12 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOT_ID` | 空 | 企业微信机器人 ID |
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
+| `WEIXIN__ENABLED` | `false` | 是否启用个人微信 ClawBot 信道 |
+| `WEIXIN__ACCOUNTS` | `[]` | ClawBot 连接账号 JSON 数组；推荐通过管理页扫码添加和管理，Token 不会回显 |
 
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
+
+微信 Claw 管理面板通过可扩展设置面板注册表接入。扫码成功会把新的 ClawBot 加入实例级账号池并立即启动；接收二维码的 participant 不会与该连接绑定。微信联系人首次发消息时产生新的 `weixin:<account_uuid>:<weixin_user_id>` participant，由搭档自行组织联系人关系。详见[微信 Claw](../channels/weixin-claw.md)。
 
 ### 容器 Git 工作区
 

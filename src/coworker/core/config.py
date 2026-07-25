@@ -403,6 +403,25 @@ class WeComConfig(_EnvSettings):
     ws_url: str = ""
 
 
+class WeixinAccountConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str = ""
+    enabled: bool = True
+    bot_id: str = ""
+    token: str = Field(default="", repr=False)
+    base_url: str = "https://ilinkai.weixin.qq.com"
+    weixin_user_id: str = ""
+
+
+class WeixinConfig(_EnvSettings):
+    model_config = SettingsConfigDict(env_prefix="WEIXIN__", env_file=".env", extra="ignore")
+
+    enabled: bool = False
+    accounts: list[WeixinAccountConfig] = Field(default_factory=list)
+
+
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -414,6 +433,7 @@ class Config(_EnvSettings):
     i18n: I18NConfig = Field(default_factory=I18NConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
+    weixin: WeixinConfig = Field(default_factory=WeixinConfig)
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

@@ -12,7 +12,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     ParticipantIdResolutionError,
 )
-from coworker.channels.registry import ChannelRegistry
+from coworker.channels.registry import ChannelRegistry, PreparedChannelAction
 from coworker.channels.stream import StreamProfile
 from coworker.channels.system import create_channel_system
 from coworker.core.types import CommunicateRequest, ToolResult
@@ -286,6 +286,45 @@ async def test_prefix_match_bypasses_resolver(registry: ChannelRegistry) -> None
     await registry.send(CommunicateRequest(participant_id="channel:alice", message="hi"))
 
     assert channel.sent[0].participant_id == "channel:alice"
+
+
+@pytest.mark.asyncio
+async def test_registered_channel_action_prepares_generic_communicate_request(
+    registry: ChannelRegistry,
+) -> None:
+    channel = _FakeChannel(
+        "stream",
+        "",
+        supports_extra=True,
+        live=("person-1",),
+        requires_known_participant=True,
+    )
+    registry.register(channel)
+
+    async def prepare(request: CommunicateRequest) -> PreparedChannelAction:
+        return PreparedChannelAction(
+            CommunicateRequest(
+                participant_id=request.participant_id,
+                message="prepared",
+                attachments=[{"type": "image", "path": "code.png"}],
+                extra={"channel_action": {"channel": "demo", "status": "waiting"}},
+            ),
+            result_note="session=session-1",
+        )
+
+    registry.register_action("demo", prepare)
+
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="person-1",
+            extra={"channel_action": {"channel": "demo", "type": "connect"}},
+        )
+    )
+
+    assert not result.is_error
+    assert channel.sent[0].message == "prepared"
+    assert channel.sent[0].attachments[0]["path"] == "code.png"
+    assert "session=session-1" in result.content
 
 
 @pytest.mark.asyncio

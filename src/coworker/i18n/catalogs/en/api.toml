@@ -7,6 +7,7 @@ task_store_not_ready = "Task store is not ready"
 bubble_store_not_ready = "Bubble store is not ready"
 channel_runtime_not_ready = "Communication runtime is not ready"
 desktop_update_sync_not_ready = "Desktop update sync service is not ready"
+weixin_runtime_not_ready = "Personal Weixin channel runtime is not ready"
 loader_not_ready = "{{kind}} loader is not ready"
 
 [api.auth]
@@ -61,6 +62,7 @@ detail_log_unavailable = "No detailed log was retained for this record; showing 
 nested_truncated = "… (nested content truncated)"
 field_truncated = "… (field truncated)"
 more_fields_truncated = "additional fields truncated"
+weixin_login_failed = "Weixin QR login failed: {{error}}"
 
 [api.backfill]
 log_store_unconfigured = "Raw-log addressing is not configured, so backfill is unavailable"

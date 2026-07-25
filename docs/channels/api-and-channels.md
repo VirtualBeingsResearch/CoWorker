@@ -7,9 +7,9 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.md)。
 
-所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream 或企业微信。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
+所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 
-向内置 Stream、Desktop 或企业微信信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
+向内置 Stream、Desktop、企业微信或微信 Claw 信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
 
 ## Channel 开发模型
 

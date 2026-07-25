@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 
 from loguru import logger
 
@@ -22,6 +23,18 @@ from coworker.i18n import tr
 _PARTICIPANT_SUGGESTION_DISTANCE = 4
 
 
+@dataclass(frozen=True)
+class PreparedChannelAction:
+    request: CommunicateRequest
+    result_note: str = ""
+
+
+ChannelActionHandler = Callable[
+    [CommunicateRequest],
+    Awaitable[PreparedChannelAction | ToolResult],
+]
+
+
 class ChannelRegistry:
     """Compose channels while leaving mutable transport state in their runtimes."""
 
@@ -30,6 +43,7 @@ class ChannelRegistry:
         self._fallback: BaseChannel | None = None
         self._inbound_handler: InboundHandler | None = None
         self._runtime_tasks: dict[int, asyncio.Task[None]] = {}
+        self._action_handlers: dict[str, ChannelActionHandler] = {}
 
     def register(self, channel: BaseChannel) -> None:
         issues = self._registration_issues(channel)
@@ -49,6 +63,17 @@ class ChannelRegistry:
     @property
     def is_running(self) -> bool:
         return bool(self._runtime_tasks)
+
+    def register_action(
+        self,
+        channel: str,
+        handler: ChannelActionHandler,
+    ) -> None:
+        if not channel.strip():
+            raise ValueError("channel action name is required")
+        if channel in self._action_handlers:
+            raise ValueError(f"channel action is already registered: {channel}")
+        self._action_handlers[channel] = handler
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
@@ -91,19 +116,55 @@ class ChannelRegistry:
         )
         if validation_error is not None:
             return validation_error
-        outbound, omitted = target.capabilities_for(canonical).filter(
+        prepared = await self._prepare_action(
             replace(request, participant_id=canonical)
         )
+        if isinstance(prepared, ToolResult):
+            return prepared
+        outbound, omitted = target.capabilities_for(canonical).filter(prepared.request)
         result = await target.send(outbound)
-        if result.is_error or not omitted:
+        if result.is_error:
             return result
+        notices = [prepared.result_note] if prepared.result_note else []
+        if not omitted:
+            return (
+                replace(result, content=f"{result.content}\n{prepared.result_note}")
+                if prepared.result_note
+                else result
+            )
         notice_key = (
             "tool_result.communicate.unsupported_message_only"
             if self._contains_only_message(outbound)
             else "tool_result.communicate.unsupported_omitted"
         )
-        notice = tr(notice_key, fields=", ".join(omitted))
-        return replace(result, content=f"{result.content}\n{notice}")
+        notices.append(tr(notice_key, fields=", ".join(omitted)))
+        return replace(result, content=f"{result.content}\n" + "\n".join(notices))
+
+    async def _prepare_action(
+        self,
+        request: CommunicateRequest,
+    ) -> PreparedChannelAction | ToolResult:
+        raw_action = request.extra.get("channel_action")
+        if raw_action is None:
+            return PreparedChannelAction(request)
+        if not isinstance(raw_action, dict):
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.communicate.channel_action_invalid"),
+                is_error=True,
+            )
+        channel = str(raw_action.get("channel") or "").strip()
+        handler = self._action_handlers.get(channel)
+        if handler is None:
+            return ToolResult(
+                tool_call_id="",
+                content=tr(
+                    "tool_result.communicate.channel_action_unknown",
+                    channel=channel,
+                ),
+                is_error=True,
+            )
+        return await handler(request)
 
     def list_connections(self) -> list[ConnectionInfo]:
         connections: list[ConnectionInfo] = []

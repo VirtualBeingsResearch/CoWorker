@@ -20,12 +20,26 @@ type BubbleChatMeta = {
   resumed: boolean;
 };
 
+type ChatAttachment = {
+  filename: string;
+  mediaType: string;
+  data: string;
+};
+
+type ChannelActionMeta = {
+  channel: string;
+  status: string;
+  sessionId: string;
+};
+
 type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
   createdAt: number;
   bubble?: BubbleChatMeta | null;
+  attachments?: ChatAttachment[];
+  channelAction?: ChannelActionMeta | null;
 };
 
 type ChatProfile = {
@@ -37,6 +51,9 @@ const CHAT_PROFILE_STORAGE_KEY = 'coworker-web-chat-profile';
 const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
 const MAX_STORED_MESSAGES = 160;
+const MAX_STORED_ATTACHMENT_CHARS = 600_000;
+const MAX_STORED_ATTACHMENT_TOTAL_CHARS = 1_200_000;
+const MAX_LIVE_ATTACHMENT_CHARS = 28_000_000;
 const BUBBLE_REPLY_PREFIX = '🫧 泡泡：';
 const COMPACT_ID_RE = /^[A-Za-z0-9_-]{12}$/;
 
@@ -122,12 +139,54 @@ function readBubbleMetadata(value: unknown): BubbleChatMeta | null {
   return { id, kind, phase, resumed: bubble.resumed === true };
 }
 
+function readChannelAction(value: unknown): ChannelActionMeta | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const action = value as Record<string, unknown>;
+  const channel = typeof action.channel === 'string' ? action.channel : '';
+  const status = typeof action.status === 'string' ? action.status : '';
+  const sessionId = typeof action.session_id === 'string' ? action.session_id : '';
+  return channel && status ? { channel, status, sessionId } : null;
+}
+
 function createMessage(
   role: ChatRole,
   content: string,
   bubble: BubbleChatMeta | null = null,
+  attachments: ChatAttachment[] = [],
+  channelAction: ChannelActionMeta | null = null,
 ): ChatMessage {
-  return { id: newId(), role, content, createdAt: Date.now(), bubble };
+  return {
+    id: newId(),
+    role,
+    content,
+    createdAt: Date.now(),
+    bubble,
+    attachments,
+    channelAction,
+  };
+}
+
+function readImageAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const attachment = item as Record<string, unknown>;
+    const mediaType = typeof attachment.media_type === 'string' ? attachment.media_type : '';
+    const data = typeof attachment.data === 'string' ? attachment.data : '';
+    if (
+      !/^image\/(?:png|jpe?g|gif|webp)$/i.test(mediaType)
+      || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
+      || !data
+      || data.length > MAX_LIVE_ATTACHMENT_CHARS
+    ) return [];
+    return [{
+      filename: typeof attachment.filename === 'string' && attachment.filename.trim()
+        ? attachment.filename.trim()
+        : t('图片'),
+      mediaType,
+      data,
+    }];
+  });
 }
 
 function loadChatHistory(clientId: string): ChatMessage[] {
@@ -145,10 +204,11 @@ function loadChatHistory(clientId: string): ChatMessage[] {
         typeof message.id !== 'string'
         || (message.role !== 'user' && message.role !== 'assistant')
         || typeof message.content !== 'string'
-        || !message.content.trim()
       ) {
         return [];
       }
+      const attachments = readImageAttachments(message.attachments);
+      if (!message.content.trim() && !attachments.length) return [];
 
       return [{
         id: message.id,
@@ -158,6 +218,8 @@ function loadChatHistory(clientId: string): ChatMessage[] {
           ? message.createdAt
           : Date.now(),
         bubble: readBubbleMetadata(message.bubble),
+        attachments,
+        channelAction: readChannelAction(message.channelAction),
       }];
     }).slice(-MAX_STORED_MESSAGES);
   } catch {
@@ -170,14 +232,21 @@ function participantIdFor(profile: ChatProfile): string {
   return `w:${profile.clientId}`;
 }
 
-function readOutboundMessage(raw: unknown): { content: string; bubble: BubbleChatMeta | null } {
+function readOutboundMessage(raw: unknown): {
+  content: string;
+  bubble: BubbleChatMeta | null;
+  attachments: ChatAttachment[];
+  channelAction: ChannelActionMeta | null;
+} {
   const text = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
-  if (!text) return { content: '', bubble: null };
+  if (!text) {
+    return { content: '', bubble: null, attachments: [], channelAction: null };
+  }
 
   try {
     const decoded: unknown = JSON.parse(text);
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
-      return { content: text, bubble: null };
+      return { content: text, bubble: null, attachments: [], channelAction: null };
     }
 
     const payload = decoded as Record<string, unknown>;
@@ -185,21 +254,40 @@ function readOutboundMessage(raw: unknown): { content: string; bubble: BubbleCha
       ? payload.extra as Record<string, unknown>
       : null;
     const bubble = readBubbleMetadata(extra?.bubble);
+    const channelAction = readChannelAction(extra?.channel_action);
+    const attachments = readImageAttachments(payload.attachments);
     const message = payload.message ?? payload.content;
-    if (typeof message === 'string' && message.trim()) {
-      return { content: message.trim(), bubble };
+    const content = typeof message === 'string' ? message.trim() : '';
+    if (content || attachments.length) {
+      return { content, bubble, attachments, channelAction };
     }
-
     if (Array.isArray(payload.attachments) && payload.attachments.length) {
       return {
-        content: t('收到了 {{count}} 个附件。', { count: payload.attachments.length }),
+        content: t('收到了暂不支持预览的附件。'),
         bubble,
+        attachments: [],
+        channelAction,
       };
     }
-    return { content: '', bubble };
+    return { content: '', bubble, attachments: [], channelAction };
   } catch {
-    return { content: text, bubble: null };
+    return { content: text, bubble: null, attachments: [], channelAction: null };
   }
+}
+
+function storedChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  let remaining = MAX_STORED_ATTACHMENT_TOTAL_CHARS;
+  return messages.slice(-MAX_STORED_MESSAGES).reverse().map(message => {
+    const attachments = (message.attachments || []).filter(attachment => {
+      if (
+        attachment.data.length > MAX_STORED_ATTACHMENT_CHARS
+        || attachment.data.length > remaining
+      ) return false;
+      remaining -= attachment.data.length;
+      return true;
+    });
+    return { ...message, attachments };
+  }).reverse();
 }
 
 function activeBubbleFromMessages(messages: ChatMessage[]): BubbleChatMeta | null {
@@ -280,7 +368,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     try {
       window.localStorage.setItem(
         historyKey(profile.clientId),
-        JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)),
+        JSON.stringify(storedChatMessages(messages)),
       );
     } catch {
       // 存储写入失败不影响在线收发。
@@ -318,8 +406,8 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
     source.onmessage = event => {
       if (disposed || eventSourceRef.current !== source) return;
-      const { content, bubble } = readOutboundMessage(event.data);
-      if (!content) return;
+      const { content, bubble, attachments, channelAction } = readOutboundMessage(event.data);
+      if (!content && !attachments.length) return;
 
       if (content.startsWith('连接被拒绝：')) {
         rejected = true;
@@ -331,7 +419,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
       setMessages(current => [
         ...current,
-        createMessage('assistant', content, bubble),
+        createMessage('assistant', content, bubble, attachments, channelAction),
       ].slice(-MAX_STORED_MESSAGES));
       if (bubble?.kind !== 'handoff') {
         setPendingReplies(current => Math.max(0, current - 1));
@@ -675,7 +763,20 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                           <code title={bubble.id}>{bubble.id}</code>
                         </span>
                       )}
-                      <span>{content}</span>
+                      {message.channelAction && <span className="channel-action-label">
+                        <strong>{t(message.channelAction.channel === 'weixin' ? '微信 Claw 连接' : '信道连接')}</strong>
+                        <em>{t(message.channelAction.status)}</em>
+                      </span>}
+                      {content && <span>{content}</span>}
+                      {!!message.attachments?.length && <div className="chat-message-images">
+                        {message.attachments.map((attachment, attachmentIndex) => {
+                          const source = `data:${attachment.mediaType};base64,${attachment.data}`;
+                          return <a href={source} target="_blank" rel="noreferrer" download={attachment.filename} key={`${attachment.filename}-${attachmentIndex}`}>
+                            <img src={source} alt={attachment.filename} loading="lazy" />
+                            <small>{attachment.filename}</small>
+                          </a>;
+                        })}
+                      </div>}
                     </article>
                   );
                 })}

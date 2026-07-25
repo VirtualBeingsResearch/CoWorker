@@ -10,3 +10,4 @@ This domain describes how Coworker receives external messages, replies to partic
 
 - [API and communication channels](api-and-channels.en.md): REST, SSE, WebSocket, file messages, and direct Bubble handoff.
 - [Coworker Desktop](desktop.en.md): the desktop workspace connecting local users, Codex, and Claude Code.
+- [Weixin Claw](weixin-claw.en.md): personal-Weixin QR pairing, multi-account isolation, administration, and agent-controlled invitations.

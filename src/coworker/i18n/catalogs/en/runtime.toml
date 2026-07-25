@@ -3,6 +3,7 @@ file = "file drop"
 rest = "REST API"
 websocket = "WebSocket"
 wecom = "WeCom"
+weixin = "Weixin"
 coworker_desktop = "desktop"
 bubble = "bubble"
 codex = "Codex"
@@ -92,6 +93,24 @@ quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}}{{type}} message (preview unavailable)]
 '''
+
+[channel.weixin]
+image = "[image]"
+voice = "[voice message without transcript]"
+file = "[file]"
+video = "[video]"
+unsupported = "[unsupported Weixin message]"
+config_missing = "Weixin Claw is enabled without a connection account; scan a QR code in the administration console"
+prepared = "Weixin Claw runtime prepared with {{count}} connection accounts"
+poll_failed = "Weixin Claw account {{account}} long poll failed: {{error}}"
+inbound_unhandled = "Dropped a Weixin Claw inbound event because no channel handler is configured"
+state_load_failed = "Failed to load Weixin Claw state: {{error}}"
+state_save_failed = "Failed to save Weixin Claw state: {{error}}"
+connection_invitation = '''Weixin Claw connection
+Open or scan this one-time QR code to add a ClawBot connection: {{url}}
+After it connects, send a message from Weixin. That first message creates a new participant; it is not automatically linked to this chat.'''
+connection_confirmed = "ClawBot connection {{account}} is ready. A Weixin contact's first message will create a new participant."
+connection_status = "Weixin connection status: {{status}}."
 
 [channel.desktop]
 command_rejected = "Command was not accepted"

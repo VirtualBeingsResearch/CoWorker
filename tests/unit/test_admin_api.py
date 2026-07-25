@@ -10,8 +10,11 @@ from fastapi.testclient import TestClient
 
 from coworker.api import admin
 from coworker.application import _print_setup_admin_token
+from coworker.channels.weixin.client import WeixinCredentials
 from coworker.core.config import (
     Config,
+    WeixinAccountConfig,
+    WeixinConfig,
     apply_admin_config_file,
     effective_admin_token,
     effective_communication_token,
@@ -37,6 +40,8 @@ def _client(
     desktop_update_sync=None,
     wecom: dict | None = None,
     wecom_runner=None,
+    weixin: dict | None = None,
+    weixin_runner=None,
 ):
     config = Config.model_validate(
         {
@@ -46,6 +51,7 @@ def _client(
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
+            "weixin": weixin or {},
         }
     )
     agent = SimpleNamespace(
@@ -73,6 +79,7 @@ def _client(
         desktop_update_sync=desktop_update_sync,
         wecom_runner=wecom_runner,
     )
+    admin.setup_weixin_admin(weixin_runner)
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
@@ -448,6 +455,76 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     applied = runner.reconfigure.await_args.args[0]
     assert applied.ws_url == "wss://wecom.example/ws"
     assert applied.secret == "existing"
+
+
+def test_weixin_qr_sessions_persist_masked_multi_account_credentials(tmp_path):
+    first_account_id = "7ad0bbf4-93d2-4807-94ca-f6de629095de"
+    runtime_config = WeixinConfig(
+        enabled=True,
+        accounts=[
+            WeixinAccountConfig(
+                id=first_account_id,
+                name="existing",
+                bot_id="bot-existing",
+                token="existing-secret",
+            )
+        ],
+    )
+    runner = SimpleNamespace(
+        config=runtime_config,
+        start_login=AsyncMock(
+            return_value={
+                "session_id": "4e75880f-282c-4389-8f9b-703e00fd268f",
+                "status": "wait",
+                "qrcode_data_url": "data:image/png;base64,abc",
+            }
+        ),
+        poll_login=AsyncMock(
+            return_value={
+                "status": "confirmed",
+                "credentials": WeixinCredentials(
+                    bot_id="bot-new",
+                    token="new-secret",
+                    user_id="weixin-owner",
+                ),
+            }
+        ),
+        reconfigure=AsyncMock(),
+    )
+    client, _ = _client(
+        tmp_path,
+        weixin=runtime_config.model_dump(mode="json"),
+        weixin_runner=runner,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    start = client.post("/api/admin/channels/weixin/login/start", headers=headers)
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    confirmed = client.post(
+        "/api/admin/channels/weixin/login/poll",
+        headers=headers,
+        json={"session_id": session_id, "verify_code": ""},
+    )
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+    runner.poll_login.assert_awaited_once_with(session_id, "")
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert len(saved["weixin"]["accounts"]) == 2
+    new_account = next(
+        account for account in saved["weixin"]["accounts"] if account["bot_id"] == "bot-new"
+    )
+    assert new_account["token"] == "new-secret"
+    assert new_account["weixin_user_id"] == "weixin-owner"
+
+    config_body = client.get("/api/admin/config", headers=headers).json()
+    assert all(not account.get("token") for account in config_body["config"]["weixin"]["accounts"])
+    assert config_body["secret_status"][f"weixin.accounts.{first_account_id}.token"] == {
+        "configured": True,
+        "last4": "cret",
+    }
 
 
 def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
