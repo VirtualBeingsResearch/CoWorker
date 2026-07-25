@@ -1255,6 +1255,12 @@ fn parse_event_msg(
                 "tool_call",
                 format_mcp_tool_call_end(payload)?,
             ),
+            "image_generation_end" => {
+                if extract_attachments(&Value::Object(payload.clone())).is_empty() {
+                    return None;
+                }
+                ("codex", "Codex", "message", String::new())
+            }
             "error" => (
                 "system",
                 "系统",
@@ -2641,6 +2647,32 @@ mod tests {
         let msg = parse_codex_message("thr", 0, &value, &mut HashMap::new()).expect("message");
         assert_eq!(msg.text, "[图片附件]");
         assert_eq!(msg.attachments[0].downloadable, false);
+    }
+
+    #[test]
+    fn generated_image_event_becomes_a_visible_codex_attachment() {
+        let value = json!({
+            "timestamp": "2026-07-23T10:00:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "image_generation_end",
+                "turn_id": "turn_image",
+                "result": {
+                    "saved_path": "C:\\Users\\Example\\.codex\\generated_images\\thread\\preview.png",
+                    "image_url": "data:image/png;base64,omitted"
+                }
+            }
+        });
+
+        let msg = parse_codex_message("thr", 0, &value, &mut HashMap::new()).expect("message");
+
+        assert_eq!(msg.author_kind, "codex");
+        assert_eq!(msg.kind, "message");
+        assert!(msg.text.is_empty());
+        assert_eq!(msg.attachments.len(), 1);
+        assert_eq!(msg.attachments[0].filename, "preview.png");
+        assert_eq!(msg.attachments[0].media_type, "image/png");
+        assert_eq!(msg.turn_id.as_deref(), Some("turn_image"));
     }
 
     #[test]
