@@ -19,6 +19,8 @@
   --admin-type-small: clamp(12px, calc(11.4px + .05vw), 13px);
   --admin-type-body: clamp(13px, calc(12.4px + .05vw), 14px);
   --admin-type-ui: clamp(14px, calc(13.4px + .04vw), 15px);
+  --admin-field-label-height: 18px;
+  --admin-field-gap: 7px;
 }
 
 html:has(.admin-shell),
@@ -903,9 +905,10 @@ html:has(.admin-login),
   box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent);
 }
 
-.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-.field { display: grid; gap: 7px; min-width: 0; }
-.field > span { display: flex; align-items: center; gap: 7px; color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 12px; font-weight: 650; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }
+.field { display: grid; align-self: start; align-content: start; gap: var(--admin-field-gap); min-width: 0; }
+.field > span { display: flex; align-items: center; gap: 7px; min-height: var(--admin-field-label-height); color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 12px; font-weight: 650; line-height: 1.5; }
+.field > :where(input, select, textarea) { box-sizing: border-box; width: 100%; }
 .field small { color: var(--admin-muted); font-size: 11px; line-height: 1.45; }
 .effect-badge { display: inline-flex; align-items: center; min-height: 19px; padding: 0 6px; border-radius: 5px; font: 8px var(--admin-data); font-style: normal; white-space: nowrap; }
 .effect-badge.hot { color: var(--admin-vital); background: var(--admin-soft); }
@@ -931,8 +934,8 @@ html:has(.admin-login),
 .subnav button:hover { color: var(--admin-ink); background: var(--admin-paper); }
 .subnav button.active { color: var(--admin-vital); background: var(--admin-soft); font-weight: 680; }
 .config-panel { max-width: 1020px; }
-.config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 17px; }
-.config-switch { align-self: center; }
+.config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 17px; }
+.config-switch { align-self: start; margin-top: calc(var(--admin-field-label-height) + var(--admin-field-gap)); }
 .config-fields .field:has(.code-area) { grid-column: 1 / -1; }
 .llm-config-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; margin-top: 17px; padding: 20px; border: 1px solid color-mix(in oklch, var(--admin-vital) 24%, var(--admin-line)); border-radius: 13px; background: linear-gradient(120deg, var(--admin-soft), var(--admin-surface) 68%); }
 .llm-config-copy { display: flex; align-items: flex-start; gap: 13px; }
@@ -971,7 +974,7 @@ html:has(.admin-login),
 .provider-row { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; align-items: start; padding: 18px 62px 18px 18px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
 .provider-row .field:nth-of-type(3) { grid-column: 1 / -1; }
 .provider-row .field > span { font-size: 11px; }
-.provider-row .field small { min-height: 16px; font-size: 10px; }
+.provider-row .field small { font-size: 10px; }
 .provider-remove { position: absolute; top: 14px; right: 14px; }
 .provider-empty { padding: 22px; border: 1px dashed var(--admin-line); border-radius: 11px; color: var(--admin-muted); background: var(--admin-paper); font-size: 11px; text-align: center; }
 .desktop-update-settings { display: grid; gap: 16px; margin-top: 17px; }
@@ -1017,9 +1020,6 @@ html:has(.admin-login),
 .desktop-source-form { display: grid; gap: 16px; margin-top: 16px; }
 .desktop-form-row { display: grid; gap: 16px; align-items: start; }
 .desktop-form-row.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.desktop-form-row .field { min-width: 0; }
-.desktop-form-row .field input,
-.desktop-form-row .field select { width: 100%; }
 .desktop-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .desktop-option-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; min-height: 72px; padding: 12px; border: 1px solid var(--admin-line); border-radius: 10px; background: var(--admin-paper); cursor: pointer; }
 .desktop-option-card input { grid-row: 1 / span 2; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--admin-vital); }
@@ -2232,6 +2232,7 @@ html:has(.admin-login),
   .identity-form { grid-template-columns: 1fr; }
   .config-fields .field,
   .identity-form .field { grid-column: auto !important; }
+  .config-switch { margin-top: 0; }
   .inline-add,
   .search-box,
   .log-filters { width: 100%; flex-wrap: wrap; }
