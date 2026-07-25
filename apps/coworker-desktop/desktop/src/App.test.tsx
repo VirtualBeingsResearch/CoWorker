@@ -248,7 +248,7 @@ async function openSessions(user: ReturnType<typeof userEvent.setup>) {
   const _user = user;
   const nav = screen.getByRole("navigation", { name: "Desktop Bridge views" });
   fireEvent.click(within(nav).getAllByRole("button")[2]);
-  await waitFor(() => expect(tauri.listDesktopConversations).toHaveBeenCalledWith("codex", "coworker_desktop.json", 120));
+  await waitFor(() => expect(tauri.listDesktopConversations).toHaveBeenCalledWith("codex", "coworker_desktop.json", 25));
   await waitFor(() => expect(screen.getAllByText("Bridge thread").length).toBeGreaterThan(0));
   void _user;
 }
@@ -864,6 +864,27 @@ describe("App backend operation wiring", () => {
     await waitFor(() => expect(tauri.copyDesktopAttachment).toHaveBeenCalledWith("D:\\tmp\\summary.md", "D:\\downloads\\summary.md"));
   });
 
+  it("loads conversation history in batches of 25", async () => {
+    const user = await renderApp(runningStatus);
+    vi.mocked(tauri.listDesktopConversations).mockImplementation(async (actorId) =>
+      actorId === "codex"
+        ? Array.from({ length: 25 }, (_, index) => ({
+            ...session,
+            conversation_id: index === 0 ? session.conversation_id : `thread-${index + 1}`,
+            title: index === 0 ? session.title : `Thread ${index + 1}`,
+          }))
+        : [],
+    );
+    await openSessions(user);
+
+    await user.click(await screen.findByRole("button", { name: "Load more conversations" }));
+
+    await waitFor(() => expect(tauri.listDesktopConversations)
+      .toHaveBeenLastCalledWith("codex", "coworker_desktop.json", 50));
+    expect(screen.queryByRole("button", { name: "Load more conversations" }))
+      .not.toBeInTheDocument();
+  });
+
   it("renders supported image attachments inline", async () => {
     const user = await renderApp(runningStatus);
     vi.mocked(tauri.readDesktopImagePreview).mockResolvedValue(
@@ -1148,7 +1169,7 @@ describe("App backend operation wiring", () => {
     expect(screen.queryByText(/comes from local history/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Session message")).toBeDisabled();
     expect(screen.getByRole("button", { name: /New conversation/ })).toBeDisabled();
-    expect(tauri.listDesktopConversations).toHaveBeenCalledWith("codex", "coworker_desktop.json", 120);
+    expect(tauri.listDesktopConversations).toHaveBeenCalledWith("codex", "coworker_desktop.json", 25);
     expect(tauri.sendDesktopMessage).not.toHaveBeenCalled();
   });
 

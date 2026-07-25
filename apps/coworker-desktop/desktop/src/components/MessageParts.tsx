@@ -1,17 +1,74 @@
 import { Bot, CheckCircle2, ChevronUp, FileDiff, Info, Lightbulb, ListChecks, MessageSquare, Sparkles, Terminal, Users, XCircle } from "lucide-react";
-import { isValidElement, useState, type JSX } from "react";
+import { isValidElement, useEffect, useState, type JSX } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { TimelineMessage } from "../lib/bridgeLogic";
 import { useI18n } from "../i18n";
+import { readDesktopImagePreview } from "../tauri";
 
 type MdProps<T extends keyof JSX.IntrinsicElements> = JSX.IntrinsicElements[T] & { node?: unknown };
 
-function safeUrlTransform(href: string) {
+function safeUrlTransform(href: string, key: string) {
   const trimmed = href.trim();
-  return /^(https?:|mailto:)/i.test(trimmed) ? trimmed : "";
+  if (/^(https?:|mailto:)/i.test(trimmed)) return trimmed;
+  return key === "src" && markdownLocalImagePath(trimmed) ? trimmed : "";
+}
+
+export function markdownLocalImagePath(source: string) {
+  let decoded: string;
+  try {
+    decoded = decodeURI(source.trim());
+  } catch {
+    return null;
+  }
+  if (/^\/[a-z]:\//i.test(decoded)) return decoded.slice(1);
+  if (/^[a-z]:[\\/]/i.test(decoded) || decoded.startsWith("/")) return decoded;
+  return null;
+}
+
+function imageMediaType(path: string) {
+  const extension = path.split(".").pop()?.toLowerCase();
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "svg") return "image/svg+xml";
+  return extension ? `image/${extension}` : "application/octet-stream";
+}
+
+function MarkdownImage({ node, src = "", alt = "", ...props }: MdProps<"img">) {
+  const localPath = markdownLocalImagePath(src);
+  const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
+  const [failedPath, setFailedPath] = useState("");
+
+  useEffect(() => {
+    if (!localPath) return;
+    let disposed = false;
+    let objectUrl = "";
+    setFailedPath("");
+    void readDesktopImagePreview(localPath)
+      .then((bytes) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: imageMediaType(localPath) }));
+        setPreview({ path: localPath, url: objectUrl });
+      })
+      .catch(() => {
+        if (!disposed) setFailedPath(localPath);
+      });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [localPath]);
+
+  if (!src) return alt ? <span className="messageImageUnavailable">{alt}</span> : null;
+  if (!localPath) return <img {...props} alt={alt} loading="lazy" src={src} />;
+  if (failedPath === localPath) {
+    return <span className="messageImageUnavailable" role="img" aria-label={alt}>{alt}</span>;
+  }
+  if (preview?.path !== localPath) {
+    return <span className="messageImageLoading" role="status" aria-label={alt} />;
+  }
+  return <img {...props} alt={alt} className="messageMarkdownImage" src={preview.url} />;
 }
 
 // Clamp every heading level into h4-h6 so headings never outgrow the chat
@@ -59,6 +116,7 @@ const markdownComponents: Components = {
   h5: MarkdownH5,
   h6: MarkdownH6,
   a: MarkdownLink,
+  img: MarkdownImage,
   pre: MarkdownPre,
 };
 

@@ -100,10 +100,13 @@ function sessionSubtitle(session: ActorConversation | null, t: Translate) {
 export function SessionsView({
   sessions,
   sessionsLoading,
+  hasMoreSessions,
+  loadingMoreSessions,
   selectedSessionId,
   onSelectSession,
   onNewSession,
   onRefreshSessions,
+  onLoadMoreSessions,
   selectedSession,
   editingSessionTitle,
   sessionTitleDraft,
@@ -151,10 +154,13 @@ export function SessionsView({
 }: {
   sessions: ActorConversation[];
   sessionsLoading: boolean;
+  hasMoreSessions: boolean;
+  loadingMoreSessions: boolean;
   selectedSessionId: string;
   onSelectSession: (threadId: string) => void;
   onNewSession: () => void;
   onRefreshSessions: () => void;
+  onLoadMoreSessions: () => void;
   selectedSession: ActorConversation | null;
   editingSessionTitle: boolean;
   sessionTitleDraft: string;
@@ -265,8 +271,9 @@ export function SessionsView({
           {sessionsLoading && !sessions.length ? (
             <div className="emptyLedger">{t("sessions.loadingSessions")}</div>
           ) : sessions.length ? (
-            sessions.map((session) => (
-              <button
+            <>
+              {sessions.map((session) => (
+                <button
                 className={session.conversation_id === selectedSessionId ? "sessionListItem active" : "sessionListItem"}
                 key={session.conversation_id}
                 onClick={() => onSelectSession(session.conversation_id)}
@@ -282,8 +289,19 @@ export function SessionsView({
                     {formatSessionTime(session.updated_at ?? "")} · {session.writable ? t("actors.continueAvailable") : t("actors.readOnlyHistory")}
                   </small>
                 </span>
-              </button>
-            ))
+                </button>
+              ))}
+              {hasMoreSessions && (
+                <button
+                  className="loadMoreSessionsButton"
+                  disabled={loadingMoreSessions}
+                  onClick={onLoadMoreSessions}
+                  type="button"
+                >
+                  {loadingMoreSessions ? t("sessions.loadingMore") : t("sessions.loadMore")}
+                </button>
+              )}
+            </>
           ) : (
             <div className="emptyLedger">{presentation?.noSessionsLabel ?? t("sessions.noSessionsFound")}</div>
           )}

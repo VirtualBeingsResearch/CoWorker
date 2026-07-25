@@ -357,6 +357,8 @@ export const en = {
   "sessions.newBridgeSession": "New bridge session",
   "sessions.newNeedsConnection": "Start the Bridge before creating a session.",
   "sessions.loadingSessions": "Loading sessions...",
+  "sessions.loadMore": "Load more conversations",
+  "sessions.loadingMore": "Loading more…",
   "sessions.noSessionsFound": "No Codex sessions found.",
   "sessions.eyebrowBridgeSession": "Bridge Session",
   "sessions.eyebrowReadOnly": "Read Only",

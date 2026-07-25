@@ -160,6 +160,15 @@ pub fn list_sessions(
 ) -> Result<Vec<SessionSummary>> {
     let persisted_owned = owned_thread_ids_from_state(config);
     let session_files = collect_session_files_once(config)?;
+    let mut index_entries = read_session_index(config)?;
+    index_entries.sort_by(|left, right| {
+        timestamp_sort_key(&right.updated_at).cmp(&timestamp_sort_key(&left.updated_at))
+    });
+    let index_titles = index_entries
+        .iter()
+        .filter(|entry| !entry.title.trim().is_empty())
+        .map(|entry| (entry.thread_id.clone(), entry.title.clone()))
+        .collect::<HashMap<_, _>>();
     let mut summaries = Vec::new();
     let mut seen = HashSet::new();
 
@@ -176,10 +185,19 @@ pub fn list_sessions(
             .flatten();
         let owned = is_owned_by_bridge(&thread_id, meta.as_ref(), &persisted_owned, &runtime);
         seen.insert(thread_id.clone());
-        summaries.push(summary_from_thread(config, obj, meta, owned, &runtime));
+        summaries.push(summary_from_thread(
+            config,
+            obj,
+            meta,
+            owned,
+            &runtime,
+            &index_titles,
+            &session_files,
+        ));
     }
 
-    for entry in read_session_index(config)?.into_iter() {
+    let mut indexed_candidates = 0;
+    for entry in index_entries {
         if seen.contains(&entry.thread_id) {
             continue;
         }
@@ -188,11 +206,23 @@ pub fn list_sessions(
             .flatten();
         let owned = is_owned_by_bridge(&entry.thread_id, meta.as_ref(), &persisted_owned, &runtime);
         seen.insert(entry.thread_id.clone());
-        summaries.push(summary_from_index(config, entry, meta, owned, &runtime));
+        summaries.push(summary_from_index(
+            config,
+            entry,
+            meta,
+            owned,
+            &runtime,
+            &session_files,
+        ));
+        indexed_candidates += 1;
+        if indexed_candidates >= limit.max(1) {
+            break;
+        }
     }
 
     let mut recovered = 0;
-    for path in session_files.iter().rev() {
+    let recovery_candidates = limit.max(1).saturating_mul(4).max(64);
+    for path in session_files.iter().rev().take(recovery_candidates) {
         if recovered >= limit.max(1) {
             break;
         }
@@ -222,6 +252,7 @@ pub fn list_sessions(
             Some(meta),
             true,
             &runtime,
+            &session_files,
         ));
         recovered += 1;
     }
@@ -238,7 +269,13 @@ pub fn list_sessions(
             continue;
         }
         seen.insert(thread_id.clone());
-        summaries.push(fallback_summary(config, thread_id, &runtime));
+        summaries.push(fallback_summary(
+            config,
+            thread_id,
+            &runtime,
+            &session_files,
+            &persisted_owned,
+        ));
     }
 
     summaries.sort_by(|left, right| {
@@ -256,17 +293,24 @@ pub fn get_session_detail(
     runtime: RuntimeSessionState,
     page_size: usize,
 ) -> Result<SessionDetail> {
+    let session_files = collect_session_files_once(config)?;
+    let persisted_owned = owned_thread_ids_from_state(config);
     let summary = match read_session_index(config)?
         .into_iter()
         .find(|entry| entry.thread_id == thread_id)
     {
         Some(entry) => {
-            let meta = read_session_meta(config, thread_id)?;
-            let persisted_owned = owned_thread_ids_from_state(config);
+            let meta = read_session_meta_from_index(&session_files, thread_id)?;
             let owned = is_owned_by_bridge(thread_id, meta.as_ref(), &persisted_owned, &runtime);
-            summary_from_index(config, entry, meta, owned, &runtime)
+            summary_from_index(config, entry, meta, owned, &runtime, &session_files)
         }
-        None => fallback_summary(config, thread_id, &runtime),
+        None => fallback_summary(
+            config,
+            thread_id,
+            &runtime,
+            &session_files,
+            &persisted_owned,
+        ),
     };
     let page = load_session_messages(config, thread_id, None, page_size)?;
     Ok(SessionDetail {
@@ -551,6 +595,8 @@ fn summary_from_thread(
     meta: Option<SessionMeta>,
     owned: bool,
     runtime: &RuntimeSessionState,
+    index_titles: &HashMap<String, String>,
+    session_files: &[PathBuf],
 ) -> SessionSummary {
     let thread_id = first_string(Some(obj), &["id", "thread_id", "threadId"]).unwrap_or_default();
     let project = obj
@@ -566,16 +612,10 @@ fn summary_from_thread(
         .unwrap_or_else(|| "unknown".to_owned());
     SessionSummary {
         title: first_string(Some(obj), &["name", "preview", "title"])
-            .or_else(|| {
-                read_session_index(config).ok().and_then(|entries| {
-                    entries
-                        .into_iter()
-                        .find(|entry| entry.thread_id == thread_id)
-                        .map(|entry| entry.title)
-                        .filter(|title| !title.trim().is_empty())
-                })
-            })
-            .unwrap_or_else(|| fallback_session_title(config, &thread_id)),
+            .or_else(|| index_titles.get(&thread_id).cloned())
+            .unwrap_or_else(|| {
+                fallback_session_title_from_files(&thread_id, session_files)
+            }),
         project_id: project_id_from_thread(obj, project, meta.as_ref()),
         project_name: project_name_from_thread(obj, project, meta.as_ref()),
         project_path: project_path_from_thread(obj, project, meta.as_ref()),
@@ -606,6 +646,7 @@ fn summary_from_index(
     meta: Option<SessionMeta>,
     owned: bool,
     runtime: &RuntimeSessionState,
+    session_files: &[PathBuf],
 ) -> SessionSummary {
     let status = runtime
         .thread_status
@@ -615,7 +656,7 @@ fn summary_from_index(
     SessionSummary {
         thread_id: entry.thread_id.clone(),
         title: if entry.title.trim().is_empty() {
-            fallback_session_title(config, &entry.thread_id)
+            fallback_session_title_from_files(&entry.thread_id, session_files)
         } else {
             entry.title
         },
@@ -654,13 +695,16 @@ fn fallback_summary(
     config: &BridgeConfig,
     thread_id: &str,
     runtime: &RuntimeSessionState,
+    session_files: &[PathBuf],
+    persisted: &HashSet<String>,
 ) -> SessionSummary {
-    let meta = read_session_meta(config, thread_id).ok().flatten();
-    let persisted = owned_thread_ids_from_state(config);
-    let owned = is_owned_by_bridge(thread_id, meta.as_ref(), &persisted, runtime);
+    let meta = read_session_meta_from_index(session_files, thread_id)
+        .ok()
+        .flatten();
+    let owned = is_owned_by_bridge(thread_id, meta.as_ref(), persisted, runtime);
     SessionSummary {
         thread_id: thread_id.to_owned(),
-        title: fallback_session_title(config, thread_id),
+        title: fallback_session_title_from_files(thread_id, session_files),
         project_id: meta.as_ref().and_then(|m| m.cwd.clone()),
         project_name: meta
             .as_ref()
@@ -688,15 +732,27 @@ fn fallback_summary(
     }
 }
 
+#[cfg(test)]
 fn fallback_session_title(config: &BridgeConfig, thread_id: &str) -> String {
-    first_session_prompt(config, thread_id).unwrap_or_else(|| {
+    let session_files = collect_session_files_once(config).unwrap_or_default();
+    fallback_session_title_from_files(thread_id, &session_files)
+}
+
+fn fallback_session_title_from_files(
+    thread_id: &str,
+    session_files: &[PathBuf],
+) -> String {
+    first_session_prompt_from_files(thread_id, session_files).unwrap_or_else(|| {
         let short_id = thread_id.chars().take(12).collect::<String>();
         format!("Codex {short_id}")
     })
 }
 
-fn first_session_prompt(config: &BridgeConfig, thread_id: &str) -> Option<String> {
-    let path = find_session_file(config, thread_id).ok().flatten()?;
+fn first_session_prompt_from_files(
+    thread_id: &str,
+    session_files: &[PathBuf],
+) -> Option<String> {
+    let path = latest_session_file_for_thread(session_files, thread_id)?;
     let file = fs::File::open(path).ok()?;
     let mut call_names = HashMap::new();
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
@@ -2429,6 +2485,34 @@ mod tests {
 
         assert_eq!(sessions[0].thread_id, "old_index_new_overlay");
         assert_eq!(sessions[1].thread_id, "new_index");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_sessions_only_materializes_the_requested_latest_index_entries() {
+        let root = std::env::temp_dir().join(format!("session-page-test-{}", now_millis()));
+        let cfg = test_config(&root);
+        fs::create_dir_all(&cfg.codex_home_dir).expect("codex home");
+        let entries = (0..40)
+            .map(|index| {
+                format!(
+                    r#"{{"id":"session-{index:02}","thread_name":"Session {index:02}","updated_at":"{index}"}}"#,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(
+            Path::new(&cfg.codex_home_dir).join("session_index.jsonl"),
+            entries,
+        )
+        .expect("index");
+
+        let sessions =
+            list_sessions(&cfg, &[], RuntimeSessionState::default(), 25).expect("sessions");
+
+        assert_eq!(sessions.len(), 25);
+        assert_eq!(sessions[0].thread_id, "session-39");
+        assert_eq!(sessions[24].thread_id, "session-15");
         let _ = fs::remove_dir_all(root);
     }
 

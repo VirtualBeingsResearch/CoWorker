@@ -338,6 +338,8 @@ export const zh: Dict = {
   "sessions.newBridgeSession": "新建 Bridge 会话",
   "sessions.newNeedsConnection": "启动 Bridge 后才能创建新会话。",
   "sessions.loadingSessions": "正在加载会话...",
+  "sessions.loadMore": "加载更多会话",
+  "sessions.loadingMore": "正在加载更多…",
   "sessions.noSessionsFound": "没有找到 Codex 会话。",
   "sessions.eyebrowBridgeSession": "Bridge Session",
   "sessions.eyebrowReadOnly": "Read Only",

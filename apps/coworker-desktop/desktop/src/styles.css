@@ -2041,6 +2041,56 @@ p {
   text-underline-offset: 3px;
 }
 
+.loadMoreSessionsButton {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+  min-height: 36px;
+  width: 100%;
+}
+
+.loadMoreSessionsButton:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.messageMarkdownImage,
+.messageImageLoading,
+.messageImageUnavailable {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: block;
+  max-width: min(100%, 640px);
+}
+
+.messageMarkdownImage {
+  background: var(--surface-muted);
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.messageImageLoading {
+  animation: imagePreviewPulse 1.4s ease-in-out infinite;
+  background: var(--surface-muted);
+  height: 180px;
+}
+
+.messageImageUnavailable {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 18px;
+}
+
+@keyframes imagePreviewPulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .messageText hr {
   border: 0;
   border-top: 1px solid var(--border);

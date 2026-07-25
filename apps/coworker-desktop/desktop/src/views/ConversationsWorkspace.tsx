@@ -5,8 +5,9 @@ import {
   applyActorStreamEvent,
   conversationTitleFromMessage,
   groupToolMessages,
+  localSessionListPageSize,
   mergeMessages,
-  sessionListLimit,
+  sessionListPageSize,
   sessionMessagePageSize,
   type BubbleTimelineMeta,
   type FeedbackTone,
@@ -111,12 +112,15 @@ function ConversationController({
   onActiveConversationChange,
 }: Omit<WorkspaceProps, "status"> & { actor: DesktopActorId; running: boolean }) {
   const { t } = useI18n();
+  const sessionPageSize = actor === "local" ? localSessionListPageSize : sessionListPageSize;
   const actorLabel = actor === "codex" ? t("actors.codex") : actor === "claude" ? t("actors.claude") : t("actors.local");
   const [sessions, setSessions] = useState<ActorConversation[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [messages, setMessages] = useState<TimelineMessage[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(false);
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [loadingMoreSessions, setLoadingMoreSessions] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -138,6 +142,7 @@ function ConversationController({
   const composerModeRef = useLatest(composerMode);
   const attachmentsRef = useLatest(attachments);
   const listRequestRef = useRef(0);
+  const sessionLimitRef = useRef(sessionPageSize);
   const messagesRequestRef = useRef(0);
   const sessionsLoadedRef = useRef(false);
   const conversationCacheRef = useRef(new Map<string, CachedConversation>());
@@ -199,12 +204,20 @@ function ConversationController({
     return true;
   }
 
-  const refreshSessions = useCallback(async (preserve?: ActorConversation) => {
+  const refreshSessions = useCallback(async (
+    preserve?: ActorConversation,
+    requestedLimit = sessionLimitRef.current,
+    loadingMore = false,
+  ) => {
     const requestId = ++listRequestRef.current;
     setListLoading(true);
     try {
-      const listed = await listDesktopConversations(actor, configPath, sessionListLimit);
+      const listed = await listDesktopConversations(actor, configPath, requestedLimit);
       if (requestId !== listRequestRef.current) return;
+      setHasMoreSessions(
+        listed.length === requestedLimit
+        && (!loadingMore || listed.length > sessionsRef.current.length),
+      );
       const next = preserve
         ? listed.some((session) => session.conversation_id === preserve.conversation_id)
           ? listed.map((session) => session.conversation_id === preserve.conversation_id
@@ -294,9 +307,26 @@ function ConversationController({
 
   useEffect(() => {
     sessionsLoadedRef.current = false;
+    sessionLimitRef.current = sessionPageSize;
+    setHasMoreSessions(false);
     conversationCacheRef.current.clear();
     displayedConversationRef.current = null;
-  }, [actor, configPath]);
+  }, [actor, configPath, sessionPageSize]);
+
+  async function loadMoreSessions() {
+    const previousLimit = sessionLimitRef.current;
+    const nextLimit = previousLimit + sessionPageSize;
+    sessionLimitRef.current = nextLimit;
+    setLoadingMoreSessions(true);
+    try {
+      await refreshSessions(undefined, nextLimit, true);
+    } catch (error) {
+      sessionLimitRef.current = previousLimit;
+      throw error;
+    } finally {
+      setLoadingMoreSessions(false);
+    }
+  }
 
   useEffect(() => {
     if (!active) return;
@@ -632,6 +662,8 @@ function ConversationController({
   return <SessionsView
     sessions={sessions}
     sessionsLoading={listLoading}
+    hasMoreSessions={hasMoreSessions}
+    loadingMoreSessions={loadingMoreSessions}
     selectedSessionId={selectedId}
     onSelectSession={selectConversation}
     onNewSession={newConversation}
@@ -639,6 +671,7 @@ function ConversationController({
       refreshSessions(),
       selectedId ? loadConversation(selectedId) : Promise.resolve(),
     ]).catch(feedback.error)}
+    onLoadMoreSessions={() => void loadMoreSessions().catch(feedback.error)}
     selectedSession={selected}
     editingSessionTitle={editingTitle}
     sessionTitleDraft={titleDraft}
