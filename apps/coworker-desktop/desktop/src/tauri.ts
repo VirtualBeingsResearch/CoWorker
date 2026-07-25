@@ -2,6 +2,11 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow, type DragDropEvent } from "@tauri-apps/api/window";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import {
+  disable as disableLaunchAtLogin,
+  enable as enableLaunchAtLogin,
+  isEnabled as isLaunchAtLoginEnabled,
+} from "@tauri-apps/plugin-autostart";
 import fileDragIcon from "../src-tauri/icons/32x32.png";
 
 const DEFAULT_LOG_MAX_BYTES = 512 * 1024;
@@ -133,6 +138,7 @@ export type ConfigValue = {
   approvals_reviewer?: ApprovalsReviewer;
   approval_timeout_seconds?: number;
   close_to_tray?: boolean;
+  start_bridge_on_launch?: boolean;
   coworkers?: BridgeCoworker[];
   [key: string]: unknown;
 };
@@ -213,6 +219,12 @@ export function setTrayCopy(copy: {
 
 export function setCloseToTray(enabled: boolean): Promise<void> {
   return invoke("set_close_to_tray", { enabled });
+}
+
+export { isLaunchAtLoginEnabled };
+
+export function setLaunchAtLogin(enabled: boolean): Promise<void> {
+  return enabled ? enableLaunchAtLogin() : disableLaunchAtLogin();
 }
 
 export function listenCloseToTrayChoice(handler: () => void): Promise<UnlistenFn> {

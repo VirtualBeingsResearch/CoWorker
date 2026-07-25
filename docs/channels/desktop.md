@@ -110,6 +110,8 @@ Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` part
 
 Tauri 桌面版位于 `apps/coworker-desktop/desktop`，Rust 入口位于 `apps/coworker-desktop/desktop/src-tauri`。CLI/bridge 核心位于 `apps/coworker-desktop/bridge`。
 
+桌面端设置提供“登录系统时启动 CoWorker”和“打开 CoWorker 时启动 Bridge”两个独立开关。前者在 Windows、macOS 和 Linux 注册系统启动项，并在自动启动时将主窗口隐藏到托盘；后者把 `start_bridge_on_launch=true` 保存到 `coworker_desktop.json`，由桌面后端在每次启动时直接加载当前配置并启动 Bridge。若要实现开机后后台自动连接，需要同时开启这两个选项。
+
 ## 产品版本管理
 
 仓库使用根目录 `VERSION` 作为唯一产品版本源。Coworker Python 包、Rust workspace、Coworker Desktop、Web 包和 Tauri 配置都必须与它保持一致。
