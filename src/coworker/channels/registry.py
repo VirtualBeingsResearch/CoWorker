@@ -19,6 +19,8 @@ from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
+_PARTICIPANT_SUGGESTION_DISTANCE = 4
+
 
 class ChannelRegistry:
     """Compose channels while leaving mutable transport state in their runtimes."""
@@ -82,6 +84,13 @@ class ChannelRegistry:
                 content=tr("tool_result.communicate.no_channel", participant=request.participant_id),
                 is_error=True,
             )
+        validation_error = self._participant_validation_error(
+            requested=request.participant_id,
+            canonical=canonical,
+            target=target,
+        )
+        if validation_error is not None:
+            return validation_error
         outbound, omitted = target.capabilities_for(canonical).filter(
             replace(request, participant_id=canonical)
         )
@@ -101,6 +110,65 @@ class ChannelRegistry:
         for channel in self._channels:
             connections.extend(channel.list_connections())
         return connections
+
+    def _participant_validation_error(
+        self,
+        *,
+        requested: str,
+        canonical: str,
+        target: BaseChannel,
+    ) -> ToolResult | None:
+        if not target.requires_known_participant:
+            return None
+
+        known_ids = sorted(
+            {
+                participant_id
+                for channel in self._channels
+                for participant_id in channel.known_participant_ids()
+            }
+        )
+        if canonical in known_ids:
+            return None
+
+        suggestions = self._similar_participant_ids(requested, known_ids)
+        if suggestions:
+            content = tr(
+                "tool_result.communicate.participant_similar",
+                participant=requested,
+                max_distance=_PARTICIPANT_SUGGESTION_DISTANCE,
+                options="\n".join(f"  - {participant_id}" for participant_id in suggestions),
+            )
+        else:
+            content = tr(
+                "tool_result.communicate.participant_unknown",
+                participant=requested,
+            )
+        return ToolResult(tool_call_id="", content=content, is_error=True)
+
+    @staticmethod
+    def _similar_participant_ids(
+        participant_id: str,
+        known_ids: list[str],
+    ) -> list[str]:
+        ranked: list[tuple[int, str]] = []
+        for known_id in known_ids:
+            aliases = {known_id, known_id.rsplit(":", maxsplit=1)[-1]}
+            distances = [
+                distance
+                for alias in aliases
+                if (
+                    distance := _bounded_edit_distance(
+                        participant_id,
+                        alias,
+                        _PARTICIPANT_SUGGESTION_DISTANCE,
+                    )
+                )
+                is not None
+            ]
+            if distances:
+                ranked.append((min(distances), known_id))
+        return [known_id for _, known_id in sorted(ranked)]
 
     def record_received(self, participant_id: str) -> None:
         _, channel = self._resolve(participant_id)
@@ -256,3 +324,29 @@ class ChannelRegistry:
         error = task.exception()
         if error is not None:
             logger.error(f"Channel runtime exited with error: {error}")
+
+
+def _bounded_edit_distance(left: str, right: str, limit: int) -> int | None:
+    if abs(len(left) - len(right)) > limit:
+        return None
+    if len(left) > len(right):
+        left, right = right, left
+
+    previous = list(range(len(left) + 1))
+    for right_index, right_character in enumerate(right, start=1):
+        current = [right_index]
+        for left_index, left_character in enumerate(left, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[left_index] + 1,
+                    previous[left_index - 1]
+                    + (left_character != right_character),
+                )
+            )
+        if min(current) > limit:
+            return None
+        previous = current
+
+    distance = previous[-1]
+    return distance if distance <= limit else None

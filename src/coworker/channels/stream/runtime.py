@@ -17,7 +17,12 @@ from coworker.channels.stream.registration import (
     build_registration,
     next_participant_id,
 )
-from coworker.core.types import AttachmentData, CommunicateRequest, ToolResult
+from coworker.core.types import (
+    AttachmentData,
+    CommunicateRegistration,
+    CommunicateRequest,
+    ToolResult,
+)
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -141,7 +146,7 @@ class StreamRuntime:
             for item in self._registrations.load()
         ]
 
-    def registration_records(self) -> list:
+    def registration_records(self) -> list[CommunicateRegistration]:
         return self._registrations.load()
 
     def delete_registration(self, registration_id: str) -> dict[str, Any]:
@@ -207,15 +212,32 @@ class StreamRuntime:
             )
 
     def list_connections(self) -> list[ConnectionInfo]:
+        live_ids = set(self._pool.list_live_stream_participant_ids())
+        registrations = {
+            registration.participant_id: registration
+            for registration in self._registrations.load()
+            if registration.participant_id
+        }
+        participant_ids = list(registrations)
+        participant_ids.extend(sorted(live_ids - registrations.keys()))
+
         connections: list[ConnectionInfo] = []
-        for participant_id in self._pool.list_live_stream_participant_ids():
+        for participant_id in participant_ids:
+            registration = registrations.get(participant_id)
             last_sent_at, last_received_at = self._activity.activity_for(participant_id)
             connections.append(
                 ConnectionInfo(
                     participant_id=participant_id,
                     channel="stream",
-                    kind=self._pool.live_stream_transport(participant_id) or "websocket",
-                    active=True,
+                    kind=(
+                        registration.kind
+                        if registration is not None
+                        else self._pool.live_stream_transport(participant_id) or "websocket"
+                    ),
+                    display_name=(
+                        registration.display_name if registration is not None else ""
+                    ),
+                    active=participant_id in live_ids,
                     last_sent_at=last_sent_at,
                     last_received_at=last_received_at,
                 )

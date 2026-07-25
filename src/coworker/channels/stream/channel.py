@@ -18,6 +18,7 @@ class StreamChannel(BaseChannel):
 
     name = "stream"
     participant_prefix = ""
+    requires_known_participant = True
 
     def __init__(self, runtime: StreamRuntime) -> None:
         super().__init__(runtime=runtime)
@@ -85,6 +86,13 @@ class StreamChannel(BaseChannel):
         for profile in self._profiles:
             connections.extend(profile.list_connections(self.runtime))
         return connections
+
+    def known_participant_ids(self) -> set[str]:
+        return {
+            connection.participant_id
+            for connection in self.runtime.list_connections()
+            if connection.participant_id
+        } | super().known_participant_ids()
 
     def record_received(self, participant_id: str) -> None:
         self.runtime.record_received(participant_id)

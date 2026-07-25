@@ -9,6 +9,7 @@
 - fix(memory): keep Mem0 configuration provider names within its validated API dialects while replacing their implementations with Coworker endpoint and TLS adapters
 - fix(desktop): use complete GitHub release-asset digests to detect identical or conflicting imported releases before downloading binaries, while retaining download verification for legacy APIs without digests
 - fix(channels): persist participant last-sent and last-received timestamps in a shared Channel activity store so connection context survives application restarts
+- fix(channels): reject unknown built-in participant IDs without sending or auto-correcting them, suggest complete known IDs only within four edits, and retain offline registered Stream participants as valid outbox targets
 - feat(wecom): keep the WeCom Channel runtime registered while disabled or incomplete, and hot-apply admin configuration by enabling, disabling, or reconnecting its WebSocket without restarting Coworker
 - fix(admin): continue filtered lifetime-history searches across empty bounded scan windows until a match or the beginning of retained history is reached
 - fix(wecom): stop emitting unsupported member-mention markers or advertising `mentioned_list`, omit unnecessary `conversation_id` values from direct messages, keep group sends without `conversation_id` proactive, and preserve native stream replies and plain Markdown delivery

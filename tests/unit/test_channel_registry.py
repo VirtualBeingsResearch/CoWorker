@@ -29,10 +29,12 @@ class _FakeChannel(BaseChannel):
         resolver=None,
         live: tuple[str, ...] = (),
         runtime=None,
+        requires_known_participant: bool = False,
     ) -> None:
         super().__init__(runtime=runtime or self)
         self.name = name
         self.participant_prefix = prefix
+        self.requires_known_participant = requires_known_participant
         self._supports_extra = supports_extra
         self._resolver = resolver or (lambda participant_id: None)
         self._live = set(live)
@@ -72,6 +74,9 @@ class _FakeChannel(BaseChannel):
             )
             for participant_id in self._live
         ]
+
+    def known_participant_ids(self) -> set[str]:
+        return set(self._live)
 
     async def start(self) -> None:
         self.started = True
@@ -352,6 +357,72 @@ async def test_no_prefix_no_match_falls_back_to_stream(registry: ChannelRegistry
     await registry.send(CommunicateRequest(participant_id="unknown_user", message="hello"))
 
     assert stream.sent and stream.sent[0].participant_id == "unknown_user"
+
+
+@pytest.mark.asyncio
+async def test_known_participant_channel_rejects_close_id_without_sending(
+    registry: ChannelRegistry,
+) -> None:
+    channel = _FakeChannel(
+        "strict",
+        "",
+        live=("target-abcd",),
+        requires_known_participant=True,
+    )
+    registry.register(channel)
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="target-wxyz", message="hello")
+    )
+
+    assert result.is_error
+    assert "target-abcd" in result.content
+    assert "不会自动纠正或发送" in result.content
+    assert channel.sent == []
+
+
+@pytest.mark.asyncio
+async def test_known_participant_channel_treats_distance_above_four_as_unknown(
+    registry: ChannelRegistry,
+) -> None:
+    channel = _FakeChannel(
+        "strict",
+        "",
+        live=("target-abcde",),
+        requires_known_participant=True,
+    )
+    registry.register(channel)
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="target-vwxyz", message="hello")
+    )
+
+    assert result.is_error
+    assert "target-abcde" not in result.content
+    assert "list_connections" in result.content
+    assert channel.sent == []
+
+
+@pytest.mark.asyncio
+async def test_known_participant_channel_lists_all_close_ids_without_guessing(
+    registry: ChannelRegistry,
+) -> None:
+    channel = _FakeChannel(
+        "strict",
+        "",
+        live=("member-aaaa", "member-aaab"),
+        requires_known_participant=True,
+    )
+    registry.register(channel)
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="member-bbbb", message="hello")
+    )
+
+    assert result.is_error
+    assert "member-aaaa" in result.content
+    assert "member-aaab" in result.content
+    assert channel.sent == []
 
 
 def test_supports_extra_follows_selected_transport(registry: ChannelRegistry) -> None:

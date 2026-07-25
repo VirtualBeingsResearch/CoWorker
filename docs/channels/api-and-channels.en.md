@@ -9,6 +9,8 @@
 
 All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream or WeCom. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
 
+When sending through the built-in Stream, Desktop, or WeCom channels, `communicate` accepts only complete participant IDs present in `list_connections` (an exact shorthand explicitly supported by a channel remains valid). An unknown ID is never corrected automatically and no message is sent. If it is within an edit distance of four characters from a known ID, the tool lists similar complete IDs for the model to choose from; otherwise it treats the ID as nonexistent and asks the model to call `list_connections` again. A registered Stream participant remains known while offline and can still receive outbox delivery.
+
 ## Channel development model
 
 `from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
