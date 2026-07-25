@@ -41,12 +41,12 @@ class CoworkerOpenAILLM(OpenAILLM):
 
 def register_mem0_adapters() -> None:
     LlmFactory.register_provider(
-        "coworker_anthropic",
+        "anthropic",
         "coworker.memory.mem0_adapters.CoworkerAnthropicLLM",
         AnthropicConfig,
     )
     LlmFactory.register_provider(
-        "coworker_openai",
+        "openai",
         "coworker.memory.mem0_adapters.CoworkerOpenAILLM",
         OpenAIConfig,
     )

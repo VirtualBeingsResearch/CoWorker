@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from coworker.memory.mem0_adapters import CoworkerAnthropicLLM, CoworkerOpenAILLM
+from mem0.configs.llms.anthropic import AnthropicConfig
+from mem0.configs.llms.openai import OpenAIConfig
+from mem0.utils.factory import LlmFactory
+
+from coworker.memory.mem0_adapters import (
+    CoworkerAnthropicLLM,
+    CoworkerOpenAILLM,
+    register_mem0_adapters,
+)
 
 
 def test_openai_adapter_ignores_openrouter_environment(monkeypatch) -> None:
@@ -29,3 +37,16 @@ def test_anthropic_adapter_applies_custom_base_url() -> None:
 
     assert str(llm.client.base_url) == "https://anthropic.example.test"
     assert llm.config.model == "vendor-model"
+
+
+def test_adapters_replace_mem0_supported_provider_implementations() -> None:
+    register_mem0_adapters()
+
+    assert LlmFactory.provider_to_class["openai"] == (
+        "coworker.memory.mem0_adapters.CoworkerOpenAILLM",
+        OpenAIConfig,
+    )
+    assert LlmFactory.provider_to_class["anthropic"] == (
+        "coworker.memory.mem0_adapters.CoworkerAnthropicLLM",
+        AnthropicConfig,
+    )

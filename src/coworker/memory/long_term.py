@@ -31,7 +31,7 @@ class LongTermLLMConfig:
         config = {"model": self.model, "api_key": self.api_key}
         if self.base_url:
             config[f"{self.api_dialect}_base_url"] = self.base_url
-        return f"coworker_{self.api_dialect}", config
+        return self.api_dialect, config
 
 
 class LongTermMemory:

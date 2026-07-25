@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from mem0.configs.base import MemoryConfig
 
 from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
 
@@ -345,9 +346,12 @@ def test_llm_config_preserves_provider_base_url(
 
     resolved_provider, config = llm.as_mem0_config()
 
-    assert resolved_provider == f"coworker_{api_dialect}"
+    assert resolved_provider == api_dialect
     assert config == {
         "model": "model-id",
         "api_key": "secret",
         base_url_key: "https://llm.example.test/v1",
     }
+    assert MemoryConfig(
+        llm={"provider": resolved_provider, "config": config}
+    ).llm.provider == api_dialect
