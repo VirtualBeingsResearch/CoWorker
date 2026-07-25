@@ -51,7 +51,7 @@ A Channel declares support for `conversation_id`, `attachments`, and `extra` thr
 
 WeCom inbound events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same chat.
 
-WeCom group messages can mention members through `extra={"mentioned_list":["userid1","userid2"]}`. The WeCom Channel converts the list to inline Markdown `<@userid>` mentions. WeCom supports `extra` but currently implements only `mentioned_list`. When a request includes other fields, the message and supported fields are still delivered, and the result lists both the unsupported fields and the currently supported field.
+The WeCom long-connection protocol does not provide a reliable member-mention field for active Markdown messages or streaming replies. The WeCom Channel therefore does not support `extra` and never injects pseudo-markers such as `<@userid>` into message text. The Registry omits and reports any requested `extra` while still delivering the message body.
 
 For inbound traffic, override `receive_raw`, normalize the payload into an `IncomingEvent`, then call `publish_inbound`. For background connections, inject a `ChannelRuntime` that implements `start` and `stop`. The Registry rejects duplicate names, duplicate participant prefixes, and late registration after startup so configuration mistakes fail during composition.
 

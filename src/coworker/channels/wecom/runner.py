@@ -260,14 +260,12 @@ class WeComRunner:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None = None,
-        mentioned_list: list[str] | None = None,
     ) -> None:
         await self._sender.send(
             participant_id,
             message,
             attachments,
             conversation_id,
-            mentioned_list,
         )
         self._activity.record_sent(participant_id)
 

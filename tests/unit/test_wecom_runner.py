@@ -407,29 +407,7 @@ async def test_sender_catches_errors(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_channel_delivers_message_and_reports_unsupported_fields(tmp_path):
-    runner = _make_runner(tmp_path)
-    registry = ChannelRegistry()
-    registry.register(WeComChannel(runner))
-
-    result = await registry.send(
-        CommunicateRequest(
-            participant_id="wecom:single:U777",
-            message="hi",
-            conversation_id="thr_1",
-            extra={"mode": "plan"},
-        )
-    )
-
-    assert not result.is_error
-    assert "extra 不支持字段：mode" in result.content
-    assert "支持字段：mentioned_list" in result.content
-    assert "不支持 conversation_id" not in result.content
-    runner._client.send_message.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_channel_maps_mentioned_list_to_markdown_mentions(tmp_path):
+async def test_channel_omits_unsupported_extra_without_changing_message(tmp_path):
     runner = _make_runner(tmp_path)
     registry = ChannelRegistry()
     registry.register(WeComChannel(runner))
@@ -438,32 +416,40 @@ async def test_channel_maps_mentioned_list_to_markdown_mentions(tmp_path):
         CommunicateRequest(
             participant_id="wecom:group:TEAM",
             message="请看这里",
-            extra={
-                "mentioned_list": ["alice", " bob ", "alice", ""],
-                "mode": "plan",
-            },
+            conversation_id="thr_1",
+            extra={"mentioned_list": ["alice"], "mode": "plan"},
         )
     )
 
     assert not result.is_error
-    assert "extra 不支持字段：mode" in result.content
-    assert "支持字段：mentioned_list" in result.content
+    assert "不支持 extra" in result.content
+    assert "这些字段未被传递" in result.content
+    assert "不支持 conversation_id" not in result.content
     _, body = runner._client.send_message.await_args.args
     assert body == {
         "msgtype": "markdown",
-        "markdown": {"content": "<@alice> <@bob>\n请看这里"},
+        "markdown": {"content": "请看这里"},
     }
 
 
-def test_wecom_reports_only_supported_extra_features(tmp_path):
+@pytest.mark.asyncio
+async def test_channel_uses_native_stream_reply_when_extra_is_omitted(tmp_path):
     runner = _make_runner(tmp_path)
-    channel = WeComChannel(runner)
+    runner._cache_frame("wecom:group:TEAM", "r1", _frame_single("r1"))
+    registry = ChannelRegistry()
+    registry.register(WeComChannel(runner))
 
-    assert channel.supports_extra(
-        "wecom:group:TEAM",
-        {"mentioned_list": ["alice"]},
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="wecom:group:TEAM",
+            message="请看这里",
+            conversation_id="r1",
+            extra={"mentioned_list": ["alice"]},
+        )
     )
-    assert not channel.supports_extra(
-        "wecom:group:TEAM",
-        {"kind": "reply"},
-    )
+
+    assert not result.is_error
+    assert "不支持 extra" in result.content
+    runner._client.reply_stream.assert_awaited_once()
+    assert runner._client.reply_stream.await_args.args[2] == "请看这里"
+    runner._client.reply.assert_not_awaited()
