@@ -23,6 +23,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { resolveResource } from "@tauri-apps/api/path";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import appMetadata from "../package.json";
 import { FeedbackIcon } from "./components/Field";
@@ -107,6 +108,61 @@ type ActiveConversation = {
   conversationId: string;
 };
 
+type ActorNotificationDetails = {
+  kind: "coworker" | "completed";
+  author?: string;
+  preview?: string;
+};
+
+let notificationIconPromise: Promise<string | undefined> | undefined;
+
+function eventRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function notificationPreview(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return undefined;
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}…` : normalized;
+}
+
+export function actorNotificationDetails(update: ActorStreamEvent): ActorNotificationDetails {
+  const message = eventRecord(update.event.message);
+  const metadata = eventRecord(message?.metadata);
+  const authorKind = String(message?.author_kind ?? "");
+  const eventType = String(update.event.type ?? "");
+  const incomingCoworker = authorKind === "coworker"
+    || (message === null && eventType === "conversation_updated"
+      && update.message_id !== null
+      && (update.actor_id === "local" || update.actor_id === "claude"));
+  if (incomingCoworker) {
+    const author = typeof metadata?.author_label === "string" && metadata.author_label.trim()
+      ? metadata.author_label.trim()
+      : undefined;
+    return {
+      kind: "coworker",
+      author,
+      preview: notificationPreview(message?.content),
+    };
+  }
+  return {
+    kind: "completed",
+    preview: notificationPreview(message?.content ?? update.event.result),
+  };
+}
+
+async function resolvedNotificationIcon(): Promise<string | undefined> {
+  notificationIconPromise ??= resolveResource("icons/icon.png").catch(() => undefined);
+  return notificationIconPromise;
+}
+
 function readInitialLifePanelCollapsed() {
   try {
     return window.localStorage.getItem(lifePanelStorageKey) === "true";
@@ -120,12 +176,8 @@ export function shouldNotifyActorEvent(
   notifiedIds: Set<string>,
 ): boolean {
   const eventType = String(update.event.type ?? "");
-  const message = update.event.message && typeof update.event.message === "object" && !Array.isArray(update.event.message)
-    ? update.event.message as Record<string, unknown>
-    : null;
-  const metadata = message?.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
-    ? message.metadata as Record<string, unknown>
-    : null;
+  const message = eventRecord(update.event.message);
+  const metadata = eventRecord(message?.metadata);
   const authorKind = String(message?.author_kind ?? "");
   const messageKind = String(metadata?.kind ?? "");
   const streaming = metadata?.streaming === true;
@@ -613,12 +665,18 @@ export function App() {
     let unlisten: (() => void) | undefined;
     listenActorStreamEvents((update) => {
       if (!shouldNotifyActorEvent(update, notifiedMessageIdsRef.current)) return;
+      const notification = actorNotificationCopy(update);
       if (!shouldSendNativeNotification()) {
         if (isActiveConversationEvent(update, activeConversationRef.current)) return;
-        showToast(t("messages.notification.title", { actor: actorDisplayName(update.actor_id) }), "info");
+        showToast(
+          notification.preview
+            ? `${notification.title}: ${notification.preview}`
+            : notification.title,
+          "info",
+        );
         return;
       }
-      notifyIncomingMessage(update.actor_id).catch(() => undefined);
+      notifyIncomingMessage(notification).catch(() => undefined);
     })
       .then((nextUnlisten) => {
         if (disposed) nextUnlisten();
@@ -821,9 +879,11 @@ export function App() {
     try {
       const permissionGranted = await isPermissionGranted();
       if (permissionGranted || (await requestPermission()) === "granted") {
+        const icon = await resolvedNotificationIcon();
         sendNotification({
           title: t("update.notification.title"),
           body: t("update.notification.body", { version }),
+          ...(icon ? { icon } : {}),
         });
       }
     } catch {
@@ -831,13 +891,27 @@ export function App() {
     }
   }
 
-  async function notifyIncomingMessage(actorId: string) {
+  function actorNotificationCopy(update: ActorStreamEvent) {
+    const details = actorNotificationDetails(update);
+    const title = details.kind === "coworker"
+      ? t("messages.notification.fromCoworker", {
+        author: details.author ?? t("actors.coworker"),
+      })
+      : t("messages.notification.completed", {
+        actor: actorDisplayName(update.actor_id),
+      });
+    return { title, preview: details.preview };
+  }
+
+  async function notifyIncomingMessage(notification: { title: string; preview?: string }) {
     try {
       const permissionGranted = await isPermissionGranted();
       if (permissionGranted || (await requestPermission()) === "granted") {
+        const icon = await resolvedNotificationIcon();
         sendNotification({
-          title: t("messages.notification.title", { actor: actorDisplayName(actorId) }),
-          body: t("messages.notification.body"),
+          title: notification.title,
+          body: notification.preview ?? t("messages.notification.body"),
+          ...(icon ? { icon } : {}),
         });
       }
     } catch {

@@ -1736,6 +1736,9 @@ impl DesktopRouter {
                 let conversation_id = conversation_id
                     .map(str::to_owned)
                     .unwrap_or_else(|| new_compact_id("local_"));
+                let author_label = self.coworker(coworker_id)?.display_name.trim().to_owned();
+                let notification_author =
+                    (!author_label.is_empty()).then_some(author_label.as_str());
                 let (_, attachments) = save_incoming_attachments(
                     &self.config.storage_dir,
                     mapping.get("attachments"),
@@ -1760,7 +1763,17 @@ impl DesktopRouter {
                     actor_id: actor,
                     conversation_id: conversation_id.clone(),
                     message_id: Some(incoming.message_id.clone()),
-                    event: json!({"type": "conversation_updated"}),
+                    event: json!({
+                        "type": "conversation_updated",
+                        "message": {
+                            "author_kind": "coworker",
+                            "content": content,
+                            "metadata": {
+                                "author_id": coworker_id,
+                                "author_label": notification_author,
+                            },
+                        },
+                    }),
                 });
                 self.post_actor_event(
                     coworker_id,
@@ -1815,7 +1828,17 @@ impl DesktopRouter {
                         actor_id: actor,
                         conversation_id: conversation_id.to_owned(),
                         message_id: Some(incoming.message_id.clone()),
-                        event: json!({"type": "conversation_updated"}),
+                        event: json!({
+                            "type": "conversation_updated",
+                            "message": {
+                                "author_kind": "coworker",
+                                "content": content,
+                                "metadata": {
+                                    "author_id": coworker_id,
+                                    "author_label": author_label,
+                                },
+                            },
+                        }),
                     });
                 }
                 let stored_mode = conversation_id
@@ -3233,6 +3256,12 @@ mod delivery_tests {
         .await
         .expect("local conversation event");
         assert_eq!(event.event["type"], "conversation_updated");
+        assert_eq!(event.event["message"]["author_kind"], "coworker");
+        assert_eq!(event.event["message"]["content"], "hello from coworker");
+        assert_eq!(
+            event.event["message"]["metadata"]["author_label"],
+            "Coworker"
+        );
 
         drop(router);
         let _ = std::fs::remove_dir_all(storage_dir);

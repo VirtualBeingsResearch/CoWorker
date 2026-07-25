@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { App, shouldNotifyActorEvent } from "./App";
+import { actorNotificationDetails, App, shouldNotifyActorEvent } from "./App";
 import { LanguageProvider } from "./i18n";
 import * as tauri from "./tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -10,6 +10,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { resolveResource } from "@tauri-apps/api/path";
 import type {
   BridgeStatus,
   ActorConversation,
@@ -32,6 +33,10 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: vi.fn(),
   requestPermission: vi.fn(),
   sendNotification: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/path", () => ({
+  resolveResource: vi.fn(),
 }));
 
 vi.mock("./tauri", () => ({
@@ -204,6 +209,7 @@ function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigVal
   vi.mocked(saveDialog).mockResolvedValue(null);
   vi.mocked(isPermissionGranted).mockResolvedValue(true);
   vi.mocked(requestPermission).mockResolvedValue("granted");
+  vi.mocked(resolveResource).mockResolvedValue("C:\\Program Files\\CoWorker\\icons\\icon.png");
   vi.mocked(sendNotification).mockClear();
   // Existing suites assume the onboarding tutorial does not auto-open.
   window.localStorage.setItem("coworker-desktop-onboarding-completed", "true");
@@ -324,22 +330,39 @@ describe("App backend operation wiring", () => {
       actor_id: "local",
       conversation_id: "local-thread",
       message_id: "incoming-local-foreground",
-      event: { type: "conversation_updated" },
+      event: {
+        type: "conversation_updated",
+        message: {
+          author_kind: "coworker",
+          content: "Finished reviewing the proposal.",
+          metadata: { author_label: "Partner Two" },
+        },
+      },
     })));
     expect(sendNotification).not.toHaveBeenCalled();
-    expect(await screen.findByText("New Local message")).toBeInTheDocument();
+    expect(await screen.findByText(
+      "Partner Two sent a message: Finished reviewing the proposal.",
+    )).toBeInTheDocument();
 
     hasFocus.mockReturnValue(false);
     act(() => actorStreamHandlers.forEach((handler) => handler({
       actor_id: "local",
       conversation_id: "local-thread",
       message_id: "incoming-local-background",
-      event: { type: "conversation_updated" },
+      event: {
+        type: "conversation_updated",
+        message: {
+          author_kind: "coworker",
+          content: "The implementation is ready.",
+          metadata: { author_label: "Partner Two" },
+        },
+      },
     })));
 
     await waitFor(() => expect(sendNotification).toHaveBeenCalledWith({
-      title: "New Local message",
-      body: "Open CoWorker Desktop to view the conversation.",
+      title: "Partner Two sent a message",
+      body: "The implementation is ready.",
+      icon: "C:\\Program Files\\CoWorker\\icons\\icon.png",
     }));
     hasFocus.mockRestore();
   });
@@ -771,6 +794,7 @@ describe("App backend operation wiring", () => {
     await waitFor(() => expect(sendNotification).toHaveBeenCalledWith({
       title: "CoWorker Desktop update available",
       body: "Version 0.2.0 is ready. Open CoWorker Desktop to install it.",
+      icon: "C:\\Program Files\\CoWorker\\icons\\icon.png",
     }));
     expect(await screen.findByText("Desktop update 0.2.0 is available.")).toBeInTheDocument();
 
@@ -862,6 +886,38 @@ describe("App backend operation wiring", () => {
     vi.mocked(saveDialog).mockResolvedValue("D:\\downloads\\summary.md");
     await user.click(attachment);
     await waitFor(() => expect(tauri.copyDesktopAttachment).toHaveBeenCalledWith("D:\\tmp\\summary.md", "D:\\downloads\\summary.md"));
+  });
+
+  it("builds contextual notification details for Coworker writes and actor results", () => {
+    expect(actorNotificationDetails({
+      actor_id: "codex",
+      conversation_id: "thread-1",
+      message_id: "coworker-1",
+      event: {
+        type: "conversation_updated",
+        message: {
+          author_kind: "coworker",
+          content: "See [the report](https://example.com/report).",
+          metadata: { author_label: "Partner Two" },
+        },
+      },
+    })).toEqual({
+      kind: "coworker",
+      author: "Partner Two",
+      preview: "See the report.",
+    });
+    expect(actorNotificationDetails({
+      actor_id: "claude",
+      conversation_id: "thread-2",
+      message_id: null,
+      event: {
+        type: "result",
+        result: "Completed the refactor.",
+      },
+    })).toEqual({
+      kind: "completed",
+      preview: "Completed the refactor.",
+    });
   });
 
   it("loads conversation history in batches of 25", async () => {
