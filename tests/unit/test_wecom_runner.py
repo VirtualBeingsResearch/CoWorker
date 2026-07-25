@@ -199,18 +199,21 @@ async def test_send_uses_reply_stream_when_frame_cached(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_inbound_frame_is_published_through_channel_handler(tmp_path):
+async def test_single_inbound_frame_supports_reply_without_conversation_id(tmp_path):
     runner = _make_runner(tmp_path)
     handler = AsyncMock()
     runner.set_inbound_handler(handler)
+    frame = _frame_single()
 
-    await runner._on_text_like(_frame_single())
+    await runner._on_text_like(frame)
+    await runner.send("wecom:single:U123", "reply", [])
 
     handler.assert_awaited_once()
     event = handler.await_args.args[0]
     assert event.participant_id == "wecom:single:U123"
-    assert event.conversation_id == "r1"
+    assert event.conversation_id is None
     assert event.content == "ping"
+    assert runner._client.reply_stream.await_args.args[0] is frame
 
 
 def test_channel_lists_latest_activity_times(tmp_path):
