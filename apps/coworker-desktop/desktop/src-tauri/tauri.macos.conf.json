@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "CoWorker Desktop",
+        "width": 1560,
+        "height": 860,
+        "minWidth": 900,
+        "minHeight": 620,
+        "visible": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 16
+        },
+        "shadow": true
+      }
+    ]
+  }
+}

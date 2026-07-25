@@ -661,6 +661,13 @@ async fn run_diagnostics(
     for coworker in &config.coworkers {
         results.push(check_coworker(&coworker.display_name, &coworker.base_url).await);
     }
+    for result in results.iter().filter(|result| !result.ok) {
+        warn!(
+            diagnostic = %result.name,
+            message = %result.message,
+            "Desktop diagnostic failed"
+        );
+    }
     Ok(results)
 }
 

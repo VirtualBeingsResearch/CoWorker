@@ -246,7 +246,34 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_BUNDLER_DMG_IGNORE_CI: ${{ runner.os == 'macOS' && 'true' || 'false' }}
         run: npm run tauri -- build --bundles ${{ matrix.bundles }} ${{ matrix.target_args }}
+
+      - name: Verify macOS DMG presentation
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dmg_files=(target/${{ matrix.target }}/release/bundle/dmg/*.dmg)
+          if [[ ! -f "${dmg_files[0]}" ]]; then
+            echo "::error::No DMG was produced for ${{ matrix.target }}."
+            exit 1
+          fi
+
+          mount_point="$RUNNER_TEMP/coworker-dmg-${{ matrix.target }}"
+          mkdir -p "$mount_point"
+          hdiutil attach "${dmg_files[0]}" -readonly -nobrowse -mountpoint "$mount_point"
+          trap 'hdiutil detach "$mount_point"' EXIT
+
+          test -f "$mount_point/.background/install-background.png" || {
+            echo "::error::DMG is missing the configured install background."
+            exit 1
+          }
+          test -f "$mount_point/.DS_Store" || {
+            echo "::error::DMG is missing Finder presentation metadata."
+            exit 1
+          }
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v7
