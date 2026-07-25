@@ -2658,7 +2658,7 @@ mod tests {
                 "type": "image_generation_end",
                 "turn_id": "turn_image",
                 "result": {
-                    "saved_path": "C:\\Users\\Example\\.codex\\generated_images\\thread\\preview.png",
+                    "saved_path": "/Users/Example/.codex/generated_images/thread/preview.png",
                     "image_url": "data:image/png;base64,omitted"
                 }
             }
