@@ -33,7 +33,6 @@ class WeComChannel(BaseChannel):
             capabilities=ChannelCapabilities(
                 conversation_id=True,
                 attachments=True,
-                extra=True,
             ),
         )
         self.name = "wecom"
@@ -44,25 +43,17 @@ class WeComChannel(BaseChannel):
         return self._runner.resolve_participant(participant_id)
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
-        mentioned_users, unsupported_extra = _parse_extra(request.extra)
         try:
             await self._runner.send(
                 request.participant_id,
                 request.message,
                 request.attachments,
                 request.conversation_id,
-                mentioned_users,
             )
             content = tr(
                 "tool_result.communicate.wecom_sent",
                 participant=request.participant_id,
             )
-            if unsupported_extra:
-                content += "\n" + tr(
-                    "tool_result.communicate.wecom_extra_unsupported",
-                    fields=", ".join(unsupported_extra),
-                    supported="mentioned_list",
-                )
             return ToolResult(
                 tool_call_id="",
                 content=content,
@@ -77,13 +68,6 @@ class WeComChannel(BaseChannel):
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
         self._runner.set_inbound_handler(handler)
-
-    def supports_extra(
-        self,
-        participant_id: str,
-        extra: dict[str, object] | None = None,
-    ) -> bool:
-        return extra is None or set(extra) <= {"mentioned_list"}
 
     def list_connections(self) -> list[ConnectionInfo]:
         now = time.monotonic()
@@ -106,22 +90,3 @@ class WeComChannel(BaseChannel):
                 )
             )
         return out
-
-
-def _parse_extra(extra: dict[str, object]) -> tuple[list[str], list[str]]:
-    mentioned_list = extra.get("mentioned_list")
-    mentioned_users = (
-        list(
-            dict.fromkeys(
-                user_id.strip()
-                for user_id in mentioned_list
-                if isinstance(user_id, str) and user_id.strip()
-            )
-        )
-        if isinstance(mentioned_list, list)
-        else []
-    )
-    unsupported = [key for key in extra if key != "mentioned_list"]
-    if "mentioned_list" in extra and not isinstance(mentioned_list, list):
-        unsupported.append("mentioned_list")
-    return mentioned_users, unsupported

@@ -49,9 +49,9 @@ The built-in Stream, Desktop, and WeCom implementations share `channels.activity
 
 A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
 
-WeCom inbound events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same chat.
+WeCom direct messages do not expose a `conversation_id`; replies automatically use the user's latest fresh frame. Group-chat events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same group. A group send without `conversation_id` is also always proactive and never uses a cached frame automatically.
 
-WeCom group messages can mention members through `extra={"mentioned_list":["userid1","userid2"]}`. The WeCom Channel converts the list to inline Markdown `<@userid>` mentions. WeCom supports `extra` but currently implements only `mentioned_list`. When a request includes other fields, the message and supported fields are still delivered, and the result lists both the unsupported fields and the currently supported field.
+WeCom AI Bots currently do not support mentioning group members through the API, so the WeCom Channel does not provide member mentions.
 
 For inbound traffic, override `receive_raw`, normalize the payload into an `IncomingEvent`, then call `publish_inbound`. For background connections, inject a `ChannelRuntime` that implements `start` and `stop`. The Registry rejects duplicate names, duplicate participant prefixes, and late registration after startup so configuration mistakes fail during composition.
 

@@ -49,6 +49,8 @@ def participant_id_for(frame: dict[str, Any]) -> str:
 
 
 def conversation_id_for(frame: dict[str, Any]) -> str | None:
+    if frame.get("body", {}).get("chattype", "single") != "group":
+        return None
     request_id = frame.get("headers", {}).get("req_id")
     if isinstance(request_id, str) and request_id.strip():
         return request_id.strip()
