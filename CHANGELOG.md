@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- feat(desktop): improve the collapsed sidebar and short log ledger, let users choose and remember the close behavior on first close, reorder connection profiles, add message copy/quote actions, local Markdown and attachment image previews, incoming-message notifications, and 25-item Codex/Claude history paging, clarify offline history, derive missing Codex titles without repeatedly scanning the full index, safely resume native Codex App/CLI sessions from CoWorker, and discover Codex App or npm-installed binaries across platforms
+- feat(desktop): improve the collapsed sidebar and short log ledger, let users choose and remember the close behavior on first close, reorder connection profiles, add message copy/quote actions, local Markdown and attachment image previews, incoming-message notifications, and 25-item Codex/Claude history paging, clarify offline history, derive missing Codex titles without repeatedly scanning the full index, safely resume native Codex App/CLI sessions from CoWorker, discover Codex App or npm-installed binaries across platforms, and recover actor registration and streams while the Coworker channel runtime starts or restarts
 
 ## 0.3.2 - 2026-07-23
 

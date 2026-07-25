@@ -313,7 +313,9 @@ impl DesktopRouter {
                     match result {
                         Ok(()) => succeeded += 1,
                         Err(error) => {
-                            warn!(coworker_id = %coworker.coworker_id, %actor, %error, "Failed to publish Desktop actor snapshot");
+                            if !is_service_unavailable(&error) {
+                                warn!(coworker_id = %coworker.coworker_id, %actor, %error, "Failed to publish Desktop actor snapshot");
+                            }
                             last_error = Some(error);
                         }
                     }
@@ -1045,27 +1047,43 @@ impl DesktopRouter {
         mut shutdown: oneshot::Receiver<()>,
         mut outbound: mpsc::Receiver<ActorOutboundRequest>,
     ) -> Result<()> {
-        loop {
+        let mut runtime_not_ready_logged = false;
+        let health = loop {
             match self.sync_registrations().await {
-                Ok(_) => break,
+                Ok(health) => break health,
                 Err(error) => {
-                    warn!(%error, "Desktop registration failed; retrying without stopping available local actors");
+                    if is_service_unavailable(&error) {
+                        if !runtime_not_ready_logged {
+                            info!(%error, "Coworker channel runtime is not ready; Desktop registration will retry");
+                            runtime_not_ready_logged = true;
+                        }
+                    } else {
+                        runtime_not_ready_logged = false;
+                        warn!(%error, "Desktop registration failed; retrying without stopping available local actors");
+                    }
                     tokio::select! {
                         _ = &mut shutdown => return Ok(()),
                         _ = sleep(Duration::from_secs(self.config.codex.reconnect_seconds.max(1))) => {}
                     }
                 }
             }
-        }
-        let registrations = self.registrations.lock().await.clone();
+        };
+        let available_actors: HashMap<ActorId, bool> = health
+            .into_iter()
+            .map(|item| (item.actor_id, item.available))
+            .collect();
         let mut tasks = Vec::new();
-        for ((coworker_id, actor), registration) in registrations {
-            let router = Arc::clone(&self);
-            tasks.push(tokio::spawn(async move {
-                router
-                    .actor_stream_loop(coworker_id, actor, registration)
-                    .await
-            }));
+        for coworker in &self.config.codex.coworkers {
+            for actor in ActorId::ALL {
+                if !available_actors.get(&actor).copied().unwrap_or(false) {
+                    continue;
+                }
+                let router = Arc::clone(&self);
+                let coworker_id = coworker.coworker_id.clone();
+                tasks.push(tokio::spawn(async move {
+                    router.actor_stream_loop(coworker_id, actor).await
+                }));
+            }
         }
         let retry_router = Arc::clone(&self);
         tasks.push(tokio::spawn(async move {
@@ -1187,7 +1205,9 @@ impl DesktopRouter {
             ))
             .await;
             if let Err(error) = self.sync_registrations().await {
-                warn!(%error, "Failed to refresh Desktop actor snapshots");
+                if !is_service_unavailable(&error) {
+                    warn!(%error, "Failed to refresh Desktop actor snapshots");
+                }
             }
         }
     }
@@ -1325,14 +1345,40 @@ impl DesktopRouter {
         }
     }
 
-    async fn actor_stream_loop(
-        self: Arc<Self>,
-        coworker_id: String,
-        actor: ActorId,
-        registration: CoworkerRegistration,
-    ) -> Result<()> {
+    async fn actor_stream_loop(self: Arc<Self>, coworker_id: String, actor: ActorId) -> Result<()> {
+        let mut runtime_not_ready_logged = false;
         loop {
             let coworker = self.coworker(&coworker_id)?;
+            let registration = match self.ensure_registered(&coworker, actor).await {
+                Ok(registration) => registration,
+                Err(error) => {
+                    if is_service_unavailable(&error) {
+                        if !runtime_not_ready_logged {
+                            info!(
+                                %error,
+                                %actor,
+                                %coworker_id,
+                                "Coworker channel runtime is not ready; actor stream registration will retry"
+                            );
+                            runtime_not_ready_logged = true;
+                        }
+                    } else {
+                        runtime_not_ready_logged = false;
+                        warn!(
+                            %error,
+                            %actor,
+                            %coworker_id,
+                            "Desktop actor stream registration failed; retrying"
+                        );
+                    }
+                    sleep(Duration::from_secs(
+                        self.config.codex.reconnect_seconds.max(1),
+                    ))
+                    .await;
+                    continue;
+                }
+            };
+            runtime_not_ready_logged = false;
             let (tx, rx) = mpsc::channel(128);
             let (connected_tx, connected_rx) = oneshot::channel();
             let http = self.http.clone();
@@ -1359,6 +1405,8 @@ impl DesktopRouter {
                 .run_actor_message_stream(coworker_id.clone(), actor, registration.clone(), rx)
                 .await;
             let _ = stream.join().await;
+            self.invalidate_registration(&coworker_id, actor, &registration.registration_id)
+                .await;
             sleep(Duration::from_secs(
                 self.config.codex.reconnect_seconds.max(1),
             ))
@@ -1969,17 +2017,7 @@ impl DesktopRouter {
                         .remove_registration(&coworker.coworker_id, actor)?;
                 }
                 Err(error) => {
-                    warn!(
-                        coworker_id = %coworker.coworker_id,
-                        %actor,
-                        %error,
-                        "Failed to validate persisted CoWorker Desktop actor registration; reusing cached participant"
-                    );
-                    self.registrations
-                        .lock()
-                        .await
-                        .insert(key, registration.clone());
-                    return Ok(registration);
+                    return Err(error);
                 }
             }
         }
@@ -2003,6 +2041,22 @@ impl DesktopRouter {
             .insert(key, registration.clone());
         info!(coworker_id = %coworker.coworker_id, %actor, "Registered CoWorker Desktop actor");
         Ok(registration)
+    }
+
+    async fn invalidate_registration(
+        &self,
+        coworker_id: &str,
+        actor: ActorId,
+        registration_id: &str,
+    ) {
+        let key = (coworker_id.to_owned(), actor);
+        let mut registrations = self.registrations.lock().await;
+        if registrations
+            .get(&key)
+            .is_some_and(|current| current.registration_id == registration_id)
+        {
+            registrations.remove(&key);
+        }
     }
 
     async fn unregister(&self, coworker: &BridgeCoworker, actor: ActorId) -> Result<()> {
@@ -2242,6 +2296,14 @@ fn delivery_failure(error: &BridgeError) -> DeliveryFailure {
         },
         _ => DeliveryFailure::DeadLetter,
     }
+}
+
+fn is_service_unavailable(error: &BridgeError) -> bool {
+    matches!(
+        error,
+        BridgeError::Http(error)
+            if error.status().is_some_and(|status| status.as_u16() == 503)
+    )
 }
 
 #[cfg(test)]
@@ -3317,6 +3379,103 @@ mod delivery_tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("registration lookup request");
         assert!(request.starts_with("GET /api/communicate/register "));
+        server.join().expect("registration server");
+        let _ = std::fs::remove_dir_all(storage_dir);
+    }
+
+    #[tokio::test]
+    async fn ensure_registered_revalidates_persisted_registration_after_service_unavailable() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let registration = CoworkerRegistration {
+            registration_id: "registration-1".to_owned(),
+            participant_id: "coworker-desktop:desktop-test:local:cw_default:1".to_owned(),
+        };
+        let remote_registration = registration.clone();
+        let server = std::thread::spawn(move || {
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().expect("accept registration request");
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .expect("set request timeout");
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                loop {
+                    let read = socket.read(&mut buffer).expect("read registration request");
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                assert!(
+                    String::from_utf8_lossy(&request).starts_with("GET /api/communicate/register ")
+                );
+                let (status, body) = if attempt == 0 {
+                    (
+                        "503 Service Unavailable",
+                        json!({"detail": "Channel runtime is not ready"}).to_string(),
+                    )
+                } else {
+                    (
+                        "200 OK",
+                        json!({"registrations": [remote_registration]}).to_string(),
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .expect("write registration response");
+            }
+        });
+
+        let storage_dir = std::env::temp_dir().join(format!(
+            "coworker-desktop-registration-revalidation-{}",
+            Uuid::new_v4()
+        ));
+        let config = DesktopConfig::from_value(json!({
+            "schema_version": 2,
+            "desktop_id": "desktop-test",
+            "display_name": "Desktop Test",
+            "storage_dir": storage_dir,
+            "coworkers": [{
+                "coworker_id": "cw_default",
+                "base_url": format!("http://{address}"),
+                "display_name": "Coworker"
+            }],
+            "actors": {
+                "local": {"enabled": true},
+                "codex": {"enabled": false},
+                "claude": {"enabled": false}
+            },
+            "security": {"development_mode": true}
+        }))
+        .expect("desktop config");
+        let coworker = config.codex.coworkers[0].clone();
+        let router = DesktopRouter::new(config, Vec::new()).expect("desktop router");
+        router
+            .store
+            .save_registration(&coworker.coworker_id, ActorId::Local, &registration)
+            .expect("persist registration");
+
+        let first_error = router
+            .ensure_registered(&coworker, ActorId::Local)
+            .await
+            .expect_err("503 must not promote an unvalidated cached registration");
+        assert!(is_service_unavailable(&first_error));
+        assert!(router.registrations.lock().await.is_empty());
+
+        let reused = router
+            .ensure_registered(&coworker, ActorId::Local)
+            .await
+            .expect("revalidate registration after runtime becomes ready");
+        assert_eq!(reused, registration);
+
         server.join().expect("registration server");
         let _ = std::fs::remove_dir_all(storage_dir);
     }
