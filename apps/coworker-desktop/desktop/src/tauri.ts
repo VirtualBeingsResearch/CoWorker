@@ -120,6 +120,7 @@ export type ConfigValue = {
   permissions_mode?: PermissionsMode;
   approvals_reviewer?: ApprovalsReviewer;
   approval_timeout_seconds?: number;
+  close_to_tray?: boolean;
   coworkers?: BridgeCoworker[];
   [key: string]: unknown;
 };
@@ -196,6 +197,22 @@ export function setTrayCopy(copy: {
   quit: string;
 }): Promise<void> {
   return invoke("set_tray_copy", copy);
+}
+
+export function setCloseToTray(enabled: boolean): Promise<void> {
+  return invoke("set_close_to_tray", { enabled });
+}
+
+export function listenCloseToTrayChoice(handler: () => void): Promise<UnlistenFn> {
+  return listen("close-to-tray-choice-requested", handler);
+}
+
+export function isCloseToTrayChoicePending(): Promise<boolean> {
+  return invoke("is_close_to_tray_choice_pending");
+}
+
+export function resolveCloseToTrayChoice(keepRunning: boolean): Promise<void> {
+  return invoke("resolve_close_to_tray_choice", { keepRunning });
 }
 
 export function listDesktopConversations(
@@ -281,6 +298,10 @@ export function resolveDesktopApproval(
 
 export function copyDesktopAttachment(sourcePath: string, destinationPath: string): Promise<Record<string, unknown>> {
   return invoke("copy_desktop_attachment", { sourcePath, destinationPath });
+}
+
+export function readDesktopImagePreview(path: string): Promise<ArrayBuffer> {
+  return invoke("read_desktop_image_preview", { path });
 }
 
 export function listenActorStreamEvents(handler: (event: ActorStreamEvent) => void): Promise<UnlistenFn> {

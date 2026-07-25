@@ -63,7 +63,7 @@ impl CoworkerHttpClient {
             .client
             .post(url)
             .timeout(std::time::Duration::from_secs(30));
-        let response: Value = with_bearer(request, bearer_token)
+        let response = with_bearer(request, bearer_token)
             .json(&json!({
                 "kind": DESKTOP_REGISTRATION_KIND,
                 "client_id": desktop_client_id(desktop_id, actor_id, &coworker.coworker_id),
@@ -81,10 +81,8 @@ impl CoworkerHttpClient {
                 },
             }))
             .send()
-            .await?
-            .error_for_status()?
-            .json()
             .await?;
+        let response: Value = response_for_status(response).await?.json().await?;
         registration_from_response(&response)
     }
 
@@ -100,17 +98,15 @@ impl CoworkerHttpClient {
             "{}/api/communicate/register/{registration_id}",
             coworker.base_url
         );
-        with_bearer(
+        let response = with_bearer(
             self.client
                 .delete(url)
                 .timeout(std::time::Duration::from_secs(30)),
             bearer_token,
         )
         .send()
-        .await?
-        .error_for_status()?
-        .bytes()
         .await?;
+        response_for_status(response).await?.bytes().await?;
         Ok(())
     }
 
@@ -126,7 +122,7 @@ impl CoworkerHttpClient {
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
         let url = format!("{}/messages", coworker.base_url);
         let body = desktop_message_body(participant_id, envelope)?;
-        let response: DeliveryAck = with_bearer(
+        let response = with_bearer(
             self.client
                 .post(url)
                 .timeout(std::time::Duration::from_secs(30)),
@@ -134,10 +130,8 @@ impl CoworkerHttpClient {
         )
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+        let response: DeliveryAck = response_for_status(response).await?.json().await?;
         Ok(response)
     }
 
@@ -158,17 +152,15 @@ impl CoworkerHttpClient {
         bearer_token: Option<&str>,
     ) -> Result<Vec<CoworkerRegistration>> {
         let url = format!("{}/api/communicate/register", coworker.base_url);
-        let response: Value = with_bearer(
+        let response = with_bearer(
             self.client
                 .get(url)
                 .timeout(std::time::Duration::from_secs(30)),
             bearer_token,
         )
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+        let response: Value = response_for_status(response).await?.json().await?;
         let registrations = response
             .get("registrations")
             .and_then(Value::as_array)
@@ -202,7 +194,7 @@ impl CoworkerHttpClient {
             ))
         })??;
         check_duplicate(response.headers(), &coworker, &participant_id)?;
-        let response = response.error_for_status()?;
+        let response = response_for_status(response).await?;
         let _ = connected.send(());
         info!(coworker_id = %coworker.coworker_id, actor_participant = %participant_id, "Desktop actor SSE connected");
         let mut stream = response.bytes_stream();
@@ -231,6 +223,40 @@ impl CoworkerHttpClient {
             }
         }
         Ok(())
+    }
+}
+
+async fn response_for_status(response: reqwest::Response) -> Result<reqwest::Response> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let body = response.text().await?;
+    Err(BridgeError::http_status(
+        status,
+        response_error_detail(&body),
+    ))
+}
+
+fn response_error_detail(body: &str) -> String {
+    const MAX_ERROR_CHARS: usize = 1_000;
+    if let Ok(value) = serde_json::from_str::<Value>(body) {
+        for key in ["detail", "message", "error"] {
+            if let Some(detail) = value.get(key) {
+                if let Some(detail) = detail.as_str().filter(|value| !value.trim().is_empty()) {
+                    return detail.trim().chars().take(MAX_ERROR_CHARS).collect();
+                }
+                if !detail.is_null() {
+                    return detail.to_string().chars().take(MAX_ERROR_CHARS).collect();
+                }
+            }
+        }
+    }
+    let detail: String = body.trim().chars().take(MAX_ERROR_CHARS).collect();
+    if detail.is_empty() {
+        "response body was empty".to_owned()
+    } else {
+        detail
     }
 }
 
@@ -339,7 +365,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        check_duplicate, consume_sse_line, desktop_message_body, validate_desktop_transport,
+        check_duplicate, consume_sse_line, desktop_message_body, response_error_detail,
+        validate_desktop_transport,
     };
     use crate::config::BridgeCoworker;
     use crate::desktop_protocol::{DesktopEnvelopeV1, DesktopEventType};
@@ -350,6 +377,19 @@ mod tests {
         assert!(consume_sse_line("data: one", &mut current).is_none());
         assert!(consume_sse_line("data: two", &mut current).is_none());
         assert_eq!(consume_sse_line("", &mut current), Some("one\ntwo".into()));
+    }
+
+    #[test]
+    fn extracts_fastapi_error_detail_for_desktop_diagnostics() {
+        assert_eq!(
+            response_error_detail(r#"{"detail":"通信令牌未配置"}"#),
+            "通信令牌未配置"
+        );
+        assert_eq!(
+            response_error_detail(r#"{"message":"fallback"}"#),
+            "fallback"
+        );
+        assert_eq!(response_error_detail("plain failure"), "plain failure");
     }
 
     #[test]

@@ -22,8 +22,7 @@ const DEFAULT_PAGE_SIZE: usize = 80;
 const MAX_PAGE_SIZE: usize = 200;
 const MAX_TEXT_CHARS: usize = 16 * 1024;
 const JSONL_TAIL_CHUNK_BYTES: u64 = 256 * 1024;
-const EMPTY_RESPONSE_MESSAGE: &str =
-    "Codex 已结束本轮，但没有返回任何消息。请重试；如果仍然发生，请重启桌面端以重新连接 Codex。";
+const EMPTY_RESPONSE_KIND: &str = "empty_response";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionSummary {
@@ -161,6 +160,15 @@ pub fn list_sessions(
 ) -> Result<Vec<SessionSummary>> {
     let persisted_owned = owned_thread_ids_from_state(config);
     let session_files = collect_session_files_once(config)?;
+    let mut index_entries = read_session_index(config)?;
+    index_entries.sort_by(|left, right| {
+        timestamp_sort_key(&right.updated_at).cmp(&timestamp_sort_key(&left.updated_at))
+    });
+    let index_titles = index_entries
+        .iter()
+        .filter(|entry| !entry.title.trim().is_empty())
+        .map(|entry| (entry.thread_id.clone(), entry.title.clone()))
+        .collect::<HashMap<_, _>>();
     let mut summaries = Vec::new();
     let mut seen = HashSet::new();
 
@@ -177,10 +185,19 @@ pub fn list_sessions(
             .flatten();
         let owned = is_owned_by_bridge(&thread_id, meta.as_ref(), &persisted_owned, &runtime);
         seen.insert(thread_id.clone());
-        summaries.push(summary_from_thread(config, obj, meta, owned, &runtime));
+        summaries.push(summary_from_thread(
+            config,
+            obj,
+            meta,
+            owned,
+            &runtime,
+            &index_titles,
+            &session_files,
+        ));
     }
 
-    for entry in read_session_index(config)?.into_iter() {
+    let mut indexed_candidates = 0;
+    for entry in index_entries {
         if seen.contains(&entry.thread_id) {
             continue;
         }
@@ -189,11 +206,23 @@ pub fn list_sessions(
             .flatten();
         let owned = is_owned_by_bridge(&entry.thread_id, meta.as_ref(), &persisted_owned, &runtime);
         seen.insert(entry.thread_id.clone());
-        summaries.push(summary_from_index(config, entry, meta, owned, &runtime));
+        summaries.push(summary_from_index(
+            config,
+            entry,
+            meta,
+            owned,
+            &runtime,
+            &session_files,
+        ));
+        indexed_candidates += 1;
+        if indexed_candidates >= limit.max(1) {
+            break;
+        }
     }
 
     let mut recovered = 0;
-    for path in session_files.iter().rev() {
+    let recovery_candidates = limit.max(1).saturating_mul(4).max(64);
+    for path in session_files.iter().rev().take(recovery_candidates) {
         if recovered >= limit.max(1) {
             break;
         }
@@ -223,6 +252,7 @@ pub fn list_sessions(
             Some(meta),
             true,
             &runtime,
+            &session_files,
         ));
         recovered += 1;
     }
@@ -239,7 +269,13 @@ pub fn list_sessions(
             continue;
         }
         seen.insert(thread_id.clone());
-        summaries.push(fallback_summary(config, thread_id, &runtime));
+        summaries.push(fallback_summary(
+            config,
+            thread_id,
+            &runtime,
+            &session_files,
+            &persisted_owned,
+        ));
     }
 
     summaries.sort_by(|left, right| {
@@ -257,17 +293,24 @@ pub fn get_session_detail(
     runtime: RuntimeSessionState,
     page_size: usize,
 ) -> Result<SessionDetail> {
+    let session_files = collect_session_files_once(config)?;
+    let persisted_owned = owned_thread_ids_from_state(config);
     let summary = match read_session_index(config)?
         .into_iter()
         .find(|entry| entry.thread_id == thread_id)
     {
         Some(entry) => {
-            let meta = read_session_meta(config, thread_id)?;
-            let persisted_owned = owned_thread_ids_from_state(config);
+            let meta = read_session_meta_from_index(&session_files, thread_id)?;
             let owned = is_owned_by_bridge(thread_id, meta.as_ref(), &persisted_owned, &runtime);
-            summary_from_index(config, entry, meta, owned, &runtime)
+            summary_from_index(config, entry, meta, owned, &runtime, &session_files)
         }
-        None => fallback_summary(config, thread_id, &runtime),
+        None => fallback_summary(
+            config,
+            thread_id,
+            &runtime,
+            &session_files,
+            &persisted_owned,
+        ),
     };
     let page = load_session_messages(config, thread_id, None, page_size)?;
     Ok(SessionDetail {
@@ -546,12 +589,18 @@ pub fn is_thread_owned(
     is_owned_by_bridge(thread_id, meta.as_ref(), &persisted, runtime)
 }
 
+pub fn has_thread_history(config: &BridgeConfig, thread_id: &str) -> Result<bool> {
+    Ok(find_session_file(config, thread_id)?.is_some())
+}
+
 fn summary_from_thread(
     config: &BridgeConfig,
     obj: &Map<String, Value>,
     meta: Option<SessionMeta>,
     owned: bool,
     runtime: &RuntimeSessionState,
+    index_titles: &HashMap<String, String>,
+    session_files: &[PathBuf],
 ) -> SessionSummary {
     let thread_id = first_string(Some(obj), &["id", "thread_id", "threadId"]).unwrap_or_default();
     let project = obj
@@ -567,15 +616,8 @@ fn summary_from_thread(
         .unwrap_or_else(|| "unknown".to_owned());
     SessionSummary {
         title: first_string(Some(obj), &["name", "preview", "title"])
-            .or_else(|| {
-                read_session_index(config).ok().and_then(|entries| {
-                    entries
-                        .into_iter()
-                        .find(|entry| entry.thread_id == thread_id)
-                        .map(|entry| entry.title)
-                })
-            })
-            .unwrap_or_else(|| "未命名会话".to_owned()),
+            .or_else(|| index_titles.get(&thread_id).cloned())
+            .unwrap_or_else(|| fallback_session_title_from_files(&thread_id, session_files)),
         project_id: project_id_from_thread(obj, project, meta.as_ref()),
         project_name: project_name_from_thread(obj, project, meta.as_ref()),
         project_path: project_path_from_thread(obj, project, meta.as_ref()),
@@ -593,7 +635,9 @@ fn summary_from_thread(
             .as_ref()
             .and_then(|m| m.thread_source.clone().or_else(|| m.source.clone())),
         participants: participants(owned),
-        can_continue: owned,
+        // A thread returned by the running app-server is a valid continuation
+        // target even when it originated in Codex App or the CLI.
+        can_continue: true,
         owned_by_bridge: owned,
         thread_id,
         status,
@@ -606,7 +650,10 @@ fn summary_from_index(
     meta: Option<SessionMeta>,
     owned: bool,
     runtime: &RuntimeSessionState,
+    session_files: &[PathBuf],
 ) -> SessionSummary {
+    let can_continue =
+        owned || latest_session_file_for_thread(session_files, &entry.thread_id).is_some();
     let status = runtime
         .thread_status
         .get(&entry.thread_id)
@@ -614,8 +661,8 @@ fn summary_from_index(
         .unwrap_or_else(|| "notLoaded".to_owned());
     SessionSummary {
         thread_id: entry.thread_id.clone(),
-        title: if entry.title.is_empty() {
-            "未命名会话".to_owned()
+        title: if entry.title.trim().is_empty() {
+            fallback_session_title_from_files(&entry.thread_id, session_files)
         } else {
             entry.title
         },
@@ -633,7 +680,7 @@ fn summary_from_index(
                 .flatten(),
         ]),
         owned_by_bridge: owned,
-        can_continue: owned,
+        can_continue,
         collaboration_mode: runtime
             .thread_collaboration_mode
             .get(&entry.thread_id)
@@ -654,13 +701,17 @@ fn fallback_summary(
     config: &BridgeConfig,
     thread_id: &str,
     runtime: &RuntimeSessionState,
+    session_files: &[PathBuf],
+    persisted: &HashSet<String>,
 ) -> SessionSummary {
-    let meta = read_session_meta(config, thread_id).ok().flatten();
-    let persisted = owned_thread_ids_from_state(config);
-    let owned = is_owned_by_bridge(thread_id, meta.as_ref(), &persisted, runtime);
+    let meta = read_session_meta_from_index(session_files, thread_id)
+        .ok()
+        .flatten();
+    let owned = is_owned_by_bridge(thread_id, meta.as_ref(), persisted, runtime);
+    let can_continue = owned || latest_session_file_for_thread(session_files, thread_id).is_some();
     SessionSummary {
         thread_id: thread_id.to_owned(),
-        title: "未命名会话".to_owned(),
+        title: fallback_session_title_from_files(thread_id, session_files),
         project_id: meta.as_ref().and_then(|m| m.cwd.clone()),
         project_name: meta
             .as_ref()
@@ -677,7 +728,7 @@ fn fallback_summary(
             overlay_last_timestamp(config, thread_id).ok().flatten(),
         ]),
         owned_by_bridge: owned,
-        can_continue: owned,
+        can_continue,
         collaboration_mode: runtime.thread_collaboration_mode.get(thread_id).cloned(),
         pending_collaboration_mode: runtime
             .thread_pending_collaboration_mode
@@ -686,6 +737,56 @@ fn fallback_summary(
         source: None,
         participants: participants(owned),
     }
+}
+
+#[cfg(test)]
+fn fallback_session_title(config: &BridgeConfig, thread_id: &str) -> String {
+    let session_files = collect_session_files_once(config).unwrap_or_default();
+    fallback_session_title_from_files(thread_id, &session_files)
+}
+
+fn fallback_session_title_from_files(thread_id: &str, session_files: &[PathBuf]) -> String {
+    first_session_prompt_from_files(thread_id, session_files).unwrap_or_else(|| {
+        let short_id = thread_id.chars().take(12).collect::<String>();
+        format!("Codex {short_id}")
+    })
+}
+
+fn first_session_prompt_from_files(thread_id: &str, session_files: &[PathBuf]) -> Option<String> {
+    let path = latest_session_file_for_thread(session_files, thread_id)?;
+    let file = fs::File::open(path).ok()?;
+    let mut call_names = HashMap::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let Ok(line) = line else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(message) = parse_codex_message(thread_id, line_index, &value, &mut call_names)
+        else {
+            continue;
+        };
+        if !matches!(message.author_kind.as_str(), "local" | "coworker") {
+            continue;
+        }
+        let normalized = message
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if normalized.is_empty() {
+            continue;
+        }
+        let mut chars = normalized.chars();
+        let title = chars.by_ref().take(72).collect::<String>();
+        return Some(if chars.next().is_some() {
+            format!("{title}…")
+        } else {
+            title
+        });
+    }
+    None
 }
 
 fn participants(owned: bool) -> Vec<String> {
@@ -999,7 +1100,7 @@ fn finalize_tail_messages(
             if message.kind == "plan" {
                 pending_plan_turn = Some(message.turn_id.clone());
             }
-            if message.text == EMPTY_RESPONSE_MESSAGE {
+            if message.kind == EMPTY_RESPONSE_KIND {
                 let plan_is_this_turn = pending_plan_turn.as_ref().is_some_and(|plan_turn| {
                     plan_turn.is_none() || plan_turn.as_ref() == message.turn_id.as_ref()
                 });
@@ -1163,6 +1264,12 @@ fn parse_event_msg(
                 "tool_call",
                 format_mcp_tool_call_end(payload)?,
             ),
+            "image_generation_end" => {
+                if extract_attachments(&Value::Object(payload.clone())).is_empty() {
+                    return None;
+                }
+                ("codex", "Codex", "message", String::new())
+            }
             "error" => (
                 "system",
                 "系统",
@@ -1180,12 +1287,9 @@ fn parse_event_msg(
                         .unwrap_or_default()
                 ),
             ),
-            "task_complete" if payload.get("last_agent_message").is_none_or(Value::is_null) => (
-                "system",
-                "系统",
-                "system",
-                EMPTY_RESPONSE_MESSAGE.to_owned(),
-            ),
+            "task_complete" if payload.get("last_agent_message").is_none_or(Value::is_null) => {
+                ("system", "系统", EMPTY_RESPONSE_KIND, String::new())
+            }
             "item_completed" => {
                 let item = payload.get("item").and_then(Value::as_object)?;
                 if first_string(Some(item), &["type"]).as_deref() != Some("Plan") {
@@ -2081,6 +2185,40 @@ mod tests {
     }
 
     #[test]
+    fn unnamed_session_uses_first_user_prompt_as_title() {
+        let root = std::env::temp_dir().join(format!("session-title-test-{}", now_millis()));
+        let config = test_config(&root);
+        let session_dir = Path::new(&config.codex_home_dir).join("sessions");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-thr_prompt.jsonl"),
+            [
+                r#"{"type":"session_meta","payload":{"id":"thr_prompt"}}"#,
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the desktop sidebar collapse"}]}}"#,
+            ]
+            .join("\n"),
+        )
+        .expect("session");
+
+        assert_eq!(
+            fallback_session_title(&config, "thr_prompt"),
+            "Fix the desktop sidebar collapse"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn empty_session_uses_stable_codex_title() {
+        let root = std::env::temp_dir().join(format!("session-title-empty-{}", now_millis()));
+        let config = test_config(&root);
+
+        assert_eq!(
+            fallback_session_title(&config, "019f9478-dbf2-7723"),
+            "Codex 019f9478-dbf"
+        );
+    }
+
+    #[test]
     fn normalizes_numeric_session_timestamps_for_display() {
         assert_eq!(
             newest_timestamp(vec![Some("1784042516".to_owned())]),
@@ -2358,6 +2496,34 @@ mod tests {
     }
 
     #[test]
+    fn list_sessions_only_materializes_the_requested_latest_index_entries() {
+        let root = std::env::temp_dir().join(format!("session-page-test-{}", now_millis()));
+        let cfg = test_config(&root);
+        fs::create_dir_all(&cfg.codex_home_dir).expect("codex home");
+        let entries = (0..40)
+            .map(|index| {
+                format!(
+                    r#"{{"id":"session-{index:02}","thread_name":"Session {index:02}","updated_at":"{index}"}}"#,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(
+            Path::new(&cfg.codex_home_dir).join("session_index.jsonl"),
+            entries,
+        )
+        .expect("index");
+
+        let sessions =
+            list_sessions(&cfg, &[], RuntimeSessionState::default(), 25).expect("sessions");
+
+        assert_eq!(sessions.len(), 25);
+        assert_eq!(sessions[0].thread_id, "session-39");
+        assert_eq!(sessions[24].thread_id, "session-15");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn list_sessions_includes_bridge_owned_thread_missing_from_app_threads_and_index() {
         let root =
             std::env::temp_dir().join(format!("session-owned-fallback-test-{}", now_millis()));
@@ -2440,6 +2606,37 @@ mod tests {
             Some("D:\\Projects\\real-app")
         );
         assert_eq!(sessions[0].project_name.as_deref(), Some("real-app"));
+        assert!(sessions[0].can_continue);
+        assert!(!sessions[0].owned_by_bridge);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn indexed_native_codex_history_is_continuable_without_being_bridge_owned() {
+        let root = std::env::temp_dir().join(format!("native-history-test-{}", now_millis()));
+        let cfg = test_config(&root);
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            Path::new(&cfg.codex_home_dir).join("session_index.jsonl"),
+            r#"{"id":"native_thread","thread_name":"Native thread","updated_at":"2026-07-25T00:00:00Z"}"#,
+        )
+        .expect("index");
+        fs::write(
+            session_dir.join("rollout-native_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"native_thread","source":"vscode"}}"#,
+        )
+        .expect("native rollout");
+
+        let sessions =
+            list_sessions(&cfg, &[], RuntimeSessionState::default(), 10).expect("sessions");
+        let native = sessions
+            .iter()
+            .find(|session| session.thread_id == "native_thread")
+            .expect("native session");
+
+        assert!(native.can_continue);
+        assert!(!native.owned_by_bridge);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2493,6 +2690,32 @@ mod tests {
     }
 
     #[test]
+    fn generated_image_event_becomes_a_visible_codex_attachment() {
+        let value = json!({
+            "timestamp": "2026-07-23T10:00:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "image_generation_end",
+                "turn_id": "turn_image",
+                "result": {
+                    "saved_path": "/Users/Example/.codex/generated_images/thread/preview.png",
+                    "image_url": "data:image/png;base64,omitted"
+                }
+            }
+        });
+
+        let msg = parse_codex_message("thr", 0, &value, &mut HashMap::new()).expect("message");
+
+        assert_eq!(msg.author_kind, "codex");
+        assert_eq!(msg.kind, "message");
+        assert!(msg.text.is_empty());
+        assert_eq!(msg.attachments.len(), 1);
+        assert_eq!(msg.attachments[0].filename, "preview.png");
+        assert_eq!(msg.attachments[0].media_type, "image/png");
+        assert_eq!(msg.turn_id.as_deref(), Some("turn_image"));
+    }
+
+    #[test]
     fn response_item_input_text_without_role_is_local_message() {
         let value = json!({
             "type": "response_item",
@@ -2522,7 +2745,8 @@ mod tests {
         let msg = parse_codex_message("thr", 0, &value, &mut HashMap::new()).expect("message");
 
         assert_eq!(msg.author_kind, "system");
-        assert!(msg.text.contains("没有返回任何消息"));
+        assert_eq!(msg.kind, EMPTY_RESPONSE_KIND);
+        assert!(msg.text.is_empty());
         assert_eq!(msg.turn_id.as_deref(), Some("turn_1"));
     }
 
