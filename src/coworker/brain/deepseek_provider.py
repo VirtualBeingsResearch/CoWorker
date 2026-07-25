@@ -129,7 +129,7 @@ class DeepSeekProvider(BaseLLMProvider):
         return sorted(_DEEPSEEK_MODELS)
 
     def supports_tool_use(self, model_id: str) -> bool:
-        return model_id in _DEEPSEEK_MODELS
+        return True
 
     def supports_vision(self, model_id: str) -> bool:
         return False  # DeepSeek text models don't support vision
