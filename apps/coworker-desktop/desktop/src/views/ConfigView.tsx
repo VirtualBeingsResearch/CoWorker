@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, CheckCircle2, Circle, FolderOpen, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Circle, FolderOpen, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Field } from "../components/Field";
 import { LogOutputLevelControl } from "../components/LogOutputLevelControl";
@@ -39,6 +39,7 @@ export function ConfigView({
   selectedCoworker,
   onSelectCoworker,
   updateCoworker,
+  onMoveSelectedCoworker,
   onAddCoworker,
   onRemoveSelectedCoworker,
   selectedRegistrations,
@@ -65,6 +66,7 @@ export function ConfigView({
   selectedCoworker: BridgeCoworker;
   onSelectCoworker: (index: number) => void;
   updateCoworker: (field: keyof BridgeCoworker, value: BridgeCoworker[keyof BridgeCoworker]) => void;
+  onMoveSelectedCoworker: (offset: -1 | 1) => void;
   onAddCoworker: () => void;
   onRemoveSelectedCoworker: () => void;
   selectedRegistrations: CommunicateRegistration[];
@@ -174,6 +176,21 @@ export function ConfigView({
             })}
           />
         </Field>
+        <label className="coworkerEnabledBand fieldSpanFull" htmlFor="close-to-tray">
+          <span>
+            <strong>{t("config.fieldCloseToTray")}</strong>
+            <small>{t("config.hintCloseToTray")}</small>
+          </span>
+          <span className="toggleControl">
+            <input
+              id="close-to-tray"
+              type="checkbox"
+              checked={config.close_to_tray !== false}
+              onChange={(event) => updateConfig({ ...config, close_to_tray: event.target.checked })}
+            />
+            <span aria-hidden="true" />
+          </span>
+        </label>
         <Field label={t("config.fieldUpdateSubscriptionUrl")} inputId="desktop-update-url" error={errorMessage("desktop_update_url")}>
           <input
             id="desktop-update-url"
@@ -302,6 +319,26 @@ export function ConfigView({
             <h3>{t("config.coworkersTitle")}</h3>
           </div>
           <div className="inlineActions">
+            <button
+              className="iconButton"
+              onClick={() => onMoveSelectedCoworker(-1)}
+              disabled={selectedIndex === 0}
+              title={t("config.moveCoworkerEarlier")}
+              aria-label={t("config.moveCoworkerEarlier")}
+              type="button"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <button
+              className="iconButton"
+              onClick={() => onMoveSelectedCoworker(1)}
+              disabled={selectedIndex === coworkers.length - 1}
+              title={t("config.moveCoworkerLater")}
+              aria-label={t("config.moveCoworkerLater")}
+              type="button"
+            >
+              <ArrowRight size={16} />
+            </button>
             <button className="softButton" onClick={onAddCoworker}>
               <Plus size={16} /> {t("common.add")}
             </button>

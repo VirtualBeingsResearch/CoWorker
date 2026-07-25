@@ -265,6 +265,11 @@ After an operator calls `publish` or `rollback`, the server also sends a check-f
 
 1. Coworker sends a message through `communicate` to the `coworker-desktop` participant represented by a Desktop snapshot. `conversation_id` selects a conversation under that actor; omitting it creates a new conversation. If `extra.project_path` / `extra.cwd` is omitted, a new Codex thread starts as a no-project chat. If provided, it is sent to the Codex app-server as the project working directory.
 
+Existing Codex actor conversations include threads created by CoWorker Desktop as well as local
+history left by Codex App or the CLI. The bridge recognizes local rollouts and validates a
+`conversation_id` through Codex app-server `thread/resume` before the first mutation; missing or
+stale ids are rejected before any message record is written.
+
 Create a thread:
 
 ```python

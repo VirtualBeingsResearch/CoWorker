@@ -26,11 +26,14 @@ git push origin main
 - Start new work only from this synchronized `main`.
 - Keep `main` free of feature commits. If the fast-forward merge fails, stop and inspect the divergence instead of creating a synchronization merge commit or forcing the branch.
 - Do not overwrite, stash, commit, or otherwise absorb unrelated changes already present in the primary worktree.
+- These synchronization commands apply when starting from the primary `main` worktree. When the current directory is an already-isolated task worktree, keep its task branch and do not switch it to `main` merely to begin or continue the assigned work.
 
 The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWorker --source VirtualBeingsResearch/CoWorker --branch main`, followed by a fast-forward-only local pull. Do not use `--force` automatically.
 
 ## Branches and worktrees
 
+- If the current directory is already a clean, task-specific Git worktree supplied for the work, use it directly. Do not create a nested or sibling worktree merely to satisfy this section.
+- Before reusing a supplied worktree, verify its branch and status. Preserve any unrelated user changes; if the branch belongs to different work or the changes cannot be isolated safely, use a separate worktree.
 - Every large or non-trivial feature must be developed on a dedicated branch in an independent Git worktree. A feature is non-trivial when it spans multiple components, is expected to take several commits, or benefits from isolation from other ongoing work.
 - Use a focused branch name such as `feat/<slug>`, `fix/<slug>`, or `chore/<slug>`.
 - A typical worktree creation command is:

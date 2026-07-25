@@ -23,9 +23,11 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { resolveResource } from "@tauri-apps/api/path";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import appMetadata from "../package.json";
 import { FeedbackIcon } from "./components/Field";
+import { CloseToTrayNotice } from "./components/CloseToTrayNotice";
 import { LogDetailDialog } from "./components/LogDetailDialog";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { useI18n } from "./i18n";
@@ -65,24 +67,30 @@ import {
   getConfigInfo,
   getDefaultDesktopUpdateUrl,
   installDesktopUpdate,
+  isCloseToTrayChoicePending,
   listCommunicateRegistrations,
   listenActorStreamEvents,
   listenBridgeLogChunks,
+  listenCloseToTrayChoice,
   readBridgeLog,
   runDiagnostics,
+  resolveCloseToTrayChoice,
   saveConfig,
   ConfigValue,
   LogOutputLevel,
   BridgeStatus,
+  ActorStreamEvent,
   CommunicateRegistration,
   DesktopUpdateInfo,
   DiagnosticResult,
   DesktopApproval,
+  type DesktopActorId,
   ResolveApprovalResult,
   startBridge,
   startBridgeLogStream,
   stopBridge,
   stopBridgeLogStream,
+  setCloseToTray,
   setTrayCopy,
 } from "./tauri";
 import { ConfigView } from "./views/ConfigView";
@@ -95,12 +103,117 @@ const defaultPath = "coworker_desktop.json";
 const lifePanelStorageKey = "coworker-desktop-life-panel-collapsed";
 const onboardingCompletedStorageKey = "coworker-desktop-onboarding-completed";
 
+type ActiveConversation = {
+  actorId: DesktopActorId;
+  conversationId: string;
+};
+
+type ActorNotificationDetails = {
+  kind: "coworker" | "completed";
+  author?: string;
+  preview?: string;
+};
+
+let notificationIconPromise: Promise<string | undefined> | undefined;
+
+function eventRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function notificationPreview(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return undefined;
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}…` : normalized;
+}
+
+export function actorNotificationDetails(update: ActorStreamEvent): ActorNotificationDetails {
+  const message = eventRecord(update.event.message);
+  const metadata = eventRecord(message?.metadata);
+  const authorKind = String(message?.author_kind ?? "");
+  const eventType = String(update.event.type ?? "");
+  const incomingCoworker = authorKind === "coworker"
+    || (message === null && eventType === "conversation_updated"
+      && update.message_id !== null
+      && (update.actor_id === "local" || update.actor_id === "claude"));
+  if (incomingCoworker) {
+    const author = typeof metadata?.author_label === "string" && metadata.author_label.trim()
+      ? metadata.author_label.trim()
+      : undefined;
+    return {
+      kind: "coworker",
+      author,
+      preview: notificationPreview(message?.content),
+    };
+  }
+  return {
+    kind: "completed",
+    preview: notificationPreview(message?.content ?? update.event.result),
+  };
+}
+
+async function resolvedNotificationIcon(): Promise<string | undefined> {
+  notificationIconPromise ??= resolveResource("icons/icon.png").catch(() => undefined);
+  return notificationIconPromise;
+}
+
 function readInitialLifePanelCollapsed() {
   try {
     return window.localStorage.getItem(lifePanelStorageKey) === "true";
   } catch {
     return false;
   }
+}
+
+export function shouldNotifyActorEvent(
+  update: ActorStreamEvent,
+  notifiedIds: Set<string>,
+): boolean {
+  const eventType = String(update.event.type ?? "");
+  const message = eventRecord(update.event.message);
+  const metadata = eventRecord(message?.metadata);
+  const authorKind = String(message?.author_kind ?? "");
+  const messageKind = String(metadata?.kind ?? "");
+  const streaming = metadata?.streaming === true;
+  const isIncomingCoworker = eventType === "conversation_updated"
+    && (
+      authorKind === "coworker"
+      || (message === null && update.message_id !== null && (update.actor_id === "local" || update.actor_id === "claude"))
+    );
+  const isCodexTerminalMessage = update.actor_id === "codex"
+    && eventType === "conversation_updated"
+    && !streaming
+    && (
+      (authorKind === "codex" && messageKind === "message")
+      || (authorKind === "system" && ["empty_response", "plan", "system"].includes(messageKind))
+    );
+  const isClaudeResult = update.actor_id === "claude" && eventType === "result";
+  if (!isIncomingCoworker && !isCodexTerminalMessage && !isClaudeResult) return false;
+  const notificationId = update.message_id
+    ?? `${update.actor_id}:${update.conversation_id}:${eventType}`;
+  if (notifiedIds.has(notificationId)) return false;
+  notifiedIds.add(notificationId);
+  return true;
+}
+
+export function isActiveConversationEvent(
+  update: ActorStreamEvent,
+  activeConversation: ActiveConversation | null,
+): boolean {
+  return activeConversation?.actorId === update.actor_id
+    && activeConversation.conversationId === update.conversation_id;
+}
+
+export function shouldSendNativeNotification(
+  page: Pick<Document, "hasFocus" | "visibilityState"> = document,
+): boolean {
+  return page.visibilityState !== "visible" || !page.hasFocus();
 }
 
 export function App() {
@@ -136,6 +249,7 @@ export function App() {
   const [lastConfigModifiedMs, setLastConfigModifiedMs] = useState<number | null>(null);
   const [developmentWarningDismissed, setDevelopmentWarningDismissed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [closeToTrayNoticeOpen, setCloseToTrayNoticeOpen] = useState(false);
   const [desktopApprovals, setDesktopApprovals] = useState<DesktopApproval[]>([]);
   const [resolvingApproval, setResolvingApproval] = useState(false);
   const ledgerRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +261,8 @@ export function App() {
   const desktopUpdateCheckInFlightRef = useRef(false);
   const handledDesktopUpdatePushesRef = useRef(new Set<string>());
   const notifiedDesktopUpdateVersionsRef = useRef(new Set<string>());
+  const notifiedMessageIdsRef = useRef(new Set<string>());
+  const activeConversationRef = useRef<ActiveConversation | null>(null);
   const toastIdRef = useRef(0);
   const toastTimersRef = useRef<Map<number, number>>(new Map());
   const savedConfigRef = useRef<ConfigValue>({});
@@ -291,6 +407,31 @@ export function App() {
       quit: t("tray.quit"),
     }).catch(() => undefined);
   }, [lang, t]);
+
+  useEffect(() => {
+    void setCloseToTray(config.close_to_tray !== false).catch(() => undefined);
+  }, [config.close_to_tray]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listenCloseToTrayChoice(() => setCloseToTrayNoticeOpen(true))
+      .then(async (nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+        if (await isCloseToTrayChoicePending()) {
+          setCloseToTrayNoticeOpen(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -519,6 +660,36 @@ export function App() {
   }, [bootstrapPhase, config.desktop_update_url, desktopUpdateUrlPlaceholder]);
 
   useEffect(() => {
+    if (bootstrapPhase !== "ready") return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listenActorStreamEvents((update) => {
+      if (!shouldNotifyActorEvent(update, notifiedMessageIdsRef.current)) return;
+      const notification = actorNotificationCopy(update);
+      if (!shouldSendNativeNotification()) {
+        if (isActiveConversationEvent(update, activeConversationRef.current)) return;
+        showToast(
+          notification.preview
+            ? `${notification.title}: ${notification.preview}`
+            : notification.title,
+          "info",
+        );
+        return;
+      }
+      notifyIncomingMessage(notification).catch(() => undefined);
+    })
+      .then((nextUnlisten) => {
+        if (disposed) nextUnlisten();
+        else unlisten = nextUnlisten;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [bootstrapPhase, lang]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       getBridgeStatus().then(setStatus).catch(() => undefined);
     }, 3000);
@@ -708,14 +879,50 @@ export function App() {
     try {
       const permissionGranted = await isPermissionGranted();
       if (permissionGranted || (await requestPermission()) === "granted") {
+        const icon = await resolvedNotificationIcon();
         sendNotification({
           title: t("update.notification.title"),
           body: t("update.notification.body", { version }),
+          ...(icon ? { icon } : {}),
         });
       }
     } catch {
       // The in-app update notice remains available when native notifications fail.
     }
+  }
+
+  function actorNotificationCopy(update: ActorStreamEvent) {
+    const details = actorNotificationDetails(update);
+    const title = details.kind === "coworker"
+      ? t("messages.notification.fromCoworker", {
+        author: details.author ?? t("actors.coworker"),
+      })
+      : t("messages.notification.completed", {
+        actor: actorDisplayName(update.actor_id),
+      });
+    return { title, preview: details.preview };
+  }
+
+  async function notifyIncomingMessage(notification: { title: string; preview?: string }) {
+    try {
+      const permissionGranted = await isPermissionGranted();
+      if (permissionGranted || (await requestPermission()) === "granted") {
+        const icon = await resolvedNotificationIcon();
+        sendNotification({
+          title: notification.title,
+          body: notification.preview ?? t("messages.notification.body"),
+          ...(icon ? { icon } : {}),
+        });
+      }
+    } catch {
+      // Conversation updates remain visible in the app when native notifications fail.
+    }
+  }
+
+  function actorDisplayName(actorId: string) {
+    if (actorId === "local") return t("actors.local");
+    if (actorId === "claude") return t("actors.claude");
+    return t("actors.codex");
   }
 
   async function installUpdate() {
@@ -822,6 +1029,20 @@ export function App() {
     });
     setConfig({ ...config, coworkers: nextCoworkers });
     if (field === "coworker_id") setSelectedCoworkerId(String(value ?? ""));
+    markDirty();
+  }
+
+  function moveSelectedCoworker(offset: -1 | 1) {
+    const nextIndex = selectedIndex + offset;
+    if (nextIndex < 0 || nextIndex >= coworkers.length) return;
+    const nextCoworkers = [...coworkers];
+    [nextCoworkers[selectedIndex], nextCoworkers[nextIndex]] = [
+      nextCoworkers[nextIndex],
+      nextCoworkers[selectedIndex],
+    ];
+    setConfig({ ...config, coworkers: nextCoworkers });
+    setSelectedCoworkerIndex(nextIndex);
+    setSelectedCoworkerId(nextCoworkers[nextIndex]?.coworker_id ?? "");
     markDirty();
   }
 
@@ -1197,6 +1418,7 @@ export function App() {
               setSelectedCoworkerId(coworkers[index]?.coworker_id ?? "");
             }}
             updateCoworker={updateCoworker}
+            onMoveSelectedCoworker={moveSelectedCoworker}
             onAddCoworker={addCoworker}
             onRemoveSelectedCoworker={removeSelectedCoworker}
             selectedRegistrations={selectedRegistrations}
@@ -1218,6 +1440,9 @@ export function App() {
             if (index >= 0) setSelectedCoworkerIndex(index);
           }}
           feedback={conversationFeedback}
+          onActiveConversationChange={(activeConversation) => {
+            activeConversationRef.current = activeConversation;
+          }}
         />
 
         {desktopApprovals[0] && (
@@ -1298,6 +1523,23 @@ export function App() {
         issuesCount={issues.length}
         onSave={() => saveFromOnboarding(false)}
         onSaveAndStart={() => saveFromOnboarding(true)}
+      />
+      <CloseToTrayNotice
+        open={closeToTrayNoticeOpen}
+        onChoose={async (keepRunning) => {
+          try {
+            await resolveCloseToTrayChoice(keepRunning);
+            setConfig((current) => ({ ...current, close_to_tray: keepRunning }));
+            savedConfigRef.current = {
+              ...savedConfigRef.current,
+              close_to_tray: keepRunning,
+            };
+            setCloseToTrayNoticeOpen(false);
+          } catch (error) {
+            reportError(error);
+            throw error;
+          }
+        }}
       />
     </main>
   );

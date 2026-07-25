@@ -39,8 +39,10 @@ use tracing::{error, info, warn};
 use url::Url;
 
 const WINDOW_STATE_FILE: &str = "window-state.json";
+const CLOSE_TO_TRAY_CHOICE_FILE: &str = "close-to-tray-choice-made";
 const TRAY_ID: &str = "coworker-desktop-tray";
 const DEFAULT_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+const MAX_DESKTOP_IMAGE_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
 const DESKTOP_SERVICE_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
 const DESKTOP_UPDATE_ENDPOINT_SUFFIX: &str =
     "/api/desktop-updates/{{target}}/{{arch}}/{{current_version}}";
@@ -50,6 +52,9 @@ struct AppState {
     log_stream: tokio::sync::Mutex<Option<RunningLogStream>>,
     pending_update: std::sync::Mutex<Option<Update>>,
     quitting: AtomicBool,
+    close_to_tray: AtomicBool,
+    close_to_tray_choice_made: AtomicBool,
+    close_to_tray_choice_pending: AtomicBool,
 }
 
 struct RunningLogStream {
@@ -142,6 +147,9 @@ async fn save_config(
     let path = config_path(&app, path)?;
     write_config_value(&path, &config).map_err(to_message)?;
     let desktop_config = DesktopConfig::from_file(&path).map_err(to_message)?;
+    state
+        .close_to_tray
+        .store(close_to_tray_from_config(&config), Ordering::SeqCst);
     state
         .runtime
         .apply_saved_config(&path, &desktop_config)
@@ -509,6 +517,35 @@ async fn copy_desktop_attachment(
 }
 
 #[tauri::command]
+fn read_desktop_image_preview(path: String) -> Result<tauri::ipc::Response, String> {
+    let path = Path::new(&path);
+    if !is_previewable_image_path(path) {
+        return Err("unsupported image preview format".to_owned());
+    }
+    let metadata = std::fs::metadata(path).map_err(to_message)?;
+    if !metadata.is_file() {
+        return Err("image preview path is not a file".to_owned());
+    }
+    if metadata.len() > MAX_DESKTOP_IMAGE_PREVIEW_BYTES {
+        return Err("image preview exceeds the size limit".to_owned());
+    }
+    std::fs::read(path)
+        .map(tauri::ipc::Response::new)
+        .map_err(to_message)
+}
+
+fn is_previewable_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif"
+            )
+        })
+}
+
+#[tauri::command]
 fn read_bridge_log(
     path: Option<String>,
     max_bytes: Option<usize>,
@@ -844,6 +881,9 @@ pub fn run() {
             log_stream: tokio::sync::Mutex::new(None),
             pending_update: std::sync::Mutex::new(None),
             quitting: AtomicBool::new(false),
+            close_to_tray: AtomicBool::new(true),
+            close_to_tray_choice_made: AtomicBool::new(false),
+            close_to_tray_choice_pending: AtomicBool::new(false),
         })
         .setup(|app| {
             let default_names = default_codex_names();
@@ -859,6 +899,17 @@ pub fn run() {
                 "CoWorker Desktop started version={} log_path={}",
                 env!("CARGO_PKG_VERSION"),
                 log_file_path(&logs_dir).display()
+            ));
+            let close_to_tray = configured_close_to_tray(app.handle());
+            app.state::<AppState>()
+                .close_to_tray
+                .store(close_to_tray, Ordering::SeqCst);
+            let close_to_tray_choice_made = close_to_tray_choice_was_made(app.handle());
+            app.state::<AppState>()
+                .close_to_tray_choice_made
+                .store(close_to_tray_choice_made, Ordering::SeqCst);
+            desktop_log_info(format!(
+                "CoWorker Desktop loaded close_to_tray={close_to_tray} close_to_tray_choice_made={close_to_tray_choice_made}"
             ));
             install_tray(app)?;
             install_window_close_behavior(app)?;
@@ -881,6 +932,7 @@ pub fn run() {
             list_desktop_approvals,
             resolve_desktop_approval,
             copy_desktop_attachment,
+            read_desktop_image_preview,
             read_bridge_log,
             start_bridge_log_stream,
             stop_bridge_log_stream,
@@ -890,7 +942,10 @@ pub fn run() {
             check_desktop_update,
             get_default_desktop_update_url,
             install_desktop_update,
-            set_tray_copy
+            set_tray_copy,
+            set_close_to_tray,
+            is_close_to_tray_choice_pending,
+            resolve_close_to_tray_choice
         ])
         .build(tauri::generate_context!())
         .expect("error while building CoWorker Desktop app");
@@ -975,6 +1030,58 @@ fn set_tray_copy(
     let menu = build_tray_menu(&app, &open, &hide, &quit).map_err(to_message)?;
     tray.set_tooltip(Some(tooltip)).map_err(to_message)?;
     tray.set_menu(Some(menu)).map_err(to_message)
+}
+
+#[tauri::command]
+fn set_close_to_tray(enabled: bool, state: tauri::State<'_, AppState>) {
+    state.close_to_tray.store(enabled, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn is_close_to_tray_choice_pending(state: tauri::State<'_, AppState>) -> bool {
+    state.close_to_tray_choice_pending.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn resolve_close_to_tray_choice(
+    keep_running: bool,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let config_path = config_path(&app, None)?;
+    let mut config = if config_path.is_file() {
+        read_config_value(&config_path).map_err(to_message)?
+    } else {
+        let default_names = default_codex_names();
+        default_config_value_with_display_name(
+            &default_names.codex_id,
+            &default_names.display_name,
+            "http://localhost:8000",
+        )
+    };
+    config["close_to_tray"] = Value::Bool(keep_running);
+    write_config_value(&config_path, &config).map_err(to_message)?;
+
+    let path = close_to_tray_choice_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(to_message)?;
+    }
+    std::fs::write(path, b"chosen\n").map_err(to_message)?;
+    state.close_to_tray.store(keep_running, Ordering::SeqCst);
+    state
+        .close_to_tray_choice_made
+        .store(true, Ordering::SeqCst);
+    state
+        .close_to_tray_choice_pending
+        .store(false, Ordering::SeqCst);
+    if keep_running {
+        if let Some(window) = app.get_webview_window("main") {
+            window.hide().map_err(to_message)?;
+        }
+    } else {
+        request_desktop_shutdown(&app);
+    }
+    Ok(())
 }
 
 fn window_state_flags() -> StateFlags {
@@ -1127,9 +1234,28 @@ fn install_window_close_behavior(app: &mut tauri::App) -> tauri::Result<()> {
                 );
                 return;
             }
-            desktop_log_info("CoWorker Desktop main window close requested; hiding to tray");
             api.prevent_close();
-            let _ = window_for_events.hide();
+            if state.close_to_tray.load(Ordering::SeqCst) {
+                if state.close_to_tray_choice_made.load(Ordering::SeqCst) {
+                    desktop_log_info(
+                        "CoWorker Desktop main window close requested; hiding to tray",
+                    );
+                    let _ = window_for_events.hide();
+                } else {
+                    desktop_log_info(
+                        "CoWorker Desktop main window close requested; asking for the first close behavior choice",
+                    );
+                    state
+                        .close_to_tray_choice_pending
+                        .store(true, Ordering::SeqCst);
+                    let _ = app_handle.emit("close-to-tray-choice-requested", ());
+                    let _ = window_for_events.show();
+                    let _ = window_for_events.set_focus();
+                }
+            } else {
+                desktop_log_info("CoWorker Desktop main window close requested; shutting down");
+                request_desktop_shutdown(&app_handle);
+            }
         }
         _ => {}
     });
@@ -1180,6 +1306,33 @@ fn config_path(app: &tauri::AppHandle, path: Option<String>) -> Result<PathBuf, 
             Ok(current_path)
         }
     }
+}
+
+fn close_to_tray_from_config(config: &Value) -> bool {
+    config
+        .get("close_to_tray")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn close_to_tray_choice_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join(CLOSE_TO_TRAY_CHOICE_FILE))
+        .map_err(to_message)
+}
+
+fn close_to_tray_choice_was_made(app: &tauri::AppHandle) -> bool {
+    close_to_tray_choice_path(app).is_ok_and(|path| path.is_file())
+}
+
+fn configured_close_to_tray(app: &tauri::AppHandle) -> bool {
+    config_path(app, None)
+        .ok()
+        .and_then(|path| read_config_value(&path).ok())
+        .as_ref()
+        .map(close_to_tray_from_config)
+        .unwrap_or(true)
 }
 
 const PREVIOUS_APP_IDENTIFIERS: [&str; 2] =
@@ -1533,6 +1686,14 @@ mod tests {
     }
 
     #[test]
+    fn image_preview_formats_exclude_active_vector_content() {
+        assert!(is_previewable_image_path(Path::new("preview.PNG")));
+        assert!(is_previewable_image_path(Path::new("preview.webp")));
+        assert!(!is_previewable_image_path(Path::new("preview.svg")));
+        assert!(!is_previewable_image_path(Path::new("preview.txt")));
+    }
+
+    #[test]
     fn config_read_treats_schema_v1_as_unconfigured() {
         let directory = temp_path("config-v1");
         std::fs::create_dir_all(&directory).expect("create test directory");
@@ -1810,5 +1971,16 @@ mod tests {
     #[test]
     fn first_output_line_returns_none_when_output_is_blank() {
         assert_eq!(first_output_line(b"\n", b"\n"), None);
+    }
+
+    #[test]
+    fn close_to_tray_defaults_to_enabled_and_respects_saved_boolean() {
+        assert!(close_to_tray_from_config(&serde_json::json!({})));
+        assert!(close_to_tray_from_config(
+            &serde_json::json!({"close_to_tray": true})
+        ));
+        assert!(!close_to_tray_from_config(
+            &serde_json::json!({"close_to_tray": false})
+        ));
     }
 }

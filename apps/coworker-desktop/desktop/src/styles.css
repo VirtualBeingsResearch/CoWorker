@@ -458,7 +458,9 @@ p {
 }
 
 .ledger {
+  align-content: start;
   display: grid;
+  grid-auto-rows: min-content;
   height: 100%;
   max-height: none;
   min-height: 0;
@@ -1894,6 +1896,38 @@ p {
   padding: 3px 7px;
 }
 
+.messageActions {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.sessionMessage:hover .messageActions,
+.sessionMessage:focus-within .messageActions {
+  opacity: 1;
+}
+
+.messageActions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0;
+  width: 24px;
+}
+
+.messageActions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
 .messageToolResult {
   border-top: 1px dashed var(--border);
   display: grid;
@@ -2007,6 +2041,56 @@ p {
   text-underline-offset: 3px;
 }
 
+.loadMoreSessionsButton {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+  min-height: 36px;
+  width: 100%;
+}
+
+.loadMoreSessionsButton:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.messageMarkdownImage,
+.messageImageLoading,
+.messageImageUnavailable {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: block;
+  max-width: min(100%, 640px);
+}
+
+.messageMarkdownImage {
+  background: var(--surface-muted);
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.messageImageLoading {
+  animation: imagePreviewPulse 1.4s ease-in-out infinite;
+  background: var(--surface-muted);
+  height: 180px;
+}
+
+.messageImageUnavailable {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 18px;
+}
+
+@keyframes imagePreviewPulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .messageText hr {
   border: 0;
   border-top: 1px solid var(--border);
@@ -2095,6 +2179,46 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.messageImageGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 560px;
+}
+
+.messageImagePreview {
+  background:
+    linear-gradient(45deg, var(--surface-muted) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-muted) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-muted) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-muted) 75%),
+    var(--surface-strong);
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-height: 96px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.messageImageGrid > .messageImagePreview:only-child {
+  grid-column: 1 / -1;
+}
+
+.messageImagePreview img {
+  display: block;
+  height: auto;
+  max-height: 340px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.messageImagePreview:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-soft);
 }
 
 .attachmentChip {
@@ -2224,6 +2348,127 @@ p {
   padding: 24px;
   position: absolute;
   z-index: 60;
+}
+
+.closeToTrayBackdrop {
+  backdrop-filter: blur(3px);
+}
+
+.closeToTrayDialog {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 18px;
+  max-width: min(440px, 92vw);
+  padding: 22px;
+  width: 440px;
+}
+
+.closeToTrayRoute {
+  align-items: center;
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--sky) 22%, transparent), transparent 58%),
+    var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  display: grid;
+  grid-template-columns: auto minmax(36px, 1fr) auto auto;
+  min-height: 78px;
+  padding: 16px 18px;
+}
+
+.closeToTrayWindow {
+  align-items: center;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: var(--shadow-soft);
+  color: var(--fg);
+  display: flex;
+  height: 40px;
+  justify-content: center;
+  width: 54px;
+}
+
+.closeToTrayLine {
+  border-top: 1px dashed color-mix(in oklch, var(--sky) 70%, var(--border-strong));
+  margin: 0 10px;
+}
+
+.closeToTrayDock {
+  align-items: center;
+  background: color-mix(in oklch, var(--fg) 82%, transparent);
+  border-radius: 7px;
+  display: flex;
+  gap: 4px;
+  padding: 7px 9px;
+}
+
+.closeToTrayDock i {
+  background: var(--surface-strong);
+  border-radius: 3px;
+  display: block;
+  height: 9px;
+  opacity: 0.9;
+  width: 9px;
+}
+
+.closeToTrayDock i:nth-child(2) {
+  background: var(--sky);
+}
+
+.closeToTrayDestinations {
+  display: flex;
+  gap: 8px;
+  margin-left: 10px;
+}
+
+.closeToTrayExit {
+  align-items: center;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--muted);
+  display: flex;
+  justify-content: center;
+  width: 34px;
+}
+
+.closeToTrayCopy {
+  display: grid;
+  gap: 7px;
+}
+
+.closeToTrayCopy h3 {
+  font-size: 20px;
+  letter-spacing: -0.025em;
+}
+
+.closeToTrayCopy > p:last-child {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.closeToTrayActions {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.softButton.closeToTrayPrimary {
+  background: var(--interaction);
+  border-color: var(--interaction);
+  color: var(--surface-strong);
+}
+
+.softButton.closeToTrayPrimary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--interaction) 88%, white);
+  border-color: color-mix(in oklch, var(--interaction) 88%, white);
 }
 
 .logDetailDialog {
@@ -2436,6 +2681,19 @@ p {
 .onboardingEntry:hover {
   background: var(--surface-hover);
   color: var(--fg);
+}
+
+.shell[data-sidebar="collapsed"] .onboardingEntry {
+  align-self: center;
+  justify-content: center;
+  margin: 6px auto 0;
+  min-height: 40px;
+  padding: 0;
+  width: 40px;
+}
+
+.shell[data-sidebar="collapsed"] .onboardingEntry span {
+  display: none;
 }
 
 .ledgerRow[role="button"] {

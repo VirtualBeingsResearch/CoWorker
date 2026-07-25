@@ -426,11 +426,12 @@ impl ConversationStore {
         created_at: DateTime<Utc>,
     ) -> Result<()> {
         let created_at = created_at.to_rfc3339();
-        let initial_title = if actor == ActorId::Local && author_kind == "local" {
-            default_conversation_title(content).unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let initial_title =
+            if actor == ActorId::Local && matches!(author_kind, "local" | "coworker") {
+                default_conversation_title(content).unwrap_or_default()
+            } else {
+                String::new()
+            };
         let connection = self.connection.lock().expect("conversation store poisoned");
         connection
             .execute(
@@ -578,9 +579,9 @@ impl ConversationStore {
                         (SELECT m.content FROM messages m
                          WHERE m.actor_id=c.actor_id
                            AND m.conversation_id=c.conversation_id
-                           AND m.author_kind='local'
+                           AND m.author_kind IN ('local', 'coworker')
                            AND trim(m.content) <> ''
-                         ORDER BY m.created_at ASC LIMIT 1)
+                         ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1)
                  FROM conversations c
                  WHERE c.actor_id=?1 ORDER BY c.updated_at DESC LIMIT ?2",
             )
@@ -589,11 +590,11 @@ impl ConversationStore {
             .query_map(params![actor.as_str(), limit.max(1) as i64], |row| {
                 let title: String = row.get(1)?;
                 let conversation_id: String = row.get(0)?;
-                let first_local_message: Option<String> = row.get(4)?;
+                let first_human_message: Option<String> = row.get(4)?;
                 Ok(ActorConversation {
                     actor_id: actor,
                     title: if title.is_empty() {
-                        first_local_message
+                        first_human_message
                             .as_deref()
                             .and_then(default_conversation_title)
                             .unwrap_or_else(|| "搭档会话".to_owned())
@@ -1324,7 +1325,7 @@ mod tests {
     }
 
     #[test]
-    fn local_conversation_sets_title_on_first_non_empty_sent_message_only() {
+    fn local_conversation_uses_the_first_non_empty_human_message_as_title() {
         let store = store();
         store
             .append_message(
@@ -1337,6 +1338,10 @@ mod tests {
                 &json!({}),
             )
             .unwrap();
+        assert_eq!(
+            store.list_local_conversations(10).unwrap()[0].title,
+            "Incoming message"
+        );
         store
             .append_message(
                 "message-2",
@@ -1348,6 +1353,10 @@ mod tests {
                 &json!({}),
             )
             .unwrap();
+        assert_eq!(
+            store.list_local_conversations(10).unwrap()[0].title,
+            "Incoming message"
+        );
         store
             .rename_conversation(ActorId::Local, "local-thread-1", "Custom title")
             .unwrap();
@@ -1368,7 +1377,7 @@ mod tests {
     }
 
     #[test]
-    fn local_conversation_backfills_an_existing_blank_title_from_its_first_sent_message() {
+    fn local_conversation_backfills_an_existing_blank_title_from_its_first_human_message() {
         let store = store();
         let connection = store.connection.lock().unwrap();
         connection
@@ -1381,7 +1390,7 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO messages(id, actor_id, conversation_id, author_kind, content, created_at, metadata_json)
-                 VALUES ('legacy-message', 'local', 'legacy-local-thread', 'local', '  Legacy\nfirst message  ', '2026-07-13T00:00:00Z', '{}')",
+                 VALUES ('legacy-message', 'local', 'legacy-local-thread', 'coworker', '  Legacy\nfirst message  ', '2026-07-13T00:00:00Z', '{}')",
                 [],
             )
             .unwrap();
