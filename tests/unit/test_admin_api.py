@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coworker.__main__ import _print_setup_admin_token
 from coworker.api import admin
+from coworker.application import _print_setup_admin_token
 from coworker.core.config import (
     Config,
     apply_admin_config_file,

@@ -1,4 +1,4 @@
-"""复刻 `coworker.__main__:_main()` 的对象装配顺序，供 branch_runner 在独立工作目录/
+"""复刻 `coworker.application:_main()` 的对象装配顺序，供 branch_runner 在独立工作目录/
 独立进程里重建一份可 step 的 AgentLoop。
 
 与生产入口的差异（刻意的，不是遗漏）：

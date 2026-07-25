@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from coworker.__main__ import _register_providers
+from coworker.application import _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import available_models, available_types, build_provider
