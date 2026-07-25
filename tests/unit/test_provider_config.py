@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from coworker.application import _register_providers
+from coworker.application import _build_memory_llm_config, _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
-from coworker.brain.factory import available_models, available_types, build_provider
+from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
 from coworker.brain.zhipu_provider import ZhipuProvider
 from coworker.core.config import Config, LLMConfig
 from coworker.core.exceptions import ModelNotSupportedError
@@ -17,6 +17,7 @@ from coworker.core.model_config import (
     load_runtime_model_config,
     write_runtime_model_config,
 )
+from coworker.memory.long_term import LongTermLLMConfig
 
 
 def _llm(**kwargs) -> LLMConfig:
@@ -257,6 +258,84 @@ def test_register_providers_skips_empty_credentials():
 
     assert brain.active_provider is None
     assert brain.list_providers() == []
+
+
+def test_memory_llm_uses_default_named_provider_endpoint():
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "company-openai",
+                "default_model": "company-model",
+                "providers_file": "",
+                "managed_providers": [
+                    {
+                        "name": "company-openai",
+                        "type": "openai",
+                        "api_key": "secret",
+                        "base_url": "https://llm.example.test/v1",
+                    }
+                ],
+            },
+            "memory": {
+                "mem0_llm_provider": "openai",
+                "mem0_llm_model": "memory-model",
+            },
+        }
+    )
+
+    assert _build_memory_llm_config(config) == LongTermLLMConfig(
+        provider="openai",
+        api_dialect="openai",
+        api_key="secret",
+        model="memory-model",
+        base_url="https://llm.example.test/v1",
+    )
+
+
+def test_memory_llm_uses_same_default_endpoint_as_brain():
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "qwen",
+                "default_model": "qwen-plus",
+                "providers_file": "",
+                "managed_providers": [
+                    {
+                        "name": "qwen",
+                        "type": "qwen",
+                        "api_key": "secret",
+                    }
+                ],
+            },
+            "memory": {
+                "mem0_llm_provider": "qwen",
+                "mem0_llm_model": "qwen-plus",
+            },
+        }
+    )
+
+    memory_llm = _build_memory_llm_config(config)
+
+    assert memory_llm.api_dialect == "openai"
+    assert memory_llm.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [
+        ("anthropic", "anthropic"),
+        ("openai", "openai"),
+        ("deepseek", "openai"),
+        ("qwen", "openai"),
+        ("zhipu", "openai"),
+        ("minimax", "openai"),
+    ],
+)
+def test_provider_declares_mem0_compatible_api_dialect(
+    provider: str,
+    expected: str,
+) -> None:
+    assert api_dialect(provider) == expected
 
 
 @pytest.mark.asyncio

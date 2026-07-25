@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.memory.long_term import LongTermMemory
+from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
 
 
 @pytest.fixture(autouse=True)
@@ -244,8 +244,11 @@ class TestUsageHook:
 
         lt = LongTermMemory(
             db_path="data/_unused",
-            llm_provider="mock-provider",
-            llm_model="fallback-model",
+            llm=LongTermLLMConfig(
+                provider="mock-provider",
+                api_dialect="mock-provider",
+                model="fallback-model",
+            ),
         )
         lt._mem = MagicMock()
         lt._mem.llm = FakeLlm()
@@ -294,7 +297,13 @@ class TestUsageHook:
                 response = self.client.chat.completions.create(messages=messages)
                 return response.choices[0].message.content
 
-        lt = LongTermMemory(db_path="data/_unused", llm_provider="mock-provider")
+        lt = LongTermMemory(
+            db_path="data/_unused",
+            llm=LongTermLLMConfig(
+                provider="mock-provider",
+                api_dialect="mock-provider",
+            ),
+        )
         lt._mem = MagicMock()
         lt._mem.llm = FakeLlm()
         seen = []
@@ -309,3 +318,36 @@ class TestUsageHook:
             "cached_tokens": 67,
         }
         assert seen[0]["usage_source"] == "provider"
+
+
+@pytest.mark.parametrize(
+    ("provider", "api_dialect", "base_url_key"),
+    [
+        ("openai", "openai", "openai_base_url"),
+        ("deepseek", "openai", "openai_base_url"),
+        ("minimax", "openai", "openai_base_url"),
+        ("qwen", "openai", "openai_base_url"),
+        ("zhipu", "openai", "openai_base_url"),
+    ],
+)
+def test_llm_config_preserves_provider_base_url(
+    provider: str,
+    api_dialect: str,
+    base_url_key: str,
+) -> None:
+    llm = LongTermLLMConfig(
+        provider=provider,
+        api_dialect=api_dialect,
+        api_key="secret",
+        model="model-id",
+        base_url="https://llm.example.test/v1",
+    )
+
+    resolved_provider, config = llm.as_mem0_config()
+
+    assert resolved_provider == f"coworker_{api_dialect}"
+    assert config == {
+        "model": "model-id",
+        "api_key": "secret",
+        base_url_key: "https://llm.example.test/v1",
+    }

@@ -32,6 +32,24 @@ def available_models(type_: str) -> list[str]:
     return provider.list_models()
 
 
+def resolve_base_url(type_: str, configured_base_url: str | None = None) -> str | None:
+    cls = BaseLLMProvider._TYPE_REGISTRY.get(type_)
+    if cls is None:
+        raise ValueError(
+            f"未知 provider 类型 {type_!r}，可用类型：{', '.join(available_types())}"
+        )
+    return cls.resolve_base_url(configured_base_url)
+
+
+def api_dialect(type_: str) -> str:
+    cls = BaseLLMProvider._TYPE_REGISTRY.get(type_)
+    if cls is None:
+        raise ValueError(
+            f"未知 provider 类型 {type_!r}，可用类型：{', '.join(available_types())}"
+        )
+    return cls.api_dialect
+
+
 def build_provider(
     type_: str,
     api_key: str,
@@ -51,7 +69,7 @@ def build_provider(
             f"未知 provider 类型 {type_!r}，可用类型：{', '.join(available_types())}"
         )
     provider_factory = cast(Any, cls)
-    provider = provider_factory(api_key, base_url=base_url or None, name=name)
+    provider = provider_factory(api_key, base_url=resolve_base_url(type_, base_url), name=name)
     if default_model:
         provider.default_model = default_model
     for model_id in tool_use_models or []:
