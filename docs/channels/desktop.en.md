@@ -263,6 +263,15 @@ The Desktop Release section in `examples/api_test.html` can also create a releas
 
 At startup, the desktop application requests `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`. A response of `204` means no update is available. When an update exists, the endpoint returns the `version`, `url`, and `signature` required by the Tauri updater.
 
+An administrator can use the same Bearer token as the desktop release endpoints to request
+`GET /api/desktop-updates/statistics`. The response groups registered desktops by version and
+reports online, outdated, and legacy clients that did not report a version. Multiple actor
+registrations from one desktop are deduplicated by `desktop_id`. The Desktop releases page in the
+management UI shows the same distribution and refreshes it every 30 seconds. The endpoint reads
+only local registration records. On each Bridge start, the desktop refreshes actor registration
+metadata once with each configured Coworker instance; it does not periodically report data for
+version statistics while the process remains running. No telemetry is sent to an external service.
+
 After an operator calls `publish` or `rollback`, the server also sends a check-for-updates request over existing Desktop SSE connections to online clients that support `desktop_update_push`. The `push.eligible` and `push.enqueued` fields in the publish response count eligible desktops and those placed in the online SSE queue; they do not indicate offline delivery. If the bridge is stopped, the client is offline, or the desktop application has exited, the push is not retained. The next startup performs the check through the updater endpoint above. A push triggers only a signed update check and never installs automatically; the desktop application restarts only after the user approves installation.
 
 1. Coworker sends a message through `communicate` to the `coworker-desktop` participant represented by a Desktop snapshot. `conversation_id` selects a conversation under that actor; omitting it creates a new conversation. If `extra.project_path` / `extra.cwd` is omitted, a new Codex thread starts as a no-project chat. If provided, it is sent to the Codex app-server as the project working directory.

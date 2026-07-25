@@ -38,6 +38,11 @@ from .models import (
 )
 from .providers import build_release_source, build_runtime_spec, provider_metadata, source_summary
 from .semver import SemVer, SemVerError, normalize_version, parse_semver
+from .statistics import (
+    DesktopVersionCount,
+    DesktopVersionStatistics,
+    build_desktop_version_statistics,
+)
 from .store import (
     LATEST_FILENAME,
     RELEASE_FILENAME,
@@ -68,6 +73,8 @@ __all__ = [
     "CoworkerSourceConfig",
     "DesktopReleaseStore",
     "DesktopReleaseStoreError",
+    "DesktopVersionCount",
+    "DesktopVersionStatistics",
     "DownloadInterruptedError",
     "DownloadProgress",
     "GitHubAPIError",
@@ -98,6 +105,7 @@ __all__ = [
     "UnsafeSourceURLError",
     "build_release_source",
     "build_runtime_spec",
+    "build_desktop_version_statistics",
     "canonical_asset_names",
     "coworker_release_fingerprint",
     "normalize_version",
