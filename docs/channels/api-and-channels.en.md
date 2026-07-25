@@ -5,7 +5,7 @@
 [← Back to Channels and Clients](README.en.md)
 
 > The current v0.x releases should be used only locally or on a trusted network. Read the
-> [security policy](../../SECURITY.md) before deployment.
+> [security policy](../../SECURITY.en.md) before deployment.
 
 All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream or WeCom. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
 

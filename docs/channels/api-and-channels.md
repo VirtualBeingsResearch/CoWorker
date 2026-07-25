@@ -5,7 +5,7 @@
 [← 返回通信与客户端](README.md)
 
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
-> [安全策略](../../SECURITY.zh-CN.md)。
+> [安全策略](../../SECURITY.md)。
 
 所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream 或企业微信。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 

@@ -1,48 +1,33 @@
-# Security Policy
+# 安全策略
 
-[中文](SECURITY.zh-CN.md) · English
+中文 · [English](SECURITY.en.md)
 
-## Supported versions
+## 支持的版本
 
-Security fixes are made on the default branch and released in the newest version. Older releases
-are not maintained unless a release note says otherwise.
+安全修复会提交到默认分支并随最新版本发布。除非发布说明另有声明，否则旧版本不再维护。
 
-## Reporting a vulnerability
+## 报告漏洞
 
-Please report vulnerabilities privately through GitHub's **Security → Report a vulnerability**
-flow. Include the affected version, impact, reproduction steps, and any suggested mitigation.
+请通过 GitHub 的 **Security → Report a vulnerability** 流程私下报告漏洞，并提供受影响版本、影响、复现步骤和可能的缓解建议。
 
-If private vulnerability reporting is unavailable, open a public issue containing only a request
-for a private contact channel. Do not include exploit details, credentials, personal data, or logs
-that may contain secrets in a public issue.
+如果无法使用私有漏洞报告，只能创建一个公开 issue 请求私下联系渠道。不要在公开 issue 中包含利用细节、凭据、个人数据或可能带有密钥的日志。
 
-Please allow the maintainers time to confirm and fix the issue before public disclosure. We will
-credit reporters who want to be acknowledged.
+公开披露前，请给维护者留出确认和修复问题的时间。我们会按报告者意愿进行致谢。
 
-## Security model
+## 安全模型
 
-Coworker is an autonomous agent, not a security sandbox. Its tools can execute commands and read or
-write files with the permissions of the operating-system user running it. Model output and content
-from webpages, messages, attachments, skills, and memory must therefore be treated as untrusted.
+Coworker 是自主 Agent，不是安全沙箱。它的工具可以用运行进程的操作系统用户权限执行命令和读写文件。因此，模型输出以及网页、消息、附件、技能和记忆中的内容都必须视为不可信输入。
 
-See [Data and trust boundaries](docs/architecture/data-boundaries.en.md) for what is stored locally, what may leave
-the machine, and what the cleanup script does and does not remove.
+[数据与信任边界](docs/architecture/data-boundaries.md) 说明了哪些数据保存在本机、哪些数据可能离开设备，以及清理脚本会移除和不会移除的内容。
 
-For the current v0.x releases:
+对于当前 v0.x 版本：
 
-- Run Coworker as a dedicated, least-privileged user or inside an isolated container or VM.
-- Give it access only to disposable or backed-up workspaces.
-- Do not provide production credentials unless the deployment is specifically isolated for them.
-- The API binds to `127.0.0.1` and requires the Desktop communication Bearer token by default.
-  If you expose it through a reverse proxy, terminate TLS there, set an explicit `API__HOST`,
-  configure `API__CORS_ORIGINS` to trusted browser origins, and set a strong
-  `API__COMMUNICATION_TOKEN`.
-- `API__DEVELOPMENT_MODE=true` disables Desktop Bearer and HTTPS checks. Use it only for a
-  deliberately local HTTP setup; never enable it on a shared or public listener.
-- Do not expose port 8000 directly to the public internet or an untrusted network. The admin token
-  protects the management API, but it is not a complete authorization boundary for every route.
-- Keep `.env`, `providers.json`, runtime data, logs, exported configuration, and desktop credentials
-  out of commits and vulnerability reports.
+- 使用专用的最小权限用户运行 Coworker，或将它放在隔离的容器或虚拟机中。
+- 只授予它访问可丢弃或已备份工作区的权限。
+- 除非部署环境已专门进行隔离，否则不要提供生产凭据。
+- API 默认绑定 `127.0.0.1`，并要求 Desktop 通信 Bearer token。通过反向代理暴露服务时，应在代理层终止 TLS，显式设置 `API__HOST`，将 `API__CORS_ORIGINS` 配置为可信浏览器来源，并设置强 `API__COMMUNICATION_TOKEN`。
+- `API__DEVELOPMENT_MODE=true` 会关闭 Desktop Bearer 和 HTTPS 检查。它只适用于刻意配置的本机 HTTP 环境，绝不能在共享或公开监听地址上启用。
+- 不要把 8000 端口直接暴露到公网或不可信网络。管理员令牌会保护管理 API，但它并不是每个路由的完整授权边界。
+- 不要把 `.env`、`providers.json`、运行时数据、日志、导出的配置和桌面端凭据提交到仓库或附在漏洞报告中。
 
-Reports about authentication bypasses, command or path traversal, secret disclosure, unsafe update
-handling, and escapes from documented permission boundaries are especially welcome.
+我们尤其欢迎报告身份验证绕过、命令或路径遍历、密钥泄露、不安全的更新处理，以及逃逸已记录权限边界的问题。

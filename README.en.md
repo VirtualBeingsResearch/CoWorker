@@ -25,7 +25,7 @@
     <span> · </span>
     <a href="docs/README.en.md"><strong>Documentation</strong></a>
     <span> · </span>
-    <a href="CONTRIBUTING.md"><strong>Contributing</strong></a>
+    <a href="CONTRIBUTING.en.md"><strong>Contributing</strong></a>
   </p>
 </div>
 
@@ -57,7 +57,7 @@ For an individual, she is a companion who stays present. For a team, she becomes
 > [!WARNING]
 > Coworker is not a security sandbox. She can execute commands and read or write files with the permissions of the system user running the process.
 > The current v0.x releases should only run locally or on a trusted network. Do not expose port 8000 to the public internet.
-> See the [security policy](SECURITY.md) for details.
+> See the [security policy](SECURITY.en.md) for details.
 
 ## One runtime, multiple ways in
 
@@ -334,8 +334,8 @@ data, cleanup scope, and deployment boundaries.
 
 ## Development and contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow, environment setup, and pre-PR checks.
-Report security issues privately according to [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.en.md](CONTRIBUTING.en.md) for the contribution workflow, environment setup, and pre-PR checks.
+Report security issues privately according to [SECURITY.en.md](SECURITY.en.md).
 
 ```bash
 uv sync --dev

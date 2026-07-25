@@ -41,7 +41,7 @@ If data must not be shared with an external service, do not configure that servi
 
 - Coworker is not a security sandbox. Command, file, and browser tools run with the permissions of the operating-system user that started the process. Use a dedicated least-privileged account, container, or virtual machine, and mount only disposable or backed-up directories.
 - Treat webpages, messages, attachments, skills, memory, and model output as untrusted input. Any of them may contain prompt injection or malicious content.
-- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route. Do not expose port 8000 directly. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../../SECURITY.md).
+- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route. Do not expose port 8000 directly. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../../SECURITY.en.md).
 
 ## Inspection, backup, and cleanup
 

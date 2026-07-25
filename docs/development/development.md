@@ -4,8 +4,8 @@
 
 [← 返回开发与协作](README.md)
 
-提交代码前请阅读 [贡献指南](../../CONTRIBUTING.zh-CN.md)；安全问题请按
-[安全策略](../../SECURITY.zh-CN.md) 私下报告。
+提交代码前请阅读 [贡献指南](../../CONTRIBUTING.md)；安全问题请按
+[安全策略](../../SECURITY.md) 私下报告。
 
 ```bash
 # 安装开发依赖

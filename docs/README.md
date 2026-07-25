@@ -44,8 +44,8 @@ REST、SSE、WebSocket、文件、企业微信和 Coworker Desktop 等外部入�
 本地开发、验证、贡献和安全协作流程。
 
 - [开发指南](development/development.md)
-- [贡献指南](../CONTRIBUTING.zh-CN.md)
-- [安全策略](../SECURITY.zh-CN.md)
+- [贡献指南](../CONTRIBUTING.md)
+- [安全策略](../SECURITY.md)
 - [变更记录](../CHANGELOG.md)
 
 ## 目录约定
