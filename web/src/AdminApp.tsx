@@ -1886,7 +1886,7 @@ function DesktopReleases() {
   return <div className="release-page page-stack">
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
-      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2><p>{heroNote}</p></div>
+      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2></div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
     </section>
     <section className={'release-sync-card ' + (syncRunning ? 'running' : syncStatus?.outcome || 'idle')}>
