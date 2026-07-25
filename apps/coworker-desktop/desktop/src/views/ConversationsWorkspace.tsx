@@ -143,6 +143,7 @@ function ConversationController({
   const attachmentsRef = useLatest(attachments);
   const listRequestRef = useRef(0);
   const sessionLimitRef = useRef(sessionPageSize);
+  const loadingMoreSessionsRef = useRef(false);
   const messagesRequestRef = useRef(0);
   const sessionsLoadedRef = useRef(false);
   const conversationCacheRef = useRef(new Map<string, CachedConversation>());
@@ -207,25 +208,24 @@ function ConversationController({
   const refreshSessions = useCallback(async (
     preserve?: ActorConversation,
     requestedLimit = sessionLimitRef.current,
-    loadingMore = false,
   ) => {
     const requestId = ++listRequestRef.current;
     setListLoading(true);
     try {
-      const listed = await listDesktopConversations(actor, configPath, requestedLimit);
+      // Fetch one sentinel row so the button disappears immediately on the final
+      // page, including when the total is exactly divisible by the page size.
+      const listed = await listDesktopConversations(actor, configPath, requestedLimit + 1);
       if (requestId !== listRequestRef.current) return;
-      setHasMoreSessions(
-        listed.length === requestedLimit
-        && (!loadingMore || listed.length > sessionsRef.current.length),
-      );
+      setHasMoreSessions(listed.length > requestedLimit);
+      const visible = listed.slice(0, requestedLimit);
       const next = preserve
-        ? listed.some((session) => session.conversation_id === preserve.conversation_id)
-          ? listed.map((session) => session.conversation_id === preserve.conversation_id
+        ? visible.some((session) => session.conversation_id === preserve.conversation_id)
+          ? visible.map((session) => session.conversation_id === preserve.conversation_id
             && (!session.title.trim() || session.title === "未命名会话")
             ? { ...session, title: preserve.title }
             : session)
-          : [preserve, ...listed]
-        : listed;
+          : [preserve, ...visible]
+        : visible;
       sessionsLoadedRef.current = true;
       setSessions(next);
       setSelectedId((current) => {
@@ -314,16 +314,19 @@ function ConversationController({
   }, [actor, configPath, sessionPageSize]);
 
   async function loadMoreSessions() {
+    if (loadingMoreSessionsRef.current) return;
+    loadingMoreSessionsRef.current = true;
     const previousLimit = sessionLimitRef.current;
     const nextLimit = previousLimit + sessionPageSize;
     sessionLimitRef.current = nextLimit;
     setLoadingMoreSessions(true);
     try {
-      await refreshSessions(undefined, nextLimit, true);
+      await refreshSessions(undefined, nextLimit);
     } catch (error) {
       sessionLimitRef.current = previousLimit;
       throw error;
     } finally {
+      loadingMoreSessionsRef.current = false;
       setLoadingMoreSessions(false);
     }
   }

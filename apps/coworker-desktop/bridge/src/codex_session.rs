@@ -613,9 +613,7 @@ fn summary_from_thread(
     SessionSummary {
         title: first_string(Some(obj), &["name", "preview", "title"])
             .or_else(|| index_titles.get(&thread_id).cloned())
-            .unwrap_or_else(|| {
-                fallback_session_title_from_files(&thread_id, session_files)
-            }),
+            .unwrap_or_else(|| fallback_session_title_from_files(&thread_id, session_files)),
         project_id: project_id_from_thread(obj, project, meta.as_ref()),
         project_name: project_name_from_thread(obj, project, meta.as_ref()),
         project_path: project_path_from_thread(obj, project, meta.as_ref()),
@@ -738,20 +736,14 @@ fn fallback_session_title(config: &BridgeConfig, thread_id: &str) -> String {
     fallback_session_title_from_files(thread_id, &session_files)
 }
 
-fn fallback_session_title_from_files(
-    thread_id: &str,
-    session_files: &[PathBuf],
-) -> String {
+fn fallback_session_title_from_files(thread_id: &str, session_files: &[PathBuf]) -> String {
     first_session_prompt_from_files(thread_id, session_files).unwrap_or_else(|| {
         let short_id = thread_id.chars().take(12).collect::<String>();
         format!("Codex {short_id}")
     })
 }
 
-fn first_session_prompt_from_files(
-    thread_id: &str,
-    session_files: &[PathBuf],
-) -> Option<String> {
+fn first_session_prompt_from_files(thread_id: &str, session_files: &[PathBuf]) -> Option<String> {
     let path = latest_session_file_for_thread(session_files, thread_id)?;
     let file = fs::File::open(path).ok()?;
     let mut call_names = HashMap::new();
