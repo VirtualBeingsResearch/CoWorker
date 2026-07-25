@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
+import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -1228,6 +1229,7 @@ function Logs() {
   useEffect(() => {
     setCursor(null);
     setNewerCursors([]);
+    setPage(null);
     setOpenSeq(null);
     setDetails({});
     setDetailError('');
@@ -1235,15 +1237,23 @@ function Logs() {
 
   useEffect(() => {
     const version = ++requestVersion.current;
-    const params = new URLSearchParams({ limit: '100' });
-    if (type) params.set('event_type', type);
-    if (debouncedQuery) params.set('q', debouncedQuery);
-    if (seqStart) params.set('seq_start', seqStart);
-    if (seqEnd) params.set('seq_end', seqEnd);
-    if (cursor) params.set('cursor', cursor);
+    const controller = new AbortController();
+    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd);
     setLoading(true);
     setError('');
-    void api<Json>('/api/admin/interactions?' + params.toString())
+    void loadInteractionHistoryPage({
+      cursor,
+      filtersActive,
+      fetchPage: pageCursor => {
+        const params = new URLSearchParams({ limit: '100' });
+        if (type) params.set('event_type', type);
+        if (debouncedQuery) params.set('q', debouncedQuery);
+        if (seqStart) params.set('seq_start', seqStart);
+        if (seqEnd) params.set('seq_end', seqEnd);
+        if (pageCursor) params.set('cursor', pageCursor);
+        return api<Json>('/api/admin/interactions?' + params.toString(), { signal: controller.signal });
+      },
+    })
       .then(result => {
         if (version !== requestVersion.current) return;
         setPage(result);
@@ -1253,11 +1263,13 @@ function Logs() {
       })
       .catch(reason => {
         if (version !== requestVersion.current) return;
+        if (reason instanceof DOMException && reason.name === 'AbortError') return;
         setError(reason instanceof Error ? reason.message : t('历史记录加载失败'));
       })
       .finally(() => {
         if (version === requestVersion.current) setLoading(false);
       });
+    return () => controller.abort();
   }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, type]);
 
   const showOlder = () => {
@@ -1322,7 +1334,7 @@ function Logs() {
       : t('查看更早记录');
   return <Panel
     title="生命全史日志"
-    note="按序列范围直接定位 interactions.jsonl 与轮转分片；每次只加载一个轻量页面。"
+    note="按序列范围直接定位 interactions.jsonl 与轮转分片；筛选会自动跨过没有命中的扫描窗口。"
     action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applySequenceRange(); }}>
       <select aria-label={t('筛选事件类型')} value={type} onChange={event => setType(event.target.value)}>
         <option value="">{t('全部事件')}</option>

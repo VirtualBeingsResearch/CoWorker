@@ -10,6 +10,7 @@
 - fix(desktop): use complete GitHub release-asset digests to detect identical or conflicting imported releases before downloading binaries, while retaining download verification for legacy APIs without digests
 - fix(channels): persist participant last-sent and last-received timestamps in a shared Channel activity store so connection context survives application restarts
 - feat(wecom): keep the WeCom Channel runtime registered while disabled or incomplete, and hot-apply admin configuration by enabling, disabling, or reconnecting its WebSocket without restarting Coworker
+- fix(admin): continue filtered lifetime-history searches across empty bounded scan windows until a match or the beginning of retained history is reached
 - fix(admin): give all management form fields one top-aligned layout contract so labels, controls, hints, and switches stay aligned without Provider- or Desktop-specific sizing patches
 - fix(admin): present Passive sleep as event-driven waiting in runtime status and the public runtime ledger, and explain that `sleep(0)` waits indefinitely instead of using the active self-wake interval
 - feat(admin): add an authenticated, uncached, read-only view of the exact system prompt currently used by the agent

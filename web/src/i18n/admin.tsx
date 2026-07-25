@@ -656,7 +656,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '过滤内容': 'Filter content',
   '刷新运行账本': 'Refresh runtime ledger',
   '生命全史日志': 'Lifetime interaction log',
-  '按序列范围直接定位 interactions.jsonl 与轮转分片；每次只加载一个轻量页面。': 'Jumps directly to the relevant interactions.jsonl shard by sequence range; each request loads one lightweight page.',
+  '按序列范围直接定位 interactions.jsonl 与轮转分片；筛选会自动跨过没有命中的扫描窗口。': 'Jumps directly to the relevant interactions.jsonl shard by sequence range; filters automatically skip scan windows without matches.',
   '刷新生命全史日志': 'Refresh lifetime log',
   '序列范围': 'Sequence range',
   '起始序列': 'Start sequence',
