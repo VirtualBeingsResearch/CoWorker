@@ -812,7 +812,7 @@ def _agent_with_profile(tmp_path, readme: str | None = None, days_old: int = 0):
     identity.name = "Luna"
     identity.is_initialized = True
     identity.personality = ""
-    identity.goals = ""
+    identity.current_location = ""
 
     mock_agent = MagicMock()
     mock_agent._identity = identity
@@ -835,6 +835,7 @@ class TestGetProfile:
         body = resp.json()
         assert body["name"] == "Luna"
         assert body["readme"] == "I am Luna."
+        assert "goals" not in body
         mock_inbox.push.assert_not_called()
 
     @pytest.mark.parametrize(("readme", "days_old"), [(None, 0), ("I am Luna.", 31)])

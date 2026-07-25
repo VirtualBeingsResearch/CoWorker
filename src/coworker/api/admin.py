@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
@@ -96,6 +96,14 @@ _HOT_CONFIG_PATHS = {
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
+
+
+class IdentityPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    personality: str | None = None
+    current_location: str | None = None
 
 
 class BootstrapPayload(BaseModel):
@@ -1912,31 +1920,18 @@ async def get_identity(_: None = Depends(require_admin)) -> ApiResponse:
     return {
         "name": identity.name,
         "personality": identity.personality,
-        "goals": identity.goals,
-        "life_story": identity.life_story,
         "current_location": identity.current_location,
     }
 
 
 @router.put("/identity")
 async def put_identity(
-    payload: dict[str, str],
+    payload: IdentityPatch,
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     identity = _require_agent()._identity
-    mapping = {
-        "name": "name.txt",
-        "personality": "personality.md",
-        "goals": "goals.md",
-        "life_story": "life_story.md",
-        "current_location": "current_location.txt",
-    }
-    identity._dir.mkdir(parents=True, exist_ok=True)
-    for key, filename in mapping.items():
-        if key in payload:
-            (identity._dir / filename).write_text(str(payload[key]).strip(), encoding="utf-8")
-    identity.load()
+    identity.update(payload.model_dump(exclude_none=True))
     _audit(request, "identity.update", identity.name or "unnamed")
     return await get_identity()
 

@@ -439,7 +439,6 @@ async def get_profile():
         "name": identity.name or None,
         "is_initialized": identity.is_initialized,
         "personality": identity.personality or None,
-        "goals": identity.goals or None,
         "current_location": identity.current_location or None,
         "earliest_log_ts": earliest_log_ts,
         "readme": readme,

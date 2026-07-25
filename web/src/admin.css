@@ -1405,7 +1405,6 @@ html:has(.admin-login),
 .identity-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .identity-form .field:nth-child(n + 3) { grid-column: 1 / -1; }
 .identity-form textarea { min-height: 140px; }
-.identity-form textarea.tall { min-height: 230px; }
 .content-workspace { display: grid; gap: 14px; }
 .capability-strip { display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 14px; background: var(--admin-surface); }
 .capability-strip button { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; min-height: 78px; padding: 15px 17px; border: 0; border-right: 1px solid var(--admin-line); color: var(--admin-muted); background: transparent; text-align: left; }

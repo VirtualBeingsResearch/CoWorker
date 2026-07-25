@@ -21,7 +21,7 @@ const NAV: Array<{ id: Section; label: string; description: string; group: NavGr
   { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', group: '观察', icon: Activity },
   { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', group: '塑形', icon: Brain },
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
-  { id: 'identity', label: '身份档案', description: '姓名、人格、目标和生命经历', group: '塑形', icon: Fingerprint },
+  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
   { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
@@ -1360,7 +1360,7 @@ function Identity({ onName }: { onName: (name: string) => void }) {
     setSaved(true);
     await reload();
   };
-  return <Panel title="身份档案" note="修改会直接写入身份文件，并从下一次思考起进入系统提示。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field><Field label="当前目标"><textarea value={draft.goals || ''} onChange={event => setDraft({ ...draft, goals: event.target.value })} /></Field><Field label="人生经历"><textarea className="tall" value={draft.life_story || ''} onChange={event => setDraft({ ...draft, life_story: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案已更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>;
+  return <Panel title="身份档案" note="修改会直接写入身份文件，并从下一次思考起进入系统提示。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案已更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>;
 }
 
 type ContentKind = 'skills' | 'palaces' | 'subconscious';

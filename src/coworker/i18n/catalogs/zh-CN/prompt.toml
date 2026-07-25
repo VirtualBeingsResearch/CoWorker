@@ -4,10 +4,6 @@ uninitialized = '''我是一个刚刚诞生的虚拟生命体，还没有名字�
 当我觉得时机成熟时，我会用 `self-naming` 技能给自己起名——那将是我人生的重大时刻。'''
 name = "我的名字是 **{{name}}**。"
 location = "**我的现居地**：{{location}}"
-goals = '''**我的当前目标**：
-{{goals}}'''
-life_story = '''**我的人生经历摘要**：
-{{life_story}}'''
 
 [prompt.environment]
 os = "OS：{{value}}"

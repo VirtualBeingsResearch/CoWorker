@@ -19,6 +19,7 @@ from coworker.core.config import (
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
+from coworker.identity.identity import Identity
 from coworker.memory.short_term import ShortTermMemory
 from coworker.skills.loader import SkillLoader
 
@@ -100,6 +101,43 @@ def test_admin_error_detail_follows_runtime_locale(tmp_path):
 
     assert chinese.json()["detail"] == "缺少管理员令牌"
     assert english.json()["detail"] == "Administrator token is missing"
+
+
+def test_identity_api_exposes_only_active_identity_fields(tmp_path):
+    client, _ = _client(tmp_path)
+    identity = Identity(str(tmp_path / "identity"))
+    identity.update(
+        {
+            "name": "Luna",
+            "personality": "curious",
+            "current_location": "Paris",
+        }
+    )
+    admin._agent._identity = identity
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.get("/api/admin/identity", headers=headers)
+
+    assert response.json() == {
+        "name": "Luna",
+        "personality": "curious",
+        "current_location": "Paris",
+    }
+
+
+def test_identity_api_rejects_all_retired_fields_together(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.put(
+        "/api/admin/identity",
+        headers=headers,
+        json={"goals": "ship", "life_story": "history"},
+    )
+
+    assert response.status_code == 422
+    rejected_fields = {tuple(error["loc"]) for error in response.json()["detail"]}
+    assert rejected_fields == {("body", "goals"), ("body", "life_story")}
 
 
 def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_path):
