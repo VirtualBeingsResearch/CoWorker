@@ -375,7 +375,7 @@ impl CodexBridge {
         let project_path = project_path.filter(|value| !value.trim().is_empty());
         let (thread_id, created) = match thread_id.filter(|value| !value.trim().is_empty()) {
             Some(thread_id) => {
-                self.ensure_session_owned(&thread_id).await?;
+                self.ensure_session_continuable(&thread_id).await?;
                 (thread_id, false)
             }
             None => (
@@ -452,7 +452,9 @@ impl CodexBridge {
             let mut state = self.state.lock().await;
             remember_turn_from_response(&mut state, &thread_id, &response);
             state.thread_auto_continue_attempts.remove(&thread_id);
-            state.bridge_started_thread_ids.insert(thread_id.clone());
+            if created {
+                state.bridge_started_thread_ids.insert(thread_id.clone());
+            }
             self.save_state_locked(&state);
         }
         if let Some(title) = initial_title {
@@ -489,7 +491,7 @@ impl CodexBridge {
         content: &str,
         attachment_paths: &[String],
     ) -> Result<()> {
-        self.ensure_session_owned(thread_id).await?;
+        self.ensure_session_continuable(thread_id).await?;
         let (_, overlay_attachments) = self.save_ui_attachments(thread_id, attachment_paths)?;
         let mut overlay = session::overlay_record(
             author_kind,
@@ -507,7 +509,7 @@ impl CodexBridge {
     }
 
     pub async fn set_codex_conversation_mode(&self, thread_id: &str, mode: &str) -> Result<Value> {
-        self.ensure_session_owned(thread_id).await?;
+        self.ensure_session_continuable(thread_id).await?;
         let request_id = format!("ui-mode-{}", current_millis());
         let mode_value = json!(mode);
         let requested_mode = self
@@ -562,7 +564,7 @@ impl CodexBridge {
     }
 
     pub async fn rename_codex_conversation(&self, thread_id: &str, title: &str) -> Result<Value> {
-        self.ensure_session_owned(thread_id).await?;
+        self.ensure_session_continuable(thread_id).await?;
         let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
         if title.is_empty() {
             return Err(BridgeError::message("session title cannot be empty"));
@@ -651,15 +653,29 @@ impl CodexBridge {
         })
     }
 
-    async fn ensure_session_owned(&self, thread_id: &str) -> Result<()> {
+    async fn ensure_session_continuable(&self, thread_id: &str) -> Result<()> {
         let runtime = self.runtime_session_state().await;
         if session::is_thread_owned(&self.config, thread_id, &runtime) {
-            Ok(())
-        } else {
-            Err(BridgeError::message(
-                "this Codex session was not created by the bridge and is read-only",
-            ))
+            return Ok(());
         }
+        if self
+            .state
+            .lock()
+            .await
+            .thread_status
+            .contains_key(thread_id)
+        {
+            return Ok(());
+        }
+        if !session::has_thread_history(&self.config, thread_id)? {
+            debug!(
+                thread_id,
+                "Validating a Codex thread before its local history is available"
+            );
+        }
+        // Resume validates native Codex App/CLI history before any overlay is
+        // written. Unknown or stale ids are rejected by app-server.
+        self.resume_thread(thread_id).await
     }
 
     async fn runtime_session_state(&self) -> RuntimeSessionState {
@@ -966,6 +982,15 @@ impl CodexBridge {
             .client
             .request("thread/resume", json!({"threadId": thread_id}))
             .await?;
+        let resumed_thread_id = response
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| BridgeError::message("thread/resume response missing thread.id"))?;
+        if resumed_thread_id != thread_id {
+            return Err(BridgeError::message(
+                "thread/resume returned a different Codex thread",
+            ));
+        }
         let mut state = self.state.lock().await;
         remember_thread_from_response(&mut state, thread_id, &response, Some("idle"));
         info!(thread_id, "Resumed Codex thread");
@@ -3254,14 +3279,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn actor_conversation_api_rejects_non_bridge_owned_thread_mutations() {
-        let bridge = bridge_with(
-            config(None),
-            FakeCodexClient::new(),
-            RecordingTransport::new(),
-        );
+    async fn native_codex_history_can_be_resumed_without_becoming_bridge_owned() {
+        let client = FakeCodexClient::new();
+        client
+            .push_response(json!({
+                "thread": {"id": "external_thread", "status": {"type": "idle"}}
+            }))
+            .await;
+        client
+            .push_response(json!({"turn": {"id": "turn_external", "status": "running"}}))
+            .await;
+        let cfg = config(None);
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-external_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"external_thread","source":"vscode"}}"#,
+        )
+        .expect("native Codex history");
+        let bridge = bridge_with(cfg, client.clone(), RecordingTransport::new());
 
-        let send_error = bridge
+        bridge
             .send_actor_conversation_message(
                 Some("external_thread".into()),
                 "hello".into(),
@@ -3275,20 +3313,65 @@ mod tests {
                 None,
             )
             .await
-            .expect_err("external sessions should be read-only");
-        assert!(send_error.to_string().contains("read-only"));
+            .expect("native Codex history should continue");
 
-        let mode_error = bridge
+        bridge
             .set_codex_conversation_mode("external_thread", "plan")
             .await
-            .expect_err("external sessions should not allow mode changes");
-        assert!(mode_error.to_string().contains("read-only"));
+            .expect("native Codex history should allow mode changes");
 
-        let rename_error = bridge
+        bridge
             .rename_codex_conversation("external_thread", "renamed")
             .await
-            .expect_err("external sessions should not allow rename");
-        assert!(rename_error.to_string().contains("read-only"));
+            .expect("native Codex history should allow rename");
+
+        let calls = client.calls().await;
+        assert_eq!(calls[0].0, "thread/resume");
+        assert_eq!(calls[0].1["threadId"], "external_thread");
+        assert!(calls.iter().any(|(method, _)| method == "turn/start"));
+        assert!(calls.iter().any(|(method, _)| method == "thread/name/set"));
+        assert!(
+            !bridge
+                .state
+                .lock()
+                .await
+                .bridge_started_thread_ids
+                .contains("external_thread")
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_codex_thread_is_rejected_before_an_overlay_is_written() {
+        let bridge = bridge_with(
+            config(None),
+            FakeCodexClient::new(),
+            RecordingTransport::new(),
+        );
+
+        let error = bridge
+            .send_actor_conversation_message(
+                Some("unknown_thread".into()),
+                "hello".into(),
+                Vec::new(),
+                None,
+                None,
+                Some("message-unknown".into()),
+                "coworker".into(),
+                Some("cw_02".into()),
+                Some("搭档 B".into()),
+                Some("cw_02".into()),
+            )
+            .await
+            .expect_err("unknown Codex thread should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("thread/resume response missing thread.id")
+        );
+        let page = session::load_session_messages(&bridge.config, "unknown_thread", None, 20)
+            .expect("empty page");
+        assert!(page.messages.is_empty());
     }
 
     #[tokio::test]

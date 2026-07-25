@@ -275,6 +275,10 @@ API Base URL 可以指向 GitHub Enterprise（例如 `https://github.company/api
 
 1. Coworker 通过 `communicate` 发给 Desktop snapshot 对应的 `coworker-desktop` participant。`conversation_id` 表示该 actor 下的会话；不传时会创建新会话。不传 `extra.project_path` / `extra.cwd` 时，新 Codex thread 会作为 no-project chat 启动；传入时会作为项目 cwd 发送给 Codex app-server。
 
+Codex actor 的已有会话既包括 CoWorker Desktop 创建的 thread，也包括 Codex App 或 CLI
+留下的本地历史。Bridge 会识别本地 rollout，并在第一次修改前通过 Codex app-server 的
+`thread/resume` 验证 `conversation_id`；不存在或已经失效的 id 会在写入消息记录前被拒绝。
+
 新建 thread：
 
 ```python

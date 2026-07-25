@@ -589,6 +589,10 @@ pub fn is_thread_owned(
     is_owned_by_bridge(thread_id, meta.as_ref(), &persisted, runtime)
 }
 
+pub fn has_thread_history(config: &BridgeConfig, thread_id: &str) -> Result<bool> {
+    Ok(find_session_file(config, thread_id)?.is_some())
+}
+
 fn summary_from_thread(
     config: &BridgeConfig,
     obj: &Map<String, Value>,
@@ -631,7 +635,9 @@ fn summary_from_thread(
             .as_ref()
             .and_then(|m| m.thread_source.clone().or_else(|| m.source.clone())),
         participants: participants(owned),
-        can_continue: owned,
+        // A thread returned by the running app-server is a valid continuation
+        // target even when it originated in Codex App or the CLI.
+        can_continue: true,
         owned_by_bridge: owned,
         thread_id,
         status,
@@ -646,6 +652,8 @@ fn summary_from_index(
     runtime: &RuntimeSessionState,
     session_files: &[PathBuf],
 ) -> SessionSummary {
+    let can_continue =
+        owned || latest_session_file_for_thread(session_files, &entry.thread_id).is_some();
     let status = runtime
         .thread_status
         .get(&entry.thread_id)
@@ -672,7 +680,7 @@ fn summary_from_index(
                 .flatten(),
         ]),
         owned_by_bridge: owned,
-        can_continue: owned,
+        can_continue,
         collaboration_mode: runtime
             .thread_collaboration_mode
             .get(&entry.thread_id)
@@ -700,6 +708,7 @@ fn fallback_summary(
         .ok()
         .flatten();
     let owned = is_owned_by_bridge(thread_id, meta.as_ref(), persisted, runtime);
+    let can_continue = owned || latest_session_file_for_thread(session_files, thread_id).is_some();
     SessionSummary {
         thread_id: thread_id.to_owned(),
         title: fallback_session_title_from_files(thread_id, session_files),
@@ -719,7 +728,7 @@ fn fallback_summary(
             overlay_last_timestamp(config, thread_id).ok().flatten(),
         ]),
         owned_by_bridge: owned,
-        can_continue: owned,
+        can_continue,
         collaboration_mode: runtime.thread_collaboration_mode.get(thread_id).cloned(),
         pending_collaboration_mode: runtime
             .thread_pending_collaboration_mode
@@ -2597,6 +2606,37 @@ mod tests {
             Some("D:\\Projects\\real-app")
         );
         assert_eq!(sessions[0].project_name.as_deref(), Some("real-app"));
+        assert!(sessions[0].can_continue);
+        assert!(!sessions[0].owned_by_bridge);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn indexed_native_codex_history_is_continuable_without_being_bridge_owned() {
+        let root = std::env::temp_dir().join(format!("native-history-test-{}", now_millis()));
+        let cfg = test_config(&root);
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            Path::new(&cfg.codex_home_dir).join("session_index.jsonl"),
+            r#"{"id":"native_thread","thread_name":"Native thread","updated_at":"2026-07-25T00:00:00Z"}"#,
+        )
+        .expect("index");
+        fs::write(
+            session_dir.join("rollout-native_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"native_thread","source":"vscode"}}"#,
+        )
+        .expect("native rollout");
+
+        let sessions =
+            list_sessions(&cfg, &[], RuntimeSessionState::default(), 10).expect("sessions");
+        let native = sessions
+            .iter()
+            .find(|session| session.thread_id == "native_thread")
+            .expect("native session");
+
+        assert!(native.can_continue);
+        assert!(!native.owned_by_bridge);
         let _ = fs::remove_dir_all(root);
     }
 
