@@ -25,7 +25,7 @@
     <span> · </span>
     <a href="docs/README.md"><strong>文档</strong></a>
     <span> · </span>
-    <a href="CONTRIBUTING.zh-CN.md"><strong>参与贡献</strong></a>
+    <a href="CONTRIBUTING.md"><strong>参与贡献</strong></a>
   </p>
 </div>
 
@@ -57,7 +57,7 @@
 > [!WARNING]
 > Coworker 不是安全沙箱。她可以执行命令，并以运行进程的系统用户权限读写文件。
 > 当前 v0.x 版本只应运行在本机或可信网络中，不要把 8000 端口暴露到公网。
-> 详见 [安全策略](SECURITY.zh-CN.md)。
+> 详见 [安全策略](SECURITY.md)。
 
 ## 一个运行时，多种进入方式
 
@@ -325,8 +325,8 @@ remote 和分支后执行 `git push`。
 
 ## 开发与贡献
 
-贡献流程、环境准备和 PR 前检查见 [贡献指南](CONTRIBUTING.zh-CN.md)。
-安全问题请按 [安全策略](SECURITY.zh-CN.md) 私下报告。
+贡献流程、环境准备和 PR 前检查见 [贡献指南](CONTRIBUTING.md)。
+安全问题请按 [安全策略](SECURITY.md) 私下报告。
 
 ```bash
 uv sync --dev

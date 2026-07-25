@@ -52,6 +52,9 @@ The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWor
 - For localized documentation under `docs/`, update the paired `.md` and
   `.en.md` pages together. Keep commands, configuration names, API fields,
   and product terms consistent between languages.
+- Root project guides follow the same convention: `CONTRIBUTING.md` and
+  `SECURITY.md` are Chinese-first, with `.en.md` English companions. Update
+  each pair together.
 - Add or update tests for both locale outputs when behavior is user-visible.
   At minimum run `uv run --frozen pytest tests/unit/test_i18n.py` and the
   affected feature tests; `test_i18n.py` enforces catalog key and placeholder

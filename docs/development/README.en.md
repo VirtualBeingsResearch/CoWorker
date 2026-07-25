@@ -7,5 +7,5 @@
 This domain is for code contributors and groups development setup, validation, and collaboration guidance.
 
 - [Development guide](development.en.md): environment setup, local checks, Explore Lab, and debugging surfaces.
-- [Contributing guide](../../CONTRIBUTING.md): scope, required checks, paired documentation, and pull-request conventions.
-- [Security policy](../../SECURITY.md): vulnerability reporting and security boundaries.
+- [Contributing guide](../../CONTRIBUTING.en.md): scope, required checks, paired documentation, and pull-request conventions.
+- [Security policy](../../SECURITY.en.md): vulnerability reporting and security boundaries.

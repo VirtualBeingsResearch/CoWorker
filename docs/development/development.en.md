@@ -4,7 +4,7 @@
 
 [← Back to Development and Collaboration](README.en.md)
 
-Read the [contributing guide](../../CONTRIBUTING.md) before submitting code. Report security issues privately according to the [security policy](../../SECURITY.md).
+Read the [contributing guide](../../CONTRIBUTING.en.md) before submitting code. Report security issues privately according to the [security policy](../../SECURITY.en.md).
 
 ```bash
 # Install development dependencies

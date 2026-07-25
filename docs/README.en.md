@@ -44,8 +44,8 @@ Runtime configuration, model providers, multi-instance setup, and operational gu
 Local development, validation, contribution, and security workflows.
 
 - [Development guide](development/development.en.md)
-- [Contributing guide](../CONTRIBUTING.md)
-- [Security policy](../SECURITY.md)
+- [Contributing guide](../CONTRIBUTING.en.md)
+- [Security policy](../SECURITY.en.md)
 - [Changelog](../CHANGELOG.md)
 
 ## Directory conventions

@@ -1,37 +1,35 @@
-# Contributing to Coworker
+# 参与 Coworker 贡献
 
-[中文](CONTRIBUTING.zh-CN.md) · English
+中文 · [English](CONTRIBUTING.en.md)
 
-Thanks for contributing. Keep changes focused, explain the user-visible outcome, and add the
-smallest test that would fail without the change.
+感谢参与贡献。请让改动保持聚焦，说明用户可见的结果，并添加一个在没有该改动时会失败的最小测试。
 
-For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
+安全问题请按 [安全策略](SECURITY.md) 私下报告，不要提交公开 issue。
 
-## Development setup
+## 开发环境
 
-Requirements:
+要求：
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 20+ for web or desktop changes
-- Stable Rust for bridge or Tauri changes
+- 修改 Web 或桌面端时需要 Node.js 20+
+- 修改 Bridge 或 Tauri 时需要稳定版 Rust
 
-Install the Python workspace and development dependencies:
+安装 Python workspace 和开发依赖：
 
 ```bash
 uv sync --dev
 ```
 
-Install Chromium once if you work on the browser tool or run browser integration tests:
+如果要修改浏览器工具或运行浏览器集成测试，需要安装一次 Chromium：
 
 ```bash
 uv run playwright install chromium
 ```
 
-On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` when the required system
-libraries are not already installed.
+Debian 或 Ubuntu 缺少所需系统库时，使用 `uv run playwright install --with-deps chromium`。
 
-Install only the frontend dependencies needed for your change:
+只安装本次改动所需的前端依赖：
 
 ```bash
 npm ci --prefix web
@@ -39,12 +37,11 @@ npm ci --prefix apps/explore-lab/frontend
 npm ci --prefix apps/coworker-desktop/desktop
 ```
 
-Never commit `.env`, `providers.json`, credentials, logs, exported configuration, or files under
-runtime data directories. Use the checked-in `*.example` files for shareable configuration.
+不要提交 `.env`、`providers.json`、凭据、日志、导出的配置或运行时数据目录中的文件。可共享配置应使用仓库内的 `*.example` 文件。
 
-## Checks
+## 检查
 
-Run the checks relevant to the files you changed. Pull requests run all of these in CI.
+运行与改动文件相关的检查。Pull request 会在 CI 中运行全部检查。
 
 ```bash
 # Python
@@ -58,7 +55,7 @@ uv run --project apps/explore-lab/backend --frozen pytest apps/explore-lab/backe
 cargo fmt --all -- --check
 cargo test --workspace --locked
 
-# Web applications
+# Web 应用
 npm --prefix web run build
 git status --short -- src/coworker/web
 npm --prefix apps/explore-lab/frontend run build
@@ -66,24 +63,16 @@ npm --prefix apps/coworker-desktop/desktop test
 npm --prefix apps/coworker-desktop/desktop run build
 ```
 
-## Pull requests
+## Pull request
 
-- Keep one logical change per pull request.
-- Add or update tests for behavior changes.
-- Update README or examples when commands, configuration, or public behavior change.
-- Paired pages under `docs/` use `<name>.md` for Chinese and `<name>.en.md` for English. Update
-  both versions together, keeping commands, configuration names, and product terms consistent.
-- Python runtime translations live in domain TOML catalogs under
-  `src/coworker/i18n/catalogs/<locale>/`. Keep semantic keys and `{{placeholder}}` sets identical
-  across every locale; never translate protocol names, IDs, enum values, or user/third-party text.
-- Localized user assets use companion files (`SKILL.en.md`, `PALACE.en.md`, or `MODE.en.md`).
-  Only the documented prose fields may differ; stable metadata remains in the original file.
-- Identity prose and `data/thinking.md` are model-authored runtime state and never use localized
-  companions.
-- Do not edit `CHANGELOG.md` in ordinary pull requests. Release automation generates the next
-  release section while preserving its hand-written `Unreleased` notes. Maintain those notes only
-  in dedicated release-preparation or changelog-maintenance work, and use clear conventional
-  commit and pull-request titles that describe user-visible outcomes.
-- Call out migrations, compatibility breaks, security implications, and checks you could not run.
+- 每个 pull request 只包含一个逻辑改动。
+- 行为变更需要新增或更新测试。
+- 命令、配置或公开行为发生变化时，更新 README 或示例。
+- `docs/` 中的成对文档使用 `<name>.md` 表示中文、`<name>.en.md` 表示英文；根目录的 `CONTRIBUTING.md`、`SECURITY.md` 及其 `.en.md` companion 也使用相同约定。修改时同时更新两个版本，并保持命令、配置名和产品术语一致。
+- Python 运行时翻译按领域放在 `src/coworker/i18n/catalogs/<locale>/` 的 TOML catalog 中；所有 locale 的语义 key 与 `{{placeholder}}` 集合必须一致，不翻译协议名、ID、枚举值、用户内容或第三方原文。
+- 用户资产本地化使用 companion 文件（`SKILL.en.md`、`PALACE.en.md`、`MODE.en.md`）；只覆盖约定的 prose 字段，稳定元数据保留在原文件。
+- Identity prose 与 `data/thinking.md` 都是模型自己维护的运行时状态，不使用本地化 companion。
+- 普通 pull request 不修改 `CHANGELOG.md`。发布自动化在保留手写 `Unreleased` 说明的同时生成下一版本段落；这些说明只在专门的发布准备或 changelog 维护工作中更新。Commit 和 pull request 标题应使用清晰的 conventional 格式，并准确描述用户可见的结果。
+- 明确说明迁移、兼容性破坏、安全影响以及未能运行的检查。
 
-By contributing, you agree that your contribution is licensed under the repository's MIT License.
+提交贡献即表示你同意按仓库的 MIT License 授权该贡献。

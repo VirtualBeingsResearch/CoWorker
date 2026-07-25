@@ -50,14 +50,22 @@ def test_docs_have_paired_language_versions() -> None:
         assert f"]({chinese.name})" in english.read_text(encoding="utf-8")
 
 
+def test_root_guides_have_paired_language_versions() -> None:
+    for chinese in (ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md"):
+        english = chinese.with_name(f"{chinese.stem}.en.md")
+        assert english.exists()
+        assert f"]({english.name})" in chinese.read_text(encoding="utf-8")
+        assert f"]({chinese.name})" in english.read_text(encoding="utf-8")
+
+
 def test_local_documentation_links_resolve() -> None:
     markdown_files = [
         ROOT / "README.md",
         ROOT / "README.en.md",
         ROOT / "CONTRIBUTING.md",
-        ROOT / "CONTRIBUTING.zh-CN.md",
+        ROOT / "CONTRIBUTING.en.md",
         ROOT / "SECURITY.md",
-        ROOT / "SECURITY.zh-CN.md",
+        ROOT / "SECURITY.en.md",
         *DOCS.rglob("*.md"),
     ]
 
