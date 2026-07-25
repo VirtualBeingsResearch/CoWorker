@@ -34,6 +34,8 @@ def _client(
     providers_file: str = "",
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
+    wecom: dict | None = None,
+    wecom_runner=None,
 ):
     config = Config.model_validate(
         {
@@ -42,6 +44,7 @@ def _client(
             "memory": {"db_path": str(tmp_path / "memory")},
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
+            "wecom": wecom or {},
         }
     )
     agent = SimpleNamespace(
@@ -67,6 +70,7 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
+        wecom_runner=wecom_runner,
     )
     app = FastAPI()
     app.include_router(admin.router)
@@ -404,6 +408,47 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
+    runner = SimpleNamespace(reconfigure=AsyncMock())
+    client, config = _client(
+        tmp_path,
+        wecom={"enabled": True, "bot_id": "old", "secret": "existing"},
+        wecom_runner=runner,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert "wecom" in body["hot_reloadable"]
+    assert body["secret_status"]["wecom.secret"]["last4"] == "ting"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "new",
+                    "secret": "",
+                    "ws_url": "wss://wecom.example/ws",
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["wecom"]
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    assert config.wecom.bot_id == "new"
+    assert config.wecom.secret == "existing"
+    runner.reconfigure.assert_awaited_once()
+    applied = runner.reconfigure.await_args.args[0]
+    assert applied.ws_url == "wss://wecom.example/ws"
+    assert applied.secret == "existing"
+
+
 def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
@@ -712,6 +757,8 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
 
 def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
+    config.agent.passive_mode = True
+    config.agent.idle_sleep_seconds = 0
     short_term = ShortTermMemory(max_tokens=12_345)
     agent = SimpleNamespace(
         _identity=_Identity(),
@@ -735,6 +782,8 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     response = client.get("/api/admin/overview", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["memory"]["max_tokens"] == 12_345
+    assert response.json()["status"]["passive_mode"] is True
+    assert response.json()["status"]["idle_sleep_seconds"] == 0
 
 
 def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):

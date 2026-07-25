@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -31,6 +34,103 @@ def _make_runner(tmp_path) -> WeComRunner:
     runner = WeComRunner(cfg=cfg, attachments_dir=tmp_path)
     runner._client = AsyncMock()
     return runner
+
+
+async def _wait_until(predicate, attempts: int = 50) -> None:
+    for _ in range(attempts):
+        if predicate():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition was not reached")
+
+
+@pytest.mark.asyncio
+async def test_runtime_hot_reconfigures_without_registry_replacement(tmp_path, monkeypatch):
+    clients = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.handlers = {}
+            self.connect_count = 0
+            self.disconnect_count = 0
+            clients.append(self)
+
+        def on(self, event, handler):
+            self.handlers[event] = handler
+
+        async def connect(self):
+            self.connect_count += 1
+
+        async def disconnect(self):
+            self.disconnect_count += 1
+
+    monkeypatch.setitem(sys.modules, "wecom_aibot_sdk", SimpleNamespace(WSClient=FakeClient))
+    runner = WeComRunner(
+        cfg=WeComConfig(enabled=False),
+        attachments_dir=tmp_path,
+    )
+    runtime_task = asyncio.create_task(runner.start())
+    await asyncio.sleep(0)
+    assert clients == []
+
+    await runner.reconfigure(WeComConfig(enabled=True, bot_id="first", secret="secret"))
+    await _wait_until(lambda: len(clients) == 1 and clients[0].connect_count == 1)
+
+    runner._cache_frame("wecom:single:U1", "request", _frame_single())
+    await runner.reconfigure(WeComConfig(enabled=True, bot_id="second", secret="next"))
+    await _wait_until(lambda: len(clients) == 2 and clients[1].connect_count == 1)
+
+    assert clients[0].disconnect_count >= 1
+    assert clients[1].kwargs["bot_id"] == "second"
+    assert runner._frame_cache == {}
+
+    await runner.reconfigure(WeComConfig(enabled=False))
+    await _wait_until(lambda: clients[1].disconnect_count >= 1)
+    await asyncio.sleep(0)
+    assert len(clients) == 2
+
+    await runner.stop()
+    await runtime_task
+
+
+@pytest.mark.asyncio
+async def test_kicked_runtime_waits_for_new_configuration(tmp_path, monkeypatch):
+    clients = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.handlers = {}
+            clients.append(self)
+
+        def on(self, event, handler):
+            self.handlers[event] = handler
+
+        async def connect(self):
+            return None
+
+        async def disconnect(self):
+            return None
+
+    monkeypatch.setitem(sys.modules, "wecom_aibot_sdk", SimpleNamespace(WSClient=FakeClient))
+    runner = WeComRunner(
+        cfg=WeComConfig(enabled=True, bot_id="first", secret="secret"),
+        attachments_dir=tmp_path,
+    )
+    runtime_task = asyncio.create_task(runner.start())
+    await _wait_until(lambda: len(clients) == 1)
+
+    await runner._on_kicked({})
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert len(clients) == 1
+    assert not runner._stop.is_set()
+
+    await runner.reconfigure(WeComConfig(enabled=True, bot_id="second", secret="next"))
+    await _wait_until(lambda: len(clients) == 2)
+
+    await runner.stop()
+    await runtime_task
 
 
 def test_resolver_returns_string_chat_type(tmp_path):

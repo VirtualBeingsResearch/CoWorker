@@ -78,59 +78,99 @@ class WeComRunner:
         self._contacts: dict[str, str] = ContactsStore.load(self._contacts_path)
         self._sender = WeComSender(lambda: self._client, self._take_fresh_frame)
         self._stop = asyncio.Event()
-        self._kicked = False
+        self._wake = asyncio.Event()
+        self._connection_blocked = False
+        self._reconfigure_lock = asyncio.Lock()
         self._inbound_handler: InboundHandler | None = None
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
 
     async def start(self) -> None:
-        from wecom_aibot_sdk import WSClient
-
-        self._client = WSClient(
-            bot_id=self._cfg.bot_id,
-            secret=self._cfg.secret,
-            ws_url=self._cfg.ws_url or "",
-            logger=_LoguruLogger(),
-        )
-        self._register_handlers()
-        try:
-            await self._client.connect()
-        except Exception as e:
-            logger.error(f"WeCom connect failed: {e}")
-            return
-
-        # Periodically drop expired frame cache entries; exit when stop is signaled.
-        try:
-            while not self._stop.is_set() and not self._kicked:
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=60.0)
-                except TimeoutError:
-                    pass
-                self._sweep_frames()
-        finally:
-            await self.stop()
+        while not self._stop.is_set():
+            self._wake.clear()
+            if self._stop.is_set():
+                return
+            if self._connection_blocked or not self._is_configured():
+                await self._wake.wait()
+                continue
+            await self._run_connection()
 
     async def stop(self) -> None:
         self._stop.set()
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception as e:
-                logger.debug(f"WeCom disconnect error: {e}")
+        self._wake.set()
+        await self._disconnect(self._client)
+
+    async def reconfigure(self, cfg: WeComConfig) -> None:
+        """Apply WeCom settings without replacing the registered channel runtime."""
+        async with self._reconfigure_lock:
+            if self._cfg == cfg:
+                return
+            self._cfg = cfg.model_copy(deep=True)
+            self._connection_blocked = False
+            self._frame_cache.clear()
+            client = self._client
+            self._wake.set()
+            await self._disconnect(client)
+
+    def _is_configured(self) -> bool:
+        return bool(self._cfg.enabled and self._cfg.bot_id and self._cfg.secret)
+
+    async def _run_connection(self) -> None:
+        from wecom_aibot_sdk import WSClient
+
+        cfg = self._cfg.model_copy(deep=True)
+        client = WSClient(
+            bot_id=cfg.bot_id,
+            secret=cfg.secret,
+            ws_url=cfg.ws_url or "",
+            logger=_LoguruLogger(),
+        )
+        self._client = client
+        self._register_handlers(client, cfg.bot_id)
+        try:
+            await client.connect()
+        except Exception as error:
+            logger.error(f"WeCom connect failed: {error}")
+            self._connection_blocked = True
+            await self._disconnect(client)
+            if self._client is client:
+                self._client = None
+            return
+
+        try:
+            while not self._stop.is_set() and not self._wake.is_set():
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=60.0)
+                except TimeoutError:
+                    self._sweep_frames()
+        finally:
+            await self._disconnect(client)
+            if self._client is client:
+                self._client = None
+
+    async def _disconnect(self, client: Any) -> None:
+        if client is None:
+            return
+        try:
+            await client.disconnect()
+        except Exception as error:
+            logger.debug(f"WeCom disconnect error: {error}")
 
     # ── handler registration ─────────────────────────────────────────────
 
-    def _register_handlers(self) -> None:
-        c = self._client
-        c.on("authenticated", lambda: logger.info(f"WeCom authenticated bot={self._cfg.bot_id}"))
-        c.on("disconnected", lambda reason=None: logger.warning(f"WeCom disconnected: {reason}"))
-        c.on("event.disconnected_event", self._on_kicked)
+    def _register_handlers(self, client: Any, bot_id: str) -> None:
+        client.on("authenticated", lambda: logger.info(f"WeCom authenticated bot={bot_id}"))
+        client.on(
+            "disconnected",
+            lambda reason=None: logger.warning(f"WeCom disconnected: {reason}"),
+        )
+        client.on("event.disconnected_event", self._on_kicked)
         for evt in ("message.text", "message.voice"):
-            c.on(evt, self._on_text_like)
+            client.on(evt, self._on_text_like)
         for evt in ("message.image", "message.file", "message.mixed", "message.video"):
-            c.on(evt, self._on_with_attachments)
-        c.on("message.stream", self._on_stream_notify)
+            client.on(evt, self._on_with_attachments)
+        client.on("message.stream", self._on_stream_notify)
 
     async def _on_text_like(self, frame: dict[str, Any]) -> None:
         try:
@@ -161,8 +201,8 @@ class WeComRunner:
 
     async def _on_kicked(self, frame: dict[str, Any]) -> None:
         logger.warning("WeCom kicked by a newer connection; will not auto-reconnect")
-        self._kicked = True
-        self._stop.set()
+        self._connection_blocked = True
+        self._wake.set()
 
     # ── frame cache ──────────────────────────────────────────────────────
 

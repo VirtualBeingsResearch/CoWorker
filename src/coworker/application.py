@@ -895,6 +895,20 @@ async def _main() -> bool:
         token=desktop_update_runtime.token,
     )
 
+    wecom_runner: WeComRunner | None = None
+    if not setup_required:
+        wecom_runner = WeComRunner(
+            cfg=config.wecom,
+            attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
+            contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
+            activity=channel_system.activity,
+        )
+        channel_system.registry.register(WeComChannel(wecom_runner))
+        if config.wecom.enabled and not (config.wecom.bot_id and config.wecom.secret):
+            logger.warning("WeCom enabled but bot_id/secret missing; runtime is waiting for configuration")
+        elif config.wecom.enabled:
+            logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
+
     setup_routes(
         None if setup_required else inbox_watcher,
         agent_loop,
@@ -915,6 +929,7 @@ async def _main() -> bool:
         palace_loader=palace_loader,
         mode_loader=mode_loader,
         desktop_update_sync=desktop_update_sync,
+        wecom_runner=wecom_runner,
     )
     api_app.setup_desktop_updates(
         config.desktop_updates,
@@ -931,19 +946,6 @@ async def _main() -> bool:
                 desktop_dispatcher,
             )
         )
-
-    if not setup_required and config.wecom.enabled:
-        if not config.wecom.bot_id or not config.wecom.secret:
-            logger.warning("WeCom enabled but bot_id/secret missing; skipping")
-        else:
-            wecom_runner = WeComRunner(
-                cfg=config.wecom,
-                attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
-                contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
-                activity=channel_system.activity,
-            )
-            channel_system.registry.register(WeComChannel(wecom_runner))
-            logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")
 
     # 写入实例状态文件（新旧交接标记）
     status_path = Path(config.memory.db_path) / "instance_status.json"

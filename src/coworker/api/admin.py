@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
+    from coworker.channels.wecom.runner import WeComRunner
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
@@ -54,6 +55,7 @@ _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
+_wecom_runner: WeComRunner | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
 _config_write_lock = asyncio.Lock()
@@ -191,6 +193,7 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
+    wecom_runner: WeComRunner | None = None,
 ) -> None:
     global \
         _agent, \
@@ -201,6 +204,7 @@ def setup_admin(
         _palace_loader, \
         _mode_loader, \
         _desktop_update_sync, \
+        _wecom_runner, \
         _pending_restart, \
         _config_write_lock
     _agent = agent
@@ -211,6 +215,7 @@ def setup_admin(
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
+    _wecom_runner = wecom_runner
     _pending_restart = False
     _config_write_lock = asyncio.Lock()
 
@@ -550,11 +555,13 @@ async def _apply_hot_config(
         and not path.startswith("desktop_updates.dir")
         and not path.startswith("desktop_updates.admin_token")
     }
+    wecom_hot = {path for path in changed_paths if path.startswith("wecom.")}
     restart = sorted(
         path
         for path in changed_paths
         if path not in _HOT_CONFIG_PATHS
         and path not in desktop_hot
+        and path not in wecom_hot
         and not path.startswith("llm.managed_providers")
     )
     brain = _require_brain()
@@ -605,6 +612,12 @@ async def _apply_hot_config(
             desired.admin.token,
         )
         applied.append("desktop_updates")
+
+    if wecom_hot:
+        current.wecom = desired.wecom
+        if _wecom_runner is not None:
+            await _wecom_runner.reconfigure(desired.wecom)
+        applied.append("wecom")
 
     for path in sorted(changed_paths & _HOT_CONFIG_PATHS - {"llm.max_tokens"}):
         _assign_config_path(current, path, desired)
@@ -1078,6 +1091,8 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
             "started_at": _process_started_at.isoformat(),
+            "passive_mode": _require_config().agent.passive_mode,
+            "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
         },
         "counts": {
             "tasks": len(tasks),
@@ -1105,7 +1120,10 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
         "config": data,
         "effective_providers": effective_providers,
         "secret_status": statuses,
-        "hot_reloadable": sorted(_HOT_CONFIG_PATHS | {"llm.managed_providers", "desktop_updates"}),
+        "hot_reloadable": sorted(
+            _HOT_CONFIG_PATHS
+            | {"llm.managed_providers", "desktop_updates", "wecom"}
+        ),
         "override_path": config.admin.config_file,
         "pending_restart": _pending_restart,
         "sources": {
