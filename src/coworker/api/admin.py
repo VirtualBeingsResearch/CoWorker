@@ -19,6 +19,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from coworker.agent.bubble_log_index import (
+    load_completed_bubble_index,
+    synchronize_completed_bubble_index,
+)
 from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
 from coworker.core.startup_intent import (
@@ -44,6 +48,9 @@ type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, J
 type JsonObject = dict[str, JsonValue]
 type ApiResponse = dict[str, object]
 type ContentLoader = SkillLoader | PalaceLoader | SubconsciousModeLoader
+
+_TERMINAL_BUBBLE_STATUSES = frozenset({"done", "error", "cancelled", "timeout"})
+_BUBBLE_LOG_TAIL_BYTES = 64 * 1024
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -675,6 +682,39 @@ def _subconscious_logs_dir() -> Path:
     return Path(logs_dir) / "subconscious" / "bubbles"
 
 
+def _completed_bubble_summaries(log_dir: Path) -> list[JsonObject]:
+    """Load indexed terminal logs and recover any completed records missing from it."""
+    index_root = log_dir.parent
+    records = load_completed_bubble_index(index_root)
+    if not log_dir.is_dir():
+        if records:
+            synchronize_completed_bubble_index(index_root, log_dir, [])
+        return []
+
+    log_paths = {path.stem: path for path in log_dir.glob("*.jsonl")}
+    indexed: list[JsonObject] = [
+        cast(JsonObject, record)
+        for record in records or []
+        if str(record.get("log_id") or "") in log_paths
+    ]
+    indexed_log_ids = {str(record.get("log_id") or "") for record in indexed}
+    recovered: list[JsonObject] = []
+    for log_id, path in log_paths.items():
+        if log_id in indexed_log_ids or not _is_terminal_bubble_log(path):
+            continue
+        summary = _bubble_log_summary(path)
+        if summary is not None:
+            recovered.append(summary)
+    if recovered or records is None or len(indexed) != len(records):
+        synchronized = synchronize_completed_bubble_index(
+            index_root,
+            log_dir,
+            [cast(dict[str, object], record) for record in recovered],
+        )
+        return [cast(JsonObject, record) for record in synchronized]
+    return indexed
+
+
 _INTERACTION_PAGE_SCAN_BYTES = 2 * 1024 * 1024
 _INTERACTION_PREVIEW_CHARS = 480
 _INTERACTION_DETAIL_STRING_CHARS = 32_000
@@ -825,22 +865,119 @@ def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0)
     return str(value)
 
 
-@lru_cache(maxsize=512)
-def _read_bubble_log_cached(path: str, _mtime_ns: int, _size: int) -> list[dict[str, object]]:
+def _read_bubble_log_uncached(path: str) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     try:
-        for line in Path(path).read_text(encoding="utf-8").splitlines():
-            try:
-                entry = json.loads(line)
-            except (TypeError, ValueError):
-                continue
-            if isinstance(entry, dict):
-                sanitized = _admin_tool_arguments(entry)
-                if isinstance(sanitized, dict):
-                    entries.append(sanitized)
+        with Path(path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    entry = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(entry, dict):
+                    sanitized = _admin_tool_arguments(entry)
+                    if isinstance(sanitized, dict):
+                        entries.append(sanitized)
     except OSError:
         return []
     return entries
+
+
+@lru_cache(maxsize=512)
+def _read_completed_bubble_log_cached(
+    path: str, _mtime_ns: int, _size: int
+) -> list[dict[str, object]]:
+    return _read_bubble_log_uncached(path)
+
+
+def _is_terminal_bubble_log(path: Path) -> bool:
+    """Check the final metadata record without parsing a complete JSONL log."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            handle.seek(max(0, handle.tell() - _BUBBLE_LOG_TAIL_BYTES))
+            tail = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in reversed(tail.splitlines()):
+        try:
+            entry = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("__meta__"):
+            return False
+        return str(entry.get("status") or "").lower() in _TERMINAL_BUBBLE_STATUSES
+    return False
+
+
+def _read_bubble_log_summary_uncached(
+    path: str, _mtime_ns: int, _size: int
+) -> JsonObject | None:
+    """Read only the fields needed by the list view.
+
+    The detail endpoint needs the fully sanitized event stream, but listing
+    records should not materialize and sanitize every event in every log. In
+    particular, active logs change frequently and therefore miss the detail
+    cache on every request.
+    """
+    first: dict[str, object] | None = None
+    meta: dict[str, object] | None = None
+    result = ""
+    try:
+        with Path(path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    entry = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                if first is None:
+                    first = entry
+                if entry.get("__meta__"):
+                    meta = entry
+                if entry.get("type") == "tool_call" and entry.get("name") == "bubble_done":
+                    arguments = entry.get("arguments")
+                    if isinstance(arguments, dict) and not arguments.get("checkpoint"):
+                        result = str(arguments.get("result") or result)
+    except OSError:
+        return None
+
+    if meta is None:
+        return None
+    bubble_id = str(meta.get("id") or Path(path).stem)
+    stem = Path(path).stem
+    mode = stem[len(bubble_id) + 1 :] if stem.startswith(f"{bubble_id}_") else ""
+    return {
+        "id": bubble_id,
+        "log_id": stem,
+        "mode": mode,
+        "goal": str(meta.get("goal") or tr("api.admin.goal_unrecorded")),
+        "status": str(meta.get("status") or "done"),
+        "provider": str(meta.get("provider") or ""),
+        "model": str(meta.get("model") or ""),
+        "cycles_used": _as_int(meta.get("cycles_used")),
+        "max_cycles": _as_int(meta.get("max_cycles")),
+        "participant_id": str(meta.get("participant_id") or ""),
+        "conversation_id": str(meta.get("conversation_id") or ""),
+        "handoff_transparency": bool(meta.get("handoff_transparency")),
+        "resume_count": _as_int(meta.get("resume_count")),
+        "palaces": cast(JsonValue, meta.get("palaces") or []),
+        "created_at": str((first or meta).get("ts") or ""),
+        "finished_at": str(meta.get("ts") or ""),
+        "elapsed_seconds": _as_float(meta.get("elapsed_seconds")),
+        "result": result,
+        "error": str(meta.get("error") or ""),
+    }
+
+
+@lru_cache(maxsize=512)
+def _bubble_log_summary_cached(
+    path: str, _mtime_ns: int, _size: int
+) -> JsonObject | None:
+    return _read_bubble_log_summary_uncached(path, _mtime_ns, _size)
 
 
 def _read_bubble_log(path: Path) -> list[dict[str, object]]:
@@ -848,7 +985,21 @@ def _read_bubble_log(path: Path) -> list[dict[str, object]]:
         stat = path.stat()
     except OSError:
         return []
-    return _read_bubble_log_cached(str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    resolved = str(path.resolve())
+    if _is_terminal_bubble_log(path):
+        return _read_completed_bubble_log_cached(resolved, stat.st_mtime_ns, stat.st_size)
+    return _read_bubble_log_uncached(resolved)
+
+
+def _read_bubble_log_summary(path: Path) -> JsonObject | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    resolved = str(path.resolve())
+    if _is_terminal_bubble_log(path):
+        return _bubble_log_summary_cached(resolved, stat.st_mtime_ns, stat.st_size)
+    return _read_bubble_log_summary_uncached(resolved, stat.st_mtime_ns, stat.st_size)
 
 
 def _as_int(value: object, default: int = 0) -> int:
@@ -866,40 +1017,7 @@ def _as_float(value: object, default: float = 0.0) -> float:
 
 
 def _bubble_log_summary(path: Path) -> JsonObject | None:
-    entries = _read_bubble_log(path)
-    meta = next((entry for entry in reversed(entries) if entry.get("__meta__")), None)
-    if meta is None:
-        return None
-    first = entries[0] if entries else meta
-    bubble_id = str(meta.get("id") or path.stem)
-    mode = path.stem[len(bubble_id) + 1 :] if path.stem.startswith(f"{bubble_id}_") else ""
-    result = ""
-    for entry in entries:
-        if entry.get("type") == "tool_call" and entry.get("name") == "bubble_done":
-            arguments = entry.get("arguments")
-            if isinstance(arguments, dict) and not arguments.get("checkpoint"):
-                result = str(arguments.get("result") or result)
-    return {
-        "id": bubble_id,
-        "log_id": path.stem,
-        "mode": mode,
-        "goal": str(meta.get("goal") or tr("api.admin.goal_unrecorded")),
-        "status": str(meta.get("status") or "done"),
-        "provider": str(meta.get("provider") or ""),
-        "model": str(meta.get("model") or ""),
-        "cycles_used": _as_int(meta.get("cycles_used")),
-        "max_cycles": _as_int(meta.get("max_cycles")),
-        "participant_id": str(meta.get("participant_id") or ""),
-        "conversation_id": str(meta.get("conversation_id") or ""),
-        "handoff_transparency": bool(meta.get("handoff_transparency")),
-        "resume_count": _as_int(meta.get("resume_count")),
-        "palaces": cast(JsonValue, meta.get("palaces") or []),
-        "created_at": str(first.get("ts") or ""),
-        "finished_at": str(meta.get("ts") or ""),
-        "elapsed_seconds": _as_float(meta.get("elapsed_seconds")),
-        "result": result,
-        "error": str(meta.get("error") or ""),
-    }
+    return _read_bubble_log_summary(path)
 
 
 def _bubble_snapshot(bubble: Bubble) -> dict[str, object]:
@@ -1425,21 +1543,32 @@ async def list_bubbles(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     store = _require_bubble_store()
-    subconscious_dir = _subconscious_logs_dir()
+    agent = _require_agent()
+    scheduler = getattr(agent, "_subconscious", None)
+    normal_log_dir = _bubble_logs_dir()
+    subconscious_log_dir = _subconscious_logs_dir()
+    normal_summaries, subconscious_summaries = await asyncio.gather(
+        asyncio.to_thread(_completed_bubble_summaries, normal_log_dir),
+        asyncio.to_thread(_completed_bubble_summaries, subconscious_log_dir),
+    )
+    subconscious_ids = {
+        str(summary["id"])
+        for summary in subconscious_summaries
+    }
+    subconscious_ids.update(
+        str(bubble_id)
+        for bubble_id in getattr(scheduler, "_active_by_mode", {}).values()
+        if bubble_id
+    )
     live = [
         _bubble_dict(b)
         for b in store.list_active() + list(store._history)
-        if not any(subconscious_dir.glob(f"{b.id}_*.jsonl"))
+        if b.id not in subconscious_ids
     ]
     by_id = {str(item["id"]): item for item in live}
-    log_dir = _bubble_logs_dir()
-    if log_dir.is_dir():
-        for path in sorted(log_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
-            if path.stem in by_id:
-                continue
-            summary = _bubble_log_summary(path)
-            if summary is not None:
-                by_id[str(summary["id"])] = summary
+    for summary in normal_summaries:
+        if str(summary["id"]) not in by_id:
+            by_id[str(summary["id"])] = summary
     bubbles = sorted(
         by_id.values(),
         key=lambda item: (item["status"] == "running", str(item.get("created_at") or "")),
@@ -1467,7 +1596,7 @@ async def get_bubble_history(
                 status_code=404, detail=tr("api.admin.bubble_record_missing")
             )
         return {"bubble_id": bubble_id, "events": [_bubble_snapshot(bubble)]}
-    return {"bubble_id": bubble_id, "events": _read_bubble_log(path)}
+    return {"bubble_id": bubble_id, "events": await asyncio.to_thread(_read_bubble_log, path)}
 
 
 @router.get("/subconscious")
@@ -1489,11 +1618,8 @@ async def list_subconscious(
                 "mode": mode,
             }
     log_dir = _subconscious_logs_dir()
-    if log_dir.is_dir():
-        for path in log_dir.glob("*.jsonl"):
-            summary = _bubble_log_summary(path)
-            if summary is not None:
-                by_log_id[str(summary["log_id"])] = summary
+    for summary in await asyncio.to_thread(_completed_bubble_summaries, log_dir):
+        by_log_id[str(summary["log_id"])] = summary
     items = list(by_log_id.values())
     items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
     return {
@@ -1529,7 +1655,7 @@ async def get_subconscious_history(
                 status_code=404, detail=tr("api.admin.subconscious_record_missing")
             )
         return {"bubble_id": log_id, "events": [_bubble_snapshot(bubble)]}
-    return {"bubble_id": log_id, "events": _read_bubble_log(path)}
+    return {"bubble_id": log_id, "events": await asyncio.to_thread(_read_bubble_log, path)}
 
 
 @router.post("/bubbles/{bubble_id}/cancel")

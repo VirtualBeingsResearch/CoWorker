@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -860,13 +861,16 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     subconscious_dir = Path(config.agent.logs_dir) / "subconscious" / "bubbles"
     subconscious_dir.mkdir(parents=True)
     subconscious_path = subconscious_dir / "bbl_260716120000_audit.jsonl"
-    subconscious_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    subconscious_path.write_text(
+        "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries),
+        encoding="utf-8",
+    )
     response = client.get("/api/admin/subconscious", headers=headers)
     assert response.status_code == 200
     assert response.json()["bubbles"][0]["mode"] == "audit"
     response = client.get("/api/admin/subconscious/bbl_260716120000_audit/history", headers=headers)
     assert response.status_code == 200
-    assert len(response.json()["events"]) == 5
+    assert len(response.json()["events"]) == 4
 
     snapshot = SimpleNamespace(
         id="bbl_260716120001",
@@ -882,6 +886,109 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     response = client.get(f"/api/admin/bubbles/{snapshot.id}/history", headers=headers)
     assert response.status_code == 200
     assert response.json()["events"][0]["type"] == "bubble_snapshot"
+
+
+def test_only_terminal_bubble_logs_are_cached(tmp_path):
+    from coworker.api import admin
+
+    active = tmp_path / "active.jsonl"
+    active.write_text(
+        '{"__meta__":true,"id":"active","status":"timeout"}\n'
+        '{"type":"thinking_start"}\n',
+        encoding="utf-8",
+    )
+    completed = tmp_path / "completed.jsonl"
+    completed.write_text(
+        '{"type":"thinking_start"}\n'
+        '{"__meta__":true,"id":"completed","status":"done"}\n',
+        encoding="utf-8",
+    )
+
+    admin._bubble_log_summary_cached.cache_clear()
+    admin._read_completed_bubble_log_cached.cache_clear()
+    assert admin._read_bubble_log_summary(active) is not None
+    assert admin._bubble_log_summary_cached.cache_info().currsize == 0
+    assert admin._read_bubble_log(active)
+    assert admin._read_completed_bubble_log_cached.cache_info().currsize == 0
+
+    assert admin._read_bubble_log_summary(completed) is not None
+    assert admin._bubble_log_summary_cached.cache_info().currsize == 1
+    assert admin._read_bubble_log(completed)
+    assert admin._read_completed_bubble_log_cached.cache_info().currsize == 1
+
+
+def test_completed_bubble_index_avoids_rescanning_legacy_logs(tmp_path, monkeypatch):
+    from coworker.agent.bubble_log_index import (
+        load_completed_bubble_index,
+        upsert_completed_bubble_index,
+    )
+    from coworker.api import admin
+
+    log_dir = tmp_path / "bubbles"
+    log_dir.mkdir()
+    completed_log = log_dir / "bbl_complete.jsonl"
+    completed_log.write_text(
+        '{"type":"thinking_start","ts":"2026-07-16T12:00:00"}\n'
+        '{"__meta__":true,"id":"bbl_complete","status":"done"}\n',
+        encoding="utf-8",
+    )
+    (log_dir / "bbl_active.jsonl").write_text(
+        '{"type":"thinking_start","ts":"2026-07-16T12:00:00"}\n',
+        encoding="utf-8",
+    )
+    (log_dir / "already_indexed.jsonl").write_text(
+        '{"__meta__":true,"id":"already_indexed","status":"done"}\n',
+        encoding="utf-8",
+    )
+    upsert_completed_bubble_index(tmp_path, {"log_id": "already_indexed", "id": "already_indexed"})
+    upsert_completed_bubble_index(tmp_path, {"log_id": "missing", "id": "missing"})
+    original_summary = admin._bubble_log_summary
+    scanned: list[Path] = []
+
+    def record_summary_scan(path):
+        scanned.append(path)
+        return original_summary(path)
+
+    monkeypatch.setattr(admin, "_bubble_log_summary", record_summary_scan)
+    rebuilt = admin._completed_bubble_summaries(log_dir)
+    assert {item["id"] for item in rebuilt} == {"already_indexed", "bbl_complete"}
+    assert scanned == [completed_log]
+    assert (tmp_path / "bubble_index.json").is_file()
+    persisted = load_completed_bubble_index(tmp_path)
+    assert persisted is not None
+    assert {item["id"] for item in persisted} == {"already_indexed", "bbl_complete"}
+
+    monkeypatch.setattr(admin, "_bubble_log_summary", lambda _path: pytest.fail("unexpected rescan"))
+    indexed = admin._completed_bubble_summaries(log_dir)
+    assert {item["id"] for item in indexed} == {"already_indexed", "bbl_complete"}
+
+    for path in log_dir.iterdir():
+        path.unlink()
+    log_dir.rmdir()
+    assert admin._completed_bubble_summaries(log_dir) == []
+    assert load_completed_bubble_index(tmp_path) == []
+
+
+def test_legacy_index_rebuild_preserves_a_concurrent_completion(tmp_path):
+    from coworker.agent.bubble_log_index import (
+        load_completed_bubble_index,
+        synchronize_completed_bubble_index,
+        upsert_completed_bubble_index,
+    )
+
+    log_dir = tmp_path / "bubbles"
+    log_dir.mkdir()
+    (log_dir / "new.jsonl").touch()
+    (log_dir / "legacy.jsonl").touch()
+    upsert_completed_bubble_index(tmp_path, {"log_id": "new", "id": "new"})
+    synchronize_completed_bubble_index(
+        tmp_path,
+        log_dir,
+        [{"log_id": "legacy", "id": "legacy"}],
+    )
+    records = load_completed_bubble_index(tmp_path)
+    assert records is not None
+    assert {record["id"] for record in records} == {"legacy", "new"}
 
 
 def test_admin_can_add_and_delete_pinned_context(tmp_path):
