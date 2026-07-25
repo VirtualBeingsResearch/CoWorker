@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -44,7 +44,12 @@ def _client(
             "desktop_updates": desktop_updates or {},
         }
     )
-    agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda reason="normal": None)
+    agent = SimpleNamespace(
+        _identity=_Identity(),
+        request_restart=lambda reason="normal": None,
+        current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
+        refresh_system_prompt=MagicMock(),
+    )
     brain = SimpleNamespace(
         active_provider=object(),
         current_provider_name="openai",
@@ -123,6 +128,36 @@ def test_identity_api_exposes_only_active_identity_fields(tmp_path):
         "personality": "curious",
         "current_location": "Paris",
     }
+
+    updated = client.put(
+        "/api/admin/identity",
+        headers=headers,
+        json={"personality": "warm"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["personality"] == "warm"
+    admin._agent.refresh_system_prompt.assert_called_once_with()
+
+
+def test_system_prompt_api_is_authenticated_read_only_and_uncached(tmp_path):
+    client, _ = _client(tmp_path)
+
+    assert client.get("/api/admin/system-prompt").status_code == 401
+
+    response = client.get(
+        "/api/admin/system-prompt",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "content": "[IDENTITY]\nMy name is Luna.\n",
+        "characters": 28,
+        "lines": 2,
+    }
+    admin._agent.current_system_prompt.assert_called_once_with()
 
 
 def test_identity_api_rejects_all_retired_fields_together(tmp_path):

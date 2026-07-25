@@ -1349,18 +1349,24 @@ function BackupFullRestore({ filename, name }: { filename: string; name: string 
 }
 
 function Identity({ onName }: { onName: (name: string) => void }) {
-  const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/identity'), []);
+  const identity = useLoad(() => api<Json>('/api/admin/identity'), []);
+  const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { if (data) setDraft({ ...data }); }, [data]);
-  if (loading || !draft) return <Loading error={error} />;
+  useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     const result = await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
     onName(result.name || '');
     setSaved(true);
-    await reload();
+    await Promise.all([identity.reload(), systemPrompt.reload()]);
   };
-  return <Panel title="身份档案" note="修改会直接写入身份文件，并从下一次思考起进入系统提示。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案已更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>;
+  return <div className="page-stack">
+    <Panel title="身份档案" note="修改会直接写入身份文件，并从下一次思考起进入系统提示。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案已更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
+    <Panel title="当前 System Prompt" note="只读展示 Agent 当前实际使用的缓存版本；不包含工具 Schema、短期上下文或本轮消息。" action={<button className="ghost mini" disabled={systemPrompt.loading} onClick={() => void systemPrompt.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
+      {systemPrompt.loading || !systemPrompt.data ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{systemPrompt.data.characters ?? 0}</b>{t('字符')}</span><span><b>{systemPrompt.data.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{systemPrompt.data.content || ''}</code></pre></details></>}
+    </Panel>
+  </div>;
 }
 
 type ContentKind = 'skills' | 'palaces' | 'subconscious';

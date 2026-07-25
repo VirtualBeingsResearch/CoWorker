@@ -1405,6 +1405,19 @@ html:has(.admin-login),
 .identity-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .identity-form .field:nth-child(n + 3) { grid-column: 1 / -1; }
 .identity-form textarea { min-height: 140px; }
+.system-prompt-facts { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.system-prompt-facts span,
+.system-prompt-facts em { display: inline-flex; align-items: baseline; gap: 5px; padding: 6px 9px; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-muted); background: var(--admin-paper); font: 11px var(--admin-data); font-style: normal; }
+.system-prompt-facts b { color: var(--admin-ink); font-size: 13px; }
+.system-prompt-facts em { margin-left: auto; color: var(--admin-vital); }
+.system-prompt-preview { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 13px; background: var(--admin-paper); }
+.system-prompt-preview summary { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 13px 15px; color: var(--admin-ink); cursor: pointer; list-style: none; }
+.system-prompt-preview summary::-webkit-details-marker { display: none; }
+.system-prompt-preview summary svg { color: var(--admin-vital); }
+.system-prompt-preview summary span { font-size: 13px; font-weight: 680; }
+.system-prompt-preview summary small { color: var(--admin-muted); font-size: 11px; }
+.system-prompt-preview[open] summary { border-bottom: 1px solid var(--admin-line); }
+.system-prompt-preview pre { max-height: 620px; margin: 0; padding: 18px; overflow: auto; color: var(--admin-ink); background: color-mix(in oklch, var(--admin-surface) 70%, var(--admin-paper)); font: 12px/1.7 var(--admin-data); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .content-workspace { display: grid; gap: 14px; }
 .capability-strip { display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 14px; background: var(--admin-surface); }
 .capability-strip button { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; min-height: 78px; padding: 15px 17px; border: 0; border-right: 1px solid var(--admin-line); color: var(--admin-muted); background: transparent; text-align: left; }
@@ -2231,6 +2244,10 @@ html:has(.admin-login),
   .identity-form { grid-template-columns: 1fr; }
   .config-fields .field,
   .identity-form .field { grid-column: auto !important; }
+  .system-prompt-facts { flex-wrap: wrap; }
+  .system-prompt-facts em { margin-left: 0; }
+  .system-prompt-preview summary { grid-template-columns: auto 1fr; }
+  .system-prompt-preview summary small { grid-column: 2; }
   .config-switch { margin-top: 0; }
   .inline-add,
   .search-box,

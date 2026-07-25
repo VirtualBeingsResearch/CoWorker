@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -1711,7 +1711,7 @@ async def compress_memory(
     compressed, saved = await agent._short_term.compress_all_now(
         _require_brain(),
         context_hint=tr("notification.admin_compress_hint"),
-        agent_system_prompt=agent._prompt_builder.build(),
+        agent_system_prompt=agent.current_system_prompt(),
     )
     _audit(
         request,
@@ -1924,14 +1924,30 @@ async def get_identity(_: None = Depends(require_admin)) -> ApiResponse:
     }
 
 
+@router.get("/system-prompt")
+async def get_system_prompt(
+    response: Response,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    prompt = _require_agent().current_system_prompt()
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "content": prompt,
+        "characters": len(prompt),
+        "lines": len(prompt.splitlines()),
+    }
+
+
 @router.put("/identity")
 async def put_identity(
     payload: IdentityPatch,
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    identity = _require_agent()._identity
+    agent = _require_agent()
+    identity = agent._identity
     identity.update(payload.model_dump(exclude_none=True))
+    agent.refresh_system_prompt()
     _audit(request, "identity.update", identity.name or "unnamed")
     return await get_identity()
 
