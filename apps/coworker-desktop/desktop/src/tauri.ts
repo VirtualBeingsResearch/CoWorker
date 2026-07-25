@@ -16,6 +16,18 @@ export function startDesktopFileDrag(path: string): Promise<void> {
   return startDrag({ item: [path], icon: fileDragIcon, mode: "copy" });
 }
 
+export function minimizeDesktopWindow(): Promise<void> {
+  return getCurrentWindow().minimize();
+}
+
+export function toggleMaximizeDesktopWindow(): Promise<void> {
+  return getCurrentWindow().toggleMaximize();
+}
+
+export function closeDesktopWindow(): Promise<void> {
+  return getCurrentWindow().close();
+}
+
 export type BridgeCoworker = {
   coworker_id: string;
   display_name: string;

@@ -442,7 +442,7 @@ describe("App backend operation wiring", () => {
     })));
 
     expect(await screen.findByRole("dialog", { name: "Permission request" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Activity" }));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
     expect(document.querySelector(".logPanel")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Permission request" })).toBeInTheDocument();
     vi.mocked(tauri.listDesktopApprovals).mockResolvedValue([]);

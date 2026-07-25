@@ -90,28 +90,44 @@ pub fn resolve_command(command: &str) -> io::Result<ResolvedCommand> {
 
     #[cfg(not(windows))]
     {
-        Ok(resolve_unix_command(command))
+        resolve_unix_command(command)
     }
 }
 
 #[cfg(not(windows))]
-fn resolve_unix_command(command: &str) -> ResolvedCommand {
+fn resolve_unix_command(command: &str) -> io::Result<ResolvedCommand> {
     let path = Path::new(command);
     if is_path_like(command, path) {
-        return ResolvedCommand::direct(PathBuf::from(command)).with_path_entries(
-            default_unix_runtime_bin_paths(std::env::var_os("HOME").as_deref()),
+        return Ok(
+            ResolvedCommand::direct(PathBuf::from(command)).with_path_entries(
+                default_unix_runtime_bin_paths(std::env::var_os("HOME").as_deref()),
+            ),
         );
     }
 
+    let home = std::env::var_os("HOME");
     let resolved = resolve_unix_name(
         command,
         std::env::var_os("PATH").as_deref(),
-        std::env::var_os("HOME").as_deref(),
-    )
-    .unwrap_or_else(|| PathBuf::from(command));
-    ResolvedCommand::direct(resolved).with_path_entries(default_unix_runtime_bin_paths(
-        std::env::var_os("HOME").as_deref(),
-    ))
+        home.as_deref(),
+    );
+    let Some(resolved) = resolved else {
+        let checked = default_unix_codex_paths(command, home.as_deref())
+            .into_iter()
+            .map(|candidate| candidate.display().to_string())
+            .collect::<Vec<_>>();
+        let checked = if checked.is_empty() {
+            String::new()
+        } else {
+            format!("; checked {}", checked.join(", "))
+        };
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("command {command:?} was not found on PATH{checked}"),
+        ));
+    };
+    Ok(ResolvedCommand::direct(resolved)
+        .with_path_entries(default_unix_runtime_bin_paths(home.as_deref())))
 }
 
 #[cfg(not(windows))]
@@ -146,13 +162,7 @@ fn default_unix_codex_paths(command: &str, home_value: Option<&OsStr>) -> Vec<Pa
                 .map(|bin| bin.join("codex")),
         );
         #[cfg(target_os = "macos")]
-        candidates.push(
-            home.join("Applications")
-                .join("Codex.app")
-                .join("Contents")
-                .join("Resources")
-                .join("codex"),
-        );
+        candidates.extend(default_macos_codex_app_paths(Some(home.as_os_str())));
         #[cfg(target_os = "linux")]
         candidates.extend([
             home.join(".local")
@@ -170,9 +180,7 @@ fn default_unix_codex_paths(command: &str, home_value: Option<&OsStr>) -> Vec<Pa
     candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
     candidates.push(PathBuf::from("/usr/local/bin/codex"));
     #[cfg(target_os = "macos")]
-    candidates.push(PathBuf::from(
-        "/Applications/Codex.app/Contents/Resources/codex",
-    ));
+    candidates.extend(default_macos_codex_app_paths(None));
     #[cfg(target_os = "linux")]
     candidates.extend([
         PathBuf::from("/opt/Codex/resources/codex"),
@@ -181,6 +189,25 @@ fn default_unix_codex_paths(command: &str, home_value: Option<&OsStr>) -> Vec<Pa
         PathBuf::from("/usr/share/codex/codex"),
     ]);
     candidates
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn default_macos_codex_app_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
+    let applications = home_value
+        .map(PathBuf::from)
+        .map(|home| home.join("Applications"))
+        .unwrap_or_else(|| PathBuf::from("/Applications"));
+    ["ChatGPT.app", "Codex.app"]
+        .into_iter()
+        .flat_map(|app_name| {
+            let contents = applications.join(app_name).join("Contents");
+            [
+                contents.join("Resources").join("codex"),
+                contents.join("Resources").join("bin").join("codex"),
+                contents.join("MacOS").join("codex"),
+            ]
+        })
+        .collect()
 }
 
 #[cfg(not(windows))]
@@ -258,15 +285,30 @@ fn resolve_windows_path(path: &Path) -> Option<PathBuf> {
 #[cfg(windows)]
 fn resolve_windows_name(command: &str) -> Option<PathBuf> {
     let path_value = std::env::var_os("PATH");
-    resolve_windows_name_in_path(command, path_value.as_deref()).or_else(|| {
-        default_windows_codex_paths(
-            command,
-            std::env::var_os("LOCALAPPDATA").as_deref(),
-            std::env::var_os("ProgramFiles").as_deref(),
-        )
+    resolve_windows_name_with_sources(
+        command,
+        path_value.as_deref(),
+        std::env::var_os("LOCALAPPDATA").as_deref(),
+        std::env::var_os("ProgramFiles").as_deref(),
+    )
+}
+
+#[cfg(windows)]
+fn resolve_windows_name_with_sources(
+    command: &str,
+    path_value: Option<&OsStr>,
+    local_app_data: Option<&OsStr>,
+    program_files: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let desktop_install = default_windows_codex_paths(command, local_app_data, program_files)
         .into_iter()
-        .find(|candidate| candidate.is_file())
-    })
+        .find(|candidate| candidate.is_file());
+
+    if command == "codex" {
+        desktop_install.or_else(|| resolve_windows_name_in_path(command, path_value))
+    } else {
+        resolve_windows_name_in_path(command, path_value).or(desktop_install)
+    }
 }
 
 #[cfg(windows)]
@@ -425,6 +467,36 @@ mod tests {
         let _ = fs::remove_dir_all(local_app_data);
     }
 
+    #[test]
+    fn prefers_desktop_app_codex_over_path_entry() {
+        let local_app_data = temp_dir("codex-app-preferred");
+        let app_bin = local_app_data
+            .join("OpenAI")
+            .join("Codex")
+            .join("bin")
+            .join("current");
+        fs::create_dir_all(&app_bin).unwrap();
+        let desktop_executable = app_bin.join("codex.exe");
+        fs::write(&desktop_executable, []).unwrap();
+
+        let path_dir = temp_dir("codex-path");
+        let path_executable = path_dir.join("codex.exe");
+        fs::write(&path_executable, []).unwrap();
+        let path_value = std::env::join_paths([path_dir.as_path()]).unwrap();
+
+        let resolved = resolve_windows_name_with_sources(
+            "codex",
+            Some(path_value.as_os_str()),
+            Some(local_app_data.as_os_str()),
+            None,
+        )
+        .unwrap();
+
+        assert_path_eq_ignore_case(&resolved, &desktop_executable);
+        let _ = fs::remove_dir_all(local_app_data);
+        let _ = fs::remove_dir_all(path_dir);
+    }
+
     fn temp_dir(name: &str) -> PathBuf {
         let millis = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -527,5 +599,22 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+}
+
+#[cfg(test)]
+mod macos_path_tests {
+    use super::*;
+
+    #[test]
+    fn checks_current_and_compatibility_macos_app_bundles() {
+        let paths = default_macos_codex_app_paths(None);
+
+        assert!(paths.contains(&PathBuf::from(
+            "/Applications/ChatGPT.app/Contents/Resources/codex"
+        )));
+        assert!(paths.contains(&PathBuf::from(
+            "/Applications/Codex.app/Contents/Resources/codex"
+        )));
     }
 }

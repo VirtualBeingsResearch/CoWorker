@@ -1,5 +1,5 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useI18n } from "../i18n";
 import {
   applyActorStreamEvent,
@@ -33,7 +33,7 @@ import {
   type BridgeStatus,
   type DesktopActorId,
 } from "../tauri";
-import { actorMessagesToTimelineMessages, ActorRail, isTimelineNearBottom } from "./ActorConversationParts";
+import { actorMessagesToTimelineMessages, isTimelineNearBottom } from "./ActorConversationParts";
 import { SessionsView, type SessionModeOption, type SessionsPresentation } from "./SessionsView";
 
 type ComposerMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
@@ -57,6 +57,7 @@ type Feedback = {
 
 type WorkspaceProps = {
   active: boolean;
+  actor: DesktopActorId;
   configPath: string;
   status: BridgeStatus | null;
   coworkers: BridgeCoworker[];
@@ -786,6 +787,7 @@ function ConversationController({
 
 export function ConversationsWorkspace({
   active,
+  actor,
   configPath,
   status,
   coworkers,
@@ -794,9 +796,9 @@ export function ConversationsWorkspace({
   feedback,
   onActiveConversationChange,
 }: WorkspaceProps) {
-  const [actor, setActor] = useState<DesktopActorId>("codex");
   const scrollSnapshotHandlersRef = useRef(new Map<DesktopActorId, () => void>());
   const actorScrollPositions = useRef(new Map<string, number>());
+  const previousActorRef = useRef(actor);
   const registerScrollSnapshot = useCallback((controllerActor: DesktopActorId, snapshot: () => void) => {
     scrollSnapshotHandlersRef.current.set(controllerActor, snapshot);
     return () => {
@@ -810,11 +812,15 @@ export function ConversationsWorkspace({
     if (!active) onActiveConversationChange(null);
   }, [active, onActiveConversationChange]);
 
+  useLayoutEffect(() => {
+    const previousActor = previousActorRef.current;
+    if (previousActor !== actor) {
+      scrollSnapshotHandlersRef.current.get(previousActor)?.();
+      previousActorRef.current = actor;
+    }
+  }, [actor]);
+
   return <div className={active ? "unifiedSessions" : undefined} hidden={!active}>
-    <ActorRail actor={actor} health={status?.actors ?? []} onChange={(nextActor) => {
-      scrollSnapshotHandlersRef.current.get(actor)?.();
-      setActor(nextActor);
-    }} />
     {(["local", "codex", "claude"] as DesktopActorId[]).map((controllerActor) => (
       <ConversationController
         key={controllerActor}

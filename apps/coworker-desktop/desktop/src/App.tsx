@@ -3,16 +3,16 @@ import {
   BookOpen,
   Gauge,
   HeartPulse,
+  Maximize2,
+  Menu,
   MessagesSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Minus,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Save,
   Settings2,
-  Sparkles,
   ScrollText,
   Square,
   X,
@@ -26,6 +26,8 @@ import {
 import { resolveResource } from "@tauri-apps/api/path";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import appMetadata from "../package.json";
+import appIcon32 from "../src-tauri/icons/32x32.png";
+import appIcon64 from "../src-tauri/icons/64x64.png";
 import { FeedbackIcon } from "./components/Field";
 import { CloseToTrayNotice } from "./components/CloseToTrayNotice";
 import { LogDetailDialog } from "./components/LogDetailDialog";
@@ -92,16 +94,23 @@ import {
   stopBridgeLogStream,
   setCloseToTray,
   setTrayCopy,
+  minimizeDesktopWindow,
+  toggleMaximizeDesktopWindow,
+  closeDesktopWindow,
 } from "./tauri";
 import { ConfigView } from "./views/ConfigView";
 import { LogsView } from "./views/LogsView";
 import { ConversationsWorkspace } from "./views/ConversationsWorkspace";
+import { ActorRail } from "./views/ActorConversationParts";
 import { ApprovalPanel } from "./views/ApprovalPanel";
 import { StatusView } from "./views/StatusView";
 
 const defaultPath = "coworker_desktop.json";
-const lifePanelStorageKey = "coworker-desktop-life-panel-collapsed";
 const onboardingCompletedStorageKey = "coworker-desktop-onboarding-completed";
+const desktopPlatform = typeof navigator !== "undefined"
+  && (/Mac/.test(navigator.platform) || /Macintosh/.test(navigator.userAgent))
+  ? "macos"
+  : "default";
 
 type ActiveConversation = {
   actorId: DesktopActorId;
@@ -163,14 +172,6 @@ async function resolvedNotificationIcon(): Promise<string | undefined> {
   return notificationIconPromise;
 }
 
-function readInitialLifePanelCollapsed() {
-  try {
-    return window.localStorage.getItem(lifePanelStorageKey) === "true";
-  } catch {
-    return false;
-  }
-}
-
 export function shouldNotifyActorEvent(
   update: ActorStreamEvent,
   notifiedIds: Set<string>,
@@ -219,7 +220,8 @@ export function shouldSendNativeNotification(
 export function App() {
   const { t, lang, setLang } = useI18n();
   const [view, setView] = useState<View>("status");
-  const [isLifePanelCollapsed, setIsLifePanelCollapsed] = useState(readInitialLifePanelCollapsed);
+  const [conversationActor, setConversationActor] = useState<DesktopActorId>("codex");
+  const [isLifePanelCollapsed, setIsLifePanelCollapsed] = useState(true);
   const [selectedCoworkerId, setSelectedCoworkerId] = useState<string>("");
   const [selectedCoworkerIndex, setSelectedCoworkerIndex] = useState(0);
   const [configPath, setConfigPath] = useState(defaultPath);
@@ -441,11 +443,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(lifePanelStorageKey, String(isLifePanelCollapsed));
-    } catch {
-      // Ignore storage errors; the UI can still keep the preference in memory.
-    }
+    if (isLifePanelCollapsed) return;
+    const closeNavigation = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setIsLifePanelCollapsed(true);
+    };
+    window.addEventListener("keydown", closeNavigation);
+    return () => window.removeEventListener("keydown", closeNavigation);
   }, [isLifePanelCollapsed]);
 
   useEffect(() => {
@@ -1113,15 +1116,24 @@ export function App() {
   return (
     <main
       className="shell"
+      data-platform={desktopPlatform}
       data-sidebar={isLifePanelCollapsed ? "collapsed" : "expanded"}
       data-mood={moodKey}
       style={{ "--active-color": moodColor[moodKey] } as CSSProperties}
     >
+      {!isLifePanelCollapsed && (
+        <button
+          className="navigationScrim"
+          type="button"
+          aria-label={lifePanelToggleLabel}
+          onClick={() => setIsLifePanelCollapsed(true)}
+        />
+      )}
       <aside className="lifePanel" aria-label="Bridge life signs and Coworker roster">
         <div className="lifePanelHeader">
           <div className="brandBlock">
             <span className="brandMark" aria-hidden="true">
-              <Sparkles size={18} />
+              <img src={appIcon32} srcSet={`${appIcon32} 1x, ${appIcon64} 2x`} alt="" />
             </span>
             <span className="brandCopy">
               <h1>{t("brand.eyebrow")}</h1>
@@ -1136,10 +1148,7 @@ export function App() {
             aria-expanded={!isLifePanelCollapsed}
             type="button"
           >
-            <span className="sidebarToggleGlyph" aria-hidden="true">
-              <PanelLeftClose className="sidebarToggleClose" size={17} />
-              <PanelLeftOpen className="sidebarToggleOpen" size={17} />
-            </span>
+            <X size={17} aria-hidden="true" />
           </button>
         </div>
 
@@ -1160,7 +1169,10 @@ export function App() {
             aria-current={view === "status" ? "page" : undefined}
             aria-label={t("nav.status")}
             className={view === "status" ? "active" : ""}
-            onClick={() => setView("status")}
+            onClick={() => {
+              setView("status");
+              setIsLifePanelCollapsed(true);
+            }}
           >
             <Gauge size={17} /> <span>{t("nav.status")}</span>
           </button>
@@ -1168,7 +1180,10 @@ export function App() {
             aria-current={view === "config" ? "page" : undefined}
             aria-label={t("nav.config")}
             className={view === "config" ? "active" : ""}
-            onClick={() => setView("config")}
+            onClick={() => {
+              setView("config");
+              setIsLifePanelCollapsed(true);
+            }}
           >
             <Settings2 size={17} /> <span>{t("nav.config")}</span>
           </button>
@@ -1176,7 +1191,10 @@ export function App() {
             aria-current={view === "sessions" ? "page" : undefined}
             aria-label={t("nav.sessions")}
             className={view === "sessions" ? "active" : ""}
-            onClick={() => setView("sessions")}
+            onClick={() => {
+              setView("sessions");
+              setIsLifePanelCollapsed(true);
+            }}
           >
             <MessagesSquare size={17} /> <span>{t("nav.sessions")}</span>
           </button>
@@ -1184,7 +1202,10 @@ export function App() {
             aria-current={view === "logs" ? "page" : undefined}
             aria-label={t("nav.logs")}
             className={view === "logs" ? "active" : ""}
-            onClick={() => setView("logs")}
+            onClick={() => {
+              setView("logs");
+              setIsLifePanelCollapsed(true);
+            }}
           >
             <ScrollText size={17} /> <span>{t("nav.logs")}</span>
           </button>
@@ -1251,7 +1272,24 @@ export function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
+        <header className="topbar" data-tauri-drag-region>
+          <button
+            className="workbenchMenu"
+            onClick={() => setIsLifePanelCollapsed((current) => !current)}
+            title={lifePanelToggleLabel}
+            aria-label={lifePanelToggleLabel}
+            aria-expanded={!isLifePanelCollapsed}
+            type="button"
+          >
+            <span className="brandMark" aria-hidden="true">
+              <img src={appIcon32} srcSet={`${appIcon32} 1x, ${appIcon64} 2x`} alt="" />
+            </span>
+            <span className="workbenchMenuCopy">
+              <strong>{t("brand.eyebrow")}</strong>
+              <small>{t(`mood.${moodKey}.label`)}</small>
+            </span>
+            <Menu size={15} aria-hidden="true" />
+          </button>
           <div className="titleBlock">
             <p className="eyebrow">{t("topbar.eyebrow")}</p>
             <div className="titleLine">
@@ -1264,6 +1302,14 @@ export function App() {
               )}
             </div>
           </div>
+          {view === "sessions" && (
+            <ActorRail
+              actor={conversationActor}
+              health={status?.actors ?? []}
+              onChange={setConversationActor}
+            />
+          )}
+          <div className="windowDragRegion" data-tauri-drag-region />
 
           {status?.development_mode && !developmentWarningDismissed && (
             <div className="developmentWarning" role="status" title={t("development.detail")}>
@@ -1338,6 +1384,17 @@ export function App() {
                 <span>{t("common.start")}</span>
               </button>
             )}
+          </div>
+          <div className="windowControls" aria-label={t("aria.windowControls")}>
+            <button type="button" aria-label={t("aria.minimizeWindow")} onClick={() => minimizeDesktopWindow().catch(reportError)}>
+              <Minus size={16} />
+            </button>
+            <button type="button" aria-label={t("aria.toggleMaximizeWindow")} onClick={() => toggleMaximizeDesktopWindow().catch(reportError)}>
+              <Maximize2 size={13} />
+            </button>
+            <button className="windowClose" type="button" aria-label={t("aria.closeWindow")} onClick={() => closeDesktopWindow().catch(reportError)}>
+              <X size={16} />
+            </button>
           </div>
         </header>
 
@@ -1430,6 +1487,7 @@ export function App() {
 
         <ConversationsWorkspace
           active={view === "sessions"}
+          actor={conversationActor}
           configPath={configPath}
           status={status}
           coworkers={visibleCoworkers}

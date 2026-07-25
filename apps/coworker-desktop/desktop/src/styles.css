@@ -218,8 +218,7 @@ p {
   display: grid;
   min-height: 0;
   height: 100%;
-  gap: 10px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .actorRail {
@@ -235,6 +234,17 @@ p {
   border-color: transparent;
   color: var(--muted);
   min-height: 34px;
+}
+
+.actorBrandIcon {
+  flex: 0 0 auto;
+  height: 18px;
+  object-fit: contain;
+  width: 18px;
+}
+
+.actorRailItem.actor-codex .actorBrandIcon {
+  border-radius: 4px;
 }
 
 .actorRailItem.actor-local.active {
@@ -2753,21 +2763,18 @@ textarea:hover:not(:disabled) {
 
 .brandMark {
   align-items: center;
-  background: linear-gradient(145deg,
-    color-mix(in oklch, var(--coral) 34%, white),
-    color-mix(in oklch, var(--sky) 36%, white));
-  border: 1px solid color-mix(in oklch, var(--active-color) 28%, var(--border));
-  border-radius: 10px;
-  box-shadow: 0 6px 18px color-mix(in oklch, var(--active-color) 14%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.7);
-  color: color-mix(in oklch, var(--active-color) 68%, var(--fg));
   display: flex;
-  gap: 2px;
   height: 30px;
   justify-content: center;
   width: 30px;
 }
 
-.brandMark svg { filter: drop-shadow(0 1px 0 oklch(100% 0 0 / 0.7)); }
+.brandMark img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
 
 .brandCopy {
   align-items: baseline;
@@ -4934,4 +4941,525 @@ textarea:hover:not(:disabled) {
     animation: none;
   }
 
+}
+
+/* Unified desktop chrome: navigation, application context and window controls share one rail. */
+.shell,
+.shell[data-sidebar="collapsed"] {
+  display: block;
+  height: 100vh;
+  min-height: 100vh;
+}
+
+.shell::before,
+.shell[data-sidebar="collapsed"]::before {
+  display: none;
+}
+
+.navigationScrim {
+  position: fixed;
+  inset: 48px 0 0;
+  z-index: 68;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(28, 28, 31, 0.12);
+  backdrop-filter: blur(1.5px);
+}
+
+.lifePanel,
+.shell[data-sidebar="collapsed"] .lifePanel {
+  position: fixed;
+  top: 55px;
+  left: 8px;
+  z-index: 70;
+  width: min(304px, calc(100vw - 16px));
+  height: min(690px, calc(100vh - 63px));
+  padding: 15px 13px 13px;
+  gap: 12px;
+  overflow: auto;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 12% 7%, color-mix(in oklch, var(--active-color) 14%, transparent), transparent 210px),
+    color-mix(in oklch, var(--surface-strong) 97%, var(--bg));
+  box-shadow: 0 28px 70px rgba(29, 27, 34, 0.22), 0 4px 14px rgba(29, 27, 34, 0.08);
+  transition: opacity 150ms ease, transform 180ms var(--sidebar-ease), visibility 0s linear;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-7px) scale(0.985);
+  visibility: hidden;
+  transition-delay: 0s, 0s, 180ms;
+}
+
+.shell[data-sidebar="expanded"] .lifePanel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+}
+
+.lifePanelHeader,
+.shell[data-sidebar="collapsed"] .lifePanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  height: auto;
+  padding: 0 2px;
+}
+
+.lifePanelHeader .brandBlock,
+.shell[data-sidebar="collapsed"] .lifePanelHeader .brandBlock {
+  position: static;
+  max-width: none;
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+}
+
+.lifePanelToggle,
+.shell[data-sidebar="collapsed"] .lifePanelToggle {
+  position: static;
+  min-width: 32px;
+  min-height: 32px;
+  transform: none;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .identityCard,
+.lifePanel .identityCard {
+  width: 100%;
+  padding: 10px;
+  justify-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-soft);
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .identityCardRow,
+.shell[data-sidebar="collapsed"] .identityCardRow,
+.lifePanel .identityCardRow {
+  gap: 9px;
+  justify-content: flex-start;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .runtimeSummary,
+.shell[data-sidebar="collapsed"] .sideNav span,
+.shell[data-sidebar="collapsed"] .rosterPanel .sectionHead > div,
+.shell[data-sidebar="collapsed"] .coworkerItem span:last-child {
+  display: block;
+  max-width: 180px;
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+}
+
+.shell[data-sidebar="collapsed"] .sideNav button,
+.lifePanel .sideNav button {
+  min-width: 0;
+  gap: 10px;
+  justify-content: flex-start;
+  padding: 0 11px;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .rosterPanel,
+.lifePanel .rosterPanel {
+  width: 100%;
+  gap: 7px;
+  padding: 12px 2px 0;
+}
+
+.shell[data-sidebar="collapsed"] .rosterPanel .sectionHead,
+.lifePanel .rosterPanel .sectionHead {
+  justify-content: space-between;
+  padding: 0 5px 0 8px;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .coworkerList,
+.lifePanel .coworkerList {
+  gap: 4px;
+  justify-items: stretch;
+}
+
+.shell[data-sidebar="collapsed"] .lifePanel .coworkerItem,
+.lifePanel .coworkerItem {
+  min-width: 0;
+  gap: 9px;
+  justify-content: flex-start;
+  padding: 0 10px;
+}
+
+.shell[data-sidebar="collapsed"] .appVersion,
+.lifePanel .appVersion {
+  display: block;
+}
+
+.workspace {
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  padding: 0 18px 18px;
+  gap: 10px;
+  grid-template-rows: 48px auto minmax(0, 1fr);
+}
+
+.workspace::before {
+  inset: -30vmax -20vmax -30vmax 0;
+}
+
+.topbar {
+  position: relative;
+  z-index: 80;
+  width: calc(100% + 36px);
+  min-height: 48px;
+  margin-inline: -18px;
+  padding-left: 8px;
+  gap: 0;
+  grid-template-columns: auto auto auto minmax(24px, 1fr) auto auto auto;
+  border-bottom-color: var(--border);
+  background: color-mix(in oklch, var(--bg) 88%, var(--surface-strong));
+  box-shadow: 0 1px 0 rgba(24, 24, 27, 0.03);
+  backdrop-filter: blur(20px);
+  user-select: none;
+}
+
+.topbar .workbenchMenu {
+  grid-column: 1;
+}
+
+.topbar .titleBlock {
+  grid-column: 2;
+}
+
+.topbar > .actorRail {
+  grid-column: 3;
+}
+
+.topbar .windowDragRegion {
+  grid-column: 4;
+}
+
+.topbar .developmentWarning {
+  grid-column: 5;
+}
+
+.topbar .toolbar {
+  grid-column: 6;
+}
+
+.topbar .windowControls {
+  grid-column: 7;
+}
+
+.workbenchMenu {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  height: 36px;
+  min-width: 178px;
+  margin-right: 12px;
+  padding: 0 9px 0 6px;
+  border-color: transparent;
+  border-radius: 11px;
+  background: transparent;
+  text-align: left;
+}
+
+.workbenchMenu:hover:not(:disabled),
+.workbenchMenu[aria-expanded="true"] {
+  border-color: color-mix(in oklch, var(--active-color) 22%, var(--border));
+  background: color-mix(in oklch, var(--active-color) 7%, var(--surface-raised));
+}
+
+.workbenchMenu .brandMark {
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+}
+
+.workbenchMenuCopy {
+  flex: 1;
+  min-width: 0;
+}
+
+.workbenchMenuCopy strong,
+.workbenchMenuCopy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbenchMenuCopy strong {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workbenchMenuCopy small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.workbenchMenu > svg {
+  color: var(--muted);
+}
+
+.topbar .titleBlock {
+  align-self: center;
+  padding-right: 12px;
+}
+
+.topbar .titleBlock .eyebrow {
+  display: none;
+}
+
+.topbar .titleBlock h2 {
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar .contextChip {
+  max-width: 150px;
+  padding-block: 3px;
+}
+
+.topbar > .actorRail {
+  align-self: center;
+  gap: 2px;
+  margin-right: 12px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--surface-muted) 78%, transparent);
+}
+
+.topbar > .actorRail .actorRailItem {
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 11.5px;
+}
+
+.topbar > .actorRail .actorRailItem.active {
+  background: var(--surface-raised);
+  box-shadow: 0 1px 3px rgba(24, 24, 27, 0.12);
+}
+
+.topbar > .actorRail .actorBrandIcon {
+  height: 16px;
+  width: 16px;
+}
+
+.topbar > .actorRail .actorAvailability {
+  height: 5px;
+  width: 5px;
+}
+
+.windowDragRegion {
+  align-self: stretch;
+  min-width: 24px;
+}
+
+.topbar .developmentWarning {
+  align-self: center;
+  margin-right: 8px;
+}
+
+.topbar .toolbar {
+  align-self: center;
+  padding-right: 8px;
+}
+
+.topbar .toolbar button {
+  min-height: 30px;
+}
+
+.windowControls {
+  align-self: stretch;
+  display: flex;
+  height: 48px;
+}
+
+.windowControls button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  min-width: 46px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+}
+
+.windowControls button:hover:not(:disabled) {
+  color: var(--fg);
+  background: rgba(24, 24, 27, 0.07);
+}
+
+.windowControls .windowClose:hover:not(:disabled) {
+  color: #fff;
+  background: #c42b1c;
+}
+
+@media (max-width: 1060px) {
+  .workbenchMenu {
+    min-width: 42px;
+    width: 42px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .workbenchMenuCopy,
+  .workbenchMenu > svg,
+  .topbar .contextChip {
+    display: none;
+  }
+
+  .topbar .titleBlock h2 {
+    max-width: 150px;
+  }
+
+  .topbar > .actorRail .actorRailItem span {
+    display: none;
+  }
+
+  .topbar > .actorRail {
+    gap: 0;
+    padding: 2px;
+    border-radius: 9px;
+  }
+
+  .topbar > .actorRail .actorRailItem {
+    flex: 0 0 29px;
+    gap: 0;
+    width: 29px;
+    min-height: 26px;
+    padding: 0;
+    border-radius: 6px;
+  }
+
+  .topbar > .actorRail .actorRailItem.active {
+    background: var(--surface-raised);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+
+  .topbar > .actorRail .actorRailItem:focus-visible {
+    outline: 1px solid color-mix(in srgb, var(--interaction) 68%, transparent);
+    outline-offset: 0;
+  }
+
+  .topbar > .actorRail .actorBrandIcon {
+    height: 15px;
+    width: 15px;
+  }
+
+  .topbar > .actorRail .actorAvailability {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 5px;
+    height: 5px;
+    border: 1px solid var(--surface-muted);
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    height: 100dvh;
+    min-height: 100dvh;
+    padding-inline: 12px;
+  }
+
+  .topbar {
+    width: calc(100% + 24px);
+    margin-inline: -12px;
+    grid-template-columns: auto auto minmax(16px, 1fr) auto auto;
+  }
+
+  .topbar .titleBlock,
+  .topbar .developmentWarning,
+  .topbar .toolbar .langToggle,
+  .topbar .toolbar > button:not(.runtimeAction):not(.saveAction):not(.discardAction) {
+    display: none;
+  }
+
+  .topbar > .actorRail {
+    grid-column: 2;
+    margin-right: 6px;
+  }
+
+  .topbar .windowDragRegion {
+    grid-column: 3;
+  }
+
+  .topbar .toolbar {
+    grid-column: 4;
+  }
+
+  .topbar .windowControls {
+    grid-column: 5;
+  }
+
+  .windowControls button {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .lifePanel,
+  .shell[data-sidebar="collapsed"] .lifePanel {
+    top: 53px;
+    height: calc(100dvh - 61px);
+  }
+}
+
+@media (max-width: 900px) {
+  .shell[data-sidebar="expanded"] .lifePanel .brandCopy,
+  .shell[data-sidebar="expanded"] .lifePanel .runtimeSummary,
+  .shell[data-sidebar="expanded"] .lifePanel .sideNav span,
+  .shell[data-sidebar="expanded"] .lifePanel .rosterPanel .sectionHead > div,
+  .shell[data-sidebar="expanded"] .lifePanel .coworkerItem span:last-child,
+  .shell[data-sidebar="expanded"] .lifePanel .appVersion {
+    display: block !important;
+    max-width: 220px;
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+  }
+
+  .shell[data-sidebar="expanded"] .lifePanel .lifePanelToggle {
+    display: inline-flex !important;
+  }
+
+  .shell[data-sidebar="expanded"] .lifePanel .identityCard,
+  .shell[data-sidebar="expanded"] .lifePanel .rosterPanel {
+    display: grid !important;
+  }
+}
+
+.shell[data-platform="macos"] .topbar {
+  padding-left: 80px;
+}
+
+.shell[data-platform="macos"] .windowControls {
+  display: none;
 }

@@ -62,6 +62,10 @@ export const en = {
   "aria.toggleLanguage": "Toggle language",
   "aria.collapseLifePanel": "Collapse resident panel",
   "aria.expandLifePanel": "Expand resident panel",
+  "aria.windowControls": "Window controls",
+  "aria.minimizeWindow": "Minimize window",
+  "aria.toggleMaximizeWindow": "Maximize or restore window",
+  "aria.closeWindow": "Close window",
   "aria.chooseChatWorkspacesDir": "Choose chat workspaces directory",
   "aria.codexSessions": "Codex sessions",
   "aria.refreshSessions": "Refresh sessions",
@@ -132,7 +136,7 @@ export const en = {
   "nav.status": "Overview",
   "nav.config": "Settings",
   "nav.sessions": "Conversations",
-  "nav.logs": "Activity",
+  "nav.logs": "Logs",
 
   // Topbar
   "topbar.eyebrow": "Workspace",

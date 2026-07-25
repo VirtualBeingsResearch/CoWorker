@@ -1,4 +1,5 @@
-import { Bot, Laptop, TerminalSquare } from "lucide-react";
+import { Laptop } from "lucide-react";
+import { CLAUDE_ICON_DATA_URI, CODEX_ICON_DATA_URI } from "../assets/providerIcons";
 import { useI18n } from "../i18n";
 import type { DictKey } from "../i18n/en";
 import type { BubbleTimelineMeta, TimelineAttachment, TimelineMessage } from "../lib/bridgeLogic";
@@ -191,11 +192,14 @@ export function ActorRail({
     codex: t("actors.codex"),
     claude: t("actors.claude"),
   };
-  const icons = { local: Laptop, codex: TerminalSquare, claude: Bot };
+  const brandIcons: Partial<Record<DesktopActorId, string>> = {
+    codex: CODEX_ICON_DATA_URI,
+    claude: CLAUDE_ICON_DATA_URI,
+  };
   return (
     <nav className="actorRail" aria-label={t("actors.identityNav")}>
       {(["local", "codex", "claude"] as DesktopActorId[]).map((id) => {
-        const Icon = icons[id];
+        const brandIcon = brandIcons[id];
         const state = health.find((item) => item.actor_id === id);
         const available = state?.available === true;
         return (
@@ -208,7 +212,19 @@ export function ActorRail({
             title={state?.message ?? actorLabels[id]}
             type="button"
           >
-            <Icon size={17} />
+            {brandIcon ? (
+              <img
+                alt=""
+                aria-hidden="true"
+                className="actorBrandIcon"
+                draggable="false"
+                height="18"
+                src={brandIcon}
+                width="18"
+              />
+            ) : (
+              <Laptop aria-hidden="true" size={17} />
+            )}
             <span>{actorLabels[id]}</span>
             <i className={available ? "actorAvailability available" : "actorAvailability"} />
           </button>
