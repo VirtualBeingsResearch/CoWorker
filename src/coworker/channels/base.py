@@ -5,9 +5,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
 from typing import Any
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import DEFAULT_RUNTIME, ChannelRuntime
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
@@ -80,11 +80,11 @@ class BaseChannel(ABC):
         *,
         runtime: ChannelRuntime | None = None,
         capabilities: ChannelCapabilities | None = None,
+        activity: ChannelActivityStore | None = None,
     ) -> None:
         self._runtime = runtime or DEFAULT_RUNTIME
         self._capabilities = capabilities or ChannelCapabilities()
-        self._last_sent_at: dict[str, str] = {}
-        self._last_received_at: dict[str, str] = {}
+        self._activity = activity or ChannelActivityStore()
         self._inbound_handler: InboundHandler | None = None
 
     @classmethod
@@ -97,6 +97,7 @@ class BaseChannel(ABC):
         capabilities: ChannelCapabilities | None = None,
         name: str | None = None,
         runtime: ChannelRuntime | None = None,
+        activity: ChannelActivityStore | None = None,
     ) -> BaseChannel:
         """Build a minimal outbound channel from an async sender."""
         return _SenderChannel(
@@ -106,6 +107,7 @@ class BaseChannel(ABC):
             capabilities=capabilities,
             name=name,
             runtime=runtime,
+            activity=activity,
         )
 
     @property
@@ -138,10 +140,10 @@ class BaseChannel(ABC):
         """Deliver a request to this channel."""
 
     def record_received(self, participant_id: str) -> None:
-        self._last_received_at[participant_id] = _activity_timestamp()
+        self._activity.record_received(participant_id)
 
     def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
-        return self._last_sent_at.get(participant_id), self._last_received_at.get(participant_id)
+        return self._activity.activity_for(participant_id)
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
         return self._capabilities
@@ -150,7 +152,7 @@ class BaseChannel(ABC):
         return []
 
     def _record_sent(self, participant_id: str) -> None:
-        self._last_sent_at[participant_id] = _activity_timestamp()
+        self._activity.record_sent(participant_id)
 
 
 class _SenderChannel(BaseChannel):
@@ -165,8 +167,13 @@ class _SenderChannel(BaseChannel):
         capabilities: ChannelCapabilities | None = None,
         name: str | None = None,
         runtime: ChannelRuntime | None = None,
+        activity: ChannelActivityStore | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, capabilities=capabilities)
+        super().__init__(
+            runtime=runtime,
+            capabilities=capabilities,
+            activity=activity,
+        )
         self.name = name or prefix.rstrip(":") or "inline"
         self.participant_prefix = prefix
         self._sender = sender
@@ -180,6 +187,3 @@ class _SenderChannel(BaseChannel):
         if not result.is_error:
             self._record_sent(request.participant_id)
         return result
-
-def _activity_timestamp() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")

@@ -660,7 +660,10 @@ async def _main() -> bool:
 
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
-    channel_system = create_channel_system(config.agent.outbox_dir)
+    channel_system = create_channel_system(
+        config.agent.outbox_dir,
+        Path(config.memory.db_path) / "channel_activity.json",
+    )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
@@ -937,6 +940,7 @@ async def _main() -> bool:
                 cfg=config.wecom,
                 attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
                 contacts_path=Path(config.memory.db_path) / "wecom_contacts.json",
+                activity=channel_system.activity,
             )
             channel_system.registry.register(WeComChannel(wecom_runner))
             logger.info(f"WeCom runner prepared, bot_id={config.wecom.bot_id}")

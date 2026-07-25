@@ -1,5 +1,6 @@
 """Public channel development API."""
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import BaseChannel, ChannelCapabilities
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.runtime import ChannelRuntime, InlineRuntime
@@ -9,6 +10,7 @@ from coworker.core.registration import RegistrationError
 
 __all__ = [
     "BaseChannel",
+    "ChannelActivityStore",
     "ChannelCapabilities",
     "ChannelRegistry",
     "ChannelRuntime",

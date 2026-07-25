@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import ConnectionInfo
 from coworker.channels.inbound import AttachmentStore
 from coworker.channels.stream.connection_pool import ConnectionPool
@@ -30,13 +31,17 @@ class StreamRuntime:
 
     name = "stream"
 
-    def __init__(self, outbox_dir: str | Path, registrations_path: str | Path) -> None:
+    def __init__(
+        self,
+        outbox_dir: str | Path,
+        registrations_path: str | Path,
+        activity: ChannelActivityStore | None = None,
+    ) -> None:
         self._outbox = Path(outbox_dir)
         self._pool = ConnectionPool()
         self._registrations = RegistrationStore(registrations_path)
         self._attachments = AttachmentStore(self._outbox.parent / "attachments")
-        self._last_sent_at: dict[str, str] = {}
-        self._last_received_at: dict[str, str] = {}
+        self._activity = activity or ChannelActivityStore()
 
     def register_session(
         self,
@@ -164,7 +169,7 @@ class StreamRuntime:
         queue = self._pool.outbound_queue(request.participant_id)
         if queue is not None:
             await queue.put(request)
-            self._last_sent_at[request.participant_id] = _activity_timestamp()
+            self._activity.record_sent(request.participant_id)
             return ToolResult(
                 tool_call_id="",
                 content=tr(
@@ -186,7 +191,7 @@ class StreamRuntime:
             )
             out_file = self._outbox / f"{timestamp}_{safe_participant_id}.md"
             out_file.write_text(request.message, encoding="utf-8")
-            self._last_sent_at[request.participant_id] = _activity_timestamp()
+            self._activity.record_sent(request.participant_id)
             logger.debug(
                 f"No active stream for {request.participant_id}, message written to outbox only"
             )
@@ -202,26 +207,29 @@ class StreamRuntime:
             )
 
     def list_connections(self) -> list[ConnectionInfo]:
-        return [
-            ConnectionInfo(
-                participant_id=participant_id,
-                channel="stream",
-                kind=self._pool.live_stream_transport(participant_id) or "websocket",
-                active=True,
-                last_sent_at=self._last_sent_at.get(participant_id),
-                last_received_at=self._last_received_at.get(participant_id),
+        connections: list[ConnectionInfo] = []
+        for participant_id in self._pool.list_live_stream_participant_ids():
+            last_sent_at, last_received_at = self._activity.activity_for(participant_id)
+            connections.append(
+                ConnectionInfo(
+                    participant_id=participant_id,
+                    channel="stream",
+                    kind=self._pool.live_stream_transport(participant_id) or "websocket",
+                    active=True,
+                    last_sent_at=last_sent_at,
+                    last_received_at=last_received_at,
+                )
             )
-            for participant_id in self._pool.list_live_stream_participant_ids()
-        ]
+        return connections
 
     def record_received(self, participant_id: str) -> None:
-        self._last_received_at[participant_id] = _activity_timestamp()
+        self._activity.record_received(participant_id)
 
     def record_sent(self, participant_id: str) -> None:
-        self._last_sent_at[participant_id] = _activity_timestamp()
+        self._activity.record_sent(participant_id)
 
     def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
-        return self._last_sent_at.get(participant_id), self._last_received_at.get(participant_id)
+        return self._activity.activity_for(participant_id)
 
     def list_live_stream_participant_ids(self) -> list[str]:
         return self._pool.list_live_stream_participant_ids()
@@ -231,6 +239,3 @@ class StreamRuntime:
 
     async def stop(self) -> None:
         """The API shutdown path closes stream connections."""
-
-def _activity_timestamp() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")

@@ -11,10 +11,11 @@
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
 - `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
+- `activity`：记录 participant 最近成功发送与接收时间。传入 `activity_path` 时使用原子 JSON 持久化，应用重启后仍可恢复。
 
 新增独立传输时继承 `BaseChannel` 并调用 `channel_system.registry.register(channel)`。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
 
@@ -43,6 +44,8 @@ channels.registry.register(TeamChannel())
 ```python
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
+
+应用内置的 Stream、Desktop 与 WeCom 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
 
 Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments` 和 `extra`，默认仅支持 `message`。Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。
 

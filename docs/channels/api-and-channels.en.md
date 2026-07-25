@@ -11,10 +11,11 @@ All outbound communication is first routed by `ChannelRegistry` to an independen
 
 ## Channel development model
 
-`from coworker.channels import BaseChannel, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir)` is the application's single communication composition root. It returns:
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
 
 - `registry`, which registers Channels, routes inbound and outbound traffic, and starts or stops each shared Runtime exactly once.
 - `stream_runtime`, which owns WS/SSE connections, participant registrations, attachment storage, and offline outbox delivery and provides Stream infrastructure to HTTP and WebSocket routes.
+- `activity`, which records each participant's latest successful send and receive times. When `activity_path` is provided, atomic JSON persistence restores them after an application restart.
 
 To add an independent transport, subclass `BaseChannel` and call `channel_system.registry.register(channel)`. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
 
@@ -43,6 +44,8 @@ When wrapping an existing async sender, no Channel class is needed:
 ```python
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
+
+The built-in Stream, Desktop, and WeCom implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
 
 A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
 

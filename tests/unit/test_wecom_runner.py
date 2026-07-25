@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
@@ -122,6 +123,26 @@ def test_channel_lists_latest_activity_times(tmp_path):
     assert info.active is True
     assert info.last_sent_at is None
     assert info.last_received_at is not None
+
+
+def test_activity_times_survive_runner_restart(tmp_path):
+    activity_path = tmp_path / "channel_activity.json"
+    first = WeComRunner(
+        cfg=WeComConfig(enabled=True, bot_id="BID", secret="SEC"),
+        attachments_dir=tmp_path,
+        activity=ChannelActivityStore(activity_path),
+    )
+    first._cache_frame("wecom:single:U123", "r1", _frame_single())
+
+    restored = WeComRunner(
+        cfg=WeComConfig(enabled=True, bot_id="BID", secret="SEC"),
+        attachments_dir=tmp_path,
+        activity=ChannelActivityStore(activity_path),
+    )
+
+    assert restored.activity_for("wecom:single:U123") == first.activity_for(
+        "wecom:single:U123"
+    )
 
 
 @pytest.mark.asyncio

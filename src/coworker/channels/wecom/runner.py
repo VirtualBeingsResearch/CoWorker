@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.wecom import adapter
 from coworker.channels.wecom.contacts import ContactsStore, normalize_chat_type
@@ -66,14 +66,14 @@ class WeComRunner:
         cfg: WeComConfig,
         attachments_dir: Path,
         contacts_path: Path | None = None,
+        activity: ChannelActivityStore | None = None,
     ) -> None:
         self._cfg = cfg
         self._attachments_dir = attachments_dir
         self._contacts_path = contacts_path
         self._client: Any = None  # WSClient, lazy-imported
         self._frame_cache: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
-        self._last_sent_at: dict[str, str] = {}
-        self._last_received_at: dict[str, str] = {}
+        self._activity = activity or ChannelActivityStore()
         # Persistent chat_id -> chat_type ("single"/"group") mapping.
         self._contacts: dict[str, str] = ContactsStore.load(self._contacts_path)
         self._sender = WeComSender(lambda: self._client, self._take_fresh_frame)
@@ -177,7 +177,7 @@ class WeComRunner:
             frame,
             time.monotonic() + _FRAME_TTL,
         )
-        self._last_received_at[chat_id] = datetime.now().astimezone().isoformat(timespec="seconds")
+        self._activity.record_received(participant_id)
         if self._contacts.get(chat_id) != chat_type:
             self._contacts[chat_id] = chat_type
             ContactsStore.save(self._contacts_path, self._contacts)
@@ -229,13 +229,11 @@ class WeComRunner:
             conversation_id,
             mentioned_list,
         )
-        _, chat_id = adapter.parse_participant(participant_id)
-        self._last_sent_at[chat_id] = datetime.now().astimezone().isoformat(timespec="seconds")
+        self._activity.record_sent(participant_id)
 
     def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
         """Return the latest successful outbound and inbound times for a chat."""
-        _, chat_id = adapter.parse_participant(participant_id)
-        return self._last_sent_at.get(chat_id), self._last_received_at.get(chat_id)
+        return self._activity.activity_for(participant_id)
 
     def resolve_participant(self, participant_id: str) -> str | None:
         """若 participant_id 是已知的 WeCom chat_id，返回带前缀的规范化 ID；否则返回 None。"""

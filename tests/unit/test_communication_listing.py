@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import ConnectionInfo
 from coworker.channels.stream.runtime import StreamRuntime
 from coworker.core.types import CommunicateRequest
@@ -47,7 +48,12 @@ async def test_list_connections_uses_english_catalog():
 
 @pytest.mark.asyncio
 async def test_stream_connection_records_send_and_receive_times(tmp_path):
-    stream = StreamRuntime(tmp_path / "outbox", tmp_path / "registrations.json")
+    activity_path = tmp_path / "channel_activity.json"
+    stream = StreamRuntime(
+        tmp_path / "outbox",
+        tmp_path / "registrations.json",
+        ChannelActivityStore(activity_path),
+    )
     queue: asyncio.Queue = asyncio.Queue()
     assert stream.register_session("alice", queue)
 
@@ -58,3 +64,13 @@ async def test_stream_connection_records_send_and_receive_times(tmp_path):
     info = stream.list_connections()[0]
     assert info.last_sent_at is not None
     assert info.last_received_at is not None
+
+    restarted = StreamRuntime(
+        tmp_path / "outbox",
+        tmp_path / "registrations.json",
+        ChannelActivityStore(activity_path),
+    )
+    assert restarted.register_session("alice", asyncio.Queue())
+    restored = restarted.list_connections()[0]
+    assert restored.last_sent_at == info.last_sent_at
+    assert restored.last_received_at == info.last_received_at
