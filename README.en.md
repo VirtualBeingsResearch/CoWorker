@@ -179,7 +179,8 @@ FFmpeg; FFmpeg is only used when `visual_analyze` must compress an oversized vid
 Build and start directly from the repository. Compose builds and uses the strict offline image
 with the embedding model preloaded by default, `ghcr.io/virtualbeingsresearch/coworker:offline`.
 The first build downloads all dependencies and the model, but the container does not access
-Hugging Face at runtime:
+Hugging Face or a Git remote at runtime. The build also converts the source repository into
+a Git bundle embedded in the image:
 
 ```bash
 docker compose up --build
@@ -190,6 +191,20 @@ To build the image without starting it:
 ```bash
 docker compose build
 ```
+
+On first startup, the image restores a Git workspace with its commit history, branches, and
+tags from the bundle into the `coworker-workspace` volume. Runtime data is kept separately in
+`coworker-state`. The final image does not contain the original `.git` directory. To embed a
+compatible custom repository:
+
+```bash
+COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
+```
+
+The non-strict `runtime` and `with-embedder` images may instead clone
+`COWORKER_REPOSITORY_URL` on first startup. The strict offline image rejects that runtime
+network access; build its custom bundle into the image or mount one and set
+`COWORKER_REPOSITORY_BUNDLE`. An existing workspace volume is never recloned or overwritten.
 
 To use the standard runtime image instead, which downloads its local embedding model when
 long-term memory is first enabled, explicitly override the build target and image tag. The cache
@@ -232,7 +247,8 @@ COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/cowor
 This variant sets `HF_HUB_OFFLINE=1` only after preloading the model. Its runtime
 embedding-model setting must match the model in the image, and the `coworker-models`
 volume must contain that model; a new volume is initialized from the image. Otherwise it
-fails instead of downloading at runtime.
+fails instead of downloading at runtime. It also sets `COWORKER_REPOSITORY_OFFLINE=1`, so the
+Git workspace can only be initialized from the embedded or an explicitly mounted bundle.
 
 </details>
 

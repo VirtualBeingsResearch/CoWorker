@@ -22,6 +22,11 @@ These files may contain conversations, prompts, tool arguments and results, webp
 
 The default configuration does not automatically synchronize the entire `data/` or `.coworker/` directory to a project-operated server, and Chroma anonymous telemetry is explicitly disabled. Downloads made by third-party dependencies, model services, and the tools below still produce network requests.
 
+Container deployments keep the Git workspace, runtime data, and model cache in the separate
+`coworker-workspace`, `coworker-state`, and `coworker-models` volumes. The strict offline image
+initializes the workspace from its embedded Git bundle without contacting a repository remote
+at runtime. Deleting these volumes also deletes the corresponding history, state, or model cache.
+
 ## Data that may leave the machine
 
 - Model calls send the system prompt and the conversations, memories, tool results, and attachment contents needed for the current task. Coworker does not upload the whole working directory unconditionally, but file content read by the agent may later enter model context.

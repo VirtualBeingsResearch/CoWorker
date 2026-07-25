@@ -177,7 +177,8 @@ Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
 
 从仓库直接构建并启动。Compose 默认构建并使用预置 embedding 模型的严格离线镜像
 `ghcr.io/virtualbeingsresearch/coworker:offline`；首次构建会下载全部依赖和模型，
-但运行时不会访问 Hugging Face：
+并把构建仓库转换为 Git bundle 放入镜像；运行时不会访问 Hugging Face 或 Git
+远端：
 
 ```bash
 docker compose up --build
@@ -188,6 +189,19 @@ docker compose up --build
 ```bash
 docker compose build
 ```
+
+首次启动会从镜像内 bundle 恢复带提交历史、分支和 tag 的 Git 工作区到
+`coworker-workspace` 卷，运行数据保存到独立的 `coworker-state` 卷。最终镜像不会
+包含原始 `.git` 目录。可在构建时嵌入兼容的自定义仓库：
+
+```bash
+COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
+```
+
+非严格离线的 `runtime` 或 `with-embedder` 镜像还可在首次启动时通过
+`COWORKER_REPOSITORY_URL` 从其他仓库克隆。严格离线镜像会拒绝这种运行时网络访问；
+需要自定义仓库时应在构建阶段生成对应 bundle，或将自定义 bundle 挂载到容器并设置
+`COWORKER_REPOSITORY_BUNDLE`。已有 workspace 卷不会被重新克隆或覆盖。
 
 如需使用标准运行时镜像（长期记忆首次启用时才下载本地 embedding 模型），可显式覆盖
 构建目标和镜像标签；缓存仍会保存在 `coworker-models` Docker 卷中。这个模型不是对话
@@ -227,7 +241,8 @@ COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/cowor
 
 该变体会在预置完成后设置 `HF_HUB_OFFLINE=1`。运行时配置的 embedding 模型必须与
 镜像中预置的模型一致，且 `coworker-models` 卷必须包含该模型；新卷会由镜像自动初始化。
-否则会直接失败而不会尝试联网下载。
+否则会直接失败而不会尝试联网下载。它还会设置 `COWORKER_REPOSITORY_OFFLINE=1`，
+确保 Git 工作区只能从镜像内或显式挂载的 bundle 初始化。
 
 </details>
 

@@ -140,6 +140,20 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
 
+### 容器 Git 工作区
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `COWORKER_BUNDLE_REPOSITORY_URL` | 官方 Coworker 仓库 | 构建镜像时转换为 Git bundle 的兼容仓库 |
+| `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
+| `COWORKER_REPOSITORY_URL` | 空 | 非严格离线镜像首次启动时改为在线克隆的仓库地址 |
+| `COWORKER_REPOSITORY_REF` | bundle 固定提交或远端默认分支 | 首次初始化后检出的分支、tag 或 commit |
+| `COWORKER_REPOSITORY_BUNDLE` | 镜像内 bundle | 显式挂载的自定义 bundle 路径 |
+
+仓库相关变量只在 workspace 卷为空时生效。严格离线镜像拒绝从
+`COWORKER_REPOSITORY_URL` 访问网络；自定义私有仓库应在受控构建环境生成 bundle，
+不要把凭据写进 URL 或镜像构建参数。
+
 ## 支持的模型
 
 内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和
