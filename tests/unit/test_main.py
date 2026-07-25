@@ -13,8 +13,17 @@ from coworker import application, launcher
 def test_windows_supervisor_replaces_worker_without_nesting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(launcher.sys, "executable", "python.exe")
-    monkeypatch.setattr(launcher.sys, "argv", ["coworker", "--flag"])
+    original_argv = [
+        "base-python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "coworker",
+        "status",
+        "--json",
+    ]
+    monkeypatch.setattr(launcher.sys, "executable", "venv-python.exe")
+    monkeypatch.setattr(launcher.sys, "orig_argv", original_argv)
 
     children: list[tuple[list[str], dict[str, str]]] = []
     returncodes = iter([launcher.WINDOWS_RESTART_EXIT_CODE, 7])
@@ -31,10 +40,8 @@ def test_windows_supervisor_replaces_worker_without_nesting(
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     assert launcher._supervise_windows() == 7
-    assert [argv for argv, _ in children] == [
-        ["python.exe", "-m", "coworker", "--flag"],
-        ["python.exe", "-m", "coworker", "--flag"],
-    ]
+    expected_argv = ["venv-python.exe", *original_argv[1:]]
+    assert [argv for argv, _ in children] == [expected_argv, expected_argv]
     assert all(
         environment[launcher.WINDOWS_WORKER_ENV] == launcher.WINDOWS_WORKER_TOKEN
         for _, environment in children
@@ -76,28 +83,6 @@ def test_windows_launch_without_worker_token_runs_supervisor(
         launcher.main_sync()
 
     assert exc.value.code == 7
-
-
-def test_windows_one_shot_command_skips_supervisor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(launcher.sys, "platform", "win32")
-    monkeypatch.setattr(launcher.sys, "argv", ["coworker", "--check"])
-    application_runs: list[bool] = []
-
-    def fail_supervisor_start() -> int:
-        raise AssertionError("one-shot command must not start a supervisor")
-
-    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
-    monkeypatch.setitem(
-        sys.modules,
-        "coworker.application",
-        SimpleNamespace(run_sync=lambda: application_runs.append(True)),
-    )
-
-    launcher.main_sync()
-
-    assert application_runs == [True]
 
 
 def test_windows_supervisor_stops_child_after_ctrl_c(

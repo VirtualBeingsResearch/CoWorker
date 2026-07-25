@@ -9,15 +9,13 @@ WINDOWS_WORKER_ENV = "COWORKER_INTERNAL_WINDOWS_WORKER"
 WINDOWS_WORKER_TOKEN = "1"
 CHILD_INTERRUPT_GRACE_SECONDS = 10
 CHILD_TERMINATE_GRACE_SECONDS = 5
-ONE_SHOT_ARGUMENTS = frozenset({"--check", "--backfill-tree"})
 
 
 def main_sync() -> None:
     is_windows_worker = (
         os.environ.pop(WINDOWS_WORKER_ENV, None) == WINDOWS_WORKER_TOKEN
     )
-    is_one_shot_command = bool(ONE_SHOT_ARGUMENTS.intersection(sys.argv[1:]))
-    if sys.platform == "win32" and not is_windows_worker and not is_one_shot_command:
+    if sys.platform == "win32" and not is_windows_worker:
         raise SystemExit(_supervise_windows())
 
     from coworker.application import run_sync
@@ -26,7 +24,7 @@ def main_sync() -> None:
 
 
 def _supervise_windows() -> int:
-    argv = [sys.executable, "-m", "coworker", *sys.argv[1:]]
+    argv = [sys.executable, *sys.orig_argv[1:]]
     environment = dict(os.environ)
     environment[WINDOWS_WORKER_ENV] = WINDOWS_WORKER_TOKEN
     while True:
