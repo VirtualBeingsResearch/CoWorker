@@ -313,7 +313,7 @@ impl DesktopRouter {
                     match result {
                         Ok(()) => succeeded += 1,
                         Err(error) => {
-                            if !is_service_unavailable(&error) {
+                            if !is_channel_runtime_not_ready(&error) {
                                 warn!(coworker_id = %coworker.coworker_id, %actor, %error, "Failed to publish Desktop actor snapshot");
                             }
                             last_error = Some(error);
@@ -1052,7 +1052,7 @@ impl DesktopRouter {
             match self.sync_registrations().await {
                 Ok(health) => break health,
                 Err(error) => {
-                    if is_service_unavailable(&error) {
+                    if is_channel_runtime_not_ready(&error) {
                         if !runtime_not_ready_logged {
                             info!(%error, "Coworker channel runtime is not ready; Desktop registration will retry");
                             runtime_not_ready_logged = true;
@@ -1205,7 +1205,7 @@ impl DesktopRouter {
             ))
             .await;
             if let Err(error) = self.sync_registrations().await {
-                if !is_service_unavailable(&error) {
+                if !is_channel_runtime_not_ready(&error) {
                     warn!(%error, "Failed to refresh Desktop actor snapshots");
                 }
             }
@@ -1352,7 +1352,7 @@ impl DesktopRouter {
             let registration = match self.ensure_registered(&coworker, actor).await {
                 Ok(registration) => registration,
                 Err(error) => {
-                    if is_service_unavailable(&error) {
+                    if is_channel_runtime_not_ready(&error) {
                         if !runtime_not_ready_logged {
                             info!(
                                 %error,
@@ -2286,24 +2286,25 @@ fn resolve_actor_project_path(
 }
 
 fn delivery_failure(error: &BridgeError) -> DeliveryFailure {
-    match error {
-        BridgeError::Http(error) => match error.status().map(|status| status.as_u16()) {
-            Some(408 | 429) => DeliveryFailure::Retry,
-            Some(status) if status >= 500 => DeliveryFailure::Retry,
-            Some(400 | 401 | 403 | 404 | 409 | 422) => DeliveryFailure::DeadLetter,
-            Some(_) => DeliveryFailure::DeadLetter,
-            None => DeliveryFailure::Retry,
-        },
-        _ => DeliveryFailure::DeadLetter,
+    match error.http_status_code() {
+        Some(408 | 429) => DeliveryFailure::Retry,
+        Some(status) if status >= 500 => DeliveryFailure::Retry,
+        Some(400 | 401 | 403 | 404 | 409 | 422) => DeliveryFailure::DeadLetter,
+        Some(_) => DeliveryFailure::DeadLetter,
+        None if matches!(error, BridgeError::Http(_)) => DeliveryFailure::Retry,
+        None => DeliveryFailure::DeadLetter,
     }
 }
 
-fn is_service_unavailable(error: &BridgeError) -> bool {
-    matches!(
-        error,
-        BridgeError::Http(error)
-            if error.status().is_some_and(|status| status.as_u16() == 503)
-    )
+fn is_channel_runtime_not_ready(error: &BridgeError) -> bool {
+    error.http_status_code() == Some(503)
+        && error.http_detail().is_some_and(|detail| {
+            let detail = detail.to_ascii_lowercase();
+            detail.contains("communication runtime is not ready")
+                || detail.contains("channel runtime is not ready")
+                || detail.contains("通信运行时尚未就绪")
+                || detail.contains("信道运行时尚未就绪")
+        })
 }
 
 #[cfg(test)]
@@ -2355,6 +2356,16 @@ mod delivery_tests {
         assert_eq!(projects[1]["project_id"], "no-project");
         assert_eq!(projects[1]["scope"], "conversation");
         assert!(projects[1].get("path").is_none());
+    }
+
+    #[test]
+    fn communication_token_error_keeps_server_detail_and_is_not_runtime_readiness() {
+        let error =
+            BridgeError::http_status(reqwest::StatusCode::SERVICE_UNAVAILABLE, "通信令牌未配置");
+
+        assert!(!is_channel_runtime_not_ready(&error));
+        assert_eq!(delivery_failure(&error), DeliveryFailure::Retry);
+        assert!(error.to_string().contains("通信令牌未配置"));
     }
 
     #[test]
@@ -3416,7 +3427,7 @@ mod delivery_tests {
                 let (status, body) = if attempt == 0 {
                     (
                         "503 Service Unavailable",
-                        json!({"detail": "Channel runtime is not ready"}).to_string(),
+                        json!({"detail": "Communication runtime is not ready"}).to_string(),
                     )
                 } else {
                     (
@@ -3467,7 +3478,7 @@ mod delivery_tests {
             .ensure_registered(&coworker, ActorId::Local)
             .await
             .expect_err("503 must not promote an unvalidated cached registration");
-        assert!(is_service_unavailable(&first_error));
+        assert!(is_channel_runtime_not_ready(&first_error));
         assert!(router.registrations.lock().await.is_empty());
 
         let reused = router
