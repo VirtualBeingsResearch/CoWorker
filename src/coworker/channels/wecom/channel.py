@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 class WeComChannel(BaseChannel):
     """WeCom outbound channel (prefix ``wecom:``)."""
 
+    requires_known_participant = True
+
     def __init__(self, runner: WeComRunner) -> None:
         super().__init__(
             runtime=runner,

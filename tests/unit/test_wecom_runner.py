@@ -424,6 +424,7 @@ async def test_sender_catches_errors(tmp_path):
 @pytest.mark.asyncio
 async def test_channel_omits_unsupported_extra_without_changing_message(tmp_path):
     runner = _make_runner(tmp_path)
+    runner._contacts["TEAM"] = "group"
     registry = ChannelRegistry()
     registry.register(WeComChannel(runner))
 
@@ -450,6 +451,7 @@ async def test_channel_omits_unsupported_extra_without_changing_message(tmp_path
 @pytest.mark.asyncio
 async def test_channel_uses_native_stream_reply_when_extra_is_omitted(tmp_path):
     runner = _make_runner(tmp_path)
+    runner._contacts["TEAM"] = "group"
     runner._cache_frame("wecom:group:TEAM", "r1", _frame_single("r1"))
     registry = ChannelRegistry()
     registry.register(WeComChannel(runner))

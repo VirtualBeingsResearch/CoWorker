@@ -74,3 +74,22 @@ async def test_stream_connection_records_send_and_receive_times(tmp_path):
     restored = restarted.list_connections()[0]
     assert restored.last_sent_at == info.last_sent_at
     assert restored.last_received_at == info.last_received_at
+
+
+def test_stream_lists_persisted_registration_while_offline(tmp_path):
+    stream = StreamRuntime(
+        tmp_path / "outbox",
+        tmp_path / "registrations.json",
+    )
+    registration = stream.register_participant(
+        kind="client",
+        client_id="alice",
+        display_name="Alice",
+    )
+
+    connection = stream.list_connections()[0]
+
+    assert connection.participant_id == registration["participant_id"]
+    assert connection.kind == "client"
+    assert connection.display_name == "Alice"
+    assert connection.active is False

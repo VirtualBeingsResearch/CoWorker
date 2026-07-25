@@ -74,6 +74,7 @@ class BaseChannel(ABC):
 
     name = ""
     participant_prefix = ""
+    requires_known_participant = False
 
     def __init__(
         self,
@@ -150,6 +151,13 @@ class BaseChannel(ABC):
 
     def list_connections(self) -> list[ConnectionInfo]:
         return []
+
+    def known_participant_ids(self) -> set[str]:
+        return {
+            connection.participant_id
+            for connection in self.list_connections()
+            if connection.participant_id
+        }
 
     def _record_sent(self, participant_id: str) -> None:
         self._activity.record_sent(participant_id)

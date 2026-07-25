@@ -1456,7 +1456,7 @@ class TestCommunicateToolCheckers:
         assert seen == ["specific"]
 
     @pytest.mark.asyncio
-    async def test_no_prefix_no_match_falls_back_to_outbox(self, tmp_path):
+    async def test_unknown_participant_does_not_fall_back_to_outbox(self, tmp_path):
         outbox = tmp_path / "outbox"
         channel_system = create_channel_system(outbox)
         tool = CommunicateTool(channel_system.registry)
@@ -1468,9 +1468,27 @@ class TestCommunicateToolCheckers:
             BaseChannel.from_sender("chan:", sender, lambda pid: None)
         )
         result = await tool.execute(message="hello", participant_id="unknown_user")
-        assert not result.is_error
-        files = list(outbox.glob("*unknown_user*"))
-        assert files
+        assert result.is_error
+        assert "list_connections" in result.content
+        assert not list(outbox.glob("*unknown_user*"))
+
+    @pytest.mark.asyncio
+    async def test_close_participant_id_is_suggested_but_not_sent(self, tmp_path):
+        outbox = tmp_path / "outbox"
+        channel_system = create_channel_system(outbox)
+        tool = CommunicateTool(channel_system.registry)
+        queue: asyncio.Queue = asyncio.Queue()
+        channel_system.stream_runtime.register_session("stream-client", queue)
+
+        result = await tool.execute(
+            message="hello",
+            participant_id="stream-clienx",
+        )
+
+        assert result.is_error
+        assert "stream-client" in result.content
+        assert queue.empty()
+        assert not outbox.exists() or not list(outbox.iterdir())
 
     @pytest.mark.asyncio
     async def test_connected_ws_target_receives_structured_payload(self, tmp_path):
@@ -1525,7 +1543,7 @@ class TestCommunicateToolCheckers:
         channel_system.stream_runtime.unregister_session(participant_id, queue)
         offline = await tool.execute(participant_id=participant_id, message="retry")
         assert offline.is_error
-        assert "未连接" in offline.content
+        assert "list_connections" in offline.content
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1554,10 +1572,15 @@ class TestCommunicateToolCheckers:
         outbox = tmp_path / "outbox"
         channel_system = create_channel_system(outbox)
         tool = CommunicateTool(channel_system.registry)
+        registration = channel_system.stream_runtime.register_participant(
+            kind="client",
+            client_id="alice",
+        )
+        participant_id = registration["participant_id"]
 
         with locale_context(locale):
             result = await tool.execute(
-                participant_id="alice",
+                participant_id=participant_id,
                 conversation_id="thr_1",
                 message="hi",
                 attachments=[{"path": str(file_path)}],
@@ -1566,7 +1589,7 @@ class TestCommunicateToolCheckers:
 
         assert not result.is_error
         assert expected in result.content
-        files = list(outbox.glob("*alice*"))
+        files = list(outbox.iterdir())
         assert len(files) == 1
         assert files[0].read_text(encoding="utf-8") == "hi"
 
@@ -1576,9 +1599,13 @@ class TestCommunicateToolCheckers:
     ):
         channel_system = create_channel_system(tmp_path / "outbox")
         tool = CommunicateTool(channel_system.registry)
+        registration = channel_system.stream_runtime.register_participant(
+            kind="client",
+            client_id="alice",
+        )
 
         result = await tool.execute(
-            participant_id="alice",
+            participant_id=registration["participant_id"],
             attachments=[{"path": str(tmp_path / "note.txt")}],
         )
 
