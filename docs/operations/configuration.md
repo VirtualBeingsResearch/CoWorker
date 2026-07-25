@@ -121,7 +121,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `API__PORT` | `8000` | API 监听端口 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop 开发模式；关闭 Bearer/HTTPS 校验，仅应为本机 HTTP 调试显式开启 |
-| `API__COMMUNICATION_TOKEN` | 空（必填） | Desktop 生产通信 Bearer 令牌；`API__DEVELOPMENT_MODE=false` 时必须配置 |
+| `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | Desktop 生产通信 Bearer 令牌；需要与管理权限隔离时单独配置 |
 | `ADMIN__TOKEN` | 首次启动自动生成 | `/admin` 管理控制台和 `/api/admin/*` 的 Bearer 令牌；自动值会保存到管理端配置文件 |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | 管理页保存的 typed JSON 覆盖层，优先级高于 `.env`；非热更新配置重启后生效 |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Desktop 自动更新 release 与 asset 的存储目录 |

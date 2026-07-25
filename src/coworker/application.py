@@ -42,6 +42,7 @@ from coworker.core.config import (
     ProviderSpec,
     apply_admin_config_file,
     effective_admin_token,
+    effective_communication_token,
     ensure_admin_token,
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
@@ -898,7 +899,7 @@ async def _main() -> bool:
         config.agent.inbox_dir,
         usage_stats,
         config.llm.runtime_config_file,
-        config.api.communication_token,
+        effective_communication_token(config),
         config.api.development_mode,
         channels=channel_system.registry,
     )

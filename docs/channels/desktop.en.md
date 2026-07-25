@@ -83,6 +83,8 @@ Example with multiple Coworker instances:
 }
 ```
 
+When the Coworker server has no dedicated `API__COMMUNICATION_TOKEN`, this field can use the administrator token. Configure separate tokens when Desktop and administrator permissions must be isolated.
+
 For local HTTP debugging, first confirm that the service listens only on a loopback address. Then change the setting manually to `"security": {"development_mode": true}` and set `API__DEVELOPMENT_MODE=true` on Coworker as well. Never use this configuration on a shared network.
 
 The configuration must use `schema_version=2` and contain a non-empty `coworkers` array. Legacy top-level Coworker fields are not used when generating a new configuration.

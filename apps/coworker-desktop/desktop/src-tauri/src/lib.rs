@@ -24,7 +24,7 @@ use coworker_desktop_core::{
     logging::{error_chain, init_logging, log_file_path, subscribe_log_events},
     runtime::{BridgeRuntime, BridgeRuntimeStatus},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tauri::{
     Emitter, Manager, RunEvent, WindowEvent,
@@ -645,12 +645,8 @@ async fn list_communicate_registrations(
     .timeout(Duration::from_secs(5))
     .send()
     .await
-    .map_err(to_message)?
-    .error_for_status()
-    .map_err(to_message)?
-    .json::<CommunicateRegistrationsResponse>()
-    .await
     .map_err(to_message)?;
+    let response = decode_coworker_response::<CommunicateRegistrationsResponse>(response).await?;
     Ok(response.registrations)
 }
 
@@ -674,13 +670,36 @@ async fn delete_communicate_registration(
     .timeout(Duration::from_secs(5))
     .send()
     .await
-    .map_err(to_message)?
-    .error_for_status()
-    .map_err(to_message)?
-    .json::<DeleteCommunicateRegistrationResponse>()
-    .await
     .map_err(to_message)?;
+    let response =
+        decode_coworker_response::<DeleteCommunicateRegistrationResponse>(response).await?;
     Ok(response.deleted)
+}
+
+async fn decode_coworker_response<T: DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, String> {
+    let status = response.status();
+    let body = response.bytes().await.map_err(to_message)?;
+    if !status.is_success() {
+        return Err(coworker_http_error(status, &body));
+    }
+    serde_json::from_slice(&body).map_err(to_message)
+}
+
+fn coworker_http_error(status: reqwest::StatusCode, body: &[u8]) -> String {
+    let detail = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("detail")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    match detail {
+        Some(detail) => format!("{status}: {detail}"),
+        None => status.to_string(),
+    }
 }
 
 #[tauri::command]
@@ -1679,6 +1698,19 @@ mod tests {
     fn normalize_desktop_update_endpoint_returns_none_for_blank_values() {
         assert_eq!(normalize_desktop_update_endpoint(None), None);
         assert_eq!(normalize_desktop_update_endpoint(Some("   ")), None);
+    }
+
+    #[test]
+    fn coworker_http_error_preserves_structured_server_detail() {
+        let message = coworker_http_error(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            br#"{"detail":"Communication token is not configured"}"#,
+        );
+
+        assert_eq!(
+            message,
+            "503 Service Unavailable: Communication token is not configured"
+        );
     }
 
     #[test]

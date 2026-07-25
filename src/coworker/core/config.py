@@ -457,6 +457,12 @@ def effective_admin_token(config: Config) -> str:
     return config.admin.token or config.desktop_updates.admin_token
 
 
+def effective_communication_token(config: Config) -> str:
+    """Return the token accepted by Desktop communication endpoints."""
+
+    return config.api.communication_token or effective_admin_token(config)
+
+
 def ensure_admin_token(config: Config) -> str | None:
     """Create and persist a first-run admin token when none was configured.
 

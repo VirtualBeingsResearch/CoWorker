@@ -140,7 +140,7 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 
 An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, do not receive this metadata and retain the `🫧 泡泡：` text prefix instead; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
-Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
+Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. When no dedicated communication token is configured, the server falls back to the administrator token for a smoother first local connection; configure a dedicated token when the permissions must be isolated. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
 
 Browser examples:
 

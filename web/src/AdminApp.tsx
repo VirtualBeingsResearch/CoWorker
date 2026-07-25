@@ -631,6 +631,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
   'i18n.locale': '模型与运行时语言',
+  'api.communication_token': '桌面通信令牌',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
   'desktop_updates.sync_active_source': '当前上游',
@@ -728,7 +729,17 @@ function Settings() {
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (data.secret_status[path]) { const status = data.secret_status[path]; return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={status.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入新值')} /></Field>; }
+        if (data.secret_status[path]) {
+          const status = data.secret_status[path];
+          const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
+          const hint = status.configured
+            ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
+            : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置');
+          const placeholder = status.configured
+            ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
+            : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值');
+          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={placeholder} /></Field>;
+        }
         if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
         if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} min={path === 'llm.max_tokens' ? 1 : undefined} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;

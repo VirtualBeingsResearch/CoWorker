@@ -127,7 +127,7 @@ language-transition system notice when it detects a locale change.
 | `API__PORT` | `8000` | API listen port |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop development mode; disables Bearer/HTTPS checks and should be enabled explicitly only for local HTTP debugging |
-| `API__COMMUNICATION_TOKEN` | Empty (required) | Bearer token for production Desktop communication; required when `API__DEVELOPMENT_MODE=false` |
+| `API__COMMUNICATION_TOKEN` | Empty (administrator-token fallback) | Bearer token for production Desktop communication; configure it separately to isolate permissions |
 | `ADMIN__TOKEN` | Generated on first startup | Bearer token for the `/admin` console and `/api/admin/*`; the generated value is saved in the administration configuration file |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | Typed JSON override layer saved by the administration page, with higher priority than `.env`; non-hot-reload settings take effect after a restart |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Storage directory for Desktop update releases and assets |

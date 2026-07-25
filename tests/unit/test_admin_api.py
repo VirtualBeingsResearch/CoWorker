@@ -13,6 +13,7 @@ from coworker.core.config import (
     Config,
     apply_admin_config_file,
     effective_admin_token,
+    effective_communication_token,
     ensure_admin_token,
 )
 from coworker.core.types import Message
@@ -103,6 +104,7 @@ def test_admin_error_detail_follows_runtime_locale(tmp_path):
 
 def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_path):
     client, config = _client(tmp_path)
+    config.api.communication_token = "desktop-secret"
     headers = {"Authorization": "Bearer secret"}
     response = client.get("/api/admin/config", headers=headers)
     assert response.status_code == 200
@@ -111,6 +113,11 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert body["secret_status"]["llm.openai_api_key"] == {
         "configured": True,
         "last4": "inal",
+    }
+    assert body["config"]["api"]["communication_token"] == ""
+    assert body["secret_status"]["api.communication_token"] == {
+        "configured": True,
+        "last4": "cret",
     }
 
     llm_form = body["config"]["llm"]
@@ -127,6 +134,7 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert saved["llm"]["max_tokens"] == 4096
     assert "openai_api_key" not in saved["llm"]
     assert config.llm.openai_api_key == "sk-original"
+    assert config.api.communication_token == "desktop-secret"
 
 
 def test_desktop_update_sync_config_status_and_trigger_are_safe(tmp_path):
@@ -397,6 +405,26 @@ def test_effective_admin_token_prefers_admin_and_falls_back_to_desktop(tmp_path)
 
     config.desktop_updates.admin_token = ""
     assert effective_admin_token(config) == ""
+
+
+def test_effective_communication_token_prefers_dedicated_token_and_falls_back_to_admin(
+    tmp_path,
+):
+    config = Config.model_validate(
+        {
+            "api": {"communication_token": "desktop-token"},
+            "admin": {
+                "token": "admin-token",
+                "config_file": str(tmp_path / "admin.json"),
+            },
+        }
+    )
+
+    assert effective_communication_token(config) == "desktop-token"
+
+    config.api.communication_token = ""
+
+    assert effective_communication_token(config) == "admin-token"
 
 
 def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsys):

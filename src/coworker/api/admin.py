@@ -60,6 +60,7 @@ _config_write_lock = asyncio.Lock()
 
 _SECRET_PATHS = {
     "admin.token",
+    "api.communication_token",
     "desktop_updates.admin_token",
     "desktop_updates.feed_token",
     "llm.anthropic_api_key",

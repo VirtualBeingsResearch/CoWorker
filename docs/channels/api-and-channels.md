@@ -147,7 +147,8 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信）不会收到这段元数据，仍通过 `🫧 泡泡：` 文本前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
-`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。只有将服务端和 Desktop 配置都显式设为
+`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用
+管理员令牌，方便本机首次连接；需要隔离权限时应显式配置独立令牌。只有将服务端和 Desktop 配置都显式设为
 `development_mode=true` 才会关闭这层校验；该模式仅适用于回环地址的本机调试。
 
 浏览器示例：
