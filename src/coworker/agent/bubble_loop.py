@@ -10,6 +10,10 @@ from loguru import logger
 
 from coworker.agent.bubble_communication import BubbleCommunicateTool
 from coworker.agent.bubble_handoff import BubbleHandoffNotifier
+from coworker.agent.bubble_log_index import (
+    build_completed_bubble_summary,
+    upsert_completed_bubble_index,
+)
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.types import IncomingEvent, Message, SummaryResult
 from coworker.i18n import tr
@@ -504,7 +508,7 @@ class BubbleMiniLoop:
         logger.info(f"Bubble {bubble.id} timed out after {bubble.max_cycles} cycles")
 
     async def _persist_log(self) -> None:
-        if self._ilog is None:
+        if self._ilog is None or self._log_path is None:
             return
         bubble = self._bubble
         try:
@@ -533,6 +537,12 @@ class BubbleMiniLoop:
             )
         except Exception as e:
             logger.warning(f"Failed to persist bubble log for {bubble.id}: {e}")
+            return
+        try:
+            record = build_completed_bubble_summary(bubble, self._log_path)
+            await asyncio.to_thread(upsert_completed_bubble_index, Path(self._logs_dir), record)
+        except Exception as e:
+            logger.warning(f"Failed to update Bubble log index for {bubble.id}: {e}")
 
     def _mark_usage_log_complete(self) -> None:
         if self._usage_stats is None or self._log_path is None:

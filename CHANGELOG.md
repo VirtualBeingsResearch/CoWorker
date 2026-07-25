@@ -12,6 +12,7 @@
 - fix(channels): reject unknown built-in participant IDs without sending or auto-correcting them, suggest complete known IDs only within four edits, and retain offline registered Stream participants as valid outbox targets
 - feat(wecom): keep the WeCom Channel runtime registered while disabled or incomplete, and hot-apply admin configuration by enabling, disabling, or reconnecting its WebSocket without restarting Coworker
 - fix(admin): continue filtered lifetime-history searches across empty bounded scan windows until a match or the beginning of retained history is reached
+- fix(admin): index completed Bubble and subconscious transcripts so management lists avoid repeatedly parsing full logs, while recovering legacy or missed index records
 - fix(wecom): stop emitting unsupported member-mention markers or advertising `mentioned_list`, omit unnecessary `conversation_id` values from direct messages, keep group sends without `conversation_id` proactive, and preserve native stream replies and plain Markdown delivery
 - fix(admin): give all management form fields one top-aligned layout contract so labels, controls, hints, and switches stay aligned without Provider- or Desktop-specific sizing patches
 - fix(admin): present Passive sleep as event-driven waiting in runtime status and the public runtime ledger, and explain that `sleep(0)` waits indefinitely instead of using the active self-wake interval

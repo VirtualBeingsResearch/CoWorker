@@ -2140,6 +2140,15 @@ class TestPalaceLogging:
         assert meta[0]["provider"] == ""
         assert meta[0]["model"] == ""
 
+        from coworker.agent.bubble_log_index import load_completed_bubble_index
+
+        indexed = load_completed_bubble_index(Path(tmp_path))
+        assert indexed is not None
+        assert len(indexed) == 1
+        assert indexed[0]["id"] == b.id
+        assert indexed[0]["status"] == "done"
+        assert indexed[0]["result"] == "ok"
+
 
 class TestBubbleCheckTool:
     async def test_check_existing(self, store, messages):
