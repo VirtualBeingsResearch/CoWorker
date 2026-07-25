@@ -206,7 +206,7 @@ class GetContextTool(Tool):
 class RestartSelfTool(Tool):
     """校验代码环境，保存悬空快照，然后抛出 RestartRequestedException。
 
-    异常在 AgentLoop.run() 中被捕获，loop 退出后由 main_sync() 执行 os.execv。
+    异常在 AgentLoop.run() 中被捕获，loop 退出后交由平台 launcher 重启。
     因为异常在 tool result 写入 short_term 之前抛出，快照天然处于悬空状态，
     新进程启动时会注入真实的重启成功消息。
     """

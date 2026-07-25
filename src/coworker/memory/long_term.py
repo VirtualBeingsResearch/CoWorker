@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -18,20 +19,31 @@ _DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2
 _UsageListener = Callable[[dict[str, Any]], None]
 
 
+@dataclass(frozen=True, slots=True)
+class LongTermLLMConfig:
+    provider: str = "anthropic"
+    api_dialect: str = "anthropic"
+    api_key: str = ""
+    model: str = "claude-haiku-4-5-20251001"
+    base_url: str = ""
+
+    def as_mem0_config(self) -> tuple[str, dict[str, str]]:
+        config = {"model": self.model, "api_key": self.api_key}
+        if self.base_url:
+            config[f"{self.api_dialect}_base_url"] = self.base_url
+        return self.api_dialect, config
+
+
 class LongTermMemory:
     def __init__(
         self,
         db_path: str,
-        llm_provider: str = "anthropic",
-        llm_api_key: str = "",
-        llm_model: str = "claude-haiku-4-5-20251001",
+        llm: LongTermLLMConfig | None = None,
         embedder_model: str = _DEFAULT_EMBEDDER,
     ) -> None:
         self._db_path = Path(db_path)
         self._mem = None
-        self._llm_provider = llm_provider
-        self._llm_api_key = llm_api_key
-        self._llm_model = llm_model
+        self._llm = llm or LongTermLLMConfig()
         self._embedder_model = embedder_model
         self._write_lock = asyncio.Lock()
         self._usage_listeners: list[_UsageListener] = []
@@ -51,11 +63,15 @@ class LongTermMemory:
     async def initialize(self) -> None:
         from mem0 import AsyncMemory
 
+        from coworker.memory.mem0_adapters import register_mem0_adapters
+
+        register_mem0_adapters()
+        llm_provider, llm_config = self._llm.as_mem0_config()
         config = {
             "custom_instructions": tr("mem0.custom_instructions"),
             "llm": {
-                "provider": self._llm_provider,
-                "config": {"model": self._llm_model, "api_key": self._llm_api_key},
+                "provider": llm_provider,
+                "config": llm_config,
             },
             "vector_store": {
                 "provider": "chroma",
@@ -191,9 +207,9 @@ class LongTermMemory:
                 usage_source = "estimated"
             self._notify_usage_listeners(
                 {
-                    "provider": self._llm_provider,
+                    "provider": self._llm.provider,
                     "model": getattr(getattr(llm, "config", None), "model", None)
-                    or self._llm_model,
+                    or self._llm.model,
                     "usage": usage,
                     "usage_source": usage_source,
                     "operation": "generate_response",

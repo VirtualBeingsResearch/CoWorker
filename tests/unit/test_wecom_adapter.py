@@ -133,7 +133,7 @@ def test_frame_to_event_text_single():
     assert event.source == "wecom"
     assert event.content == "你好"
     assert format_event_text(event) == (
-        "[来自企业微信][wecom:single:U123]的消息:\n你好"
+        "[来自企业微信][wecom:single:U123][conversation:r1]的消息:\n你好"
     )
 
 
@@ -147,7 +147,7 @@ def test_frame_to_event_group_includes_chatid_and_userid():
     assert event.participant_id == "wecom:group:CHATX"
     assert event.content == "[发送者 userid=Ualice]\n@robot 帮忙"
     assert format_event_text(event) == (
-        "[来自企业微信][wecom:group:CHATX]的消息:\n"
+        "[来自企业微信][wecom:group:CHATX][conversation:r2]的消息:\n"
         "[发送者 userid=Ualice]\n@robot 帮忙"
     )
 

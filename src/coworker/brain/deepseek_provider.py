@@ -30,12 +30,14 @@ _THINKING_MODELS = _DEEPSEEK_MODELS
 
 class DeepSeekProvider(BaseLLMProvider):
     provider_type = "deepseek"
+    api_dialect = "openai"
+    default_base_url = "https://api.deepseek.com"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url or "https://api.deepseek.com",
+            base_url=self.resolve_base_url(base_url),
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
         )
         self._current_model = "deepseek-v4-flash"
@@ -129,7 +131,7 @@ class DeepSeekProvider(BaseLLMProvider):
         return sorted(_DEEPSEEK_MODELS)
 
     def supports_tool_use(self, model_id: str) -> bool:
-        return model_id in _DEEPSEEK_MODELS
+        return True
 
     def supports_vision(self, model_id: str) -> bool:
         return False  # DeepSeek text models don't support vision

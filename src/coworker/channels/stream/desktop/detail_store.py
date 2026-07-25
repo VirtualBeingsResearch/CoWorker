@@ -1,4 +1,4 @@
-"""Folded-prompt detail store for the desktop channel.
+"""Folded-prompt detail store for the Desktop stream profile.
 
 When a rendered desktop prompt exceeds the fold threshold, its full text is
 persisted here (keyed by request_id / message_id) so the coworker can

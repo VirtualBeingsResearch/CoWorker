@@ -21,7 +21,6 @@ export type IdentityInfo = {
   team?: string;
   birth?: string;
   age_days?: number;
-  life_story?: string;
 };
 
 export type VitalsInfo = {

@@ -121,25 +121,28 @@ total = "About {{tokens}} tokens total"
 [tool_result.communicate]
 bound_participant = "This bubble can message only its bound participant; participant_id cannot be changed."
 bound_conversation = "This bubble can message only its bound conversation_id."
+bound_target_conversation = ", conversation_id='{{conversation}}'"
+bound_invalid = '''Bubble communicate arguments are invalid:
+{{issues}}
+Current fixed target: participant_id='{{participant}}'{{conversation}}'''
 attachment_fallback = "{{prefix}} (attachment)"
 extra_object = "extra must be an object."
 ambiguous = '''participant_id '{{participant}}' matches multiple channels. Call again with a complete participant_id:
 {{options}}'''
 option = "  - {{id}} (prefix: {{prefix}})"
 websocket_sent = "Message sent to {{participant}} through WebSocket"
-conversation_unsupported = "Message delivery failed: this target does not support conversation_id. Remove it and retry."
-extra_unsupported = "Message delivery failed: this target does not support extra parameters."
-attachments_unsupported = "Message delivery failed: this target does not support attachments. Use a channel that does."
+unsupported_message_only = "This target does not support {{fields}}. Those fields were not delivered; only message was passed to the channel."
+unsupported_omitted = "This target does not support {{fields}}. Those fields were not delivered; the remaining supported content was passed to the channel."
 message_empty = "message must not be empty."
-fallback_saved = "Message delivery failed and was recorded in the local file: {{path}}"
+fallback_saved = "No live connection was available; message was recorded in the local file: {{path}}"
 failed = "Message delivery failed: {{error}}"
 no_connections = "There are no connections or known contacts."
+no_channel = "No channel can handle participant_id='{{participant}}'. Use list_connections and copy a complete available ID."
 connection_activity = "last sent: {{sent}}, last received: {{received}}"
 connection_none = "none"
 connection_line = "  - {{participant}} ({{activity}}){{display_name}}"
-wecom_conversation_unsupported = "Message delivery failed: the WeCom channel does not support conversation_id. Remove it and retry."
-wecom_extra_unsupported = "Message delivery failed: the WeCom channel does not support extra parameters."
 wecom_sent = "Message sent to {{participant}} through WeCom"
+wecom_extra_unsupported = "Unsupported WeCom extra fields: {{fields}}. They were not delivered. Supported fields: {{supported}}."
 wecom_failed = "WeCom message delivery failed: {{error}}"
 desktop_disconnected = "Communication target is not connected: {{participant}}"
 desktop_sent = "Desktop request sent with request_id={{request_id}}{{conversation}}"
@@ -167,7 +170,7 @@ binding = '''
 Communication binding: {{participant}}{{conversation}} (subsequent matching messages go directly to this bubble)'''
 conversation = " / {{conversation}}"
 transparent = '''
-Transparent communication labels: enabled (handoff, replies, and completion are disclosed to the participant)'''
+Transparent communication labels: enabled (takeover starts on the first real exchange, replies are labeled, and completion follows only an announced handoff)'''
 created = '''Bubble created: id={{id}}
 Goal: {{goal}}
 Maximum cycles: {{cycles}}

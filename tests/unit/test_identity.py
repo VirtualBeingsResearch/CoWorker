@@ -21,7 +21,6 @@ class TestIdentity:
         identity.load()
         assert identity.name == ""
         assert identity.personality == ""
-        assert identity.goals == ""
 
     def test_load_name_only(self, tmp_path):
         d = tmp_path / "identity"
@@ -31,18 +30,20 @@ class TestIdentity:
         identity.load()
         assert identity.name == "Luna"
 
-    def test_load_all_files(self, tmp_path):
+    def test_load_supported_files_and_ignore_retired_files(self, tmp_path):
         d = tmp_path / "identity"
         d.mkdir()
         (d / "name.txt").write_text("Luna", encoding="utf-8")
         (d / "personality.md").write_text("curious and warm", encoding="utf-8")
+        (d / "current_location.txt").write_text("Paris", encoding="utf-8")
         (d / "goals.md").write_text("learn everything", encoding="utf-8")
         (d / "life_story.md").write_text("born today", encoding="utf-8")
         identity = Identity(str(d))
         identity.load()
         assert identity.personality == "curious and warm"
-        assert identity.goals == "learn everything"
-        assert identity.life_story == "born today"
+        assert identity.current_location == "Paris"
+        assert not hasattr(identity, "goals")
+        assert not hasattr(identity, "life_story")
 
     def test_system_prompt_newborn_state(self, tmp_path):
         identity = Identity(str(tmp_path / "identity"))
@@ -55,12 +56,27 @@ class TestIdentity:
         d = tmp_path / "identity"
         d.mkdir()
         (d / "name.txt").write_text("Luna", encoding="utf-8")
-        (d / "goals.md").write_text("explore the world", encoding="utf-8")
+        (d / "personality.md").write_text("curious and warm", encoding="utf-8")
         identity = Identity(str(d))
         identity.load()
         section = identity.to_system_prompt_section()
         assert "Luna" in section
-        assert "explore the world" in section
+        assert "curious and warm" in section
+
+    def test_update_persists_supported_fields(self, tmp_path):
+        identity = Identity(str(tmp_path / "identity"))
+
+        identity.update(
+            {
+                "name": " Luna ",
+                "personality": " curious and warm ",
+                "current_location": " Paris ",
+            }
+        )
+
+        assert identity.name == "Luna"
+        assert identity.personality == "curious and warm"
+        assert identity.current_location == "Paris"
 
     def test_load_creates_directory_if_missing(self, tmp_path):
         d = tmp_path / "does" / "not" / "exist"

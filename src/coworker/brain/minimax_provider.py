@@ -36,17 +36,16 @@ _VISION_MODELS = {
 # Qwen3 models support extended thinking via enable_thinking extra_body param.
 _THINKING_MODELS = _MINIMAX_MODELS
 
-_DEFAULT_BASE_URL = "https://api.minimaxi.com/v1"
-
-
 class MiniMaxProvider(BaseLLMProvider):
     provider_type = "minimax"
+    api_dialect = "openai"
+    default_base_url = "https://api.minimaxi.com/v1"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url or _DEFAULT_BASE_URL,
+            base_url=self.resolve_base_url(base_url),
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
         )
         self._current_model = "MiniMax-M3"

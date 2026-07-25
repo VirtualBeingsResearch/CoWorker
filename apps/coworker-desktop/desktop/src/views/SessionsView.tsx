@@ -1,5 +1,5 @@
-import { ChevronUp, Download, FolderOpen, GripVertical, Lock, MessageSquare, Paperclip, Pencil, Plus, RefreshCw, Send, X } from "lucide-react";
-import { useLayoutEffect, useRef, type ReactNode, type RefObject, type UIEvent } from "react";
+import { Check, ChevronUp, Copy, Download, FolderOpen, GripVertical, Lock, MessageSquare, Paperclip, Pencil, Plus, Quote, RefreshCw, Send, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type UIEvent } from "react";
 import { MessageIcon, MessageText, ToolResultDisclosure } from "../components/MessageParts";
 import { useI18n } from "../i18n";
 import type { DictKey } from "../i18n/en";
@@ -10,10 +10,64 @@ import {
   type TimelineAttachment,
   type TimelineMessageGroup,
 } from "../lib/bridgeLogic";
-import type { ActorConversation, BridgeCoworker } from "../tauri";
+import { readDesktopImagePreview, type ActorConversation, type BridgeCoworker } from "../tauri";
 
 type Translate = (key: DictKey, vars?: Record<string, string | number>) => string;
 const loadEarlierScrollThreshold = 48;
+const previewableImageTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+  "image/avif",
+]);
+
+function MessageImagePreview({
+  attachment,
+  onOpen,
+}: {
+  attachment: TimelineAttachment;
+  onOpen: () => void;
+}) {
+  const [source, setSource] = useState("");
+  const mediaType = attachment.media_type.toLowerCase();
+
+  useEffect(() => {
+    if (!attachment.path || !attachment.downloadable || !previewableImageTypes.has(mediaType)) {
+      setSource("");
+      return;
+    }
+    let disposed = false;
+    let objectUrl = "";
+    void readDesktopImagePreview(attachment.path)
+      .then((bytes) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: mediaType }));
+        setSource(objectUrl);
+      })
+      .catch(() => {
+        if (!disposed) setSource("");
+      });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment.downloadable, attachment.path, mediaType]);
+
+  if (!source) return null;
+  return (
+    <button
+      aria-label={attachment.filename}
+      className="messageImagePreview"
+      onClick={onOpen}
+      title={attachment.filename}
+      type="button"
+    >
+      <img alt={attachment.filename} src={source} />
+    </button>
+  );
+}
 
 export type SessionsPresentation = Partial<{
   ariaLabel: string;
@@ -46,10 +100,13 @@ function sessionSubtitle(session: ActorConversation | null, t: Translate) {
 export function SessionsView({
   sessions,
   sessionsLoading,
+  hasMoreSessions,
+  loadingMoreSessions,
   selectedSessionId,
   onSelectSession,
   onNewSession,
   onRefreshSessions,
+  onLoadMoreSessions,
   selectedSession,
   editingSessionTitle,
   sessionTitleDraft,
@@ -93,13 +150,17 @@ export function SessionsView({
   modeOptions,
   draftProjectPath,
   onChooseDraftProject,
+  onCopyMessageError,
 }: {
   sessions: ActorConversation[];
   sessionsLoading: boolean;
+  hasMoreSessions: boolean;
+  loadingMoreSessions: boolean;
   selectedSessionId: string;
   onSelectSession: (threadId: string) => void;
   onNewSession: () => void;
   onRefreshSessions: () => void;
+  onLoadMoreSessions: () => void;
   selectedSession: ActorConversation | null;
   editingSessionTitle: boolean;
   sessionTitleDraft: string;
@@ -143,9 +204,11 @@ export function SessionsView({
   modeOptions?: SessionModeOption[];
   draftProjectPath?: string;
   onChooseDraftProject?: () => void;
+  onCopyMessageError: () => void;
 }) {
   const { t } = useI18n();
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState("");
   const resolvedModeOptions = modeOptions ?? [
     { value: "default", label: t("sessions.modeDefault") },
     { value: "plan", label: t("sessions.modePlan") },
@@ -164,6 +227,28 @@ export function SessionsView({
     if (!sessionCursor || messagesLoading) return;
     if (event.currentTarget.scrollTop <= loadEarlierScrollThreshold) {
       onLoadEarlierMessages();
+    }
+  }
+
+  function quoteMessage(text: string) {
+    const quoted = text
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => `> ${line}`)
+      .join("\n");
+    if (!quoted) return;
+    setComposerText(composerText ? `${composerText}\n\n${quoted}\n\n` : `${quoted}\n\n`);
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  async function copyMessage(messageId: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(messageId);
+      window.setTimeout(() => setCopiedMessageId((current) => current === messageId ? "" : current), 1600);
+    } catch {
+      setCopiedMessageId("");
+      onCopyMessageError();
     }
   }
 
@@ -186,8 +271,9 @@ export function SessionsView({
           {sessionsLoading && !sessions.length ? (
             <div className="emptyLedger">{t("sessions.loadingSessions")}</div>
           ) : sessions.length ? (
-            sessions.map((session) => (
-              <button
+            <>
+              {sessions.map((session) => (
+                <button
                 className={session.conversation_id === selectedSessionId ? "sessionListItem active" : "sessionListItem"}
                 key={session.conversation_id}
                 onClick={() => onSelectSession(session.conversation_id)}
@@ -203,8 +289,19 @@ export function SessionsView({
                     {formatSessionTime(session.updated_at ?? "")} · {session.writable ? t("actors.continueAvailable") : t("actors.readOnlyHistory")}
                   </small>
                 </span>
-              </button>
-            ))
+                </button>
+              ))}
+              {hasMoreSessions && (
+                <button
+                  className="loadMoreSessionsButton"
+                  disabled={loadingMoreSessions}
+                  onClick={onLoadMoreSessions}
+                  type="button"
+                >
+                  {loadingMoreSessions ? t("sessions.loadingMore") : t("sessions.loadMore")}
+                </button>
+              )}
+            </>
           ) : (
             <div className="emptyLedger">{presentation?.noSessionsLabel ?? t("sessions.noSessionsFound")}</div>
           )}
@@ -330,6 +427,7 @@ export function SessionsView({
           ) : sessionMessageGroups.length ? (
             sessionMessageGroups.map(({ message, result }) => {
               const attachments = result?.attachments.length ? [...message.attachments, ...result.attachments] : message.attachments;
+              const messageText = message.kind === "empty_response" ? t("sessions.emptyResponse") : message.text;
               return (
                 <article className={`sessionMessage from-${message.author_kind} kind-${message.kind}${result?.is_error ? " tool-error" : ""}`} key={message.id}>
                   <div className="messageAvatar" aria-hidden="true">
@@ -341,9 +439,40 @@ export function SessionsView({
                       {message.bubble && <code className="bubbleMessageId">{message.bubble.id}</code>}
                       <span>{formatSessionTime(message.timestamp)}</span>
                       {message.streaming && <em>streaming</em>}
+                      <span className="messageActions">
+                        <button
+                          onClick={() => void copyMessage(message.id, messageText)}
+                          title={t("sessions.copyMessage")}
+                          aria-label={t("sessions.copyMessage")}
+                          type="button"
+                        >
+                          {copiedMessageId === message.id ? <Check size={13} /> : <Copy size={13} />}
+                        </button>
+                        <button
+                          onClick={() => quoteMessage(messageText)}
+                          disabled={!canUseComposer || !messageText.trim()}
+                          title={t("sessions.quoteMessage")}
+                          aria-label={t("sessions.quoteMessage")}
+                          type="button"
+                        >
+                          <Quote size={13} />
+                        </button>
+                      </span>
                     </div>
-                    <MessageText text={message.text} />
+                    <MessageText text={messageText} />
                     {result && <ToolResultDisclosure result={result} />}
+                    {attachments.some((attachment) =>
+                      previewableImageTypes.has(attachment.media_type.toLowerCase())) && (
+                      <div className="messageImageGrid">
+                        {attachments.map((attachment, index) => (
+                          <MessageImagePreview
+                            attachment={attachment}
+                            key={`${message.id}-image-${index}-${attachment.filename}`}
+                            onOpen={() => onDownloadAttachment(attachment)}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {attachments.length > 0 && (
                       <div className="attachmentList">
                         {attachments.map((attachment, index) => (
@@ -388,7 +517,13 @@ export function SessionsView({
           {!canUseComposer && (
             <div className="readOnlyNotice" role="status">
               <Lock size={15} />
-              <span>{presentation?.readOnlyNotice ?? (selectedSession && !selectedSession.writable ? t("sessions.composerNotBridgeOwned") : t("sessions.composerBridgeNotRunning"))}</span>
+              <span>
+                {!bridgeRunning
+                  ? t("sessions.composerBridgeNotRunning")
+                  : selectedSession && !selectedSession.writable
+                    ? presentation?.readOnlyNotice ?? t("sessions.composerNotBridgeOwned")
+                    : t("sessions.composerBridgeNotRunning")}
+              </span>
             </div>
           )}
           {showAttachments && composerAttachments.length > 0 && (

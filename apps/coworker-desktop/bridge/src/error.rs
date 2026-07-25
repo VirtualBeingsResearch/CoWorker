@@ -14,6 +14,12 @@ pub enum BridgeError {
     Json(#[from] serde_json::Error),
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("http error: HTTP status {status} {reason}: {detail}")]
+    HttpStatus {
+        status: u16,
+        reason: String,
+        detail: String,
+    },
     #[error("app-server request failed: {0}")]
     AppServer(String),
     #[error("duplicate Coworker SSE participant")]
@@ -29,6 +35,29 @@ impl BridgeError {
 
     pub fn startup(message: impl Into<String>) -> Self {
         Self::Startup(message.into())
+    }
+
+    pub fn http_status(status: reqwest::StatusCode, detail: impl Into<String>) -> Self {
+        Self::HttpStatus {
+            status: status.as_u16(),
+            reason: status.canonical_reason().unwrap_or("Unknown").to_owned(),
+            detail: detail.into(),
+        }
+    }
+
+    pub fn http_status_code(&self) -> Option<u16> {
+        match self {
+            Self::Http(error) => error.status().map(|status| status.as_u16()),
+            Self::HttpStatus { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
+
+    pub fn http_detail(&self) -> Option<&str> {
+        match self {
+            Self::HttpStatus { detail, .. } => Some(detail),
+            _ => None,
+        }
     }
 }
 

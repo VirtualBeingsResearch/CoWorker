@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.channels.base import InlineChannel
+from coworker.channels.base import BaseChannel, ChannelCapabilities
+from coworker.channels.system import create_channel_system
 from coworker.core.types import (
     AgentState,
     CommunicateRequest,
@@ -16,6 +17,7 @@ from coworker.core.types import (
     ToolCall,
     ToolResult,
 )
+from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.base import Tool, ToolDefinition
 from coworker.tools.communicate_tool import CommunicateTool
@@ -78,11 +80,56 @@ class TextModelOnlyTool(Tool):
         return ToolResult(tool_call_id="", content="")
 
 
+class InvalidRegistrationTool:
+    definition = ToolDefinition(name=" ", description="", parameters={})
+    execute = None
+    fork = None
+
+
 class TestToolRegistry:
     def test_register_and_list(self):
         registry = ToolRegistry()
         registry.register(EchoTool())
         assert "echo" in registry.list_names()
+
+    def test_duplicate_registration_is_rejected_without_overwrite(self):
+        registry = ToolRegistry()
+        original = EchoTool()
+        registry.register(original)
+
+        with pytest.raises(ValueError, match="name 'echo' is already registered"):
+            registry.register(EchoTool())
+
+        assert registry._tools["echo"] is original
+
+    def test_batch_registration_reports_all_conflicts_atomically(self):
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+
+        with pytest.raises(ValueError) as error:
+            registry.register_many(
+                [
+                    EchoTool(),
+                    TextModelOnlyTool(),
+                    TextModelOnlyTool(),
+                ]
+            )
+
+        message = str(error.value)
+        assert "name 'echo' is already registered" in message
+        assert "name 'vision_only' duplicates item 2" in message
+        assert registry.list_names() == ["echo"]
+
+    def test_invalid_tool_reports_all_registration_issues(self):
+        registry = ToolRegistry()
+
+        with pytest.raises(ValueError) as error:
+            registry.register(InvalidRegistrationTool())
+
+        message = str(error.value)
+        assert "failed with 2 issues" in message
+        assert "tool must inherit Tool" in message
+        assert "name is required" in message
 
     def test_get_schemas(self):
         registry = ToolRegistry()
@@ -114,6 +161,40 @@ class TestToolRegistry:
         registry = ToolRegistry()
         registry.register(TextModelOnlyTool())
         assert registry.get_schemas() == []
+
+    def test_scoped_replacement_preserves_source_registry(self):
+        registry = ToolRegistry()
+        original = EchoTool()
+        replacement = EchoTool()
+        registry.register(original)
+
+        scoped = registry.scoped(scope=None, replacements=[replacement])
+
+        assert registry._tools["echo"] is original
+        assert scoped._tools["echo"] is replacement
+
+    def test_scoped_replacements_report_all_contract_issues(self):
+        class ChangedEchoTool(EchoTool):
+            @property
+            def definition(self) -> ToolDefinition:
+                return ToolDefinition(
+                    name="echo",
+                    description="changed",
+                    parameters={},
+                )
+
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+
+        with pytest.raises(ValueError) as error:
+            registry.scoped(
+                scope=None,
+                replacements=[ChangedEchoTool(), TextModelOnlyTool()],
+            )
+
+        message = str(error.value)
+        assert "preserve its ToolDefinition exactly" in message
+        assert "tool 'vision_only' is not registered" in message
 
     @pytest.mark.asyncio
     async def test_execute_success(self):
@@ -1210,15 +1291,22 @@ class TestFetchURLTool:
 
 class TestCommunicateToolCheckers:
     def test_structured_extra_capability_follows_selected_transport(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
 
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel("plain:", sender))
-        tool.register_channel(InlineChannel("rich:", sender, supports_extra=True))
+        channel_system.registry.register(BaseChannel.from_sender("plain:", sender))
+        channel_system.registry.register(
+            BaseChannel.from_sender(
+                "rich:",
+                sender,
+                capabilities=ChannelCapabilities(extra=True),
+            )
+        )
         queue: asyncio.Queue = asyncio.Queue()
-        tool.register_ws("stream-client", queue)
+        channel_system.stream_runtime.register_session("stream-client", queue)
 
         assert not tool.supports_message_extra("plain:alice")
         assert tool.supports_message_extra("rich:alice")
@@ -1226,12 +1314,13 @@ class TestCommunicateToolCheckers:
         assert not tool.supports_message_extra("offline-client")
 
     def test_resolve_participant_id_expands_single_match_without_sending(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
 
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel(
+        channel_system.registry.register(BaseChannel.from_sender(
             "chan:",
             sender,
             lambda pid: f"chan:single:{pid}" if pid == "alice" else None,
@@ -1242,29 +1331,33 @@ class TestCommunicateToolCheckers:
         assert tool.resolve_participant_id("unknown") == "unknown"
 
     @pytest.mark.asyncio
-    async def test_prefix_match_bypasses_checker(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+    async def test_prefix_match_bypasses_resolver(self, tmp_path):
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
         sent = []
 
         async def sender(request: CommunicateRequest):
             sent.append(request.participant_id)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel("chan:", sender, lambda pid: f"chan:{pid}"))
+        channel_system.registry.register(
+            BaseChannel.from_sender("chan:", sender, lambda pid: f"chan:{pid}")
+        )
         result = await tool.execute(message="hi", participant_id="chan:alice")
         assert not result.is_error
         assert sent == ["chan:alice"]
 
     @pytest.mark.asyncio
     async def test_no_prefix_single_match_auto_routes(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
         sent = []
 
         async def sender(request: CommunicateRequest):
             sent.append(request.participant_id)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel(
+        channel_system.registry.register(BaseChannel.from_sender(
             "chan:",
             sender,
             lambda pid: f"chan:single:{pid}" if pid == "alice" else None,
@@ -1275,7 +1368,8 @@ class TestCommunicateToolCheckers:
 
     @pytest.mark.asyncio
     async def test_no_prefix_multi_match_returns_error(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
 
         async def sender_a(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
@@ -1283,8 +1377,12 @@ class TestCommunicateToolCheckers:
         async def sender_b(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel("chan_a:", sender_a, lambda pid: f"chan_a:{pid}"))
-        tool.register_channel(InlineChannel("chan_b:", sender_b, lambda pid: f"chan_b:{pid}"))
+        channel_system.registry.register(
+            BaseChannel.from_sender("chan_a:", sender_a, lambda pid: f"chan_a:{pid}")
+        )
+        channel_system.registry.register(
+            BaseChannel.from_sender("chan_b:", sender_b, lambda pid: f"chan_b:{pid}")
+        )
         result = await tool.execute(message="hi", participant_id="alice")
         assert result.is_error
         assert "多个信道" in result.content
@@ -1293,14 +1391,25 @@ class TestCommunicateToolCheckers:
 
     @pytest.mark.asyncio
     async def test_request_sender_receives_extended_fields(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
         seen: list[CommunicateRequest] = []
 
         async def sender(request: CommunicateRequest):
             seen.append(request)
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel("rich:", sender))
+        channel_system.registry.register(
+            BaseChannel.from_sender(
+                "rich:",
+                sender,
+                capabilities=ChannelCapabilities(
+                    conversation_id=True,
+                    attachments=True,
+                    extra=True,
+                ),
+            )
+        )
 
         result = await tool.execute(
             participant_id="rich:alice",
@@ -1323,7 +1432,8 @@ class TestCommunicateToolCheckers:
 
     @pytest.mark.asyncio
     async def test_longest_registered_prefix_wins(self, tmp_path):
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
         seen: list[str] = []
 
         async def generic_sender(request: CommunicateRequest):
@@ -1334,8 +1444,10 @@ class TestCommunicateToolCheckers:
             seen.append("specific")
             return ToolResult(tool_call_id="", content="specific")
 
-        tool.register_channel(InlineChannel("rich:", generic_sender))
-        tool.register_channel(InlineChannel("rich:team:", specific_sender))
+        channel_system.registry.register(BaseChannel.from_sender("rich:", generic_sender))
+        channel_system.registry.register(
+            BaseChannel.from_sender("rich:team:", specific_sender)
+        )
 
         result = await tool.execute(participant_id="rich:team:alice", message="hi")
 
@@ -1346,12 +1458,15 @@ class TestCommunicateToolCheckers:
     @pytest.mark.asyncio
     async def test_no_prefix_no_match_falls_back_to_outbox(self, tmp_path):
         outbox = tmp_path / "outbox"
-        tool = CommunicateTool(str(outbox))
+        channel_system = create_channel_system(outbox)
+        tool = CommunicateTool(channel_system.registry)
 
         async def sender(request: CommunicateRequest):
             return ToolResult(tool_call_id="", content="ok")
 
-        tool.register_channel(InlineChannel("chan:", sender, lambda pid: None))
+        channel_system.registry.register(
+            BaseChannel.from_sender("chan:", sender, lambda pid: None)
+        )
         result = await tool.execute(message="hello", participant_id="unknown_user")
         assert not result.is_error
         files = list(outbox.glob("*unknown_user*"))
@@ -1361,9 +1476,10 @@ class TestCommunicateToolCheckers:
     async def test_connected_ws_target_receives_structured_payload(self, tmp_path):
         file_path = tmp_path / "note.txt"
         file_path.write_text("hello", encoding="utf-8")
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
         queue: asyncio.Queue = asyncio.Queue()
-        assert tool.register_ws("alice", queue) is True
+        assert channel_system.stream_runtime.register_session("alice", queue) is True
 
         result = await tool.execute(
             participant_id="alice",
@@ -1385,14 +1501,14 @@ class TestCommunicateToolCheckers:
 
     @pytest.mark.asyncio
     async def test_desktop_sender_delivers_online_without_retry_queue(self, tmp_path):
-        from coworker.channels.desktop import DESKTOP_PREFIX, DesktopCommunicateSender
+        from coworker.channels.stream.desktop import DesktopProfile
 
-        tool = CommunicateTool(str(tmp_path / "outbox"))
-        sender = DesktopCommunicateSender(tool)
-        tool.register_channel(InlineChannel(DESKTOP_PREFIX, sender.send))
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
+        channel_system.register_stream_profile(DesktopProfile(MagicMock(), MagicMock()))
         queue: asyncio.Queue = asyncio.Queue()
         participant_id = "coworker-desktop:desk-1:claude:cw-1:abcd1234"
-        assert tool.register_ws(participant_id, queue) is True
+        assert channel_system.stream_runtime.register_session(participant_id, queue) is True
 
         result = await tool.execute(
             participant_id=participant_id,
@@ -1406,41 +1522,68 @@ class TestCommunicateToolCheckers:
         assert len(request.extra["request_id"]) == 16
         assert "request_id=" in result.content
 
-        tool.unregister_ws(participant_id, queue)
+        channel_system.stream_runtime.unregister_session(participant_id, queue)
         offline = await tool.execute(participant_id=participant_id, message="retry")
         assert offline.is_error
         assert "未连接" in offline.content
 
     @pytest.mark.asyncio
-    async def test_unconnected_plain_target_rejects_structured_fields(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("locale", "expected"),
+        [
+            (
+                "zh-CN",
+                "该通信目标不支持 conversation_id, attachments, extra。"
+                "这些字段未被传递，仅将 message 传给了信道。",
+            ),
+            (
+                "en",
+                "This target does not support conversation_id, attachments, extra. "
+                "Those fields were not delivered; only message was passed to the channel.",
+            ),
+        ],
+    )
+    async def test_unconnected_target_delivers_message_and_reports_omitted_fields(
+        self,
+        tmp_path,
+        locale,
+        expected,
+    ):
         file_path = tmp_path / "note.txt"
         file_path.write_text("hello", encoding="utf-8")
-        tool = CommunicateTool(str(tmp_path / "outbox"))
+        outbox = tmp_path / "outbox"
+        channel_system = create_channel_system(outbox)
+        tool = CommunicateTool(channel_system.registry)
 
-        conversation_result = await tool.execute(
+        with locale_context(locale):
+            result = await tool.execute(
+                participant_id="alice",
+                conversation_id="thr_1",
+                message="hi",
+                attachments=[{"path": str(file_path)}],
+                extra={"mode": "plan"},
+            )
+
+        assert not result.is_error
+        assert expected in result.content
+        files = list(outbox.glob("*alice*"))
+        assert len(files) == 1
+        assert files[0].read_text(encoding="utf-8") == "hi"
+
+    @pytest.mark.asyncio
+    async def test_unconnected_target_rejects_unsupported_content_without_message(
+        self, tmp_path
+    ):
+        channel_system = create_channel_system(tmp_path / "outbox")
+        tool = CommunicateTool(channel_system.registry)
+
+        result = await tool.execute(
             participant_id="alice",
-            conversation_id="thr_1",
-            message="hi",
-        )
-        attachment_result = await tool.execute(
-            participant_id="alice",
-            attachments=[{"path": str(file_path)}],
-        )
-        extra_result = await tool.execute(
-            participant_id="alice",
-            message="hi",
-            extra={"mode": "plan"},
+            attachments=[{"path": str(tmp_path / "note.txt")}],
         )
 
-        assert conversation_result.is_error
-        assert conversation_result.content.startswith("消息发送失败：")
-        assert "不支持 conversation_id" in conversation_result.content
-        assert attachment_result.is_error
-        assert attachment_result.content.startswith("消息发送失败：")
-        assert "不支持附件" in attachment_result.content
-        assert extra_result.is_error
-        assert extra_result.content.startswith("消息发送失败：")
-        assert "不支持 extra" in extra_result.content
+        assert result.is_error
+        assert "message 不能为空" in result.content
 
 
 class TestVisualAnalysisTool:

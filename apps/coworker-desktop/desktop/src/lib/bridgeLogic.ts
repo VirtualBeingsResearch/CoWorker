@@ -96,7 +96,8 @@ export const maxLogTextChars = 512 * 1024;
 export const maxParsedLogEntries = 900;
 export const maxRenderedLogEntries = 220;
 export const toastDurationMs = 3200;
-export const sessionListLimit = 120;
+export const sessionListPageSize = 25;
+export const localSessionListPageSize = 120;
 export const sessionMessagePageSize = 50;
 export const conversationTitleMaxChars = 60;
 

@@ -121,25 +121,28 @@ total = "合计约 {{tokens}} tokens"
 [tool_result.communicate]
 bound_participant = "此泡泡只能向已绑定的通信对象发送消息，不能改用其他 participant_id。"
 bound_conversation = "此泡泡只能向已绑定的 conversation_id 发送消息。"
+bound_target_conversation = ", conversation_id='{{conversation}}'"
+bound_invalid = '''Bubble communicate 参数存在以下问题：
+{{issues}}
+当前固定目标：participant_id='{{participant}}'{{conversation}}'''
 attachment_fallback = "{{prefix}}（附件）"
 extra_object = "extra 必须是对象。"
 ambiguous = '''participant_id '{{participant}}' 在多个信道中都能匹配，请使用完整 participant_id 重新调用：
 {{options}}'''
 option = "  - {{id}}（前缀：{{prefix}}）"
 websocket_sent = "消息已通过 WebSocket 发送给 {{participant}}"
-conversation_unsupported = "消息发送失败：该通信目标不支持 conversation_id；请去掉该字段后重试。"
-extra_unsupported = "消息发送失败：该通信目标不支持 extra 扩展参数。"
-attachments_unsupported = "消息发送失败：该通信目标不支持附件；请改用支持附件的信道。"
+unsupported_message_only = "该通信目标不支持 {{fields}}。这些字段未被传递，仅将 message 传给了信道。"
+unsupported_omitted = "该通信目标不支持 {{fields}}。这些字段未被传递，其余受支持内容已传给信道。"
 message_empty = "message 不能为空。"
-fallback_saved = "消息发送失败，已记录在本地文件: {{path}}"
+fallback_saved = "当前没有可用的实时连接；message 已记录在本地文件: {{path}}"
 failed = "消息发送失败: {{error}}"
 no_connections = "当前没有任何连接或已知通信对象。"
+no_channel = "没有可处理 participant_id='{{participant}}' 的通信信道。请先用 list_connections 获取可用对象并复制完整 ID。"
 connection_activity = "最近发送：{{sent}}，最近接收：{{received}}"
 connection_none = "无"
 connection_line = "  - {{participant}}（{{activity}}）{{display_name}}"
-wecom_conversation_unsupported = "消息发送失败：企业微信信道不支持 conversation_id；请去掉该字段后重试。"
-wecom_extra_unsupported = "消息发送失败：企业微信信道不支持 extra 扩展参数。"
 wecom_sent = "消息已通过企业微信发送给 {{participant}}"
+wecom_extra_unsupported = "企业微信 extra 不支持字段：{{fields}}；这些字段未传递。支持字段：{{supported}}。"
 wecom_failed = "消息通过企业微信发送失败: {{error}}"
 desktop_disconnected = "该通信目标未连接: {{participant}}"
 desktop_sent = "Desktop 请求已发送 request_id={{request_id}}{{conversation}}"
@@ -167,7 +170,7 @@ binding = '''
 通信绑定：{{participant}}{{conversation}}（后续匹配消息会直接转交给此泡泡）'''
 conversation = " / {{conversation}}"
 transparent = '''
-通信透明标识：已启用（转交、回复和结束会向对方说明）'''
+通信透明标识：已启用（首次真实收发时公告接手，直接回复标识来源，已公告接手才发送结束提示）'''
 created = '''泡泡已创建：id={{id}}
 目标：{{goal}}
 最大轮次：{{cycles}}

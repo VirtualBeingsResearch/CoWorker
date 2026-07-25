@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
@@ -27,11 +27,3 @@ class ToolScope:
     allow_block: bool = False
     brain: Brain | None = None
     short_term: ShortTermMemory | None = None
-    # A participant-bound bubble may communicate only with this exact target.
-    # Empty means the scoped caller has no direct external communication grant.
-    communicate_participant_id: str = ""
-    communicate_conversation_id: str = ""
-    # Optional visible provenance label applied by a scoped communicator.
-    communicate_message_prefix: str = ""
-    # Structured provenance merged into scoped outbound communication.
-    communicate_message_extra: dict[str, Any] = field(default_factory=dict)

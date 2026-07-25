@@ -26,6 +26,7 @@ _TOOL_USE_MODELS = {
 
 class AnthropicProvider(BaseLLMProvider):
     provider_type = "anthropic"
+    api_dialect = "anthropic"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)

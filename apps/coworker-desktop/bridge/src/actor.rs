@@ -291,7 +291,7 @@ fn session_to_actor(session: crate::codex_session::SessionSummary) -> ActorConve
         project_id: session.project_id,
         project_name: session.project_name,
         project_path: session.project_path,
-        writable: session.owned_by_bridge,
+        writable: session.can_continue,
         updated_at: Some(session.last_active_at),
         mode: session
             .pending_collaboration_mode
@@ -319,5 +319,31 @@ pub fn session_message_to_actor(
             "item_id": message.item_id,
             "streaming": message.streaming,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_codex_history_uses_continuation_capability_for_writable_state() {
+        let conversation = session_to_actor(crate::codex_session::SessionSummary {
+            thread_id: "native_thread".to_owned(),
+            title: "Native thread".to_owned(),
+            project_id: None,
+            project_name: None,
+            project_path: None,
+            status: "notLoaded".to_owned(),
+            last_active_at: "2026-07-25T00:00:00Z".to_owned(),
+            owned_by_bridge: false,
+            can_continue: true,
+            collaboration_mode: None,
+            pending_collaboration_mode: None,
+            source: Some("vscode".to_owned()),
+            participants: vec!["codex".to_owned()],
+        });
+
+        assert!(conversation.writable);
     }
 }

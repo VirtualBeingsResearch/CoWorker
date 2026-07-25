@@ -21,7 +21,7 @@ const NAV: Array<{ id: Section; label: string; description: string; group: NavGr
   { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', group: '观察', icon: Activity },
   { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', group: '塑形', icon: Brain },
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
-  { id: 'identity', label: '身份档案', description: '姓名、人格、目标和生命经历', group: '塑形', icon: Fingerprint },
+  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
   { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
@@ -338,6 +338,18 @@ function Loading({ error }: { error?: string }) {
   return <div className={error ? 'state-box error' : 'state-box'} role={error ? 'alert' : 'status'}>{!error && <span className="state-pulse" aria-hidden="true"><i /><i /><i /></span>}<span>{t(error || '正在读取生命迹象…')}</span></div>;
 }
 
+function runtimePresenceLabel(status: Json) {
+  if (!status.is_running) return t('未运行');
+  if (status.is_sleeping) return t(status.passive_mode ? '等待事件' : '休息中');
+  return t(status.passive_mode ? '处理事件' : '正在运行');
+}
+
+function runtimeWakePolicy(status: Json) {
+  if (status.passive_mode) return t('仅由外部事件唤醒');
+  if (Number(status.idle_sleep_seconds) === 0) return t('无间隔持续运行');
+  return t('每 {{seconds}} 秒自唤醒', { seconds: status.idle_sleep_seconds });
+}
+
 function Overview({ name }: { name: string }) {
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/overview'), []);
   if (loading || !data) return <Loading error={error} />;
@@ -345,7 +357,8 @@ function Overview({ name }: { name: string }) {
   const running = status.is_running;
   const resting = running && Boolean(status.is_sleeping);
   const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
-  const presenceLabel = t(running ? (resting ? '休息中' : '正在运行') : '未运行');
+  const presenceLabel = runtimePresenceLabel(status);
+  const wakePolicy = runtimeWakePolicy(status);
   const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return <div className="page-stack">
     <section className={`presence-hero ${presenceState}`}>
@@ -355,6 +368,7 @@ function Overview({ name }: { name: string }) {
         <div className="presence-readout">
           <div><span>{t('主线模型')}</span><strong>{status.provider}/{status.model}</strong></div>
           <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
+          <div><span>{t('唤醒方式')}</span><strong>{wakePolicy}</strong></div>
           <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
         </div>
       </div>
@@ -631,6 +645,9 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
   'i18n.locale': '模型与运行时语言',
+  'agent.passive_mode': 'Passive 模式',
+  'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'api.communication_token': '桌面通信令牌',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
   'desktop_updates.sync_active_source': '当前上游',
@@ -705,7 +722,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -728,14 +745,34 @@ function Settings() {
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (data.secret_status[path]) { const status = data.secret_status[path]; return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={status.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入新值')} /></Field>; }
+        if (data.secret_status[path]) {
+          const status = data.secret_status[path];
+          const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
+          const hint = status.configured
+            ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
+            : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置');
+          const placeholder = status.configured
+            ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
+            : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值');
+          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={placeholder} /></Field>;
+        }
         if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
-        if (typeof value === 'number') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.max_tokens' ? '模型单次响应允许生成的最大 token 数' : undefined}><input type="number" value={value} min={path === 'llm.max_tokens' ? 1 : undefined} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
+        if (typeof value === 'number') {
+          const hint = path === 'llm.max_tokens'
+            ? '模型单次响应允许生成的最大 token 数'
+            : path === 'agent.idle_sleep_seconds'
+              ? draft.agent.passive_mode
+                ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
+                : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
+              : undefined;
+          const minimum = path === 'llm.max_tokens' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
+          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
+        }
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -1338,18 +1375,24 @@ function BackupFullRestore({ filename, name }: { filename: string; name: string 
 }
 
 function Identity({ onName }: { onName: (name: string) => void }) {
-  const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/identity'), []);
+  const identity = useLoad(() => api<Json>('/api/admin/identity'), []);
+  const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { if (data) setDraft({ ...data }); }, [data]);
-  if (loading || !draft) return <Loading error={error} />;
+  useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     const result = await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
     onName(result.name || '');
     setSaved(true);
-    await reload();
+    await Promise.all([identity.reload(), systemPrompt.reload()]);
   };
-  return <Panel title="身份档案" note="修改会直接写入身份文件，并从下一次思考起进入系统提示。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field><Field label="当前目标"><textarea value={draft.goals || ''} onChange={event => setDraft({ ...draft, goals: event.target.value })} /></Field><Field label="人生经历"><textarea className="tall" value={draft.life_story || ''} onChange={event => setDraft({ ...draft, life_story: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案已更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>;
+  return <div className="page-stack">
+    <Panel title="身份档案" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
+    <Panel title="当前 System Prompt" note="只读展示 Agent 当前实际使用的缓存版本；不包含工具 Schema、短期上下文或本轮消息。" action={<button className="ghost mini" disabled={systemPrompt.loading} onClick={() => void systemPrompt.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
+      {systemPrompt.loading || !systemPrompt.data ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{systemPrompt.data.characters ?? 0}</b>{t('字符')}</span><span><b>{systemPrompt.data.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{systemPrompt.data.content || ''}</code></pre></details></>}
+    </Panel>
+  </div>;
 }
 
 type ContentKind = 'skills' | 'palaces' | 'subconscious';
@@ -1886,7 +1929,7 @@ function DesktopReleases() {
   return <div className="release-page page-stack">
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
-      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2><p>{heroNote}</p></div>
+      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2></div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
     </section>
     <section className={'release-sync-card ' + (syncRunning ? 'running' : syncStatus?.outcome || 'idle')}>

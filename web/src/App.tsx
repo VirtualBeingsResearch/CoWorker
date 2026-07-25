@@ -139,7 +139,7 @@ function IdentityPage({
   const birth = profile.earliest_log_ts ? profile.earliest_log_ts.slice(0, 10) : (identity.birth || null);
   const ageDays = birth ? Math.floor((Date.now() - new Date(birth).getTime()) / 86_400_000) : null;
   const ageText = ageDays != null ? t('{{days}} 天', { days: ageDays }) : t('未知');
-  const readme = profile.readme || identity.life_story || null;
+  const readme = profile.readme;
   const readmeRef = useRef<HTMLDivElement | null>(null);
 
   useSmoothWheelScroll(readmeRef);

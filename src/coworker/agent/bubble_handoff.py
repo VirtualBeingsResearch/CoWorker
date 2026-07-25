@@ -112,13 +112,15 @@ class BubbleHandoffMatcher:
 
 
 class BubbleHandoffNotifier:
-    """Deliver visible Bubble lifecycle notices without coupling them to spawning."""
+    """Deliver paired Bubble lifecycle notices around real communication."""
 
     def __init__(self, communicate: CommunicateTool | None) -> None:
         self._communicate = communicate
 
-    async def announce_started(self, bubble: Bubble, *, resumed: bool = False) -> None:
-        await self._announce(
+    async def announce_started(self, bubble: Bubble, *, resumed: bool = False) -> bool:
+        if bubble.handoff_notice_active:
+            return True
+        announced = await self._announce(
             bubble,
             message=format_handoff_start_message(bubble.id, resumed=resumed),
             extra=bubble_handoff_message_extra(
@@ -128,14 +130,22 @@ class BubbleHandoffNotifier:
             ),
             phase="start",
         )
+        if announced:
+            bubble.handoff_notice_active = True
+        return announced
 
-    async def announce_finished(self, bubble: Bubble) -> None:
-        await self._announce(
+    async def announce_finished(self, bubble: Bubble) -> bool:
+        if not bubble.handoff_notice_active:
+            return False
+        announced = await self._announce(
             bubble,
             message=format_handoff_end_message(bubble.id),
             extra=bubble_handoff_message_extra(bubble.id, phase="end"),
             phase="end",
         )
+        if announced:
+            bubble.handoff_notice_active = False
+        return announced
 
     async def _announce(
         self,
@@ -144,16 +154,21 @@ class BubbleHandoffNotifier:
         message: str,
         extra: dict[str, object],
         phase: str,
-    ) -> None:
+    ) -> bool:
         if (
             not bubble.handoff_transparency
             or not bubble.participant_id
             or self._communicate is None
         ):
-            return
+            return False
         try:
             outgoing_extra = (
-                extra if self._communicate.supports_message_extra(bubble.participant_id) else None
+                extra
+                if self._communicate.supports_message_extra(
+                    bubble.participant_id,
+                    extra,
+                )
+                else None
             )
             result = await self._communicate.execute(
                 participant_id=bubble.participant_id,
@@ -165,8 +180,11 @@ class BubbleHandoffNotifier:
                 logger.warning(
                     f"Bubble {bubble.id} handoff-{phase} notice failed: {result.content}"
                 )
+                return False
+            return True
         except Exception as error:
             logger.warning(f"Bubble {bubble.id} handoff-{phase} notice raised: {error}")
+            return False
 
 
 def is_desktop_participant(participant_id: str) -> bool:

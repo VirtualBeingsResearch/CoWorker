@@ -91,8 +91,8 @@ language-transition system notice when it detects a locale change.
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_ENABLED` | `true` | Whether automatic recall also queries recent activity |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_LIMIT` | `2` | Maximum recent-activity results injected by automatic recall |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.72` | Relevance threshold for automatic recent-activity recall |
-| `MEMORY__MEM0_LLM_PROVIDER` | `deepseek` | LLM provider used internally by mem0 for memory extraction |
-| `MEMORY__MEM0_LLM_MODEL` | `deepseek-v4-flash` | Model used internally by mem0 for memory extraction |
+| `MEMORY__MEM0_LLM_PROVIDER` | `deepseek` | Brain provider name or type used for mem0 extraction; reuses the matching instance's credentials and effective `base_url`, with OpenAI-compatible providers selected by API dialect |
+| `MEMORY__MEM0_LLM_MODEL` | `deepseek-v4-flash` | Model ID used for mem0 extraction; passed through to the API dialect without a separate model allowlist |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0 and recent activity; do not switch it directly when existing data is present |
 
 ### Agent
@@ -112,7 +112,7 @@ language-transition system notice when it detects a locale change.
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive Bubble-ID handoff, resume, and completion notices, and direct replies carry structured provenance. The defaults match WeCom and the Desktop `local` actor; set `[]` to disable every default participant match. |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom and the Desktop `local` actor; set `[]` to disable every default participant match. |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON transport array accepting `websocket` and `sse`; both are enabled by default, so live generic streams use transparent handoff automatically. A Desktop actor that does not match a participant glob never falls through to this rule, so `claude` and `codex` remain excluded. Set `[]` to disable transport matching. |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | Grace period in seconds for continuing a Bubble with `bubble_spawn(bubble_id=...)` after it reaches its cycle limit; set to `0` to disable. |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
@@ -127,7 +127,7 @@ language-transition system notice when it detects a locale change.
 | `API__PORT` | `8000` | API listen port |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop development mode; disables Bearer/HTTPS checks and should be enabled explicitly only for local HTTP debugging |
-| `API__COMMUNICATION_TOKEN` | Empty (required) | Bearer token for production Desktop communication; required when `API__DEVELOPMENT_MODE=false` |
+| `API__COMMUNICATION_TOKEN` | Empty (administrator-token fallback) | Bearer token for production Desktop communication; configure it separately to isolate permissions |
 | `ADMIN__TOKEN` | Generated on first startup | Bearer token for the `/admin` console and `/api/admin/*`; the generated value is saved in the administration configuration file |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | Typed JSON override layer saved by the administration page, with higher priority than `.env`; non-hot-reload settings take effect after a restart |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Storage directory for Desktop update releases and assets |
@@ -143,6 +143,8 @@ language-transition system notice when it detects a locale change.
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
+
+Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
 
 ### Container Git workspace
 

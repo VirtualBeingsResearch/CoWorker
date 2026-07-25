@@ -366,6 +366,8 @@ async def test_github_source_accepts_partial_assets_and_api_digests(tmp_path) ->
         transport=httpx.MockTransport(handler),
     )
     page = await source.fetch_releases()
+    preflight_fingerprint = source.fingerprint_release(page.releases[0])
+    assert preflight_fingerprint is not None
     assert set(page.releases[0].assets) == set(names)
     store = DesktopReleaseStore(tmp_path / "updates")
     async with store.staging(version) as staging:
@@ -374,6 +376,7 @@ async def test_github_source_accepts_partial_assets_and_api_digests(tmp_path) ->
     await source.aclose()
 
     imported = await store.read_release(version)
+    assert imported["source"]["fingerprint"] == preflight_fingerprint
     assert set(imported["installers"]) == {"linux-x86_64"}
     assert set(imported["platforms"]) == {"linux-x86_64"}
     assert "signature" not in imported["platforms"]["linux-x86_64"]
@@ -558,6 +561,9 @@ class _FakeSource:
         self.fetch_calls += 1
         return ReleasePage(releases=tuple(self.releases), etag='"etag"')
 
+    def fingerprint_release(self, release: SourceRelease) -> str | None:
+        return None
+
     async def download_release(
         self,
         release: SourceRelease,
@@ -712,6 +718,32 @@ async def test_sync_compares_existing_release_fingerprint(
 
     assert result.outcome == expected
     assert source.downloaded == ["1.2.3"]
+    await service.stop()
+
+
+class _PreflightFingerprintSource(_FakeSource):
+    def fingerprint_release(self, release: SourceRelease) -> str | None:
+        return self.fingerprint
+
+
+@pytest.mark.parametrize(
+    ("existing_fingerprint", "expected"),
+    [("source-fingerprint", "no_updates"), ("different", "conflict")],
+)
+async def test_sync_skips_asset_download_when_source_provides_fingerprint(
+    tmp_path,
+    existing_fingerprint: str,
+    expected: str,
+) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    await _commit_existing(store, "1.2.3", existing_fingerprint)
+    source = _PreflightFingerprintSource([_source_release("1.2.3", 10)])
+    service = SyncService(store, source)
+
+    result = await service.sync_now()
+
+    assert result.outcome == expected
+    assert source.downloaded == []
     await service.stop()
 
 

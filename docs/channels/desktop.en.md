@@ -83,6 +83,8 @@ Example with multiple Coworker instances:
 }
 ```
 
+When the Coworker server has no dedicated `API__COMMUNICATION_TOKEN`, this field can use the administrator token. Configure separate tokens when Desktop and administrator permissions must be isolated.
+
 For local HTTP debugging, first confirm that the service listens only on a loopback address. Then change the setting manually to `"security": {"development_mode": true}` and set `API__DEVELOPMENT_MODE=true` on Coworker as well. Never use this configuration on a shared network.
 
 The configuration must use `schema_version=2` and contain a non-empty `coworkers` array. Legacy top-level Coworker fields are not used when generating a new configuration.
@@ -100,7 +102,7 @@ uv run coworker
 cargo run --bin coworker-desktop
 ```
 
-After Desktop starts, it registers a `coworker-desktop` participant only for identities whose health check passed and begins periodic `desktop.actor.snapshot` publication. Each actor scans recent conversations once per cycle, preferring native project identifiers for grouping and limiting the number actively displayed per project. Conversations without a project are grouped under `“对话”` (“Conversations”). Identical snapshots are not republished, although a recovery heartbeat is sent at least once every five minutes. A publication failure for one Coworker does not block the others. Coworker writes the three identities' connection status and project conversations into pinned context and automatically loads the `coworker-desktop` Skill for Desktop-originated messages. The complete list remains available through `list_conversations`.
+After Desktop starts, it registers a `coworker-desktop` participant only for identities whose health check passed and begins periodic `desktop.actor.snapshot` publication. Each actor scans recent conversations once per cycle, preferring native project identifiers for grouping and limiting the number actively displayed per project. Conversations without a project are grouped under `“对话”` (“Conversations”). Identical snapshots are not republished, although a recovery heartbeat is sent at least once every five minutes. A publication failure for one Coworker does not block the others. Coworker writes only a compact model-facing index into pinned context: identities from the same Desktop are grouped, exact participant/project/conversation identifiers are retained, and at most the four newest conversations are shown for each identity. The raw snapshot and Desktop transport structure remain unchanged, and the complete list stays available through `list_conversations`. Desktop-originated messages automatically load the `coworker-desktop` Skill.
 
 ## Running and packaging the desktop application
 
@@ -262,6 +264,11 @@ At startup, the desktop application requests `GET /api/desktop-updates/{{target}
 After an operator calls `publish` or `rollback`, the server also sends a check-for-updates request over existing Desktop SSE connections to online clients that support `desktop_update_push`. The `push.eligible` and `push.enqueued` fields in the publish response count eligible desktops and those placed in the online SSE queue; they do not indicate offline delivery. If the bridge is stopped, the client is offline, or the desktop application has exited, the push is not retained. The next startup performs the check through the updater endpoint above. A push triggers only a signed update check and never installs automatically; the desktop application restarts only after the user approves installation.
 
 1. Coworker sends a message through `communicate` to the `coworker-desktop` participant represented by a Desktop snapshot. `conversation_id` selects a conversation under that actor; omitting it creates a new conversation. If `extra.project_path` / `extra.cwd` is omitted, a new Codex thread starts as a no-project chat. If provided, it is sent to the Codex app-server as the project working directory.
+
+Existing Codex actor conversations include threads created by CoWorker Desktop as well as local
+history left by Codex App or the CLI. The bridge recognizes local rollouts and validates a
+`conversation_id` through Codex app-server `thread/resume` before the first mutation; missing or
+stale ids are rejected before any message record is written.
 
 Create a thread:
 

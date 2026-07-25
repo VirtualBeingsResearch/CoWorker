@@ -83,6 +83,8 @@ cargo run --bin coworker-desktop -- --config coworker_desktop.json
 }
 ```
 
+若 Coworker 服务端未单独配置 `API__COMMUNICATION_TOKEN`，这里可以直接使用管理员令牌；需要隔离 Desktop 与管理权限时，再为两者设置不同令牌。
+
 本机 HTTP 调试时，在确认服务仅监听回环地址后，手动改为
 `"security": {"development_mode": true}`，并在 Coworker 端同步设置
 `API__DEVELOPMENT_MODE=true`；不要把该配置用于共享网络。
@@ -102,7 +104,7 @@ uv run coworker
 cargo run --bin coworker-desktop
 ```
 
-Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` participant，并启动周期性的 `desktop.actor.snapshot`。每个 actor 每轮只扫描一次近期会话，优先使用原生项目标识进行分组并限制每个项目主动展示的数量；无项目会话统一归入“对话”组。相同 snapshot 会跳过重复发布，但最多 5 分钟发送一次恢复心跳；一个 Coworker 发布失败不会阻塞其他 Coworker。Coworker 会把三个身份的连接状态与项目会话写入 pinned context，并为 Desktop 来源消息自动加载 `coworker-desktop` Skill。完整列表仍通过 `list_conversations` 查询。
+Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` participant，并启动周期性的 `desktop.actor.snapshot`。每个 actor 每轮只扫描一次近期会话，优先使用原生项目标识进行分组并限制每个项目主动展示的数量；无项目会话统一归入“对话”组。相同 snapshot 会跳过重复发布，但最多 5 分钟发送一次恢复心跳；一个 Coworker 发布失败不会阻塞其他 Coworker。Coworker 只把面向模型的紧凑索引写入 pinned context：同一 Desktop 下合并身份、保留精确 participant/project/conversation 标识，并为每个身份最多展示最新 4 个会话；原始 snapshot 与 Desktop 传输结构不变，完整列表仍通过 `list_conversations` 查询。Desktop 来源消息会自动加载 `coworker-desktop` Skill。
 
 ## 桌面版运行和打包
 
@@ -274,6 +276,10 @@ API Base URL 可以指向 GitHub Enterprise（例如 `https://github.company/api
 用户确认安装后桌面端才会重启。
 
 1. Coworker 通过 `communicate` 发给 Desktop snapshot 对应的 `coworker-desktop` participant。`conversation_id` 表示该 actor 下的会话；不传时会创建新会话。不传 `extra.project_path` / `extra.cwd` 时，新 Codex thread 会作为 no-project chat 启动；传入时会作为项目 cwd 发送给 Codex app-server。
+
+Codex actor 的已有会话既包括 CoWorker Desktop 创建的 thread，也包括 Codex App 或 CLI
+留下的本地历史。Bridge 会识别本地 rollout，并在第一次修改前通过 Codex app-server 的
+`thread/resume` 验证 `conversation_id`；不存在或已经失效的 id 会在写入消息记录前被拒绝。
 
 新建 thread：
 
