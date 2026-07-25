@@ -1,5 +1,5 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useI18n } from "../i18n";
 import {
   applyActorStreamEvent,
@@ -83,6 +83,10 @@ function selectedPaths(value: string | string[] | null): string[] {
   return Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
 }
 
+function actorConversationScrollKey(configPath: string, actor: DesktopActorId, conversationId: string) {
+  return `${configPath}\0${actor}\0${conversationId}`;
+}
+
 async function downloadAttachment(
   attachment: TimelineAttachment,
   title: string,
@@ -110,7 +114,14 @@ function ConversationController({
   onSelectCoworker,
   feedback,
   onActiveConversationChange,
-}: Omit<WorkspaceProps, "status"> & { actor: DesktopActorId; running: boolean }) {
+  registerScrollSnapshot,
+  actorScrollPositions,
+}: Omit<WorkspaceProps, "status"> & {
+  actor: DesktopActorId;
+  running: boolean;
+  registerScrollSnapshot: (actor: DesktopActorId, snapshot: () => void) => () => void;
+  actorScrollPositions: MutableRefObject<Map<string, number>>;
+}) {
   const { t } = useI18n();
   const sessionPageSize = actor === "local" ? localSessionListPageSize : sessionListPageSize;
   const actorLabel = actor === "codex" ? t("actors.codex") : actor === "claude" ? t("actors.claude") : t("actors.local");
@@ -153,12 +164,32 @@ function ConversationController({
   const followLatestRef = useRef(true);
   const scrollTopRef = useRef(0);
   const pendingScrollTopRef = useRef<number | null>(null);
+  const scrollRestoreGenerationRef = useRef(0);
   const restoringConversationRef = useRef(false);
   const sendContextRef = useRef<{ sourceId: string; title: string; projectPath: string | null; startedAt: string } | null>(null);
 
   const selected = sessions.find((session) => session.conversation_id === selectedId) ?? null;
   const canUseComposer = running && (!selected || selected.writable);
   const sessionMode = selected?.mode ?? composerMode;
+  const snapshotTimelineScroll = useCallback(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    scrollTopRef.current = timeline.scrollTop;
+    pendingScrollTopRef.current = timeline.scrollTop;
+    scrollRestoreGenerationRef.current += 1;
+    if (selectedIdRef.current) {
+      actorScrollPositions.current.set(
+        actorConversationScrollKey(configPath, actor, selectedIdRef.current),
+        timeline.scrollTop,
+      );
+    }
+    followLatestRef.current = isTimelineNearBottom(timeline);
+  }, [actor, actorScrollPositions, configPath]);
+
+  useEffect(
+    () => registerScrollSnapshot(actor, snapshotTimelineScroll),
+    [actor, registerScrollSnapshot, snapshotTimelineScroll],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -401,24 +432,35 @@ function ConversationController({
     const timeline = timelineRef.current;
     if (!timeline) return;
     const trackScroll = () => {
-      if (pendingScrollTopRef.current !== null) return;
       scrollTopRef.current = timeline.scrollTop;
+      pendingScrollTopRef.current = timeline.scrollTop;
+      scrollRestoreGenerationRef.current += 1;
+      if (selectedId) {
+        actorScrollPositions.current.set(
+          actorConversationScrollKey(configPath, actor, selectedId),
+          timeline.scrollTop,
+        );
+      }
       followLatestRef.current = isTimelineNearBottom(timeline);
     };
     timeline.addEventListener("scroll", trackScroll, { passive: true });
     return () => timeline.removeEventListener("scroll", trackScroll);
-  }, [selectedId]);
+  }, [actor, actorScrollPositions, configPath, selectedId]);
 
   useEffect(() => {
     if (!active || !timelineRef.current) return;
-    const scrollTop = pendingScrollTopRef.current ?? scrollTopRef.current;
+    const scrollTop = actorScrollPositions.current.get(actorConversationScrollKey(configPath, actor, selectedId))
+      ?? pendingScrollTopRef.current
+      ?? scrollTopRef.current;
+    const restoreGeneration = ++scrollRestoreGenerationRef.current;
     const frame = window.requestAnimationFrame(() => {
+      if (restoreGeneration !== scrollRestoreGenerationRef.current) return;
       if (timelineRef.current) timelineRef.current.scrollTop = scrollTop;
       scrollTopRef.current = scrollTop;
       pendingScrollTopRef.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [active, selectedId]);
+  }, [active, actor, actorScrollPositions, configPath, selectedId]);
 
   useEffect(() => {
     if (restoringConversationRef.current) {
@@ -753,13 +795,26 @@ export function ConversationsWorkspace({
   onActiveConversationChange,
 }: WorkspaceProps) {
   const [actor, setActor] = useState<DesktopActorId>("codex");
+  const scrollSnapshotHandlersRef = useRef(new Map<DesktopActorId, () => void>());
+  const actorScrollPositions = useRef(new Map<string, number>());
+  const registerScrollSnapshot = useCallback((controllerActor: DesktopActorId, snapshot: () => void) => {
+    scrollSnapshotHandlersRef.current.set(controllerActor, snapshot);
+    return () => {
+      if (scrollSnapshotHandlersRef.current.get(controllerActor) === snapshot) {
+        scrollSnapshotHandlersRef.current.delete(controllerActor);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!active) onActiveConversationChange(null);
   }, [active, onActiveConversationChange]);
 
   return <div className={active ? "unifiedSessions" : undefined} hidden={!active}>
-    <ActorRail actor={actor} health={status?.actors ?? []} onChange={setActor} />
+    <ActorRail actor={actor} health={status?.actors ?? []} onChange={(nextActor) => {
+      scrollSnapshotHandlersRef.current.get(actor)?.();
+      setActor(nextActor);
+    }} />
     {(["local", "codex", "claude"] as DesktopActorId[]).map((controllerActor) => (
       <ConversationController
         key={controllerActor}
@@ -773,6 +828,8 @@ export function ConversationsWorkspace({
         onSelectCoworker={onSelectCoworker}
         feedback={feedback}
         onActiveConversationChange={onActiveConversationChange}
+        registerScrollSnapshot={registerScrollSnapshot}
+        actorScrollPositions={actorScrollPositions}
       />
     ))}
   </div>;

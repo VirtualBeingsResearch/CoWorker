@@ -1037,13 +1037,14 @@ describe("App backend operation wiring", () => {
     ));
   });
 
-  it("keeps a conversation loaded when switching actor tabs", async () => {
+  it("keeps a conversation loaded and captures its latest scroll position when switching actor tabs", async () => {
     const user = await renderApp(runningStatus);
     await openSessions(user);
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     const codexTimeline = screen.getByRole("region", { name: "Codex conversations" })
       .querySelector<HTMLElement>(".sessionTimeline");
     expect(codexTimeline).not.toBeNull();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     if (codexTimeline) {
       codexTimeline.scrollTop = 120;
       fireEvent.scroll(codexTimeline);
