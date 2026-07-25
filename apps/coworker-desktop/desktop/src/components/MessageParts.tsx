@@ -23,7 +23,7 @@ export function markdownLocalImagePath(source: string) {
   } catch {
     return null;
   }
-  if (/^\/[a-z]:\//i.test(decoded)) return decoded.slice(1);
+  if (/^\/[a-z]:[\\/]/i.test(decoded)) return decoded.slice(1);
   if (/^[a-z]:[\\/]/i.test(decoded) || decoded.startsWith("/")) return decoded;
   return null;
 }
