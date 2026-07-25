@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +15,6 @@ def test_windows_supervisor_replaces_worker_without_nesting(
 ) -> None:
     monkeypatch.setattr(launcher.sys, "executable", "python.exe")
     monkeypatch.setattr(launcher.sys, "argv", ["coworker", "--flag"])
-    monkeypatch.setattr(launcher.os, "getpid", lambda: 42)
 
     children: list[tuple[list[str], dict[str, str]]] = []
     returncodes = iter([launcher.WINDOWS_RESTART_EXIT_CODE, 7])
@@ -35,29 +36,46 @@ def test_windows_supervisor_replaces_worker_without_nesting(
         ["python.exe", "-m", "coworker", "--flag"],
     ]
     assert all(
-        environment[launcher.WINDOWS_SUPERVISOR_PID_ENV] == "42"
+        environment[launcher.WINDOWS_WORKER_ENV] == launcher.WINDOWS_WORKER_TOKEN
         for _, environment in children
     )
 
 
-def test_windows_worker_requires_its_direct_supervisor(
+def test_windows_worker_token_runs_application_without_nested_supervisor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application_runs: list[bool] = []
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setenv(launcher.WINDOWS_WORKER_ENV, launcher.WINDOWS_WORKER_TOKEN)
+
+    def fail_supervisor_start() -> int:
+        raise AssertionError("worker must not start a nested supervisor")
+
+    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
+    monkeypatch.setitem(
+        sys.modules,
+        "coworker.application",
+        SimpleNamespace(run_sync=lambda: application_runs.append(True)),
+    )
+
+    launcher.main_sync()
+
+    assert application_runs == [True]
+    assert launcher.WINDOWS_WORKER_ENV not in os.environ
+
+
+def test_windows_launch_without_worker_token_runs_supervisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(launcher.sys, "platform", "win32")
-    monkeypatch.setattr(launcher.os, "getppid", lambda: 42)
-    monkeypatch.setenv(launcher.WINDOWS_SUPERVISOR_PID_ENV, "42")
+    monkeypatch.setattr(launcher.sys, "argv", ["coworker"])
+    monkeypatch.delenv(launcher.WINDOWS_WORKER_ENV, raising=False)
+    monkeypatch.setattr(launcher, "_supervise_windows", lambda: 7)
 
-    assert launcher._needs_windows_supervisor() is False
+    with pytest.raises(SystemExit) as exc:
+        launcher.main_sync()
 
-
-def test_inherited_supervisor_marker_starts_a_new_supervisor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(launcher.sys, "platform", "win32")
-    monkeypatch.setattr(launcher.os, "getppid", lambda: 99)
-    monkeypatch.setenv(launcher.WINDOWS_SUPERVISOR_PID_ENV, "42")
-
-    assert launcher._needs_windows_supervisor() is True
+    assert exc.value.code == 7
 
 
 def test_windows_one_shot_command_skips_supervisor(
@@ -65,9 +83,21 @@ def test_windows_one_shot_command_skips_supervisor(
 ) -> None:
     monkeypatch.setattr(launcher.sys, "platform", "win32")
     monkeypatch.setattr(launcher.sys, "argv", ["coworker", "--check"])
-    monkeypatch.delenv(launcher.WINDOWS_SUPERVISOR_PID_ENV, raising=False)
+    application_runs: list[bool] = []
 
-    assert launcher._needs_windows_supervisor() is False
+    def fail_supervisor_start() -> int:
+        raise AssertionError("one-shot command must not start a supervisor")
+
+    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
+    monkeypatch.setitem(
+        sys.modules,
+        "coworker.application",
+        SimpleNamespace(run_sync=lambda: application_runs.append(True)),
+    )
+
+    launcher.main_sync()
+
+    assert application_runs == [True]
 
 
 def test_windows_supervisor_stops_child_after_ctrl_c(
@@ -88,7 +118,9 @@ def test_windows_supervisor_stops_child_after_ctrl_c(
         def kill(self) -> None:
             raise AssertionError("child exited during grace period")
 
-    assert launcher._wait_for_child(Child()) == 130
+    monkeypatch.setattr(subprocess, "Popen", lambda _argv, *, env: Child())
+
+    assert launcher._supervise_windows() == 130
     assert waits == [None, launcher.CHILD_INTERRUPT_GRACE_SECONDS]
 
 
