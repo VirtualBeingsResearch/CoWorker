@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +12,7 @@ from coworker import application, launcher
 
 
 def test_windows_supervisor_replaces_worker_without_nesting(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     original_argv = [
         "base-python.exe",
@@ -25,17 +26,30 @@ def test_windows_supervisor_replaces_worker_without_nesting(
     monkeypatch.setattr(launcher.sys, "executable", "venv-python.exe")
     monkeypatch.setattr(launcher.sys, "orig_argv", original_argv)
 
+    monkeypatch.setattr(launcher.tempfile, "gettempdir", lambda: str(tmp_path))
     children: list[tuple[list[str], dict[str, str]]] = []
-    returncodes = iter([launcher.WINDOWS_RESTART_EXIT_CODE, 7])
+    returncodes = iter([75, 7])
 
     class Child:
+        def __init__(self, environment: dict[str, str]) -> None:
+            self.environment = environment
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
         def wait(self, timeout: float | None = None) -> int:
             assert timeout is None
-            return next(returncodes)
+            returncode = next(returncodes)
+            if returncode == 75:
+                Path(self.environment[launcher.WINDOWS_WORKER_ENV]).touch()
+            return returncode
 
     def fake_popen(argv: list[str], *, env: dict[str, str]) -> Child:
         children.append((argv, env))
-        return Child()
+        return Child(env)
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
@@ -43,17 +57,40 @@ def test_windows_supervisor_replaces_worker_without_nesting(
     expected_argv = ["venv-python.exe", *original_argv[1:]]
     assert [argv for argv, _ in children] == [expected_argv, expected_argv]
     assert all(
-        environment[launcher.WINDOWS_WORKER_ENV] == launcher.WINDOWS_WORKER_TOKEN
+        environment[launcher.WINDOWS_WORKER_ENV].endswith(".signal")
         for _, environment in children
     )
+    assert not list(tmp_path.iterdir())
+
+
+def test_windows_supervisor_preserves_subcommand_exit_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(launcher.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    class Child:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None
+            return 75
+
+    monkeypatch.setattr(subprocess, "Popen", lambda _argv, *, env: Child())
+
+    assert launcher._supervise_windows() == 75
 
 
 def test_windows_worker_token_runs_application_without_nested_supervisor(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    application_runs: list[bool] = []
+    application_signals: list[str | None] = []
+    restart_signal = tmp_path / "restart.signal"
     monkeypatch.setattr(launcher.sys, "platform", "win32")
-    monkeypatch.setenv(launcher.WINDOWS_WORKER_ENV, launcher.WINDOWS_WORKER_TOKEN)
+    monkeypatch.setenv(launcher.WINDOWS_WORKER_ENV, str(restart_signal))
 
     def fail_supervisor_start() -> int:
         raise AssertionError("worker must not start a nested supervisor")
@@ -62,13 +99,18 @@ def test_windows_worker_token_runs_application_without_nested_supervisor(
     monkeypatch.setitem(
         sys.modules,
         "coworker.application",
-        SimpleNamespace(run_sync=lambda: application_runs.append(True)),
+        SimpleNamespace(
+            run_sync=lambda signal: application_signals.append(signal)
+        ),
     )
 
     launcher.main_sync()
 
-    assert application_runs == [True]
-    assert launcher.WINDOWS_WORKER_ENV not in os.environ
+    assert application_signals == [str(restart_signal)]
+    assert (
+        os.environ[launcher.WINDOWS_WORKER_ENV]
+        == launcher.WINDOWS_DESCENDANT_MARKER
+    )
 
 
 def test_windows_launch_without_worker_token_runs_supervisor(
@@ -85,12 +127,44 @@ def test_windows_launch_without_worker_token_runs_supervisor(
     assert exc.value.code == 7
 
 
+def test_descendant_coworker_reuses_launcher_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application_signals: list[str | None] = []
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setenv(
+        launcher.WINDOWS_WORKER_ENV, launcher.WINDOWS_DESCENDANT_MARKER
+    )
+
+    def fail_supervisor_start() -> int:
+        raise AssertionError("descendant must not start another supervisor")
+
+    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
+    monkeypatch.setitem(
+        sys.modules,
+        "coworker.application",
+        SimpleNamespace(
+            run_sync=lambda signal: application_signals.append(signal)
+        ),
+    )
+
+    launcher.main_sync()
+
+    assert application_signals == [None]
+
+
 def test_windows_supervisor_stops_child_after_ctrl_c(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     waits: list[float | None] = []
 
     class Child:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
         def wait(self, timeout: float | None = None) -> int:
             waits.append(timeout)
             if len(waits) == 1:
@@ -136,8 +210,11 @@ def test_windows_supervisor_kills_unresponsive_child() -> None:
     ]
 
 
-def test_windows_restart_hard_exits_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_windows_restart_hard_exits_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(application.sys, "platform", "win32")
+    restart_signal = tmp_path / "restart.signal"
 
     def fake_exit(returncode: int) -> None:
         raise SystemExit(returncode)
@@ -145,6 +222,7 @@ def test_windows_restart_hard_exits_worker(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(os, "_exit", fake_exit)
 
     with pytest.raises(SystemExit) as exc:
-        application._restart_process()
+        application._restart_process(str(restart_signal))
 
-    assert exc.value.code == launcher.WINDOWS_RESTART_EXIT_CODE
+    assert exc.value.code == 0
+    assert restart_signal.exists()

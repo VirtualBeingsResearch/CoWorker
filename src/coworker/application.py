@@ -52,7 +52,6 @@ from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
-from coworker.launcher import WINDOWS_RESTART_EXIT_CODE
 from coworker.memory.long_term import LongTermMemory
 from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
@@ -1059,16 +1058,19 @@ async def _main() -> bool:
     return agent_state.restart_requested
 
 
-def _restart_process() -> None:
+def _restart_process(restart_signal: str | None) -> None:
     """Hand restart control to the platform launcher."""
     if sys.platform == "win32":
-        os._exit(WINDOWS_RESTART_EXIT_CODE)
+        if restart_signal is None:
+            raise RuntimeError("Windows worker restart signal is unavailable")
+        Path(restart_signal).touch()
+        os._exit(0)
     argv = [sys.executable, "-m", "coworker", *sys.argv[1:]]
     logger.info("Replacing process via os.execv...")
     os.execv(sys.executable, argv)
 
 
-def run_sync() -> None:
+def run_sync(restart_signal: str | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(add_help=False)
@@ -1090,4 +1092,4 @@ def run_sync() -> None:
 
     restart = asyncio.run(_main())
     if restart:
-        _restart_process()
+        _restart_process(restart_signal)
