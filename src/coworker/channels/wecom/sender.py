@@ -68,8 +68,12 @@ class WeComSender:
         client = self._get_client()
         if client is None:
             raise RuntimeError("WeCom client not started")
-        _chat_type, chat_id = adapter.parse_participant(participant_id)
-        frame = self._take_frame(chat_id, conversation_id)
+        chat_type, chat_id = adapter.parse_participant(participant_id)
+        frame = (
+            self._take_frame(chat_id, conversation_id)
+            if chat_type == "single" or conversation_id is not None
+            else None
+        )
 
         if message:
             from wecom_aibot_sdk import generate_req_id

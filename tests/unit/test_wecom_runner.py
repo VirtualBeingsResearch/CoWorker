@@ -386,6 +386,18 @@ async def test_missing_conversation_frame_never_replies_to_another_frame(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_group_send_without_conversation_id_stays_proactive(tmp_path):
+    runner = _make_runner(tmp_path)
+    runner._cache_frame("wecom:group:TEAM", "r1", _frame_single("r1", "M1"))
+
+    await runner.send("wecom:group:TEAM", "announcement", [])
+
+    runner._client.reply_stream.assert_not_called()
+    runner._client.send_message.assert_awaited_once()
+    assert ("TEAM", "r1") in runner._frame_cache
+
+
+@pytest.mark.asyncio
 async def test_sender_returns_tool_result(tmp_path):
     runner = _make_runner(tmp_path)
     channel = WeComChannel(runner)

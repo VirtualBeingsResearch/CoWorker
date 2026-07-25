@@ -49,7 +49,7 @@ channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 
 Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments` 和 `extra`，默认仅支持 `message`。Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。
 
-企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。
+企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。群聊发送时不传 `conversation_id` 也始终视为主动消息，不会自动使用缓存的 frame。
 
 企业微信智能机器人目前不支持通过 API @群成员，因此 WeCom Channel 不提供成员提醒能力。
 
