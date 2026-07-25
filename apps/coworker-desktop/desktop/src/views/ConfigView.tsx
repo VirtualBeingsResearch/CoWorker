@@ -24,6 +24,9 @@ export function ConfigView({
   setConfigPath,
   config,
   isDirty,
+  launchAtLoginEnabled,
+  launchAtLoginUpdating,
+  onSetLaunchAtLogin,
   fieldError,
   updateConfig,
   updateCodexId,
@@ -51,6 +54,9 @@ export function ConfigView({
   setConfigPath: (value: string) => void;
   config: ConfigValue;
   isDirty: boolean;
+  launchAtLoginEnabled: boolean | null;
+  launchAtLoginUpdating: boolean;
+  onSetLaunchAtLogin: (enabled: boolean) => void;
   fieldError: (path: string) => ValidationIssue | undefined;
   updateConfig: (next: ConfigValue) => void;
   updateCodexId: (value: string) => void;
@@ -187,6 +193,40 @@ export function ConfigView({
               type="checkbox"
               checked={config.close_to_tray !== false}
               onChange={(event) => updateConfig({ ...config, close_to_tray: event.target.checked })}
+            />
+            <span aria-hidden="true" />
+          </span>
+        </label>
+        <label className="coworkerEnabledBand fieldSpanFull" htmlFor="launch-at-login">
+          <span>
+            <strong>{t("config.fieldLaunchAtLogin")}</strong>
+            <small>{t("config.hintLaunchAtLogin")}</small>
+          </span>
+          <span className="toggleControl">
+            <input
+              id="launch-at-login"
+              type="checkbox"
+              checked={launchAtLoginEnabled === true}
+              disabled={launchAtLoginEnabled === null || launchAtLoginUpdating}
+              onChange={(event) => onSetLaunchAtLogin(event.target.checked)}
+            />
+            <span aria-hidden="true" />
+          </span>
+        </label>
+        <label className="coworkerEnabledBand fieldSpanFull" htmlFor="start-bridge-on-launch">
+          <span>
+            <strong>{t("config.fieldStartBridgeOnLaunch")}</strong>
+            <small>{t("config.hintStartBridgeOnLaunch")}</small>
+          </span>
+          <span className="toggleControl">
+            <input
+              id="start-bridge-on-launch"
+              type="checkbox"
+              checked={config.start_bridge_on_launch === true}
+              onChange={(event) => updateConfig({
+                ...config,
+                start_bridge_on_launch: event.target.checked,
+              })}
             />
             <span aria-hidden="true" />
           </span>

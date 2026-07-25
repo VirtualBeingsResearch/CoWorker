@@ -70,6 +70,7 @@ import {
   getDefaultDesktopUpdateUrl,
   installDesktopUpdate,
   isCloseToTrayChoicePending,
+  isLaunchAtLoginEnabled,
   listCommunicateRegistrations,
   listenActorStreamEvents,
   listenBridgeLogChunks,
@@ -93,6 +94,7 @@ import {
   stopBridge,
   stopBridgeLogStream,
   setCloseToTray,
+  setLaunchAtLogin,
   setTrayCopy,
   minimizeDesktopWindow,
   toggleMaximizeDesktopWindow,
@@ -252,6 +254,8 @@ export function App() {
   const [developmentWarningDismissed, setDevelopmentWarningDismissed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [closeToTrayNoticeOpen, setCloseToTrayNoticeOpen] = useState(false);
+  const [launchAtLoginEnabled, setLaunchAtLoginEnabled] = useState<boolean | null>(null);
+  const [launchAtLoginUpdating, setLaunchAtLoginUpdating] = useState(false);
   const [desktopApprovals, setDesktopApprovals] = useState<DesktopApproval[]>([]);
   const [resolvingApproval, setResolvingApproval] = useState(false);
   const ledgerRef = useRef<HTMLDivElement | null>(null);
@@ -413,6 +417,12 @@ export function App() {
   useEffect(() => {
     void setCloseToTray(config.close_to_tray !== false).catch(() => undefined);
   }, [config.close_to_tray]);
+
+  useEffect(() => {
+    isLaunchAtLoginEnabled()
+      .then(setLaunchAtLoginEnabled)
+      .catch(reportError);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -983,6 +993,21 @@ export function App() {
     markDirty();
   }
 
+  async function updateLaunchAtLogin(enabled: boolean) {
+    setLaunchAtLoginUpdating(true);
+    try {
+      await setLaunchAtLogin(enabled);
+      setLaunchAtLoginEnabled(await isLaunchAtLoginEnabled());
+      showToast(t(enabled
+        ? "config.toast.launchAtLoginEnabled"
+        : "config.toast.launchAtLoginDisabled"));
+    } catch (error) {
+      reportError(error);
+    } finally {
+      setLaunchAtLoginUpdating(false);
+    }
+  }
+
   async function chooseChatWorkspacesDir() {
     const selected = await openDialog({
       directory: true,
@@ -1457,6 +1482,11 @@ export function App() {
             setConfigPath={setConfigPath}
             config={config}
             isDirty={isDirty}
+            launchAtLoginEnabled={launchAtLoginEnabled}
+            launchAtLoginUpdating={launchAtLoginUpdating}
+            onSetLaunchAtLogin={(enabled) => {
+              void updateLaunchAtLogin(enabled);
+            }}
             fieldError={fieldError}
             updateConfig={updateConfig}
             updateCodexId={updateCodexId}

@@ -108,6 +108,8 @@ After Desktop starts, it registers a `coworker-desktop` participant only for ide
 
 The Tauri desktop application lives in `apps/coworker-desktop/desktop`, with its Rust entry point in `apps/coworker-desktop/desktop/src-tauri`. The CLI and bridge core live in `apps/coworker-desktop/bridge`.
 
+Desktop settings provide two independent switches: “Launch CoWorker when you sign in” and “Start Bridge when CoWorker opens.” The first registers a system startup entry on Windows, macOS, and Linux and keeps the main window hidden in the tray when launched automatically. The second saves `start_bridge_on_launch=true` in `coworker_desktop.json`; the desktop backend then loads the current configuration and starts the Bridge directly on every launch. Enable both options to connect automatically in the background after system startup.
+
 ## Product version management
 
 The root `VERSION` file is the single source of truth for the product version. The Coworker Python package, Rust workspace, Coworker Desktop, web packages, and Tauri configuration must all match it.
