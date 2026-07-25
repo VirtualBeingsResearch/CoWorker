@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
+import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -1215,7 +1216,7 @@ function Logs() {
       return;
     }
     if (start && end && (start.length > end.length || (start.length === end.length && start > end))) {
-      setSequenceError(t('起始序列不能大于结束序列。'));
+      setSequenceError(t('序列下限不能大于序列上限。'));
       return;
     }
     setSeqStartDraft(start);
@@ -1228,6 +1229,7 @@ function Logs() {
   useEffect(() => {
     setCursor(null);
     setNewerCursors([]);
+    setPage(null);
     setOpenSeq(null);
     setDetails({});
     setDetailError('');
@@ -1235,15 +1237,23 @@ function Logs() {
 
   useEffect(() => {
     const version = ++requestVersion.current;
-    const params = new URLSearchParams({ limit: '100' });
-    if (type) params.set('event_type', type);
-    if (debouncedQuery) params.set('q', debouncedQuery);
-    if (seqStart) params.set('seq_start', seqStart);
-    if (seqEnd) params.set('seq_end', seqEnd);
-    if (cursor) params.set('cursor', cursor);
+    const controller = new AbortController();
+    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd);
     setLoading(true);
     setError('');
-    void api<Json>('/api/admin/interactions?' + params.toString())
+    void loadInteractionHistoryPage({
+      cursor,
+      filtersActive,
+      fetchPage: pageCursor => {
+        const params = new URLSearchParams({ limit: '100' });
+        if (type) params.set('event_type', type);
+        if (debouncedQuery) params.set('q', debouncedQuery);
+        if (seqStart) params.set('seq_start', seqStart);
+        if (seqEnd) params.set('seq_end', seqEnd);
+        if (pageCursor) params.set('cursor', pageCursor);
+        return api<Json>('/api/admin/interactions?' + params.toString(), { signal: controller.signal });
+      },
+    })
       .then(result => {
         if (version !== requestVersion.current) return;
         setPage(result);
@@ -1253,11 +1263,13 @@ function Logs() {
       })
       .catch(reason => {
         if (version !== requestVersion.current) return;
+        if (reason instanceof DOMException && reason.name === 'AbortError') return;
         setError(reason instanceof Error ? reason.message : t('历史记录加载失败'));
       })
       .finally(() => {
         if (version === requestVersion.current) setLoading(false);
       });
+    return () => controller.abort();
   }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, type]);
 
   const showOlder = () => {
@@ -1300,9 +1312,9 @@ function Logs() {
   const sequenceScope = seqStart && seqEnd
     ? t('序列 {{start}} 至 {{end}}', { start: seqStart, end: seqEnd })
     : seqStart
-      ? t('序列从 {{start}} 起', { start: seqStart })
+      ? t('序列下限 {{start}}', { start: seqStart })
       : seqEnd
-        ? t('序列截至 {{end}}', { end: seqEnd })
+        ? t('序列上限 {{end}}', { end: seqEnd })
         : '';
   const sequenceSummary = page?.sequence;
   const sequenceTotal = Number(sequenceSummary?.total);
@@ -1322,7 +1334,7 @@ function Logs() {
       : t('查看更早记录');
   return <Panel
     title="生命全史日志"
-    note="按序列范围直接定位 interactions.jsonl 与轮转分片；每次只加载一个轻量页面。"
+    note="序列上下限是包含端点的筛选条件，结果从范围内最新记录开始分页；筛选会自动跨过没有命中的扫描窗口。"
     action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applySequenceRange(); }}>
       <select aria-label={t('筛选事件类型')} value={type} onChange={event => setType(event.target.value)}>
         <option value="">{t('全部事件')}</option>
@@ -1330,17 +1342,17 @@ function Logs() {
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="sequence-range" aria-label={t('序列范围')}>
-        <label><span>{t('起始序列')}</span><input aria-label={t('起始序列')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
+        <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
-        <label><span>{t('结束序列')}</span><input aria-label={t('结束序列')} type="number" min="0" step="1" inputMode="numeric" value={seqEndDraft} onChange={event => { setSeqEndDraft(event.target.value); setSequenceError(''); }} placeholder={t('当前')} /></label>
-        <button className="ghost mini sequence-locate" type="submit">{t('定位序列')}</button>
+        <label><span>{t('序列上限')}</span><input aria-label={t('序列上限')} type="number" min="0" step="1" inputMode="numeric" value={seqEndDraft} onChange={event => { setSeqEndDraft(event.target.value); setSequenceError(''); }} placeholder={t('当前')} /></label>
+        <button className="ghost mini sequence-locate" type="submit">{t('筛选范围')}</button>
       </div>
       <button className="icon-btn" type="button" aria-label={t('刷新生命全史日志')} title={t('刷新生命全史日志')} onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={15} /></button>
     </form>}
   >
     {sequenceError && <div className="notice error history-sequence-error">{sequenceError}</div>}
     <div className="history-navigator">
-      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : sequenceScope ? t('已定位到指定序列') : t('最新记录')}</b><div className="history-detail-line"><small>{sequenceScope ? sequenceScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
+      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : sequenceScope ? t('已应用序列范围') : t('最新记录')}</b><div className="history-detail-line"><small>{sequenceScope ? sequenceScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
       <div className="history-actions"><button className="ghost mini" disabled={!newerCursors.length || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{continuationLabel}</button></div>
     </div>
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
