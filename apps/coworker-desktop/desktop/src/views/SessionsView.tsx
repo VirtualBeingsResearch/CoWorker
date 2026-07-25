@@ -1,5 +1,5 @@
 import { Check, ChevronUp, Copy, Download, FolderOpen, GripVertical, Lock, MessageSquare, Paperclip, Pencil, Plus, Quote, RefreshCw, Send, X } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type UIEvent } from "react";
 import { MessageIcon, MessageText, ToolResultDisclosure } from "../components/MessageParts";
 import { useI18n } from "../i18n";
 import type { DictKey } from "../i18n/en";
@@ -10,10 +10,64 @@ import {
   type TimelineAttachment,
   type TimelineMessageGroup,
 } from "../lib/bridgeLogic";
-import type { ActorConversation, BridgeCoworker } from "../tauri";
+import { readDesktopImagePreview, type ActorConversation, type BridgeCoworker } from "../tauri";
 
 type Translate = (key: DictKey, vars?: Record<string, string | number>) => string;
 const loadEarlierScrollThreshold = 48;
+const previewableImageTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+  "image/avif",
+]);
+
+function MessageImagePreview({
+  attachment,
+  onOpen,
+}: {
+  attachment: TimelineAttachment;
+  onOpen: () => void;
+}) {
+  const [source, setSource] = useState("");
+  const mediaType = attachment.media_type.toLowerCase();
+
+  useEffect(() => {
+    if (!attachment.path || !attachment.downloadable || !previewableImageTypes.has(mediaType)) {
+      setSource("");
+      return;
+    }
+    let disposed = false;
+    let objectUrl = "";
+    void readDesktopImagePreview(attachment.path)
+      .then((bytes) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: mediaType }));
+        setSource(objectUrl);
+      })
+      .catch(() => {
+        if (!disposed) setSource("");
+      });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment.downloadable, attachment.path, mediaType]);
+
+  if (!source) return null;
+  return (
+    <button
+      aria-label={attachment.filename}
+      className="messageImagePreview"
+      onClick={onOpen}
+      title={attachment.filename}
+      type="button"
+    >
+      <img alt={attachment.filename} src={source} />
+    </button>
+  );
+}
 
 export type SessionsPresentation = Partial<{
   ariaLabel: string;
@@ -389,6 +443,18 @@ export function SessionsView({
                     </div>
                     <MessageText text={messageText} />
                     {result && <ToolResultDisclosure result={result} />}
+                    {attachments.some((attachment) =>
+                      previewableImageTypes.has(attachment.media_type.toLowerCase())) && (
+                      <div className="messageImageGrid">
+                        {attachments.map((attachment, index) => (
+                          <MessageImagePreview
+                            attachment={attachment}
+                            key={`${message.id}-image-${index}-${attachment.filename}`}
+                            onOpen={() => onDownloadAttachment(attachment)}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {attachments.length > 0 && (
                       <div className="attachmentList">
                         {attachments.map((attachment, index) => (

@@ -8,6 +8,13 @@ export const en = {
   "tray.open": "Open",
   "tray.hide": "Hide to Tray",
   "tray.quit": "Quit",
+  "closeToTrayNotice.eyebrow": "First close",
+  "closeToTrayNotice.title": "What should closing the window do?",
+  "closeToTrayNotice.description": "Keep CoWorker connected in the system tray, or quit the app completely. You can change this later in Settings.",
+  "closeToTrayNotice.exit": "Quit CoWorker",
+  "closeToTrayNotice.keepRunning": "Hide to tray",
+  "closeToTrayNotice.exiting": "Quitting…",
+  "closeToTrayNotice.hiding": "Hiding…",
 
   // Common
   "common.codexId": "Desktop ID",

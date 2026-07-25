@@ -26,6 +26,7 @@ import {
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import appMetadata from "../package.json";
 import { FeedbackIcon } from "./components/Field";
+import { CloseToTrayNotice } from "./components/CloseToTrayNotice";
 import { LogDetailDialog } from "./components/LogDetailDialog";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { useI18n } from "./i18n";
@@ -65,11 +66,14 @@ import {
   getConfigInfo,
   getDefaultDesktopUpdateUrl,
   installDesktopUpdate,
+  isCloseToTrayChoicePending,
   listCommunicateRegistrations,
   listenActorStreamEvents,
   listenBridgeLogChunks,
+  listenCloseToTrayChoice,
   readBridgeLog,
   runDiagnostics,
+  resolveCloseToTrayChoice,
   saveConfig,
   ConfigValue,
   LogOutputLevel,
@@ -193,6 +197,7 @@ export function App() {
   const [lastConfigModifiedMs, setLastConfigModifiedMs] = useState<number | null>(null);
   const [developmentWarningDismissed, setDevelopmentWarningDismissed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [closeToTrayNoticeOpen, setCloseToTrayNoticeOpen] = useState(false);
   const [desktopApprovals, setDesktopApprovals] = useState<DesktopApproval[]>([]);
   const [resolvingApproval, setResolvingApproval] = useState(false);
   const ledgerRef = useRef<HTMLDivElement | null>(null);
@@ -354,6 +359,27 @@ export function App() {
   useEffect(() => {
     void setCloseToTray(config.close_to_tray !== false).catch(() => undefined);
   }, [config.close_to_tray]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listenCloseToTrayChoice(() => setCloseToTrayNoticeOpen(true))
+      .then(async (nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+        if (await isCloseToTrayChoicePending()) {
+          setCloseToTrayNoticeOpen(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1423,6 +1449,23 @@ export function App() {
         issuesCount={issues.length}
         onSave={() => saveFromOnboarding(false)}
         onSaveAndStart={() => saveFromOnboarding(true)}
+      />
+      <CloseToTrayNotice
+        open={closeToTrayNoticeOpen}
+        onChoose={async (keepRunning) => {
+          try {
+            await resolveCloseToTrayChoice(keepRunning);
+            setConfig((current) => ({ ...current, close_to_tray: keepRunning }));
+            savedConfigRef.current = {
+              ...savedConfigRef.current,
+              close_to_tray: keepRunning,
+            };
+            setCloseToTrayNoticeOpen(false);
+          } catch (error) {
+            reportError(error);
+            throw error;
+          }
+        }}
       />
     </main>
   );

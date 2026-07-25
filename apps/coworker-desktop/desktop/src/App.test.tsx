@@ -56,6 +56,7 @@ vi.mock("./tauri", () => ({
   setDesktopConversationMode: vi.fn(),
   renameDesktopConversation: vi.fn(),
   copyDesktopAttachment: vi.fn(),
+  readDesktopImagePreview: vi.fn(),
   startDesktopFileDrag: vi.fn(),
   listenActorStreamEvents: vi.fn(),
   listenDesktopFileDrops: vi.fn(),
@@ -64,6 +65,9 @@ vi.mock("./tauri", () => ({
   stopBridgeLogStream: vi.fn(),
   setCloseToTray: vi.fn(),
   setTrayCopy: vi.fn(),
+  listenCloseToTrayChoice: vi.fn(),
+  isCloseToTrayChoicePending: vi.fn(),
+  resolveCloseToTrayChoice: vi.fn(),
 }));
 
 const baseConfig: ConfigValue = {
@@ -112,6 +116,7 @@ const session: ActorConversation = {
 
 let actorStreamHandlers: Array<(event: ActorStreamEvent) => void> = [];
 let desktopFileDropHandlers: Array<(event: { type: "enter" | "over" | "drop" | "leave"; paths?: string[] }) => void> = [];
+let closeToTrayChoiceHandlers: Array<() => void> = [];
 
 const assistantMessage: ActorMessage = {
   id: "msg-1",
@@ -149,6 +154,7 @@ function configInfo(config: ConfigValue = baseConfig): ConfigInfo {
 function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigValue = baseConfig) {
   actorStreamHandlers = [];
   desktopFileDropHandlers = [];
+  closeToTrayChoiceHandlers = [];
   vi.mocked(tauri.getConfigInfo).mockResolvedValue(configInfo(config));
   vi.mocked(tauri.getBridgeStatus).mockResolvedValue(status);
   vi.mocked(tauri.readBridgeLog).mockResolvedValue("2026-07-06T10:00:00Z INFO coworker_desktop_app: booted");
@@ -173,6 +179,7 @@ function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigVal
   vi.mocked(tauri.setDesktopConversationMode).mockResolvedValue({});
   vi.mocked(tauri.renameDesktopConversation).mockResolvedValue({});
   vi.mocked(tauri.copyDesktopAttachment).mockResolvedValue({});
+  vi.mocked(tauri.readDesktopImagePreview).mockResolvedValue(new ArrayBuffer(0));
   vi.mocked(tauri.startDesktopFileDrag).mockResolvedValue(undefined);
   vi.mocked(tauri.listenActorStreamEvents).mockImplementation(async (handler) => {
     actorStreamHandlers.push(handler);
@@ -187,6 +194,12 @@ function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigVal
   vi.mocked(tauri.stopBridgeLogStream).mockResolvedValue(undefined);
   vi.mocked(tauri.setCloseToTray).mockResolvedValue(undefined);
   vi.mocked(tauri.setTrayCopy).mockResolvedValue(undefined);
+  vi.mocked(tauri.listenCloseToTrayChoice).mockImplementation(async (handler) => {
+    closeToTrayChoiceHandlers.push(handler);
+    return () => undefined;
+  });
+  vi.mocked(tauri.isCloseToTrayChoicePending).mockResolvedValue(false);
+  vi.mocked(tauri.resolveCloseToTrayChoice).mockResolvedValue(undefined);
   vi.mocked(openDialog).mockResolvedValue(null);
   vi.mocked(saveDialog).mockResolvedValue(null);
   vi.mocked(isPermissionGranted).mockResolvedValue(true);
@@ -276,6 +289,19 @@ describe("App backend operation wiring", () => {
     await user.click(inputById("close-to-tray"));
 
     await waitFor(() => expect(tauri.setCloseToTray).toHaveBeenLastCalledWith(false));
+  });
+
+  it("asks for and remembers the close behavior on the first close", async () => {
+    const user = await renderApp();
+
+    act(() => closeToTrayChoiceHandlers.forEach((handler) => handler()));
+    expect(await screen.findByRole("dialog", { name: "What should closing the window do?" }))
+      .toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Hide to tray/ }));
+    await waitFor(() => expect(tauri.resolveCloseToTrayChoice).toHaveBeenCalledWith(true));
+    expect(screen.queryByRole("dialog", { name: "What should closing the window do?" }))
+      .not.toBeInTheDocument();
   });
 
   it("reorders connection profiles", async () => {
@@ -836,6 +862,36 @@ describe("App backend operation wiring", () => {
     vi.mocked(saveDialog).mockResolvedValue("D:\\downloads\\summary.md");
     await user.click(attachment);
     await waitFor(() => expect(tauri.copyDesktopAttachment).toHaveBeenCalledWith("D:\\tmp\\summary.md", "D:\\downloads\\summary.md"));
+  });
+
+  it("renders supported image attachments inline", async () => {
+    const user = await renderApp(runningStatus);
+    vi.mocked(tauri.readDesktopImagePreview).mockResolvedValue(
+      new Uint8Array([137, 80, 78, 71]).buffer,
+    );
+    vi.mocked(tauri.loadDesktopMessages).mockResolvedValue({
+      messages: [{
+        ...assistantMessage,
+        metadata: {
+          ...assistantMessage.metadata,
+          attachments: [{
+            filename: "preview.png",
+            media_type: "image/png",
+            size: 4,
+            path: "D:\\tmp\\preview.png",
+            downloadable: true,
+            reason: null,
+          }],
+        },
+      }],
+      next_before_cursor: null,
+    });
+    await openSessions(user);
+
+    await user.click(await screen.findByRole("button", { name: /Bridge thread/ }));
+
+    expect(await screen.findByRole("img", { name: "preview.png" })).toBeInTheDocument();
+    expect(tauri.readDesktopImagePreview).toHaveBeenCalledWith("D:\\tmp\\preview.png");
   });
 
   it("copies and quotes conversation messages", async () => {

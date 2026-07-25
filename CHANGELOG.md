@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- feat(desktop): improve the collapsed sidebar and short log ledger, make tray residency optional, reorder connection profiles, add message copy/quote actions and incoming-message notifications, clarify offline history, derive missing Codex titles, and discover Codex App or npm-installed binaries across platforms
+- feat(desktop): improve the collapsed sidebar and short log ledger, let users choose and remember the close behavior on first close, reorder connection profiles, add message copy/quote actions, inline image previews, and incoming-message notifications, clarify offline history, derive missing Codex titles, and discover Codex App or npm-installed binaries across platforms
 
 ## 0.3.2 - 2026-07-23
 

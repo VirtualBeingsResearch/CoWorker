@@ -9,6 +9,13 @@ export const zh: Dict = {
   "tray.open": "打开",
   "tray.hide": "隐藏到托盘",
   "tray.quit": "退出",
+  "closeToTrayNotice.eyebrow": "首次关闭",
+  "closeToTrayNotice.title": "关闭窗口时怎么处理？",
+  "closeToTrayNotice.description": "你可以让 CoWorker 在系统托盘中保持连接，也可以完全退出应用。之后可随时在设置中修改。",
+  "closeToTrayNotice.exit": "退出 CoWorker",
+  "closeToTrayNotice.keepRunning": "隐藏到托盘",
+  "closeToTrayNotice.exiting": "正在退出…",
+  "closeToTrayNotice.hiding": "正在隐藏…",
 
   "common.codexId": "桌面 ID",
   "common.notConfigured": "未配置",
