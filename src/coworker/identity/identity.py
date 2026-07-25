@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from loguru import logger
@@ -9,12 +10,16 @@ from coworker.i18n.runtime import browser_locale
 
 
 class Identity:
+    _FILES = {
+        "name": "name.txt",
+        "personality": "personality.md",
+        "current_location": "current_location.txt",
+    }
+
     def __init__(self, identity_dir: str) -> None:
         self._dir = Path(identity_dir)
         self.name: str = ""
         self.personality: str = ""
-        self.goals: str = ""
-        self.life_story: str = ""
         self.current_location: str = ""
 
     @property
@@ -23,19 +28,20 @@ class Identity:
 
     def load(self) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
-        name_file = self._dir / "name.txt"
-        if name_file.exists():
-            self.name = name_file.read_text(encoding="utf-8").strip()
-        for attribute, filename in (
-            ("personality", "personality.md"),
-            ("goals", "goals.md"),
-            ("life_story", "life_story.md"),
-            ("current_location", "current_location.txt"),
-        ):
+        for attribute, filename in self._FILES.items():
             path = self._dir / filename
-            if path.is_file():
-                setattr(self, attribute, path.read_text(encoding="utf-8").strip())
+            value = path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+            setattr(self, attribute, value)
         logger.info(f"Identity loaded: name='{self.name}'")
+
+    def update(self, values: Mapping[str, str]) -> None:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        for attribute, value in values.items():
+            (self._dir / self._FILES[attribute]).write_text(
+                value.strip(),
+                encoding="utf-8",
+            )
+        self.load()
 
     def detect_location(self) -> None:
         """通过 IP 定位推断现居城市，仅当 current_location.txt 不存在时写入。"""
@@ -73,8 +79,4 @@ class Identity:
             parts.append(tr("identity.location", location=self.current_location))
         if self.personality:
             parts.append(self.personality)
-        if self.goals:
-            parts.append(tr("identity.goals", goals=self.goals))
-        if self.life_story:
-            parts.append(tr("identity.life_story", life_story=self.life_story[:500]))
         return "\n\n".join(parts)

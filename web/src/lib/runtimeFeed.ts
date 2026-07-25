@@ -263,14 +263,17 @@ function toolPendingRow(e: RuntimeLogEvent): FeedRow {
 // sleep 工具调用 → 休息长态行（与 thinking 相反的缓慢蓝色呼吸 + z·z·z），由其 tool_result 收口为「已唤醒」
 function sleepRow(e: RuntimeLogEvent): FeedRow {
   const secs = clean((e.arguments || {}).seconds);
+  const waitsForEvent = secs === '0';
   return {
     key: toolKey(e),
     kind: 'sleep',
     status: 'active',
     ts: e.ts,
     icon: '💤',
-    tag: t('休息中'),
-    text: secs
+    tag: t(waitsForEvent ? '等待事件' : '休息中'),
+    text: waitsForEvent
+      ? t('持续等待外部消息、闹钟或任务唤醒')
+      : secs
       ? t('休眠 {{seconds}}秒 · 仅保留心跳与轻量监听', { seconds: secs })
       : t('进入低频待机 · 仅保留心跳与轻量监听'),
   };

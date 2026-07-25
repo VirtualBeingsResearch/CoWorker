@@ -85,6 +85,12 @@ class AgentLoop:
             current_model=brain.current_model,
         )
 
+    def current_system_prompt(self) -> str:
+        return self._prompt_builder.build()
+
+    def refresh_system_prompt(self) -> None:
+        self._prompt_builder.refresh()
+
     async def run(self) -> None:
         self.state.is_running = True
         logger.info("AgentLoop started")

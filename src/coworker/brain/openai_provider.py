@@ -120,6 +120,7 @@ _REASONING_MODELS = {
 
 class OpenAIProvider(BaseLLMProvider):
     provider_type = "openai"
+    api_dialect = "openai"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)

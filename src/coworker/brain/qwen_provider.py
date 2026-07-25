@@ -47,17 +47,16 @@ _VIDEO_MODELS = {
 # Qwen3 models support extended thinking via enable_thinking extra_body param.
 _THINKING_MODELS = _QWEN_MODELS
 
-_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-
-
 class QwenProvider(BaseLLMProvider):
     provider_type = "qwen"
+    api_dialect = "openai"
+    default_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url or _DEFAULT_BASE_URL,
+            base_url=self.resolve_base_url(base_url),
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
         )
         self._current_model = "qwen-plus"

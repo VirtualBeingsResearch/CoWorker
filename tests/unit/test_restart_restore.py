@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from coworker.__main__ import _append_recovered_tool_result, _diff_runtime_locale
 from coworker.agent.interaction_log import InteractionLogger
+from coworker.application import _append_recovered_tool_result, _diff_runtime_locale
 from coworker.core.types import Message
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory

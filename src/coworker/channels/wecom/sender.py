@@ -1,9 +1,4 @@
-"""WeCom outbound sending: message chunking, media upload, and delivery.
-
-Extracted from ``WeComRunner``. :class:`WeComSender` holds the media cache
-and takes a client getter + a fresh-frame lookup (both owned by the runner)
-so it can reply via a cached inbound frame or fall back to an active push.
-"""
+"""WeCom outbound message chunking, media upload, and delivery."""
 
 from __future__ import annotations
 
@@ -57,7 +52,7 @@ class WeComSender:
     def __init__(
         self,
         client_getter: Callable[[], Any],
-        take_frame: Callable[[str], dict[str, Any] | None],
+        take_frame: Callable[[str, str | None], dict[str, Any] | None],
     ) -> None:
         self._get_client = client_getter
         self._take_frame = take_frame
@@ -68,17 +63,20 @@ class WeComSender:
         participant_id: str,
         message: str,
         attachments: list[dict[str, Any]],
+        conversation_id: str | None = None,
+        mentioned_list: list[str] | None = None,
     ) -> None:
         client = self._get_client()
         if client is None:
             raise RuntimeError("WeCom client not started")
         _chat_type, chat_id = adapter.parse_participant(participant_id)
-        frame = self._take_frame(chat_id)
+        frame = self._take_frame(chat_id, conversation_id)
 
-        if message:
+        message_with_mentions = _with_mentions(message, mentioned_list or [])
+        if message_with_mentions:
             from wecom_aibot_sdk import generate_req_id
 
-            for chunk in split_markdown(message):
+            for chunk in split_markdown(message_with_mentions):
                 if frame is not None:
                     await client.reply_stream(
                         frame, generate_req_id("stream"), chunk, finish=True
@@ -130,3 +128,10 @@ class WeComSender:
         media_id = result.media_id if hasattr(result, "media_id") else result["media_id"]
         self._media_cache[key] = media_id
         return media_id
+
+
+def _with_mentions(message: str, mentioned_list: list[str]) -> str:
+    if not mentioned_list:
+        return message
+    mention_line = " ".join(f"<@{user_id}>" for user_id in mentioned_list)
+    return f"{mention_line}\n{message}" if message else mention_line

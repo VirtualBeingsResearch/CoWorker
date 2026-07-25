@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from loguru import logger
 
+from coworker.core.registration import RegistrationError
 from coworker.core.types import ToolCall, ToolResult
 from coworker.i18n import tr
-from coworker.tools.base import Tool
+from coworker.tools.base import Tool, ToolDefinition
 
 
 class ToolRegistry:
@@ -16,8 +19,12 @@ class ToolRegistry:
         self._intercepts: dict[str, str] = dict(intercepts or {})
 
     def register(self, tool: Tool) -> None:
-        self._tools[tool.definition.name] = tool
-        logger.debug(f"Registered tool: {tool.definition.name}")
+        entries = self._validated_entries((tool,), subject="tool")
+        self._commit(entries)
+
+    def register_many(self, tools: Iterable[Tool]) -> None:
+        entries = self._validated_entries(tuple(tools), subject="tool batch")
+        self._commit(entries)
 
     def intercept(self, intercepts: dict[str, str]) -> ToolRegistry:
         """Return a new registry sharing the same tool instances but with the given
@@ -63,15 +70,99 @@ class ToolRegistry:
                 is_error=True,
             )
 
-    def scoped(self, scope) -> ToolRegistry:
+    def scoped(
+        self,
+        scope,
+        *,
+        replacements: Iterable[Tool] = (),
+    ) -> ToolRegistry:
         """Return a new registry where each tool is forked with the given scope.
 
-        Intercepts are carried over so scoping does not drop the interception layer.
+        Same-named replacements replace scoped tools without changing their schema
+        contract. Intercepts are preserved.
         """
+        replacement_entries = ToolRegistry()._validated_entries(
+            tuple(replacements),
+            subject="tool replacements",
+        )
+        replacement_by_name = dict(replacement_entries)
+        issues = self._replacement_issues(replacement_by_name)
+        if issues:
+            raise RegistrationError(
+                "tool replacements",
+                issues,
+            )
         r = ToolRegistry(intercepts=self._intercepts)
-        for tool in self._tools.values():
-            r.register(tool.fork(scope))
+        r.register_many(
+            replacement_by_name.get(name, tool.fork(scope))
+            for name, tool in self._tools.items()
+        )
         return r
 
     def list_names(self) -> list[str]:
         return list(self._tools.keys())
+
+    def _validated_entries(
+        self,
+        tools: tuple[Tool, ...],
+        *,
+        subject: str,
+    ) -> list[tuple[str, Tool]]:
+        issues: list[str] = []
+        entries: list[tuple[str, Tool]] = []
+        pending_names: dict[str, int] = {}
+        for index, tool in enumerate(tools, start=1):
+            label = f"item {index}"
+            if not isinstance(tool, Tool):
+                issues.append(f"{label} tool must inherit Tool")
+            try:
+                definition = tool.definition
+            except Exception as error:
+                issues.append(f"{label} definition could not be read: {error}")
+                continue
+            if not isinstance(definition, ToolDefinition):
+                issues.append(f"{label} definition must be a ToolDefinition")
+                continue
+            name = definition.name
+            if not isinstance(name, str):
+                issues.append(f"{label} name must be a string")
+                continue
+            if not name.strip():
+                issues.append(f"{label} name is required")
+                continue
+            if name != name.strip():
+                issues.append(f"{label} name must not have surrounding whitespace")
+                continue
+            if name in self._tools:
+                issues.append(f"{label} name {name!r} is already registered")
+            first_index = pending_names.get(name)
+            if first_index is not None:
+                issues.append(
+                    f"{label} name {name!r} duplicates item {first_index} in this batch"
+                )
+            else:
+                pending_names[name] = index
+            entries.append((name, tool))
+        if issues:
+            raise RegistrationError(subject, issues)
+        return entries
+
+    def _commit(self, entries: list[tuple[str, Tool]]) -> None:
+        for name, tool in entries:
+            self._tools[name] = tool
+            logger.debug(f"Registered tool: {name}")
+
+    def _replacement_issues(
+        self,
+        replacements: dict[str, Tool],
+    ) -> list[str]:
+        issues: list[str] = []
+        for name, replacement in replacements.items():
+            original = self._tools.get(name)
+            if original is None:
+                issues.append(f"tool {name!r} is not registered")
+            elif replacement.definition != original.definition:
+                issues.append(
+                    f"tool {name!r} replacement must preserve its ToolDefinition exactly"
+                )
+        return issues

@@ -83,6 +83,8 @@ Example with multiple Coworker instances:
 }
 ```
 
+When the Coworker server has no dedicated `API__COMMUNICATION_TOKEN`, this field can use the administrator token. Configure separate tokens when Desktop and administrator permissions must be isolated.
+
 For local HTTP debugging, first confirm that the service listens only on a loopback address. Then change the setting manually to `"security": {"development_mode": true}` and set `API__DEVELOPMENT_MODE=true` on Coworker as well. Never use this configuration on a shared network.
 
 The configuration must use `schema_version=2` and contain a non-empty `coworkers` array. Legacy top-level Coworker fields are not used when generating a new configuration.
@@ -100,7 +102,7 @@ uv run coworker
 cargo run --bin coworker-desktop
 ```
 
-After Desktop starts, it registers a `coworker-desktop` participant only for identities whose health check passed and begins periodic `desktop.actor.snapshot` publication. Each actor scans recent conversations once per cycle, preferring native project identifiers for grouping and limiting the number actively displayed per project. Conversations without a project are grouped under `“对话”` (“Conversations”). Identical snapshots are not republished, although a recovery heartbeat is sent at least once every five minutes. A publication failure for one Coworker does not block the others. Coworker writes the three identities' connection status and project conversations into pinned context and automatically loads the `coworker-desktop` Skill for Desktop-originated messages. The complete list remains available through `list_conversations`.
+After Desktop starts, it registers a `coworker-desktop` participant only for identities whose health check passed and begins periodic `desktop.actor.snapshot` publication. Each actor scans recent conversations once per cycle, preferring native project identifiers for grouping and limiting the number actively displayed per project. Conversations without a project are grouped under `“对话”` (“Conversations”). Identical snapshots are not republished, although a recovery heartbeat is sent at least once every five minutes. A publication failure for one Coworker does not block the others. Coworker writes only a compact model-facing index into pinned context: identities from the same Desktop are grouped, exact participant/project/conversation identifiers are retained, and at most the four newest conversations are shown for each identity. The raw snapshot and Desktop transport structure remain unchanged, and the complete list stays available through `list_conversations`. Desktop-originated messages automatically load the `coworker-desktop` Skill.
 
 ## Running and packaging the desktop application
 

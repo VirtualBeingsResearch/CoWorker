@@ -43,17 +43,16 @@ _VISION_MODELS = {
 # GLM-Z1 series supports extended thinking.
 _THINKING_MODELS = {"glm-5.1", "glm-5", "glm-5v-turbo"}
 
-_DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
-
-
 class ZhipuProvider(BaseLLMProvider):
     provider_type = "zhipu"
+    api_dialect = "openai"
+    default_base_url = "https://open.bigmodel.cn/api/paas/v4/"
 
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url or _DEFAULT_BASE_URL,
+            base_url=self.resolve_base_url(base_url),
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
         )
         self._current_model = "glm-5.1"

@@ -38,6 +38,8 @@ class BaseLLMProvider(ABC):
     #                从而允许同一类型注册多个命名实例（如 "zhipu-userA" / "zhipu-userB"）。
     provider_type: str = ""
     provider_name: str
+    api_dialect: str = ""
+    default_base_url: str | None = None
 
     # 该实例的默认模型：switch_model 切到本实例但未指定 model_id 时使用。
     # 由工厂从 ProviderSpec.default_model 赋值；空字符串表示未配置。
@@ -57,6 +59,10 @@ class BaseLLMProvider(ABC):
     def __init__(self, name: str | None = None) -> None:
         self.provider_name = name or type(self).provider_type
         self._tool_use_models: set[str] = set()
+
+    @classmethod
+    def resolve_base_url(cls, configured_base_url: str | None) -> str | None:
+        return configured_base_url or cls.default_base_url
 
     def allow_tool_use_model(self, model_id: str) -> None:
         """Trust an administrator-confirmed model outside the static catalog."""

@@ -1,14 +1,11 @@
 """Generic WS/SSE stream channel package."""
 
 from coworker.channels.stream.channel import StreamChannel
-from coworker.channels.stream.connection_pool import ConnectionPool
-from coworker.channels.stream.registration import RegistrationStore
-from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
+from coworker.channels.stream.profile import StreamProfile
+from coworker.channels.stream.runtime import StreamRuntime
 
 __all__ = [
-    "ConnectionPool",
-    "RegistrationStore",
-    "SHUTDOWN_SENTINEL",
     "StreamChannel",
-    "serialize_outbound_message",
+    "StreamProfile",
+    "StreamRuntime",
 ]

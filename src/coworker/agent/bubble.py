@@ -36,6 +36,8 @@ class Bubble:
     conversation_id: str = ""
     # 对已显式配置的通信对象，外部可见地标识泡泡接管、回复和结束。
     handoff_transparency: bool = False
+    # 仅在首次真实外部通信成功公告接手后激活；结束公告据此成对发送。
+    handoff_notice_active: bool = False
     # 挂载的宫殿名列表（续接路由时按宫殿/participant/目标配对）。
     palaces: list[str] = field(default_factory=list)
     # memory_tags 并集(来自挂载的宫殿),收尾时用于把结论按标签写回长期记忆。

@@ -2,22 +2,24 @@ import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coworker.__main__ import _print_setup_admin_token
 from coworker.api import admin
+from coworker.application import _print_setup_admin_token
 from coworker.core.config import (
     Config,
     apply_admin_config_file,
     effective_admin_token,
+    effective_communication_token,
     ensure_admin_token,
 )
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
+from coworker.identity.identity import Identity
 from coworker.memory.short_term import ShortTermMemory
 from coworker.skills.loader import SkillLoader
 
@@ -32,6 +34,8 @@ def _client(
     providers_file: str = "",
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
+    wecom: dict | None = None,
+    wecom_runner=None,
 ):
     config = Config.model_validate(
         {
@@ -40,9 +44,15 @@ def _client(
             "memory": {"db_path": str(tmp_path / "memory")},
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
+            "wecom": wecom or {},
         }
     )
-    agent = SimpleNamespace(_identity=_Identity(), request_restart=lambda reason="normal": None)
+    agent = SimpleNamespace(
+        _identity=_Identity(),
+        request_restart=lambda reason="normal": None,
+        current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
+        refresh_system_prompt=MagicMock(),
+    )
     brain = SimpleNamespace(
         active_provider=object(),
         current_provider_name="openai",
@@ -60,6 +70,7 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
+        wecom_runner=wecom_runner,
     )
     app = FastAPI()
     app.include_router(admin.router)
@@ -101,8 +112,76 @@ def test_admin_error_detail_follows_runtime_locale(tmp_path):
     assert english.json()["detail"] == "Administrator token is missing"
 
 
+def test_identity_api_exposes_only_active_identity_fields(tmp_path):
+    client, _ = _client(tmp_path)
+    identity = Identity(str(tmp_path / "identity"))
+    identity.update(
+        {
+            "name": "Luna",
+            "personality": "curious",
+            "current_location": "Paris",
+        }
+    )
+    admin._agent._identity = identity
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.get("/api/admin/identity", headers=headers)
+
+    assert response.json() == {
+        "name": "Luna",
+        "personality": "curious",
+        "current_location": "Paris",
+    }
+
+    updated = client.put(
+        "/api/admin/identity",
+        headers=headers,
+        json={"personality": "warm"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["personality"] == "warm"
+    admin._agent.refresh_system_prompt.assert_called_once_with()
+
+
+def test_system_prompt_api_is_authenticated_read_only_and_uncached(tmp_path):
+    client, _ = _client(tmp_path)
+
+    assert client.get("/api/admin/system-prompt").status_code == 401
+
+    response = client.get(
+        "/api/admin/system-prompt",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "content": "[IDENTITY]\nMy name is Luna.\n",
+        "characters": 28,
+        "lines": 2,
+    }
+    admin._agent.current_system_prompt.assert_called_once_with()
+
+
+def test_identity_api_rejects_all_retired_fields_together(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.put(
+        "/api/admin/identity",
+        headers=headers,
+        json={"goals": "ship", "life_story": "history"},
+    )
+
+    assert response.status_code == 422
+    rejected_fields = {tuple(error["loc"]) for error in response.json()["detail"]}
+    assert rejected_fields == {("body", "goals"), ("body", "life_story")}
+
+
 def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_path):
     client, config = _client(tmp_path)
+    config.api.communication_token = "desktop-secret"
     headers = {"Authorization": "Bearer secret"}
     response = client.get("/api/admin/config", headers=headers)
     assert response.status_code == 200
@@ -111,6 +190,11 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert body["secret_status"]["llm.openai_api_key"] == {
         "configured": True,
         "last4": "inal",
+    }
+    assert body["config"]["api"]["communication_token"] == ""
+    assert body["secret_status"]["api.communication_token"] == {
+        "configured": True,
+        "last4": "cret",
     }
 
     llm_form = body["config"]["llm"]
@@ -127,6 +211,7 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert saved["llm"]["max_tokens"] == 4096
     assert "openai_api_key" not in saved["llm"]
     assert config.llm.openai_api_key == "sk-original"
+    assert config.api.communication_token == "desktop-secret"
 
 
 def test_desktop_update_sync_config_status_and_trigger_are_safe(tmp_path):
@@ -323,6 +408,47 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
+    runner = SimpleNamespace(reconfigure=AsyncMock())
+    client, config = _client(
+        tmp_path,
+        wecom={"enabled": True, "bot_id": "old", "secret": "existing"},
+        wecom_runner=runner,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert "wecom" in body["hot_reloadable"]
+    assert body["secret_status"]["wecom.secret"]["last4"] == "ting"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "new",
+                    "secret": "",
+                    "ws_url": "wss://wecom.example/ws",
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["wecom"]
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    assert config.wecom.bot_id == "new"
+    assert config.wecom.secret == "existing"
+    runner.reconfigure.assert_awaited_once()
+    applied = runner.reconfigure.await_args.args[0]
+    assert applied.ws_url == "wss://wecom.example/ws"
+    assert applied.secret == "existing"
+
+
 def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
@@ -397,6 +523,26 @@ def test_effective_admin_token_prefers_admin_and_falls_back_to_desktop(tmp_path)
 
     config.desktop_updates.admin_token = ""
     assert effective_admin_token(config) == ""
+
+
+def test_effective_communication_token_prefers_dedicated_token_and_falls_back_to_admin(
+    tmp_path,
+):
+    config = Config.model_validate(
+        {
+            "api": {"communication_token": "desktop-token"},
+            "admin": {
+                "token": "admin-token",
+                "config_file": str(tmp_path / "admin.json"),
+            },
+        }
+    )
+
+    assert effective_communication_token(config) == "desktop-token"
+
+    config.api.communication_token = ""
+
+    assert effective_communication_token(config) == "admin-token"
 
 
 def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsys):
@@ -611,6 +757,8 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
 
 def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
+    config.agent.passive_mode = True
+    config.agent.idle_sleep_seconds = 0
     short_term = ShortTermMemory(max_tokens=12_345)
     agent = SimpleNamespace(
         _identity=_Identity(),
@@ -634,6 +782,8 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     response = client.get("/api/admin/overview", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["memory"]["max_tokens"] == 12_345
+    assert response.json()["status"]["passive_mode"] is True
+    assert response.json()["status"]["idle_sleep_seconds"] == 0
 
 
 def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):

@@ -5,8 +5,8 @@ import re
 import time
 from pathlib import Path
 
-from coworker.channels.desktop import DesktopDispatcher, DesktopRegistry
-from coworker.channels.desktop.dispatcher import DesktopEnvelope
+from coworker.channels.stream.desktop import DesktopDispatcher, DesktopRegistry
+from coworker.channels.stream.desktop.dispatcher import DesktopEnvelope
 from coworker.memory.short_term import ShortTermMemory
 
 _PARTICIPANT = "cw-desktop:desk:claude:cw:p"
@@ -319,7 +319,7 @@ def test_detail_files_are_pruned_by_age(tmp_path):
 
 def test_detail_files_are_pruned_by_count(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "coworker.channels.desktop.detail_store._DETAIL_MAX_FILES", 2
+        "coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 2
     )
     dispatcher = _dispatcher(tmp_path)
     registry = dispatcher._registry

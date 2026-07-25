@@ -85,8 +85,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_ENABLED` | `true` | 自动回忆时是否同时查询最近活动 |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_LIMIT` | `2` | 自动回忆最多注入的最近活动条数 |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.72` | 最近活动自动回忆的相关度阈值 |
-| `MEMORY__MEM0_LLM_PROVIDER` | `deepseek` | mem0 内部记忆提取使用的 LLM provider |
-| `MEMORY__MEM0_LLM_MODEL` | `deepseek-v4-flash` | mem0 内部记忆提取使用的模型 |
+| `MEMORY__MEM0_LLM_PROVIDER` | `deepseek` | mem0 记忆提取引用的 Brain provider 名称或类型；复用匹配实例的凭据和有效 `base_url`，OpenAI-compatible provider 按 API 方言接入 |
+| `MEMORY__MEM0_LLM_MODEL` | `deepseek-v4-flash` | mem0 记忆提取使用的模型 ID；原样传给对应 API 方言，不维护独立模型白名单 |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 与最近活动索引使用的嵌入模型；已有数据不应直接切换模型 |
 
 ### Agent
@@ -106,7 +106,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象会收到带 Bubble ID 的接管、续跑和结束提示，Bubble 直接回复也会带结构化来源。默认匹配企微和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
@@ -121,7 +121,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `API__PORT` | `8000` | API 监听端口 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop 开发模式；关闭 Bearer/HTTPS 校验，仅应为本机 HTTP 调试显式开启 |
-| `API__COMMUNICATION_TOKEN` | 空（必填） | Desktop 生产通信 Bearer 令牌；`API__DEVELOPMENT_MODE=false` 时必须配置 |
+| `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | Desktop 生产通信 Bearer 令牌；需要与管理权限隔离时单独配置 |
 | `ADMIN__TOKEN` | 首次启动自动生成 | `/admin` 管理控制台和 `/api/admin/*` 的 Bearer 令牌；自动值会保存到管理端配置文件 |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | 管理页保存的 typed JSON 覆盖层，优先级高于 `.env`；非热更新配置重启后生效 |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Desktop 自动更新 release 与 asset 的存储目录 |
@@ -137,6 +137,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOT_ID` | 空 | 企业微信机器人 ID |
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
+
+管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
 
 ## 支持的模型
 

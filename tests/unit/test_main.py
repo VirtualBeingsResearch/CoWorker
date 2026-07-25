@@ -1,86 +1,228 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-import coworker.__main__ as main_module
+from coworker import application, launcher
 
 
-def _forbid_windows_ctrl_c_ignore(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail_set_console_ctrl_handler(*_args):
-        raise AssertionError("_exec_replace must not make Ctrl-C ignored/inherited")
+def test_windows_supervisor_replaces_worker_without_nesting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    original_argv = [
+        "base-python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "coworker",
+        "status",
+        "--json",
+    ]
+    monkeypatch.setattr(launcher.sys, "executable", "venv-python.exe")
+    monkeypatch.setattr(launcher.sys, "orig_argv", original_argv)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "ctypes",
-        SimpleNamespace(
-            windll=SimpleNamespace(
-                kernel32=SimpleNamespace(SetConsoleCtrlHandler=fail_set_console_ctrl_handler)
-            )
-        ),
-    )
+    monkeypatch.setattr(launcher.tempfile, "gettempdir", lambda: str(tmp_path))
+    children: list[tuple[list[str], dict[str, str]]] = []
+    returncodes = iter([75, 7])
 
+    class Child:
+        def __init__(self, environment: dict[str, str]) -> None:
+            self.environment = environment
 
-def test_windows_exec_replace_does_not_disable_ctrl_c_for_child(monkeypatch: pytest.MonkeyPatch):
-    _forbid_windows_ctrl_c_ignore(monkeypatch)
-    monkeypatch.setattr(main_module.sys, "platform", "win32")
-    monkeypatch.setattr(main_module.sys, "executable", "python.exe")
-    monkeypatch.setattr(main_module.sys, "argv", ["coworker", "--flag"])
+        def __enter__(self):
+            return self
 
-    waits: list[float | None] = []
-    popen_argv: list[list[str]] = []
-
-    class Proc:
-        returncode = 7
+        def __exit__(self, *_args) -> None:
+            return None
 
         def wait(self, timeout: float | None = None) -> int:
-            waits.append(timeout)
-            return self.returncode
+            assert timeout is None
+            returncode = next(returncodes)
+            if returncode == 75:
+                Path(self.environment[launcher.WINDOWS_WORKER_ENV]).touch()
+            return returncode
 
-    def fake_popen(argv: list[str]) -> Proc:
-        popen_argv.append(argv)
-        return Proc()
+    def fake_popen(argv: list[str], *, env: dict[str, str]) -> Child:
+        children.append((argv, env))
+        return Child(env)
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
+    assert launcher._supervise_windows() == 7
+    expected_argv = ["venv-python.exe", *original_argv[1:]]
+    assert [argv for argv, _ in children] == [expected_argv, expected_argv]
+    assert all(
+        environment[launcher.WINDOWS_WORKER_ENV].endswith(".signal")
+        for _, environment in children
+    )
+    assert not list(tmp_path.iterdir())
+
+
+def test_windows_supervisor_preserves_subcommand_exit_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(launcher.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    class Child:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None
+            return 75
+
+    monkeypatch.setattr(subprocess, "Popen", lambda _argv, *, env: Child())
+
+    assert launcher._supervise_windows() == 75
+
+
+def test_windows_worker_token_runs_application_without_nested_supervisor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    application_signals: list[str | None] = []
+    restart_signal = tmp_path / "restart.signal"
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setenv(launcher.WINDOWS_WORKER_ENV, str(restart_signal))
+
+    def fail_supervisor_start() -> int:
+        raise AssertionError("worker must not start a nested supervisor")
+
+    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
+    monkeypatch.setitem(
+        sys.modules,
+        "coworker.application",
+        SimpleNamespace(
+            run_sync=lambda signal: application_signals.append(signal)
+        ),
+    )
+
+    launcher.main_sync()
+
+    assert application_signals == [str(restart_signal)]
+    assert (
+        os.environ[launcher.WINDOWS_WORKER_ENV]
+        == launcher.WINDOWS_DESCENDANT_MARKER
+    )
+
+
+def test_windows_launch_without_worker_token_runs_supervisor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setattr(launcher.sys, "argv", ["coworker"])
+    monkeypatch.delenv(launcher.WINDOWS_WORKER_ENV, raising=False)
+    monkeypatch.setattr(launcher, "_supervise_windows", lambda: 7)
+
     with pytest.raises(SystemExit) as exc:
-        main_module._exec_replace()
+        launcher.main_sync()
 
     assert exc.value.code == 7
-    assert popen_argv == [["python.exe", "-m", "coworker", "--flag"]]
-    assert waits == [None]
 
 
-def test_windows_exec_replace_waits_for_child_after_ctrl_c(monkeypatch: pytest.MonkeyPatch):
-    _forbid_windows_ctrl_c_ignore(monkeypatch)
-    monkeypatch.setattr(main_module.sys, "platform", "win32")
-    monkeypatch.setattr(main_module.sys, "executable", "python.exe")
-    monkeypatch.setattr(main_module.sys, "argv", ["coworker"])
+def test_descendant_coworker_reuses_launcher_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application_signals: list[str | None] = []
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setenv(
+        launcher.WINDOWS_WORKER_ENV, launcher.WINDOWS_DESCENDANT_MARKER
+    )
 
+    def fail_supervisor_start() -> int:
+        raise AssertionError("descendant must not start another supervisor")
+
+    monkeypatch.setattr(launcher, "_supervise_windows", fail_supervisor_start)
+    monkeypatch.setitem(
+        sys.modules,
+        "coworker.application",
+        SimpleNamespace(
+            run_sync=lambda signal: application_signals.append(signal)
+        ),
+    )
+
+    launcher.main_sync()
+
+    assert application_signals == [None]
+
+
+def test_windows_supervisor_stops_child_after_ctrl_c(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     waits: list[float | None] = []
 
-    class Proc:
-        returncode = 0
+    class Child:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
 
         def wait(self, timeout: float | None = None) -> int:
             waits.append(timeout)
             if len(waits) == 1:
                 raise KeyboardInterrupt
-            return self.returncode
+            return 0
 
-        def terminate(self) -> None:  # pragma: no cover - should not be needed here
-            raise AssertionError("child exited after Ctrl-C; terminate should not be called")
+        def terminate(self) -> None:
+            raise AssertionError("child exited during grace period")
 
-        def kill(self) -> None:  # pragma: no cover - should not be needed here
-            raise AssertionError("child exited after Ctrl-C; kill should not be called")
+        def kill(self) -> None:
+            raise AssertionError("child exited during grace period")
 
-    monkeypatch.setattr(subprocess, "Popen", lambda _argv: Proc())
+    monkeypatch.setattr(subprocess, "Popen", lambda _argv, *, env: Child())
+
+    assert launcher._supervise_windows() == 130
+    assert waits == [None, launcher.CHILD_INTERRUPT_GRACE_SECONDS]
+
+
+def test_windows_supervisor_kills_unresponsive_child() -> None:
+    actions: list[str] = []
+
+    class Child:
+        def wait(self, timeout: float | None = None) -> int:
+            actions.append(f"wait:{timeout}")
+            if timeout is not None:
+                raise subprocess.TimeoutExpired("coworker", timeout)
+            return 1
+
+        def terminate(self) -> None:
+            actions.append("terminate")
+
+        def kill(self) -> None:
+            actions.append("kill")
+
+    launcher._stop_child(Child())
+
+    assert actions == [
+        f"wait:{launcher.CHILD_INTERRUPT_GRACE_SECONDS}",
+        "terminate",
+        f"wait:{launcher.CHILD_TERMINATE_GRACE_SECONDS}",
+        "kill",
+        "wait:None",
+    ]
+
+
+def test_windows_restart_hard_exits_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(application.sys, "platform", "win32")
+    restart_signal = tmp_path / "restart.signal"
+
+    def fake_exit(returncode: int) -> None:
+        raise SystemExit(returncode)
+
+    monkeypatch.setattr(os, "_exit", fake_exit)
 
     with pytest.raises(SystemExit) as exc:
-        main_module._exec_replace()
+        application._restart_process(str(restart_signal))
 
-    assert exc.value.code == 130
-    assert waits == [None, 10]
+    assert exc.value.code == 0
+    assert restart_signal.exists()

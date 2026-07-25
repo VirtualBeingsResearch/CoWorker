@@ -15,9 +15,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
+    from coworker.channels.wecom.runner import WeComRunner
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
@@ -54,12 +55,14 @@ _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
+_wecom_runner: WeComRunner | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
 _config_write_lock = asyncio.Lock()
 
 _SECRET_PATHS = {
     "admin.token",
+    "api.communication_token",
     "desktop_updates.admin_token",
     "desktop_updates.feed_token",
     "llm.anthropic_api_key",
@@ -95,6 +98,14 @@ _HOT_CONFIG_PATHS = {
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
+
+
+class IdentityPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    personality: str | None = None
+    current_location: str | None = None
 
 
 class BootstrapPayload(BaseModel):
@@ -182,6 +193,7 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
+    wecom_runner: WeComRunner | None = None,
 ) -> None:
     global \
         _agent, \
@@ -192,6 +204,7 @@ def setup_admin(
         _palace_loader, \
         _mode_loader, \
         _desktop_update_sync, \
+        _wecom_runner, \
         _pending_restart, \
         _config_write_lock
     _agent = agent
@@ -202,6 +215,7 @@ def setup_admin(
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
+    _wecom_runner = wecom_runner
     _pending_restart = False
     _config_write_lock = asyncio.Lock()
 
@@ -541,11 +555,13 @@ async def _apply_hot_config(
         and not path.startswith("desktop_updates.dir")
         and not path.startswith("desktop_updates.admin_token")
     }
+    wecom_hot = {path for path in changed_paths if path.startswith("wecom.")}
     restart = sorted(
         path
         for path in changed_paths
         if path not in _HOT_CONFIG_PATHS
         and path not in desktop_hot
+        and path not in wecom_hot
         and not path.startswith("llm.managed_providers")
     )
     brain = _require_brain()
@@ -596,6 +612,12 @@ async def _apply_hot_config(
             desired.admin.token,
         )
         applied.append("desktop_updates")
+
+    if wecom_hot:
+        current.wecom = desired.wecom
+        if _wecom_runner is not None:
+            await _wecom_runner.reconfigure(desired.wecom)
+        applied.append("wecom")
 
     for path in sorted(changed_paths & _HOT_CONFIG_PATHS - {"llm.max_tokens"}):
         _assign_config_path(current, path, desired)
@@ -1069,6 +1091,8 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
             "started_at": _process_started_at.isoformat(),
+            "passive_mode": _require_config().agent.passive_mode,
+            "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
         },
         "counts": {
             "tasks": len(tasks),
@@ -1096,7 +1120,10 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
         "config": data,
         "effective_providers": effective_providers,
         "secret_status": statuses,
-        "hot_reloadable": sorted(_HOT_CONFIG_PATHS | {"llm.managed_providers", "desktop_updates"}),
+        "hot_reloadable": sorted(
+            _HOT_CONFIG_PATHS
+            | {"llm.managed_providers", "desktop_updates", "wecom"}
+        ),
         "override_path": config.admin.config_file,
         "pending_restart": _pending_restart,
         "sources": {
@@ -1702,7 +1729,7 @@ async def compress_memory(
     compressed, saved = await agent._short_term.compress_all_now(
         _require_brain(),
         context_hint=tr("notification.admin_compress_hint"),
-        agent_system_prompt=agent._prompt_builder.build(),
+        agent_system_prompt=agent.current_system_prompt(),
     )
     _audit(
         request,
@@ -1911,31 +1938,34 @@ async def get_identity(_: None = Depends(require_admin)) -> ApiResponse:
     return {
         "name": identity.name,
         "personality": identity.personality,
-        "goals": identity.goals,
-        "life_story": identity.life_story,
         "current_location": identity.current_location,
+    }
+
+
+@router.get("/system-prompt")
+async def get_system_prompt(
+    response: Response,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    prompt = _require_agent().current_system_prompt()
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "content": prompt,
+        "characters": len(prompt),
+        "lines": len(prompt.splitlines()),
     }
 
 
 @router.put("/identity")
 async def put_identity(
-    payload: dict[str, str],
+    payload: IdentityPatch,
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    identity = _require_agent()._identity
-    mapping = {
-        "name": "name.txt",
-        "personality": "personality.md",
-        "goals": "goals.md",
-        "life_story": "life_story.md",
-        "current_location": "current_location.txt",
-    }
-    identity._dir.mkdir(parents=True, exist_ok=True)
-    for key, filename in mapping.items():
-        if key in payload:
-            (identity._dir / filename).write_text(str(payload[key]).strip(), encoding="utf-8")
-    identity.load()
+    agent = _require_agent()
+    identity = agent._identity
+    identity.update(payload.model_dump(exclude_none=True))
+    agent.refresh_system_prompt()
     _audit(request, "identity.update", identity.name or "unnamed")
     return await get_identity()
 
