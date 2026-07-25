@@ -80,7 +80,10 @@ npm --prefix apps/coworker-desktop/desktop run build
   Only the documented prose fields may differ; stable metadata remains in the original file.
 - Identity prose and `data/thinking.md` are model-authored runtime state and never use localized
   companions.
-- Add a concise entry to `CHANGELOG.md` for user-visible changes.
+- Do not edit `CHANGELOG.md` in ordinary pull requests. Release automation generates the next
+  release section while preserving its hand-written `Unreleased` notes. Maintain those notes only
+  in dedicated release-preparation or changelog-maintenance work, and use clear conventional
+  commit and pull-request titles that describe user-visible outcomes.
 - Call out migrations, compatibility breaks, security implications, and checks you could not run.
 
 By contributing, you agree that your contribution is licensed under the repository's MIT License.
