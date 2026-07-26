@@ -1,4 +1,4 @@
-import { WeixinSettingsPanel } from './weixin';
+import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
 import type { SettingsPanelRegistration } from './types';
 
 const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {

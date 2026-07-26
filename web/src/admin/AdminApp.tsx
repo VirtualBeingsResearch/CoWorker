@@ -6,10 +6,10 @@ import {
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw,
 } from 'lucide-react';
 import './admin.css';
-import { settingsPanelLabels, settingsPanelRegistration } from './admin/settings/registry';
-import type { Json } from './admin/settings/types';
-import { useSettingsDraft } from './admin/settings/useSettingsDraft';
-import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
+import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
+import type { Json } from './settings/types';
+import { useSettingsDraft } from './settings/useSettingsDraft';
+import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';

@@ -1,8 +1,8 @@
 import { CircleCheckBig, MessagesSquare, QrCode, RefreshCw, Trash2, TriangleAlert, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { t } from '../../i18n/admin';
-import type { Json, SettingsPanelProps } from './types';
+import { t } from '../../../i18n/admin';
+import type { Json, SettingsPanelProps } from '../types';
 
 type PairingPresentation = {
   title: string;

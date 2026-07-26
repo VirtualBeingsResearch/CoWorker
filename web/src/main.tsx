@@ -5,7 +5,7 @@ import { AdminLanguageProvider, StatusLanguageProvider, t } from './i18n/admin';
 import './styles.css';
 
 const isAdmin = window.location.pathname.startsWith('/admin');
-const AdminApp = lazy(() => import('./AdminApp'));
+const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 function AdminRoot() {
   return (
