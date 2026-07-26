@@ -1869,6 +1869,13 @@ impl CodexBridge {
                 }
                 trace_state_only_notification(&method, thread_id.as_deref());
             }
+            "warning"
+            | "configWarning"
+            | "deprecationNotice"
+            | "guardianWarning"
+            | "windows/worldWritableWarning" => {
+                log_warning_notification(&method, thread_id.as_deref(), &params);
+            }
             "thread/started"
             | "thread/unarchived"
             | "thread/name/updated"
@@ -1888,10 +1895,6 @@ impl CodexBridge {
             | "turn/moderationMetadata"
             | "hook/started"
             | "hook/completed"
-            | "warning"
-            | "configWarning"
-            | "deprecationNotice"
-            | "guardianWarning"
             | "model/rerouted"
             | "model/verification"
             | "model/safetyBuffering/updated"
@@ -1925,7 +1928,6 @@ impl CodexBridge {
             | "process/outputDelta"
             | "remoteControl/status/changed"
             | "skills/changed"
-            | "windows/worldWritableWarning"
             | "windowsSandbox/setupCompleted" => {
                 if method == "item/completed"
                     && let (Some(thread_id), Some(item)) =
@@ -2439,6 +2441,21 @@ fn trace_state_only_notification(method: &str, thread_id: Option<&str>) {
         thread_id = thread_id.unwrap_or(""),
         "Handled Codex app-server notification without publishing to Coworker"
     );
+}
+
+fn log_warning_notification(method: &str, thread_id: Option<&str>, params: &Map<String, Value>) {
+    let warning_params = serialize_warning_params(params);
+    warn!(
+        target: "codex_app_server",
+        method,
+        thread_id = thread_id.unwrap_or(""),
+        params = %warning_params,
+        "Received Codex warning notification"
+    );
+}
+
+fn serialize_warning_params(params: &Map<String, Value>) -> String {
+    Value::Object(params.clone()).to_string()
 }
 
 fn server_request_id_field(mapping: &Map<String, Value>) -> Option<String> {
@@ -3821,8 +3838,37 @@ mod tests {
                 "params": {"threadId": "thr_1", "message": "thread warning"}
             }))
             .await;
+        bridge
+            .handle_notification(json!({
+                "method": "windows/worldWritableWarning",
+                "params": {
+                    "threadId": "thr_1",
+                    "message": "workspace permissions are too broad",
+                    "path": "C:\\workspace"
+                }
+            }))
+            .await;
 
         assert!(transport.bridge_posts().await.is_empty());
+    }
+
+    #[test]
+    fn warning_log_serialization_preserves_complete_params() {
+        let params = json!({
+            "threadId": "thr_1",
+            "message": "first line\nsecond line",
+            "details": {
+                "path": "C:\\workspace",
+                "reasons": ["world writable", "untrusted owner"]
+            }
+        });
+        let params = params.as_object().expect("warning params");
+        let serialized = serialize_warning_params(params);
+
+        assert_eq!(
+            serde_json::from_str::<Value>(&serialized).expect("serialized warning params"),
+            Value::Object(params.clone())
+        );
     }
 
     #[tokio::test]
