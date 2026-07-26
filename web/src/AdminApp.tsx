@@ -749,14 +749,35 @@ const CONFIG_LABELS: Record<string, string> = {
 };
 
 function Settings() {
-  const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/config'), []);
+  const { data, error, setData } = useLoad(() => api<Json>('/api/admin/config'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [group, setGroup] = useState(() => new URLSearchParams(window.location.search).get('group') || 'llm');
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
+  const [clearOverridePaths, setClearOverridePaths] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [desktopValidationError, setDesktopValidationError] = useState('');
   const [invalidJsonPaths, setInvalidJsonPaths] = useState<Set<string>>(new Set());
-  useEffect(() => { if (data) setDraft(structuredClone(data.config)); }, [data]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (data) setDraft(current => current || structuredClone(data.config)); }, [data]);
+  const dirtyGroups = useMemo(() => {
+    const dirty = new Set<string>();
+    if (!data || !draft) return dirty;
+    for (const key of Object.keys(draft)) {
+      if (Object.keys(changedConfigFields(data.config?.[key] || {}, draft[key] || {})).length > 0) dirty.add(key);
+    }
+    for (const [path, value] of Object.entries(secretInputs)) {
+      if (value) dirty.add(path.split('.')[0]);
+    }
+    for (const path of clearOverridePaths) dirty.add(path.split('.')[0]);
+    return dirty;
+  }, [clearOverridePaths, data, draft, secretInputs]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirtyGroups.size > 0) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirtyGroups]);
   const setJsonValidity = useCallback((path: string, valid: boolean) => {
     setInvalidJsonPaths(current => {
       const next = new Set(current);
@@ -764,14 +785,22 @@ function Settings() {
       return next.size === current.size && [...next].every(item => current.has(item)) ? current : next;
     });
   }, []);
-  if (loading || !data || !draft) return <Loading error={error} />;
+  if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
-  const change = (key: string, value: any) => setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
+  const change = (key: string, value: any) => {
+    setClearOverridePaths(current => {
+      const next = new Set(current);
+      next.delete(`${group}.${key}`);
+      return next;
+    });
+    setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
+  };
   const selectGroup = (next: string) => {
     setGroup(next);
     setInvalidJsonPaths(new Set());
+    setMessage(null);
     const params = new URLSearchParams(window.location.search);
     params.set('section', 'settings');
     params.set('group', next);
@@ -781,23 +810,27 @@ function Settings() {
   const changeProvider = (index: number, key: string, value: string) => {
     const providers = [...(draft.llm.managed_providers || [])];
     providers[index] = { ...providers[index], [key]: value };
-    setDraft({ ...draft, llm: { ...draft.llm, managed_providers: providers } });
+    change('managed_providers', providers);
   };
-  const save = async () => {
-    if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return; }
-    if (invalidJsonPaths.size > 0) { setMessage({ kind: 'error', text: t('请先修正标出的 JSON 格式。') }); return; }
+  const save = async (): Promise<boolean> => {
+    if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return false; }
+    if (invalidJsonPaths.size > 0) { setMessage({ kind: 'error', text: t('请先修正标出的 JSON 格式。') }); return false; }
+    if (!dirtyGroups.has(group)) return true;
     const beforeGroup = structuredClone(data.config?.[group] || {});
     const afterGroup = structuredClone(draft[group] || {});
     const maxTokensValue = Number(draft.llm?.max_tokens);
     if (group === 'llm' && (!Number.isInteger(maxTokensValue) || maxTokensValue <= 0)) {
       setMessage({ kind: 'error', text: t('单次输出上限必须是正整数。') });
-      return;
+      return false;
     }
+    setSaving(true);
+    setMessage(null);
     try {
-      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
+      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([path, value]) => path.startsWith(`${group}.`) && value !== ''));
+      const clearOverrides = [...clearOverridePaths].filter(path => path.startsWith(`${group}.`));
       const changedFields = changedConfigFields(beforeGroup, afterGroup);
       const changes = Object.keys(changedFields).length > 0 ? { [group]: changedFields } : {};
-      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes, secrets }) });
+      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes, secrets, clear_overrides: clearOverrides }) });
       const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
       const savedMessage = hotCount && restartCount
         ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
@@ -806,9 +839,18 @@ function Settings() {
           : restartCount
             ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
             : t('配置没有变化。');
-      setSecretInputs({}); setMessage({ kind: 'success', text: group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage }); await reload();
+      setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith(`${group}.`))));
+      setClearOverridePaths(current => new Set([...current].filter(path => !path.startsWith(`${group}.`))));
+      setMessage({ kind: 'success', text: group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage });
+      const refreshed = await api<Json>('/api/admin/config');
+      setData(refreshed);
+      setDraft(current => current ? { ...current, [group]: structuredClone(refreshed.config[group] || {}) } : current);
+      return true;
     } catch (saveError) {
       setMessage({ kind: 'error', text: saveError instanceof Error ? saveError.message : t('保存失败') });
+      return false;
+    } finally {
+      setSaving(false);
     }
   };
   const isHot = (path: string) => (data.hot_reloadable || []).some((item: string) => path === item || path.startsWith(`${item}.`));
@@ -817,16 +859,39 @@ function Settings() {
   const activeAdminToken = adminToken?.configured ? adminToken : fallbackToken;
   const providerSource = data.sources?.providers ? t('、{{source}}', { source: data.sources.providers }) : '';
   const configNote = t('有效配置来自 {{env}}{{providers}}，并由 {{override}} 覆盖。', { env: '.env', providers: providerSource, override: data.override_path });
+  const groupOverrides = (data.overridden_fields || []).filter((path: string) => {
+    const field = path.split('.')[1] || '';
+    return path.startsWith(`${group}.`)
+      && !HIDDEN_CONFIG.has(path)
+      && field !== 'config_file'
+      && !field.endsWith('runtime_config_file')
+      && !(group === 'llm' && /_(api_key|base_url)$/.test(field));
+  });
+  const resetGroup = () => {
+    setDraft(current => current ? { ...current, [group]: structuredClone(data.config[group] || {}) } : current);
+    setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith(`${group}.`))));
+    setClearOverridePaths(current => new Set([...current].filter(path => !path.startsWith(`${group}.`))));
+    setInvalidJsonPaths(new Set());
+    setMessage(null);
+  };
   const CustomSettingsPanel = settingsPanelRegistration(group)?.component;
   return <div className="settings-layout">
-    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} onClick={() => selectGroup(k)} key={k}>{t(GROUP_LABELS[k])}<ChevronRight size={14} /></button>)}</nav>
+    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} disabled={saving} onClick={() => selectGroup(k)} key={k}><span>{t(GROUP_LABELS[k])}{dirtyGroups.has(k) && <i className="settings-dirty-dot" title={t('有未保存修改')} />}</span><ChevronRight size={14} /></button>)}</nav>
     <Panel title={GROUP_LABELS[group]} note={configNote} className="config-panel">
       {data.pending_restart && <div className="notice amber"><TriangleAlert size={16} />{t('存在等待重启的修改')}</div>}
+      {group !== 'admin' && groupOverrides.length > 0 && <div className="config-override-strip"><div><Database size={16} /><span><b>{t('管理端覆盖')}</b><small>{t('这些字段不会跟随启动环境变化；可以恢复为继承配置。')}</small></span></div><div>{groupOverrides.map((path: string) => {
+        const pending = clearOverridePaths.has(path);
+        return <button className={pending ? 'pending' : ''} key={path} onClick={() => setClearOverridePaths(current => {
+          const next = new Set(current);
+          if (next.has(path)) next.delete(path); else next.add(path);
+          return next;
+        })}><span>{t(CONFIG_LABELS[path] || humanize(path.split('.')[1] || path))}</span><RotateCcw size={12} />{t(pending ? '保存后恢复继承' : '恢复继承')}</button>;
+      })}</div></div>}
       {group === 'admin' ? <div className="admin-settings-status">
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} onApplied={reload} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -843,7 +908,7 @@ function Settings() {
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
-              <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs({}); }}><Trash2 size={15} /></button>
+              <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
@@ -881,7 +946,7 @@ function Settings() {
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={(group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setInvalidJsonPaths(new Set()); setMessage(null); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>
   </div>;
 }

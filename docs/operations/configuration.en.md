@@ -21,7 +21,9 @@ An explicit empty list remains an override when it differs from the inherited va
 defaults therefore evolve with the product instead of being frozen merely by opening or saving a
 whole settings group. Startup also normalizes an existing override file with an atomic write:
 inherited values from old snapshots are removed while custom values, secrets, and explicit
-overrides remain intact.
+overrides remain intact. Runtime Settings lists the admin overrides in the current section and
+allows individual fields to be restored to inherited configuration. Unsaved drafts and secret
+inputs remain isolated by section, and saving submits only the current section.
 
 Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 

@@ -418,6 +418,49 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     ]
 
 
+def test_readding_removed_provider_clears_pending_restart(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    provider = {
+        "name": "admin-a",
+        "type": "openai",
+        "api_key": "",
+        "base_url": "",
+        "default_model": None,
+    }
+    monkeypatch.setattr(
+        "coworker.brain.factory.build_provider",
+        lambda type_, api_key, **kwargs: SimpleNamespace(
+            provider_name=kwargs.get("name") or type_
+        ),
+    )
+    client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"llm": {"managed_providers": [provider]}},
+            "secrets": {"llm.managed_providers.0.api_key": "sk-a"},
+        },
+    )
+    removed = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"llm": {"managed_providers": []}}},
+    )
+
+    restored = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"llm": {"managed_providers": [provider]}},
+            "secrets": {"llm.managed_providers.0.api_key": "sk-a"},
+        },
+    )
+
+    assert removed.json()["pending_restart"] is True
+    assert restored.json()["pending_restart"] is False
+
+
 def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
@@ -506,12 +549,84 @@ def test_config_patch_removes_value_restored_to_inherited_config(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["requires_restart"] == ["api.port"]
+    assert response.json()["pending_restart"] is True
     assert json.loads(path.read_text(encoding="utf-8")) == {}
     desired = client.get(
         "/api/admin/config",
         headers={"Authorization": "Bearer secret"},
     ).json()
     assert desired["config"]["api"]["port"] == 8000
+
+
+def test_config_patch_clears_pending_restart_after_reverting_to_running_value(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"api": {"port": 8123}}},
+    )
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"api": {"port": 8000}}},
+    )
+
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+
+
+def test_config_response_identifies_overridden_fields(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"api": {"port": 8123}, "agent": {"passive_mode": True}}),
+        encoding="utf-8",
+    )
+    client, _ = _client(tmp_path)
+
+    response = client.get(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.json()["overridden_fields"] == [
+        "agent.passive_mode",
+        "api.port",
+    ]
+
+
+def test_config_patch_explicitly_clears_one_override(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"api": {"host": "0.0.0.0", "port": 8123}}),
+        encoding="utf-8",
+    )
+    client, config = _client(tmp_path)
+    config.api.port = 8123
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"clear_overrides": ["api.port"]},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "api": {"host": "0.0.0.0"}
+    }
+
+
+def test_config_patch_rejects_unknown_clear_override(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"clear_overrides": ["api.missing"]},
+    )
+
+    assert response.status_code == 400
 
 
 def test_config_patch_preserves_explicit_empty_list_override(tmp_path):

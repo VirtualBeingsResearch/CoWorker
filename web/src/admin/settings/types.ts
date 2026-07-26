@@ -8,7 +8,9 @@ export type AdminRequest = <T = Json>(
 export type SettingsPanelProps = {
   value: Json;
   change: (key: string, value: any) => void;
-  onApplied: () => Promise<void>;
+  apply: () => Promise<boolean>;
+  dirty: boolean;
+  saving: boolean;
   request: AdminRequest;
 };
 

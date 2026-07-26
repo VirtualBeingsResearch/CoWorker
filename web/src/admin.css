@@ -935,7 +935,22 @@ html:has(.admin-login),
 .subnav button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--admin-muted); background: transparent; font-size: 11px; text-align: left; }
 .subnav button:hover { color: var(--admin-ink); background: var(--admin-paper); }
 .subnav button.active { color: var(--admin-vital); background: var(--admin-soft); font-weight: 680; }
+.subnav button:disabled { opacity: .58; cursor: wait; }
+.subnav button > span { display: inline-flex; align-items: center; gap: 7px; }
+.settings-dirty-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--admin-amber); box-shadow: 0 0 0 3px color-mix(in oklch, var(--admin-amber) 13%, transparent); }
 .config-panel { max-width: 1020px; }
+.config-override-strip { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid color-mix(in oklch, var(--admin-vital) 22%, var(--admin-line)); border-radius: 11px; background: color-mix(in oklch, var(--admin-soft) 58%, var(--admin-surface)); }
+.config-override-strip > div:first-child { display: flex; align-items: flex-start; gap: 9px; color: var(--admin-vital); }
+.config-override-strip > div:first-child svg { flex: none; margin-top: 1px; }
+.config-override-strip b,
+.config-override-strip small { display: block; }
+.config-override-strip b { font-size: 11px; }
+.config-override-strip small { margin-top: 2px; color: var(--admin-muted); font-size: 10px; line-height: 1.45; }
+.config-override-strip > div:last-child { display: flex; flex-wrap: wrap; gap: 6px; }
+.config-override-strip button { display: inline-flex; align-items: center; gap: 6px; min-height: 29px; padding: 5px 8px; border: 1px solid var(--admin-line); border-radius: 7px; color: var(--admin-muted); background: var(--admin-surface); font-size: 9px; cursor: pointer; }
+.config-override-strip button:hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
+.config-override-strip button.pending { color: color-mix(in oklch, var(--admin-amber) 74%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-amber) 38%, var(--admin-line)); background: color-mix(in oklch, var(--admin-amber) 7%, var(--admin-surface)); }
+.config-override-strip button:focus-visible { outline: 3px solid color-mix(in oklch, var(--admin-vital) 25%, transparent); outline-offset: 1px; }
 .config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 17px; }
 .config-switch { align-self: start; margin-top: calc(var(--admin-field-label-height) + var(--admin-field-gap)); }
 .config-fields .field:has(.code-area) { grid-column: 1 / -1; }
@@ -990,7 +1005,11 @@ html:has(.admin-login),
 .weixin-overview span b { margin-top: 5px; font: 18px var(--admin-display); }
 .weixin-overview span p { margin: 4px 0 0; color: var(--admin-muted); font-size: 11px; }
 .weixin-pairing { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; align-items: center; padding: 20px; border: 1px solid color-mix(in oklch, #19ad67 28%, var(--admin-line)); border-radius: 15px; background: linear-gradient(135deg, var(--admin-surface), color-mix(in oklch, #19ad67 6%, var(--admin-paper))); }
+.weixin-pairing.confirmed { border-color: color-mix(in oklch, #19ad67 42%, var(--admin-line)); }
+.weixin-pairing.failed { border-color: color-mix(in oklch, var(--admin-amber) 42%, var(--admin-line)); background: linear-gradient(135deg, var(--admin-surface), color-mix(in oklch, var(--admin-amber) 6%, var(--admin-paper))); }
 .weixin-qr-stage { display: grid; place-items: center; aspect-ratio: 1; padding: 12px; border: 1px solid var(--admin-line); border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 5px #f4f7f5; }
+.weixin-pairing.confirmed .weixin-qr-stage { color: #168954; background: color-mix(in oklch, #19ad67 7%, white); }
+.weixin-pairing.failed .weixin-qr-stage { color: var(--admin-amber); background: color-mix(in oklch, var(--admin-amber) 7%, white); }
 .weixin-qr-stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .weixin-pairing-copy > span { color: #168954; font: 680 9px var(--admin-data); letter-spacing: .12em; }
 .weixin-pairing-copy h3 { margin: 7px 0; font: 21px var(--admin-display); }

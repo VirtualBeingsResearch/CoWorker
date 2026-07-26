@@ -76,6 +76,7 @@ _wecom_runner: WeComRunner | None = None
 _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
+_pending_restart_operations: set[str] = set()
 _config_write_lock = asyncio.Lock()
 
 _SECRET_PATHS = {
@@ -115,6 +116,7 @@ _HOT_CONFIG_PATHS = {
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
+    clear_overrides: list[str] = Field(default_factory=list)
 
 
 class IdentityPatch(BaseModel):
@@ -225,6 +227,7 @@ def setup_admin(
         _desktop_update_sync, \
         _wecom_runner, \
         _pending_restart, \
+        _pending_restart_operations, \
         _config_write_lock
     _agent = agent
     _brain = brain
@@ -237,6 +240,7 @@ def setup_admin(
     _desktop_update_sync = desktop_update_sync
     _wecom_runner = wecom_runner
     _pending_restart = False
+    _pending_restart_operations = set()
     _config_write_lock = asyncio.Lock()
 
 
@@ -519,6 +523,26 @@ def _sparse_admin_overrides(overrides: JsonObject) -> JsonObject:
     return cast(JsonObject, sparse_admin_overrides(overrides, _require_inherited_config()))
 
 
+def _overridden_config_fields(overrides: JsonObject) -> list[str]:
+    fields: list[str] = []
+    for section, section_overrides in overrides.items():
+        if not isinstance(section_overrides, dict):
+            fields.append(section)
+            continue
+        fields.extend(f"{section}.{field}" for field in section_overrides)
+    return sorted(fields)
+
+
+def _config_field_exists(path: str) -> bool:
+    parts = path.split(".")
+    if len(parts) != 2:
+        return False
+    section, field = parts
+    inherited = _require_inherited_config().model_dump(mode="json")
+    section_data = inherited.get(section)
+    return isinstance(section_data, dict) and field in section_data
+
+
 class SecretStatus(TypedDict):
     configured: bool
     last4: str
@@ -594,6 +618,30 @@ def _assign_config_path(config: Config, path: str, source: Config) -> None:
     setattr(getattr(config, group), field, getattr(getattr(source, group), field))
 
 
+def _restart_config_paths(changed_paths: set[str]) -> set[str]:
+    channel_prefixes = tuple(
+        f"{settings.config_key}."
+        for _, settings in (
+            _channel_modules.settings_items()
+            if _channel_modules is not None
+            else []
+        )
+    )
+    return {
+        path
+        for path in changed_paths
+        if path not in _HOT_CONFIG_PATHS
+        and not (
+            path.startswith("desktop_updates.")
+            and not path.startswith("desktop_updates.dir")
+            and not path.startswith("desktop_updates.admin_token")
+        )
+        and not path.startswith("wecom.")
+        and not path.startswith("llm.managed_providers")
+        and not path.startswith(channel_prefixes)
+    }
+
+
 async def _apply_hot_config(
     current: Config,
     desired: Config,
@@ -621,20 +669,7 @@ async def _apply_hot_config(
         }
         for channel_name, settings in channel_settings
     }
-    channel_hot_paths = {
-        path
-        for paths in channel_hot.values()
-        for path in paths
-    }
-    restart = sorted(
-        path
-        for path in changed_paths
-        if path not in _HOT_CONFIG_PATHS
-        and path not in desktop_hot
-        and path not in wecom_hot
-        and path not in channel_hot_paths
-        and not path.startswith("llm.managed_providers")
-    )
+    restart = sorted(_restart_config_paths(changed_paths))
     brain = _require_brain()
 
     if "llm.max_tokens" in changed_paths:
@@ -1314,10 +1349,12 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
 async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
     config = _require_config()
     data, statuses, effective_providers = _masked_config()
+    overrides = load_admin_overrides(config.admin.config_file)
     return {
         "config": data,
         "effective_providers": effective_providers,
         "secret_status": statuses,
+        "overridden_fields": _overridden_config_fields(overrides),
         "hot_reloadable": sorted(
             _HOT_CONFIG_PATHS
             | {"llm.managed_providers", "desktop_updates", "wecom"}
@@ -1391,7 +1428,7 @@ async def execute_channel_management(
 
 
 async def _patch_config_locked(payload: ConfigPatch, request: Request | None) -> ApiResponse:
-    global _pending_restart
+    global _pending_restart, _pending_restart_operations
     config = _require_config()
     path = Path(config.admin.config_file)
     current_overrides = load_admin_overrides(path)
@@ -1399,7 +1436,15 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
     for secret_path in _SECRET_PATHS:
         _remove_path(safe_changes, secret_path)
     _remove_source_tokens(safe_changes)
-    next_overrides = _merge_override_fields(current_overrides, safe_changes)
+    next_overrides = dict(current_overrides)
+    for clear_path in payload.clear_overrides:
+        if not _config_field_exists(clear_path):
+            raise HTTPException(
+                status_code=400,
+                detail=tr("api.admin.config_field_not_clearable", path=clear_path),
+            )
+        _remove_path(next_overrides, clear_path)
+    next_overrides = _merge_override_fields(next_overrides, safe_changes)
     effective: JsonObject = config.model_dump(mode="json")
     explicit_source_secret_ids: set[str] = set()
 
@@ -1480,7 +1525,23 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
             detail=tr("api.admin.runtime_apply_failed", error=e),
         ) from e
     _write_json_atomic(path, _sparse_admin_overrides(next_overrides))
-    _pending_restart = _pending_restart or bool(requires_restart)
+    provider_changed = any(
+        path.startswith("llm.managed_providers") for path in changed_paths
+    )
+    provider_removal = "llm.managed_providers.removed"
+    if provider_changed:
+        _pending_restart_operations.discard(provider_removal)
+        if provider_removal in requires_restart:
+            _pending_restart_operations.add(provider_removal)
+    pending_config_paths = _restart_config_paths(
+        _changed_paths(
+            config.model_dump(mode="json"),
+            desired_config.model_dump(mode="json"),
+        )
+    )
+    pending_paths = pending_config_paths | _pending_restart_operations
+    requires_restart = sorted(set(requires_restart) & pending_paths)
+    _pending_restart = bool(pending_paths)
     if request is not None:
         _audit(
             request,
