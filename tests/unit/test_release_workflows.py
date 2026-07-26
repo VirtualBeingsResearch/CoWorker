@@ -79,7 +79,10 @@ def test_desktop_candidate_build_creates_or_refreshes_a_release_draft() -> None:
     assert "git/refs/tags/$upload_tag" in workflow
     assert "-F force=true" in workflow
     assert 'releases/generate-notes"' in workflow
+    assert 'select(.draft == false and .tag_name != $release_tag)' in workflow
+    assert 'notes_args+=(-f previous_tag_name="$previous_tag")' in workflow
     assert '-f target_commitish="$release_sha"' in workflow
+    assert '-f body="$RELEASE_BODY"' in workflow
     assert "-F draft=true" in workflow
     assert 'gh release upload "$UPLOAD_TAG"' in workflow
     assert "--clobber" in workflow
