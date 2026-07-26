@@ -2244,8 +2244,23 @@ h1, h2, h3, p { margin: 0; }
   .chat-name-step { min-height: 306px; padding: 24px 26px 28px; }
   .chat-name-copy p { max-width: 260px; }
   .chat-profile-editor { min-height: 306px; padding: 24px 26px 28px; }
-  .chat-user-chip { max-width: 128px; }
+  .chat-header { gap: 10px; }
+  .chat-header > div:first-child { flex: 1 1 auto; }
+  .chat-header-actions { gap: 6px; }
+  .chat-user-chip {
+    width: 36px; min-width: 36px; padding: 0;
+    justify-content: center;
+  }
+  .chat-user-chip > span,
+  .chat-user-chip > svg:last-child { display: none; }
   .chat-history-control { align-items: flex-start; }
+  .chat-tool {
+    display: grid; grid-template-columns: 1fr; align-items: start; gap: 5px;
+  }
+  .chat-tool-statuses { width: 100%; }
+  .chat-session-note {
+    width: 100%; text-align: left; white-space: normal; line-height: 1.4;
+  }
   .chat-modal-page .chat-header { padding: 14px 16px; }
   .chat-modal-page .chat-header h2 { font-size: 16px; }
   .chat-modal-page .chat-messages { width: 100%; padding: 18px 16px; }

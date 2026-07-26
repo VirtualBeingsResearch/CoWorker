@@ -1208,11 +1208,11 @@ export function useAdminI18n() {
 export function LanguageSwitch({ className = '' }: { className?: string }) {
   const { language, setLanguage } = useAdminI18n();
   const nextLanguage = language === 'zh' ? 'en' : 'zh';
-  const currentLabel = language === 'zh' ? '中文' : 'English';
+  const nextLanguageLabel = language === 'zh' ? 'English' : '中文';
   const label = language === 'zh' ? '切换界面语言为 English' : 'Switch interface language to Chinese';
   return <button type="button" className={className.trim()} aria-label={label} title={label} onClick={() => setLanguage(nextLanguage)}>
     <Languages size={15} aria-hidden="true" />
-    <span>{currentLabel}</span>
+    <span>{nextLanguageLabel}</span>
   </button>;
 }
 
