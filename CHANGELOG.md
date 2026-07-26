@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.5 - Unreleased
+## 0.3.5 - 2026-07-26
 
 - fix(desktop): apply onboarding update URL default (#107)
 - fix(release): make drafts revisable before publish (#108)
