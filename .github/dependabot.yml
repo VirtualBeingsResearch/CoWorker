@@ -1,42 +1,40 @@
 version: 2
 
-updates:
-  - package-ecosystem: uv
-    directory: /
+multi-ecosystem-groups:
+  all-dependencies:
     schedule:
       interval: weekly
 
+updates:
+  - package-ecosystem: uv
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
   - package-ecosystem: cargo
     directory: /
-    schedule:
-      interval: weekly
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: npm
     directories:
       - /web
       - /apps/explore-lab/frontend
       - /apps/coworker-desktop/desktop
-    schedule:
-      interval: weekly
-    groups:
-      vite:
-        patterns:
-          - vite
-          - vitest
-          - "@vitejs/plugin-react"
-      react:
-        patterns:
-          - react
-          - react-dom
-          - "@types/react"
-          - "@types/react-dom"
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: docker
     directory: /
-    schedule:
-      interval: weekly
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
