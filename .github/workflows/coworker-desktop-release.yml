@@ -8,6 +8,11 @@ on:
         required: false
         default: true
         type: boolean
+      release_tag:
+        description: "Optional draft tag for a revisable branch-based release candidate"
+        required: false
+        default: ""
+        type: string
   push:
     tags:
       - "v*"
@@ -16,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: coworker-desktop-release-${{ github.ref }}
+  group: coworker-desktop-release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -97,6 +102,9 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Check product version
+        env:
+          GITHUB_REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          GITHUB_REF_TYPE: ${{ inputs.release_tag != '' && 'tag' || github.ref_type }}
         run: python scripts/check_version.py
 
       - name: Cache Rust build
@@ -284,7 +292,7 @@ jobs:
 
   release:
     name: Create GitHub release draft
-    if: ${{ success() && github.ref_type == 'tag' }}
+    if: ${{ success() && (github.ref_type == 'tag' || inputs.release_tag != '') }}
     needs: build
     permissions:
       actions: read
@@ -295,41 +303,98 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Check product version
+        env:
+          GITHUB_REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          GITHUB_REF_TYPE: tag
         run: python scripts/check_version.py
 
       - name: Inspect release state
         id: release
         shell: bash
         env:
+          CANDIDATE_MODE: ${{ inputs.release_tag != '' && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
+          release_sha="$(git rev-parse HEAD)"
+          upload_tag="$RELEASE_TAG"
           prerelease=false
           if [[ "$version" == *-* ]]; then
             prerelease=true
           fi
 
-          error_file="$RUNNER_TEMP/release-view-error"
-          if release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" 2>"$error_file")"; then
-            if [[ "$(jq -r '.draft' <<< "$release_json")" == "true" ]]; then
-              state=draft
-            else
-              state=published
-              echo "Existing published release will not be modified: $(jq -r '.html_url' <<< "$release_json")"
+          git fetch --force --tags origin
+          if [[ "$CANDIDATE_MODE" == "true" ]]; then
+            if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+              echo "::error::Release tag $RELEASE_TAG already exists and is immutable. Prepare a newer patch version."
+              exit 1
             fi
-          elif grep -q "HTTP 404" "$error_file"; then
-            state=missing
-          else
-            cat "$error_file" >&2
+
+            upload_tag="release-candidate-$RELEASE_TAG"
+            if git show-ref --verify --quiet "refs/tags/$upload_tag"; then
+              candidate_sha="$(git rev-parse "refs/tags/$upload_tag^{commit}")"
+              if [[ "$candidate_sha" != "$release_sha" ]]; then
+                gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$upload_tag" \
+                  -f sha="$release_sha" \
+                  -F force=true >/dev/null
+              fi
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$upload_tag" \
+                -f sha="$release_sha" >/dev/null
+            fi
+          fi
+
+          releases_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$upload_tag" '[.[] | select(.tag_name == $tag)]'
+          )"
+          if [[ "$(jq 'length' <<< "$releases_json")" -gt 1 ]]; then
+            echo "::error::Multiple releases use tag $upload_tag."
             exit 1
           fi
 
+          release_json="$(jq -c '.[0] // empty' <<< "$releases_json")"
+          release_id=""
+          if [[ -z "$release_json" ]]; then
+            state=missing
+          elif [[ "$(jq -r '.draft' <<< "$release_json")" == "true" ]]; then
+            state=draft
+            release_id="$(jq -r '.id' <<< "$release_json")"
+            if [[ "$CANDIDATE_MODE" == "true" ]]; then
+              notes_json="$(
+                gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                  -f tag_name="$RELEASE_TAG" \
+                  -f target_commitish="$release_sha"
+              )"
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+                -f tag_name="$upload_tag" \
+                -f target_commitish="$release_sha" \
+                -f name="$(jq -r '.name' <<< "$notes_json")" \
+                -f body="$(jq -r '.body' <<< "$notes_json")" \
+                -F prerelease="$prerelease" >/dev/null
+            fi
+          else
+            state=published
+            echo "Existing published release will not be modified: $(jq -r '.html_url' <<< "$release_json")"
+            if [[ "$CANDIDATE_MODE" == "true" ]]; then
+              echo "::error::Published release $RELEASE_TAG cannot be revised."
+              exit 1
+            fi
+          fi
+
           {
+            echo "release_id=$release_id"
+            echo "release_sha=$release_sha"
+            echo "release_tag=$RELEASE_TAG"
+            echo "upload_tag=$upload_tag"
             echo "version=$version"
             echo "prerelease=$prerelease"
             echo "state=$state"
@@ -356,27 +421,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          UPLOAD_TAG: ${{ steps.release.outputs.upload_tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
 
-          args=(
-            release create "$GITHUB_REF_NAME"
-            --draft
-            --generate-notes
-            --title "CoWorker $VERSION"
-            --verify-tag
-          )
-          if [[ "$PRERELEASE" == "true" ]]; then
-            args+=(--prerelease)
-          fi
-          gh "${args[@]}"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$UPLOAD_TAG" \
+            -f target_commitish="$RELEASE_SHA" \
+            -f name="CoWorker $VERSION" \
+            -F draft=true \
+            -F prerelease="$PRERELEASE" \
+            -F generate_release_notes=true >/dev/null
 
       - name: Upload release assets
         if: steps.release.outputs.state != 'published'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          UPLOAD_TAG: ${{ steps.release.outputs.upload_tag }}
         run: |
           set -euo pipefail
 
@@ -386,4 +450,29 @@ jobs:
             echo "::error::Expected 12 release assets, found ${#assets[@]}."
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          gh release upload "$UPLOAD_TAG" "${assets[@]}" --clobber
+
+      - name: Mark release candidate ready
+        if: inputs.release_tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          UPLOAD_TAG: ${{ steps.release.outputs.upload_tag }}
+        run: |
+          set -euo pipefail
+
+          releases_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$UPLOAD_TAG" '[.[] | select(.tag_name == $tag and .draft == true)]'
+          )"
+          if [[ "$(jq 'length' <<< "$releases_json")" -ne 1 ]]; then
+            echo "::error::Expected one draft release for $UPLOAD_TAG after uploading assets."
+            exit 1
+          fi
+
+          release_id="$(jq -r '.[0].id' <<< "$releases_json")"
+          release_body="$(jq -r '.[0].body // ""' <<< "$releases_json")"
+          ready_marker="<!-- coworker-release-candidate-sha:$RELEASE_SHA -->"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -f body="$release_body"$'\n\n'"$ready_marker" >/dev/null

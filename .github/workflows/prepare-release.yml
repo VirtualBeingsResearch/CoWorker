@@ -157,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          body="$(printf '## Summary\n\n- bump the product version to `%s`\n- update Python, Rust, web, desktop, Tauri, and lockfile versions\n- preserve the generic `Unreleased` notes in the `%s - Unreleased` section\n\n## Validation\n\n- `scripts/check_version.py`\n- Ruff for the version tooling\n- focused bump/version unit tests\n- generated path allowlist and `git diff --check`\n\n## Release follow-up\n\nAfter merging this PR, run **Create CoWorker Release** with tag `%s`.\n' "$RELEASE_VERSION" "$RELEASE_VERSION" "$RELEASE_TAG")"
+          body="$(printf '## Summary\n\n- bump the product version to `%s`\n- update Python, Rust, web, desktop, Tauri, and lockfile versions\n- preserve the generic `Unreleased` notes in the `%s - Unreleased` section\n\n## Validation\n\n- `scripts/check_version.py`\n- Ruff for the version tooling\n- focused bump/version unit tests\n- generated path allowlist and `git diff --check`\n\n## Release follow-up\n\nAfter merging this PR, run **Build CoWorker Release Draft** with tag `%s`. Rebuild the same draft after any urgent fix, then run **Publish CoWorker Release** only after approving the final assets.\n' "$RELEASE_VERSION" "$RELEASE_VERSION" "$RELEASE_TAG")"
           pr_url="$(gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base "$DEFAULT_BRANCH" \

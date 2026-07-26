@@ -1,28 +1,23 @@
-name: Create CoWorker Release
+name: Publish CoWorker Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create (for example v0.3.2)"
+        description: "Draft release tag to publish (for example v0.3.5)"
         required: true
         type: string
-      notarize_macos:
-        description: "Attempt macOS notarization when Apple credentials are configured"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: create-coworker-release-${{ inputs.tag }}
+  group: publish-coworker-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  create:
-    name: Create tag and start release workflows
+  publish:
+    name: Publish draft and start immutable release workflows
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -35,24 +30,105 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate release tag
+      - name: Validate release draft
         id: release
         shell: bash
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
           GITHUB_REF_NAME: ${{ inputs.tag }}
           GITHUB_REF_TYPE: tag
           RELEASE_TAG: ${{ inputs.tag }}
+          SELECTED_REF_NAME: ${{ github.ref_name }}
+          SELECTED_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
 
-          python scripts/check_version.py
+          if [[ "$SELECTED_REF_TYPE" == "branch" && "$SELECTED_REF_NAME" == "$DEFAULT_BRANCH" ]]; then
+            selected_ref=default
+          elif [[ "$SELECTED_REF_TYPE" == "tag" && "$SELECTED_REF_NAME" == "$RELEASE_TAG" ]]; then
+            selected_ref=release
+          else
+            echo "::error::Run this workflow from the default branch, or from $RELEASE_TAG when retrying an existing published release."
+            exit 1
+          fi
 
+          python scripts/check_version.py
           version="${RELEASE_TAG#v}"
           commit_sha="$(git rev-parse HEAD)"
+          candidate_tag="release-candidate-$RELEASE_TAG"
+
+          stable_releases_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)]'
+          )"
+          candidate_releases_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$candidate_tag" '[.[] | select(.tag_name == $tag)]'
+          )"
+          stable_count="$(jq 'length' <<< "$stable_releases_json")"
+          candidate_count="$(jq 'length' <<< "$candidate_releases_json")"
+          if ((stable_count + candidate_count > 1)); then
+            echo "::error::Multiple releases use $RELEASE_TAG or its candidate tag."
+            exit 1
+          fi
+
+          if [[ "$stable_count" -eq 1 ]]; then
+            release_json="$(jq -c '.[0]' <<< "$stable_releases_json")"
+            source_tag="$RELEASE_TAG"
+          elif [[ "$candidate_count" -eq 1 ]]; then
+            release_json="$(jq -c '.[0]' <<< "$candidate_releases_json")"
+            source_tag="$candidate_tag"
+          else
+            echo "::error::Expected a release draft for $candidate_tag. Run Build CoWorker Release Draft first."
+            exit 1
+          fi
+
+          release_id="$(jq -r '.id' <<< "$release_json")"
+          release_state=published
+          if [[ "$(jq -r '.draft' <<< "$release_json")" == "true" ]]; then
+            release_state=draft
+            if [[ "$selected_ref" != "default" ]]; then
+              echo "::error::Publish a release draft from the default branch."
+              exit 1
+            fi
+            git fetch --force --tags origin
+            if ! git show-ref --verify --quiet "refs/tags/$source_tag"; then
+              echo "::error::Draft source tag $source_tag is missing."
+              exit 1
+            fi
+            source_sha="$(git rev-parse "refs/tags/$source_tag^{commit}")"
+            if [[ "$source_sha" != "$commit_sha" ]]; then
+              echo "::error::Draft $source_tag targets $source_sha, not current main commit $commit_sha. Rebuild the draft after the latest merge."
+              exit 1
+            fi
+            asset_count="$(jq '.assets | length' <<< "$release_json")"
+            if [[ "$asset_count" -ne 12 ]]; then
+              echo "::error::Draft $source_tag has $asset_count assets; expected 12."
+              exit 1
+            fi
+            if [[ "$source_tag" == "$candidate_tag" ]]; then
+              ready_marker="<!-- coworker-release-candidate-sha:$commit_sha -->"
+              release_body="$(jq -r '.body // ""' <<< "$release_json")"
+              if [[ "$release_body" != *"$ready_marker"* ]]; then
+                echo "::error::Draft $source_tag is not marked ready for commit $commit_sha."
+                exit 1
+              fi
+            fi
+          elif [[ "$source_tag" != "$RELEASE_TAG" ]]; then
+            echo "::error::Candidate release $source_tag is already published and cannot become $RELEASE_TAG."
+            exit 1
+          fi
+
           {
             echo "tag=$RELEASE_TAG"
             echo "version=$version"
             echo "commit_sha=$commit_sha"
+            echo "candidate_tag=$candidate_tag"
+            echo "release_id=$release_id"
+            echo "release_state=$release_state"
+            echo "selected_ref=$selected_ref"
+            echo "source_tag=$source_tag"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create release tag
@@ -79,6 +155,35 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag --annotate "$RELEASE_TAG" "$RELEASE_SHA" --message "CoWorker $VERSION"
           git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Publish release draft
+        if: steps.release.outputs.release_state == 'draft'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          RELEASE_SHA: ${{ steps.release.outputs.commit_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: >-
+          gh api --method PATCH
+          "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          -f tag_name="$RELEASE_TAG"
+          -f target_commitish="$RELEASE_SHA"
+          -F draft=false
+
+      - name: Remove candidate tag
+        env:
+          CANDIDATE_TAG: ${{ steps.release.outputs.candidate_tag }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ steps.release.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SOURCE_TAG" != "$CANDIDATE_TAG" ]]; then
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CANDIDATE_TAG" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$CANDIDATE_TAG"
+          fi
 
       - name: Open changelog finalization pull request
         shell: bash
@@ -124,24 +229,19 @@ jobs:
             --title "docs(release): finalize $RELEASE_TAG changelog" \
             --body "$pr_body"
 
-      - name: Start desktop and container releases
+      - name: Start container release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTARIZE_MACOS: ${{ inputs.notarize_macos }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
 
-          gh workflow run coworker-desktop-release.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$RELEASE_TAG" \
-            --field notarize_macos="$NOTARIZE_MACOS"
           gh workflow run container-release.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$RELEASE_TAG" \
             --field ref="$RELEASE_TAG" \
             --field version="$VERSION"
 
-          echo "Started desktop and container release workflows for $RELEASE_TAG."
+          echo "Started container publishing for $RELEASE_TAG."
