@@ -88,3 +88,6 @@ def test_desktop_candidate_build_creates_or_refreshes_a_release_draft() -> None:
     assert "--clobber" in workflow
     assert "Mark release candidate ready" in workflow
     assert "coworker-release-candidate-sha:$RELEASE_SHA" in workflow
+    ready_step = workflow.split("- name: Mark release candidate ready", maxsplit=1)[1]
+    assert '-f tag_name="$UPLOAD_TAG"' in ready_step
+    assert '-f target_commitish="$RELEASE_SHA"' in ready_step

@@ -503,4 +503,6 @@ jobs:
           release_body="$(jq -r '.[0].body // ""' <<< "$releases_json")"
           ready_marker="<!-- coworker-release-candidate-sha:$RELEASE_SHA -->"
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -f tag_name="$UPLOAD_TAG" \
+            -f target_commitish="$RELEASE_SHA" \
             -f body="$release_body"$'\n\n'"$ready_marker" >/dev/null
