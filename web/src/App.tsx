@@ -234,7 +234,7 @@ function ProfileMarkdown({ text }: { text: string }) {
   );
 }
 
-function useSmoothWheelScroll(ref: React.RefObject<HTMLElement>) {
+function useSmoothWheelScroll<T extends HTMLElement>(ref: React.RefObject<T | null>) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
