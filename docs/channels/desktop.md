@@ -128,7 +128,7 @@ uv run python scripts/check_version.py
 
 推荐从 Actions 手动运行 `.github/workflows/prepare-release.yml` 中的 `Prepare CoWorker Release`，从默认分支输入不带 `v` 的版本号。流程会运行 `bump_version.py`、版本校验、lint 和相关测试，只允许脚本修改预期的版本与 changelog 文件，然后创建 `chore/release-vX.Y.Z` 分支和版本准备 PR。
 
-运行前，在仓库 Actions secrets 中配置 `RELEASE_PR_TOKEN`。建议使用仅授予该仓库权限的 GitHub App installation token 或 fine-grained PAT，并至少授予 **Pull requests: write**；该令牌仅用于创建版本准备 PR，不用于推送版本分支。这样流程不依赖仓库级的“允许 GitHub Actions 创建和批准 PR”开关。审核并合并该 PR 后，再运行 `Create CoWorker Release` 输入对应的 `vX.Y.Z` tag。
+运行前，在仓库 Actions secrets 中配置 `RELEASE_PR_TOKEN`。建议使用仅授予该仓库权限的 GitHub App installation token 或 fine-grained PAT，并至少授予 **Pull requests: write**；该令牌仅用于创建版本准备 PR，不用于推送版本分支。这样流程不依赖仓库级的“允许 GitHub Actions 创建和批准 pull request”设置。审核并合并该 PR 后，从默认分支运行 `Build CoWorker Release Draft`，输入对应的 `vX.Y.Z` tag。
 
 开发运行：
 
@@ -185,9 +185,11 @@ macOS 正式分发需要 Developer ID 签名和 notarization；Linux 打包需�
 - `macos-latest`：分别生成 Apple Silicon `aarch64-apple-darwin` 和 Intel `x86_64-apple-darwin` `.app`/dmg/updater artifact；配置 Apple secrets 后会签名，并可公证
 - `ubuntu-22.04`：生成 AppImage 和 deb
 
-版本准备 PR 合并后，从 Actions 手动运行 `.github/workflows/release.yml` 中的 `Create CoWorker Release`：选择要发布的 ref，输入 `vX.Y.Z` tag，并按需选择是否尝试 macOS 公证。流程会先确认 tag 与 `VERSION` 一致，再在所选提交上创建 tag，并显式启动桌面与容器发布 workflow。同一 tag 的流程可以安全重跑，但已指向其他提交的 tag 会被拒绝。也可以像以前一样直接推送 `v*` tag，让两个发布 workflow 自动运行。
+版本准备 PR 合并后，从默认分支手动运行 `.github/workflows/draft-release.yml` 中的 `Build CoWorker Release Draft`：输入 `vX.Y.Z` tag，并按需选择是否尝试 macOS 公证。流程会先确认 tag 与 `VERSION` 一致且正式 tag 尚不存在，再构建三平台桌面产物，并用 `release-candidate-vX.Y.Z` 临时候选 tag 创建 Release 草稿。该候选 tag 只标识可修订草稿；它不匹配正式发布使用的 `v*` tag 规则，也不会用于容器镜像或稳定版本。
 
-直接从分支手动运行桌面 workflow 只生成 Actions artifact；从 tag 运行或由统一发布入口调度时，所有平台构建成功后，workflow 会创建使用 GitHub 自动说明的 Release 草稿，维护者检查后再手工公开。草稿包含 Windows EXE、两架构 macOS dmg、Linux AppImage/deb、各平台 updater 与签名，以及覆盖全部文件的 `SHA256SUMS.txt`。重跑会更新同 tag 的草稿资产，但不会修改已经公开的 Release。
+如果草稿审核期间发现问题，先将修复合入 `main`，然后用同一 tag 重跑 `Build CoWorker Release Draft`。流程会刷新自动生成的说明、目标 commit 和全部草稿资产；已经存在正式 tag 或已经公开的 Release 时会拒绝修改。草稿包含 Windows EXE、两架构 macOS dmg、Linux AppImage/deb、各平台 updater 与签名，以及覆盖全部文件的 `SHA256SUMS.txt`。
+
+草稿确认无误后，从默认分支运行 `.github/workflows/release.yml` 中的 `Publish CoWorker Release`。流程只在候选 tag 仍指向当前 `main` commit、候选构建已完整上传 12 个附件时创建不可变的正式 tag，把草稿切换到正式 tag 并公开，删除临时候选 tag，创建 changelog finalization PR，并开始推送容器镜像；桌面安装包不会在此阶段重新构建。发布后重跑只接受指向同一 commit 的 tag；直接推送 `v*` tag 的兼容流程仍然可用，但它会立即进入不可修订的正式 tag 构建，不提供候选草稿阶段。
 
 macOS 签名/公证不需要把 Apple 私钥提交到仓库。把证书和 Apple 凭据放到 GitHub
 Repository Secrets 后，workflow 会在 macOS runner 的临时 keychain 中导入证书，构建结束后随 runner 销毁。
