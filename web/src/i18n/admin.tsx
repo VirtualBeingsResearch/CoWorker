@@ -44,6 +44,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '扩展': 'Extend',
   '追溯': 'Audit',
   '请求失败': 'Request failed',
+  '正在执行…': 'Working…',
+  '正在恢复…': 'Restoring…',
   '加载失败': 'Failed to load',
   '验证失败': 'Verification failed',
   '进入照看室': 'Enter care station',
