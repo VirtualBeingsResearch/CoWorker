@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.4 - Unreleased
+## 0.3.4 - 2026-07-26
 
 - docs(release): finalize v0.3.3 changelog (#76)
 - feat(desktop): add launch and bridge autostart settings (#77)
