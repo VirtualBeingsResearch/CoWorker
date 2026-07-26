@@ -6,7 +6,17 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Maximize2, Minimize2, Pencil, Send, Trash2, UserRound, X } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  Maximize2,
+  Minimize2,
+  Pencil,
+  Send,
+  Trash2,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
 import { t } from '../i18n/admin';
 
@@ -50,6 +60,7 @@ type ChatProfile = {
 const CHAT_PROFILE_STORAGE_KEY = 'coworker-web-chat-profile';
 const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
+const CHAT_NOTIFICATIONS_STORAGE_KEY = 'coworker-web-chat-notifications';
 const MAX_STORED_MESSAGES = 160;
 const MAX_STORED_ATTACHMENT_CHARS = 600_000;
 const MAX_STORED_ATTACHMENT_TOTAL_CHARS = 1_200_000;
@@ -123,6 +134,34 @@ function persistChatProfile(profile: ChatProfile) {
   } catch {
     // 无存储权限时，当前页面会话仍可继续。
   }
+}
+
+function readNotificationPreference(): boolean {
+  try {
+    return window.localStorage.getItem(CHAT_NOTIFICATIONS_STORAGE_KEY) === 'enabled';
+  } catch {
+    return false;
+  }
+}
+
+function persistNotificationPreference(enabled: boolean) {
+  try {
+    if (enabled) window.localStorage.setItem(CHAT_NOTIFICATIONS_STORAGE_KEY, 'enabled');
+    else window.localStorage.removeItem(CHAT_NOTIFICATIONS_STORAGE_KEY);
+  } catch {
+    // 存储不可用时，通知偏好仍在当前页面有效。
+  }
+}
+
+function currentNotificationPermission(): NotificationPermission | 'unsupported' {
+  return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+}
+
+function notificationBody(content: string, attachments: ChatAttachment[]): string {
+  const compactContent = content.replace(/\s+/g, ' ').trim();
+  if (compactContent) return compactContent.slice(0, 160);
+  if (attachments.length === 1) return t('收到一张图片。');
+  return t('收到 {{count}} 张图片。', { count: attachments.length });
 }
 
 function historyKey(clientId: string): string {
@@ -377,13 +416,22 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [draft, setDraft] = useState('');
   const [pendingReplies, setPendingReplies] = useState(0);
   const [isSending, setIsSending] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(readNotificationPreference);
+  const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const openRef = useRef(false);
+  const notificationsEnabledRef = useRef(notificationsEnabled);
+  const counterpartNameRef = useRef(counterpartName);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const hasSharedNameRef = useRef(false);
   const userName = profile.name;
   const activeBubble = useMemo(() => activeBubbleFromMessages(messages), [messages]);
+  const desktopNotificationsActive = notificationsEnabled && notificationPermission === 'granted';
+  notificationsEnabledRef.current = desktopNotificationsActive;
+  counterpartNameRef.current = counterpartName;
 
   useEffect(() => {
     persistChatProfile(profile);
@@ -448,6 +496,31 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       ].slice(-MAX_STORED_MESSAGES));
       if (bubble?.kind !== 'handoff') {
         setPendingReplies(current => Math.max(0, current - 1));
+        if (!openRef.current) {
+          setUnreadCount(current => Math.min(99, current + 1));
+          if (
+            notificationsEnabledRef.current
+            && document.hidden
+            && typeof Notification !== 'undefined'
+            && Notification.permission === 'granted'
+          ) {
+            try {
+              const notification = new Notification(
+                t('{{name}} 发来消息', { name: counterpartNameRef.current }),
+                { body: notificationBody(content, attachments), icon: '/favicon.png' },
+              );
+              notification.onclick = () => {
+                window.focus();
+                openRef.current = true;
+                setOpen(true);
+                setUnreadCount(0);
+                notification.close();
+              };
+            } catch {
+              setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+            }
+          }
+        }
       }
     };
 
@@ -468,6 +541,16 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       source?.close();
     };
   }, [connectionGeneration, participantId, shouldConnect, userName]);
+
+  useEffect(() => {
+    const refreshNotificationPermission = () => {
+      const permission = currentNotificationPermission();
+      setNotificationPermission(permission);
+      if (permission !== 'granted') notificationsEnabledRef.current = false;
+    };
+    window.addEventListener('focus', refreshNotificationPermission);
+    return () => window.removeEventListener('focus', refreshNotificationPermission);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -492,6 +575,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
         setIsFullPage(false);
         return;
       }
+      openRef.current = false;
       setOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -585,6 +669,46 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     setIsProfileEditorOpen(true);
   };
 
+  const toggleDesktopNotifications = async () => {
+    if (typeof Notification === 'undefined') {
+      setNotificationPermission('unsupported');
+      setConnectionDetail('此浏览器不支持桌面通知。');
+      return;
+    }
+
+    if (desktopNotificationsActive) {
+      persistNotificationPreference(false);
+      notificationsEnabledRef.current = false;
+      setNotificationsEnabled(false);
+      setConnectionDetail('桌面通知已关闭。');
+      return;
+    }
+
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        permission = 'denied';
+      }
+    }
+    setNotificationPermission(permission);
+    if (permission === 'granted') {
+      persistNotificationPreference(true);
+      notificationsEnabledRef.current = true;
+      setNotificationsEnabled(true);
+      setConnectionDetail('桌面通知已开启。');
+      return;
+    }
+
+    persistNotificationPreference(false);
+    notificationsEnabledRef.current = false;
+    setNotificationsEnabled(false);
+    setConnectionDetail(permission === 'denied'
+      ? '桌面通知已被浏览器阻止，请在站点设置中开启。'
+      : '没有开启桌面通知；你可以稍后再试。');
+  };
+
   const clearStoredMessages = () => {
     if (!window.confirm(t('清除这个浏览器保存的全部聊天记录？此操作无法恢复。'))) return;
     setMessages([]);
@@ -596,35 +720,52 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   };
 
   const openChat = () => {
+    openRef.current = true;
     setOpen(true);
+    setUnreadCount(0);
     if (userName) setShouldConnect(true);
+  };
+
+  const closeChat = () => {
+    openRef.current = false;
+    setOpen(false);
   };
 
   const status = t(connectionCopy(connection));
   const visibleConnectionDetail = localizedConnectionDetail(connectionDetail);
+  const launcherLabel = unreadCount
+    ? t('与 {{name}} 对话，{{count}} 条未读消息', { name: counterpartName, count: unreadCount })
+    : t('与 {{name}} 对话', { name: counterpartName });
 
   return (
     <>
       <button
         type="button"
-        className={`sprite-btn ${open ? 'open' : ''}`}
+        className={`sprite-btn ${open ? 'open' : ''} ${unreadCount ? 'has-unread' : ''}`}
         onClick={openChat}
-        aria-label={t('与 {{name}} 对话', { name: counterpartName })}
+        aria-label={launcherLabel}
         aria-expanded={open}
         aria-controls="coworker-chat"
       >
         <span className="sprite-pulse" aria-hidden="true" />
         <SignalMark />
+        {unreadCount > 0 && (
+          <span className="sprite-unread" aria-hidden="true">
+            {unreadCount >= 99 ? '99+' : unreadCount}
+          </span>
+        )}
         <span className="sprite-greeting" aria-hidden="true">
           <b>{t('和 {{name}} 说句话', { name: counterpartName })}</b>
-          <small>{t('把眼前的想法直接交给她。')}</small>
+          <small>{unreadCount
+            ? t('{{count}} 条新消息等你查看', { count: unreadCount })
+            : t('把眼前的想法直接交给她。')}</small>
         </span>
       </button>
 
       <div
         className={`chat-overlay ${open ? 'open' : ''} ${isFullPage ? 'chat-overlay-page' : ''}`}
         onMouseDown={event => {
-          if (!isFullPage && event.target === event.currentTarget) setOpen(false);
+          if (!isFullPage && event.target === event.currentTarget) closeChat();
         }}
         aria-hidden={!open}
       >
@@ -657,13 +798,27 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 <span>{isFullPage ? t('收起') : t('全页面聊天')}</span>
               </button>
               {userName && (
+                <button
+                  type="button"
+                  className={`chat-notification-toggle ${desktopNotificationsActive ? 'active' : ''}`}
+                  onClick={() => void toggleDesktopNotifications()}
+                  aria-label={t(desktopNotificationsActive ? '关闭桌面通知' : '开启桌面通知')}
+                  aria-pressed={desktopNotificationsActive}
+                  title={t(desktopNotificationsActive ? '关闭桌面通知' : '开启桌面通知')}
+                >
+                  {desktopNotificationsActive
+                    ? <Bell size={15} aria-hidden="true" />
+                    : <BellOff size={15} aria-hidden="true" />}
+                </button>
+              )}
+              {userName && (
                 <button type="button" className="chat-user-chip" onClick={openProfileEditor} aria-label={t('修改名字：{{name}}', { name: userName })}>
                   <UserRound size={14} aria-hidden="true" />
                   <span title={userName}>{userName}</span>
                   <Pencil size={12} aria-hidden="true" />
                 </button>
               )}
-              <button type="button" className="chat-close" onClick={() => setOpen(false)} aria-label={t('关闭对话')}>
+              <button type="button" className="chat-close" onClick={closeChat} aria-label={t('关闭对话')}>
                 <X size={17} aria-hidden="true" />
               </button>
             </div>
