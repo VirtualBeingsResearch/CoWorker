@@ -26,7 +26,7 @@ jobs:
       # Pull request and merge queue caches are isolated by ref. A cache
       # created on main provides the shared baseline both can restore.
       - name: Restore mypy state
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .mypy_cache
           key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
