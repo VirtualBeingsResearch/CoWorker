@@ -51,6 +51,21 @@ const BRIDGE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const LIST_COWORKERS_TOOL: &str = "list_coworkers";
 const COWORKER_TOOL_CALL_TYPE: &str = "coworker_tool_call";
 const NOT_LOADED_THREAD_STATUS: &str = "notLoaded";
+const NATIVE_SESSION_COWORKER_INSTRUCTIONS: &str = r#"[协作背景]
+This Codex session was created outside CoWorker Desktop, so Coworker dynamic tools are not available in this session.
+To intentionally send a text message to a Coworker, return the following frontmatter block as your entire assistant message, without a Markdown code fence. Replace <coworker_id> with the target id from the incoming message header and <message> with the content to send:
+---
+type: coworker_tool_call
+tool: send_to_coworker
+to: <coworker_id>
+---
+<message>
+A normal final answer is not forwarded to the Coworker.
+If you need to inspect reachable Coworker ids, return this block as your entire assistant message:
+---
+type: coworker_tool_call
+tool: list_coworkers
+---"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SavedAttachment {
@@ -424,6 +439,18 @@ impl CodexBridge {
             author_label.as_deref(),
             &content,
         )?;
+        let should_bootstrap = author_kind == "coworker"
+            && !self
+                .state
+                .lock()
+                .await
+                .bootstrapped_thread_ids
+                .contains(&thread_id);
+        let content = if should_bootstrap {
+            format!("{NATIVE_SESSION_COWORKER_INSTRUCTIONS}\n\n{content}")
+        } else {
+            content
+        };
         if let Some(coworker_id) = coworker_id.as_deref()
             && self.coworkers.contains_key(coworker_id)
         {
@@ -454,6 +481,9 @@ impl CodexBridge {
             state.thread_auto_continue_attempts.remove(&thread_id);
             if created {
                 state.bridge_started_thread_ids.insert(thread_id.clone());
+            }
+            if should_bootstrap {
+                state.bootstrapped_thread_ids.insert(thread_id.clone());
             }
             self.save_state_locked(&state);
         }
@@ -3338,6 +3368,81 @@ mod tests {
                 .bridge_started_thread_ids
                 .contains("external_thread")
         );
+        assert!(
+            !bridge
+                .state
+                .lock()
+                .await
+                .bootstrapped_thread_ids
+                .contains("external_thread")
+        );
+    }
+
+    #[tokio::test]
+    async fn native_codex_history_bootstraps_text_tool_fallback_once_for_coworker_input() {
+        let client = FakeCodexClient::new();
+        client
+            .push_response(json!({
+                "thread": {"id": "external_thread", "status": {"type": "idle"}}
+            }))
+            .await;
+        client
+            .push_response(json!({"turn": {"id": "turn_external", "status": "running"}}))
+            .await;
+        let state_path = temp_state_path("native-coworker-bootstrap");
+        let mut cfg = multi_config();
+        cfg.state_path = Some(state_path.clone());
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-external_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"external_thread","source":"vscode"}}"#,
+        )
+        .expect("native Codex history");
+        let bridge = bridge_with(cfg, client.clone(), RecordingTransport::new());
+
+        for content in ["先看一下", "再确认一下"] {
+            bridge
+                .send_actor_conversation_message(
+                    Some("external_thread".into()),
+                    content.into(),
+                    Vec::new(),
+                    None,
+                    None,
+                    None,
+                    "coworker".into(),
+                    Some("cw_02".into()),
+                    Some("搭档 B".into()),
+                    Some("cw_02".into()),
+                )
+                .await
+                .expect("native Codex history should accept Coworker input");
+        }
+
+        let calls = client.calls().await;
+        assert_eq!(calls[0].0, "thread/resume");
+        assert_eq!(calls[1].0, "turn/start");
+        let first = calls[1].1["input"][0]["text"]
+            .as_str()
+            .expect("first input text");
+        assert!(first.starts_with("[协作背景]\n"));
+        assert!(first.contains("type: coworker_tool_call"));
+        assert!(first.contains("tool: send_to_coworker"));
+        assert!(first.ends_with("[来自Coworker:cw_02][搭档 B]的消息:\n先看一下"));
+        assert_eq!(calls[2].0, "turn/steer");
+        let second = calls[2].1["input"][0]["text"]
+            .as_str()
+            .expect("second input text");
+        assert_eq!(second, "[来自Coworker:cw_02][搭档 B]的消息:\n再确认一下");
+
+        let persisted: PersistedState =
+            serde_json::from_slice(&fs::read(&state_path).expect("persisted bridge state"))
+                .expect("valid bridge state");
+        assert_eq!(
+            persisted.bootstrapped_thread_ids,
+            vec!["external_thread".to_owned()]
+        );
+        let _ = fs::remove_file(state_path);
     }
 
     #[tokio::test]
