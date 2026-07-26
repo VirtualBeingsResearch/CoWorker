@@ -7,12 +7,13 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './admin/settings/registry';
+import type { Json } from './admin/settings/types';
+import { useSettingsDraft } from './admin/settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Json = Record<string, any>;
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
@@ -750,110 +751,37 @@ const CONFIG_LABELS: Record<string, string> = {
 
 function Settings() {
   const { data, error, setData } = useLoad(() => api<Json>('/api/admin/config'), []);
-  const [draft, setDraft] = useState<Json | null>(null);
-  const [group, setGroup] = useState(() => new URLSearchParams(window.location.search).get('group') || 'llm');
-  const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
-  const [clearOverridePaths, setClearOverridePaths] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [desktopValidationError, setDesktopValidationError] = useState('');
-  const [invalidJsonPaths, setInvalidJsonPaths] = useState<Set<string>>(new Set());
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { if (data) setDraft(current => current || structuredClone(data.config)); }, [data]);
-  const dirtyGroups = useMemo(() => {
-    const dirty = new Set<string>();
-    if (!data || !draft) return dirty;
-    for (const key of Object.keys(draft)) {
-      if (Object.keys(changedConfigFields(data.config?.[key] || {}, draft[key] || {})).length > 0) dirty.add(key);
-    }
-    for (const [path, value] of Object.entries(secretInputs)) {
-      if (value) dirty.add(path.split('.')[0]);
-    }
-    for (const path of clearOverridePaths) dirty.add(path.split('.')[0]);
-    return dirty;
-  }, [clearOverridePaths, data, draft, secretInputs]);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (dirtyGroups.size > 0) event.preventDefault();
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirtyGroups]);
-  const setJsonValidity = useCallback((path: string, valid: boolean) => {
-    setInvalidJsonPaths(current => {
-      const next = new Set(current);
-      if (valid) next.delete(path); else next.add(path);
-      return next.size === current.size && [...next].every(item => current.has(item)) ? current : next;
-    });
-  }, []);
+  const settings = useSettingsDraft({
+    serverData: data,
+    updateServerData: setData,
+    request: api,
+    describeDesktopSave: describeDesktopUpdateSave,
+  });
+  const {
+    change,
+    changeProvider,
+    clearOverridePaths,
+    desktopValidationError,
+    dirtyGroups,
+    draft,
+    group,
+    invalidJsonPaths,
+    isHot,
+    message,
+    resetGroup,
+    save,
+    saving,
+    secretInputs,
+    selectGroup,
+    setDesktopValidationError,
+    setJsonValidity,
+    setSecretInputs,
+    toggleClearOverride,
+  } = settings;
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
-  const change = (key: string, value: any) => {
-    setClearOverridePaths(current => {
-      const next = new Set(current);
-      next.delete(`${group}.${key}`);
-      return next;
-    });
-    setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
-  };
-  const selectGroup = (next: string) => {
-    setGroup(next);
-    setInvalidJsonPaths(new Set());
-    setMessage(null);
-    const params = new URLSearchParams(window.location.search);
-    params.set('section', 'settings');
-    params.set('group', next);
-    if (next !== 'desktop_updates') params.delete('source');
-    window.history.pushState(null, '', `?${params.toString()}`);
-  };
-  const changeProvider = (index: number, key: string, value: string) => {
-    const providers = [...(draft.llm.managed_providers || [])];
-    providers[index] = { ...providers[index], [key]: value };
-    change('managed_providers', providers);
-  };
-  const save = async (): Promise<boolean> => {
-    if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return false; }
-    if (invalidJsonPaths.size > 0) { setMessage({ kind: 'error', text: t('请先修正标出的 JSON 格式。') }); return false; }
-    if (!dirtyGroups.has(group)) return true;
-    const beforeGroup = structuredClone(data.config?.[group] || {});
-    const afterGroup = structuredClone(draft[group] || {});
-    const maxTokensValue = Number(draft.llm?.max_tokens);
-    if (group === 'llm' && (!Number.isInteger(maxTokensValue) || maxTokensValue <= 0)) {
-      setMessage({ kind: 'error', text: t('单次输出上限必须是正整数。') });
-      return false;
-    }
-    setSaving(true);
-    setMessage(null);
-    try {
-      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([path, value]) => path.startsWith(`${group}.`) && value !== ''));
-      const clearOverrides = [...clearOverridePaths].filter(path => path.startsWith(`${group}.`));
-      const changedFields = changedConfigFields(beforeGroup, afterGroup);
-      const changes = Object.keys(changedFields).length > 0 ? { [group]: changedFields } : {};
-      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes, secrets, clear_overrides: clearOverrides }) });
-      const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
-      const savedMessage = hotCount && restartCount
-        ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
-        : hotCount
-          ? t('已保存，{{count}} 项修改已立即生效。', { count: hotCount })
-          : restartCount
-            ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
-            : t('配置没有变化。');
-      setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith(`${group}.`))));
-      setClearOverridePaths(current => new Set([...current].filter(path => !path.startsWith(`${group}.`))));
-      setMessage({ kind: 'success', text: group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage });
-      const refreshed = await api<Json>('/api/admin/config');
-      setData(refreshed);
-      setDraft(current => current ? { ...current, [group]: structuredClone(refreshed.config[group] || {}) } : current);
-      return true;
-    } catch (saveError) {
-      setMessage({ kind: 'error', text: saveError instanceof Error ? saveError.message : t('保存失败') });
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-  const isHot = (path: string) => (data.hot_reloadable || []).some((item: string) => path === item || path.startsWith(`${item}.`));
   const adminToken = data.secret_status['admin.token'];
   const fallbackToken = data.secret_status['desktop_updates.admin_token'];
   const activeAdminToken = adminToken?.configured ? adminToken : fallbackToken;
@@ -867,13 +795,6 @@ function Settings() {
       && !field.endsWith('runtime_config_file')
       && !(group === 'llm' && /_(api_key|base_url)$/.test(field));
   });
-  const resetGroup = () => {
-    setDraft(current => current ? { ...current, [group]: structuredClone(data.config[group] || {}) } : current);
-    setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith(`${group}.`))));
-    setClearOverridePaths(current => new Set([...current].filter(path => !path.startsWith(`${group}.`))));
-    setInvalidJsonPaths(new Set());
-    setMessage(null);
-  };
   const CustomSettingsPanel = settingsPanelRegistration(group)?.component;
   return <div className="settings-layout">
     <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} disabled={saving} onClick={() => selectGroup(k)} key={k}><span>{t(GROUP_LABELS[k])}{dirtyGroups.has(k) && <i className="settings-dirty-dot" title={t('有未保存修改')} />}</span><ChevronRight size={14} /></button>)}</nav>
@@ -881,11 +802,7 @@ function Settings() {
       {data.pending_restart && <div className="notice amber"><TriangleAlert size={16} />{t('存在等待重启的修改')}</div>}
       {group !== 'admin' && groupOverrides.length > 0 && <div className="config-override-strip"><div><Database size={16} /><span><b>{t('管理端覆盖')}</b><small>{t('这些字段不会跟随启动环境变化；可以恢复为继承配置。')}</small></span></div><div>{groupOverrides.map((path: string) => {
         const pending = clearOverridePaths.has(path);
-        return <button className={pending ? 'pending' : ''} key={path} onClick={() => setClearOverridePaths(current => {
-          const next = new Set(current);
-          if (next.has(path)) next.delete(path); else next.add(path);
-          return next;
-        })}><span>{t(CONFIG_LABELS[path] || humanize(path.split('.')[1] || path))}</span><RotateCcw size={12} />{t(pending ? '保存后恢复继承' : '恢复继承')}</button>;
+        return <button className={pending ? 'pending' : ''} key={path} onClick={() => toggleClearOverride(path)}><span>{t(CONFIG_LABELS[path] || humanize(path.split('.')[1] || path))}</span><RotateCcw size={12} />{t(pending ? '保存后恢复继承' : '恢复继承')}</button>;
       })}</div></div>}
       {group === 'admin' ? <div className="admin-settings-status">
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
@@ -952,10 +869,6 @@ function Settings() {
 }
 
 function humanize(text: string) { return text.replace(/_/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase()); }
-
-function changedConfigFields(before: Json, after: Json): Json {
-  return Object.fromEntries(Object.entries(after).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(before[key])));
-}
 
 const TASK_STATUS: Record<string, string> = { pending: '待处理', in_progress: '进行中', completed: '已完成' };
 

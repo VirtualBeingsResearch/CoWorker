@@ -1,3 +1,5 @@
+import type { ComponentType } from 'react';
+
 export type Json = Record<string, any>;
 
 export type AdminRequest = <T = Json>(
@@ -18,4 +20,3 @@ export type SettingsPanelRegistration = {
   label: string;
   component: ComponentType<SettingsPanelProps>;
 };
-import type { ComponentType } from 'react';

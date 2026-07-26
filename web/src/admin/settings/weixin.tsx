@@ -4,48 +4,65 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '../../i18n/admin';
 import type { Json, SettingsPanelProps } from './types';
 
-const TERMINAL_PAIRING_STATUSES = new Set([
-  'confirmed',
-  'expired',
-  'verify_code_blocked',
-  'binded_redirect',
-]);
+type PairingPresentation = {
+  title: string;
+  detail: string;
+  terminal?: boolean;
+  failed?: boolean;
+};
 
-const FAILED_PAIRING_STATUSES = new Set([
-  'expired',
-  'verify_code_blocked',
-  'binded_redirect',
-]);
+const MANAGEMENT_PATH = '/api/admin/channels/weixin/management';
+const PAIRING_POLL_MS = 900;
+const PAIRING_START_POLL_MS = 200;
+const DEFAULT_PAIRING_PRESENTATION: PairingPresentation = {
+  title: '使用微信扫描二维码',
+  detail: '扫码会新增一个独立 ClawBot 实例；二维码由谁查看不会改变连接归属。',
+};
+const PAIRING_PRESENTATIONS: Record<string, PairingPresentation> = {
+  scaned: {
+    title: '已扫码，请在手机上确认',
+    detail: '二维码已被识别，连接会在手机确认后自动建立。',
+  },
+  need_verifycode: {
+    title: '输入手机显示的数字',
+    detail: '完成验证后会继续建立 ClawBot 连接。',
+  },
+  confirmed: {
+    title: '微信连接已建立',
+    detail: '新的 ClawBot 实例已经加入连接列表。',
+    terminal: true,
+  },
+  expired: {
+    title: '二维码已过期',
+    detail: '重新生成二维码后再使用微信扫描。',
+    terminal: true,
+    failed: true,
+  },
+  verify_code_blocked: {
+    title: '验证次数暂时受限',
+    detail: '请稍后重新生成二维码并再次连接。',
+    terminal: true,
+    failed: true,
+  },
+  binded_redirect: {
+    title: '这个微信账号已经绑定其他 Bot',
+    detail: 'iLink 只允许一个微信账号绑定一个 Bot 实例。',
+    terminal: true,
+    failed: true,
+  },
+};
 
-function pairingCopy(status: string) {
-  if (status === 'scaned') return {
-    title: t('已扫码，请在手机上确认'),
-    detail: t('二维码已被识别，连接会在手机确认后自动建立。'),
-  };
-  if (status === 'need_verifycode') return {
-    title: t('输入手机显示的数字'),
-    detail: t('完成验证后会继续建立 ClawBot 连接。'),
-  };
-  if (status === 'confirmed') return {
-    title: t('微信连接已建立'),
-    detail: t('新的 ClawBot 实例已经加入连接列表。'),
-  };
-  if (status === 'expired') return {
-    title: t('二维码已过期'),
-    detail: t('重新生成二维码后再使用微信扫描。'),
-  };
-  if (status === 'verify_code_blocked') return {
-    title: t('验证次数暂时受限'),
-    detail: t('请稍后重新生成二维码并再次连接。'),
-  };
-  if (status === 'binded_redirect') return {
-    title: t('这个微信账号已经绑定其他 Bot'),
-    detail: t('iLink 只允许一个微信账号绑定一个 Bot 实例。'),
-  };
+function pairingPresentation(status: string) {
+  const presentation = PAIRING_PRESENTATIONS[status] || DEFAULT_PAIRING_PRESENTATION;
   return {
-    title: t('使用微信扫描二维码'),
-    detail: t('扫码会新增一个独立 ClawBot 实例；二维码由谁查看不会改变连接归属。'),
+    ...presentation,
+    title: t(presentation.title),
+    detail: t(presentation.detail),
   };
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : t(fallback);
 }
 
 export function WeixinSettingsPanel({ value, change, apply, dirty, saving, request }: SettingsPanelProps) {
@@ -62,27 +79,28 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
 
   const loadConnections = useCallback(async () => {
     try {
-      const result = await request<Json>('/api/admin/channels/weixin/management');
+      const result = await request<Json>(MANAGEMENT_PATH);
       if (mountedRef.current) {
         setConnections(Array.isArray(result.connections) ? result.connections : []);
         setManagementError('');
       }
     } catch (error) {
       if (mountedRef.current) {
-        setManagementError(error instanceof Error ? error.message : t('微信连接状态读取失败'));
+        setManagementError(errorMessage(error, '微信连接状态读取失败'));
       }
     }
   }, [request]);
 
   const readPairing = useCallback(async () => {
     try {
-      const result = await request<Json>('/api/admin/channels/weixin/management');
+      const result = await request<Json>(MANAGEMENT_PATH);
       if (!mountedRef.current) return;
       const session = result.pairing;
       if (!session) return;
       setSessionId(session.session_id || '');
       setLoginStatus(session.status || 'wait');
-      if (FAILED_PAIRING_STATUSES.has(session.status)) setQrImage('');
+      const presentation = pairingPresentation(session.status);
+      if (presentation.failed) setQrImage('');
       else if (session.qrcode_data_url) setQrImage(session.qrcode_data_url);
       if (session.status === 'confirmed') {
         setQrImage('');
@@ -90,12 +108,12 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
         await loadConnections();
         return;
       }
-      if (!TERMINAL_PAIRING_STATUSES.has(session.status)) {
-        pollTimerRef.current = window.setTimeout(() => void readPairing(), 900);
+      if (!presentation.terminal) {
+        pollTimerRef.current = window.setTimeout(() => void readPairing(), PAIRING_POLL_MS);
       }
     } catch (error) {
       if (mountedRef.current) {
-        setLoginError(error instanceof Error ? error.message : t('微信连接状态读取失败'));
+        setLoginError(errorMessage(error, '微信连接状态读取失败'));
       }
     }
   }, [loadConnections, request]);
@@ -118,7 +136,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
     setVerifyCode('');
     try {
       if (dirty && !await apply()) return;
-      const result = await request<Json>('/api/admin/channels/weixin/management/start_pairing', {
+      const result = await request<Json>(`${MANAGEMENT_PATH}/start_pairing`, {
         method: 'POST',
         body: '{}',
       });
@@ -126,9 +144,12 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
       setSessionId(result.session_id || '');
       setLoginStatus(result.status || 'wait');
       if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = window.setTimeout(() => void readPairing(), 200);
+      pollTimerRef.current = window.setTimeout(
+        () => void readPairing(),
+        PAIRING_START_POLL_MS,
+      );
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : t('无法生成微信连接二维码'));
+      setLoginError(errorMessage(error, '无法生成微信连接二维码'));
     } finally {
       setStarting(false);
     }
@@ -137,7 +158,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
   const submitVerifyCode = async () => {
     if (!verifyCode.trim()) return;
     try {
-      await request<Json>('/api/admin/channels/weixin/management/verify_pairing', {
+      await request<Json>(`${MANAGEMENT_PATH}/verify_pairing`, {
         method: 'POST',
         body: JSON.stringify({
           session_id: sessionId,
@@ -146,7 +167,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
       });
       void readPairing();
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : t('微信连接状态读取失败'));
+      setLoginError(errorMessage(error, '微信连接状态读取失败'));
     }
   };
 
@@ -154,7 +175,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
     try {
       setManagementError('');
       await request<Json>(
-        '/api/admin/channels/weixin/management/update_connection',
+        `${MANAGEMENT_PATH}/update_connection`,
         {
           method: 'POST',
           body: JSON.stringify({ bot_instance_id: botInstanceId, ...patch }),
@@ -162,7 +183,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
       );
       await loadConnections();
     } catch (error) {
-      setManagementError(error instanceof Error ? error.message : t('微信连接更新失败'));
+      setManagementError(errorMessage(error, '微信连接更新失败'));
     }
   };
 
@@ -172,7 +193,7 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
     try {
       setManagementError('');
       await request<Json>(
-        '/api/admin/channels/weixin/management/remove_connection',
+        `${MANAGEMENT_PATH}/remove_connection`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -183,19 +204,21 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
       );
       await loadConnections();
     } catch (error) {
-      setManagementError(error instanceof Error ? error.message : t('微信连接移除失败'));
+      setManagementError(errorMessage(error, '微信连接移除失败'));
     }
   };
 
-  const presentation = pairingCopy(loginStatus);
-  const showPairing = Boolean(qrImage || loginError || loginStatus === 'confirmed' || FAILED_PAIRING_STATUSES.has(loginStatus));
+  const presentation = pairingPresentation(loginStatus);
+  const showPairing = Boolean(
+    qrImage || loginError || loginStatus === 'confirmed' || presentation.failed,
+  );
   return <div className="weixin-settings">
     <section className={'weixin-overview ' + (value.enabled ? connections.length ? 'ready' : 'warning' : 'disabled')}>
       <div><MessagesSquare size={23} /><span><small>{t('个人微信 ClawBot')}</small><b>{value.enabled ? connections.length ? t('{{count}} 个连接已接入', { count: connections.length }) : t('等待添加首个连接') : t('微信 Claw 已停用')}</b><p>{t('一个 ClawBot 实例绑定一个微信账号，并对应一个独立 participant。')}</p></span></div>
       <label className="switch"><input type="checkbox" checked={!!value.enabled} onChange={event => change('enabled', event.target.checked)} /><i /><span>{t('启用微信 Claw')}</span></label>
       <button className="primary" disabled={starting || saving || !value.enabled} onClick={() => void startLogin()}><QrCode size={15} />{t(starting || saving ? '正在准备连接…' : !value.enabled ? '启用后扫码连接' : connections.length ? '添加 ClawBot 连接' : '扫码连接微信')}</button>
     </section>
-    {showPairing && <section className={'weixin-pairing ' + (loginStatus === 'confirmed' ? 'confirmed' : FAILED_PAIRING_STATUSES.has(loginStatus) || loginError ? 'failed' : '')}>
+    {showPairing && <section className={'weixin-pairing ' + (loginStatus === 'confirmed' ? 'confirmed' : presentation.failed || loginError ? 'failed' : '')}>
       <div className="weixin-qr-stage">{qrImage ? <img src={qrImage} alt={t('微信 Claw 连接二维码')} /> : loginStatus === 'confirmed' ? <CircleCheckBig size={31} /> : <TriangleAlert size={28} />}</div>
       <div className="weixin-pairing-copy"><span>{t('连接状态')}</span><h3>{presentation.title}</h3><p>{loginError || presentation.detail}</p>
         {loginStatus === 'need_verifycode' && <div className="weixin-verify"><input autoFocus value={verifyCode} onChange={event => setVerifyCode(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void submitVerifyCode(); }} placeholder={t('手机上显示的数字')} /><button className="primary mini" onClick={() => void submitVerifyCode()}>{t('继续连接')}</button></div>}

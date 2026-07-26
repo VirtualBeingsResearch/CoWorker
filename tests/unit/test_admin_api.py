@@ -86,13 +86,13 @@ def _client(
     return TestClient(app), config
 
 
-def test_setup_admin_refreshes_config_lock_for_each_runtime(tmp_path):
+def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
-    first_lock = admin._config_write_lock
+    first_service = admin._require_admin_config_service()
 
     _client(tmp_path / "second")
 
-    assert admin._config_write_lock is not first_lock
+    assert admin._require_admin_config_service() is not first_service
 
 
 def test_admin_requires_bearer_token(tmp_path):
@@ -1132,7 +1132,11 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
     def fail_config_write(path, payload):
         raise OSError("config write failed")
 
-    monkeypatch.setattr(admin, "_write_json_atomic", fail_config_write)
+    monkeypatch.setattr(
+        admin._require_admin_config_service(),
+        "write_sparse_overrides",
+        fail_config_write,
+    )
     try:
         client.post(
             "/api/admin/bootstrap",
