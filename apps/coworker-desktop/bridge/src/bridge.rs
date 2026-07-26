@@ -75,12 +75,6 @@ struct SavedAttachment {
     size: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NotificationDelivery {
-    StateOnly,
-    PublishStage,
-}
-
 /// Aborts a nested stream task if its owner exits before joining it.
 pub(crate) struct AbortOnDrop<T> {
     handle: Option<JoinHandle<T>>,
@@ -1820,7 +1814,7 @@ impl CodexBridge {
                     }
                     if method == "turn/completed" {
                         // turn/* 是结构性通知：payload 无 message 字段，转发给 coworker 只会变成
-                        // 空消息（coworker 也不消费它们）。只转发本轮真正产出的消息内容，
+                        // 空消息。只转发本轮真正产出的消息内容，
                         // 不再转发 turn 事件本身，避免提出计划时连发数条空消息。
                         self.handle_text_tool_calls_from_value(thread_id, turn, None)
                             .await;
@@ -1857,8 +1851,7 @@ impl CodexBridge {
                     let mut state = self.state.lock().await;
                     remember_thread_settings(&mut state, thread_id, settings);
                 }
-                self.publish_notification_if_needed(&method, thread_id.as_deref(), &params)
-                    .await;
+                trace_state_only_notification(&method, thread_id.as_deref());
             }
             "serverRequest/resolved" => {
                 let request_id = params
@@ -1890,8 +1883,7 @@ impl CodexBridge {
                         .thread_last_error
                         .insert(thread_id.to_owned(), message);
                 }
-                self.publish_notification_if_needed(&method, thread_id.as_deref(), &params)
-                    .await;
+                trace_state_only_notification(&method, thread_id.as_deref());
             }
             "thread/closed" | "thread/archived" | "thread/deleted" => {
                 if let Some(thread_id) = thread_id.as_deref() {
@@ -1905,8 +1897,14 @@ impl CodexBridge {
                     state.thread_last_error.remove(thread_id);
                     state.thread_auto_compact_turn.remove(thread_id);
                 }
-                self.publish_notification_if_needed(&method, thread_id.as_deref(), &params)
-                    .await;
+                trace_state_only_notification(&method, thread_id.as_deref());
+            }
+            "warning"
+            | "configWarning"
+            | "deprecationNotice"
+            | "guardianWarning"
+            | "windows/worldWritableWarning" => {
+                log_warning_notification(&method, thread_id.as_deref(), &params);
             }
             "thread/started"
             | "thread/unarchived"
@@ -1927,10 +1925,6 @@ impl CodexBridge {
             | "turn/moderationMetadata"
             | "hook/started"
             | "hook/completed"
-            | "warning"
-            | "configWarning"
-            | "deprecationNotice"
-            | "guardianWarning"
             | "model/rerouted"
             | "model/verification"
             | "model/safetyBuffering/updated"
@@ -1964,7 +1958,6 @@ impl CodexBridge {
             | "process/outputDelta"
             | "remoteControl/status/changed"
             | "skills/changed"
-            | "windows/worldWritableWarning"
             | "windowsSandbox/setupCompleted" => {
                 if method == "item/completed"
                     && let (Some(thread_id), Some(item)) =
@@ -1974,8 +1967,7 @@ impl CodexBridge {
                     self.handle_text_tool_calls_from_value(thread_id, item, turn_id)
                         .await;
                 }
-                self.publish_notification_if_needed(&method, thread_id.as_deref(), &params)
-                    .await;
+                trace_state_only_notification(&method, thread_id.as_deref());
             }
             _ => {
                 debug!(
@@ -1998,26 +1990,6 @@ impl CodexBridge {
             });
         }
         None
-    }
-
-    async fn publish_notification_if_needed(
-        &self,
-        method: &str,
-        thread_id: Option<&str>,
-        params: &Map<String, Value>,
-    ) {
-        match notification_delivery(method, thread_id, params) {
-            NotificationDelivery::PublishStage => {
-                self.publish_thread_event(method, thread_id, params).await;
-            }
-            NotificationDelivery::StateOnly => {
-                debug!(
-                    method,
-                    thread_id = thread_id.unwrap_or(""),
-                    "Handled Codex app-server notification without publishing to Coworker"
-                );
-            }
-        }
     }
 
     async fn clear_thread_runtime_state(&self, thread_id: &str) {
@@ -2069,25 +2041,6 @@ impl CodexBridge {
                 );
             }
         }
-    }
-
-    async fn publish_thread_event(
-        &self,
-        method: &str,
-        thread_id: Option<&str>,
-        params: &Map<String, Value>,
-    ) {
-        let mut payload = json!({
-            "type": "desktop.thread.event",
-            "codex_id": self.config.codex_id,
-            "event_type": method,
-            "method": method,
-            "params": params,
-        });
-        if let Some(thread_id) = thread_id {
-            payload["thread_id"] = json!(thread_id);
-        }
-        self.publish_bridge_event(payload, thread_id).await;
     }
 
     async fn auto_continue_interrupted_turn(&self, thread_id: &str, turn: &Value) {
@@ -2512,50 +2465,27 @@ fn with_permission_response_defaults(mut response: Value) -> Value {
     response
 }
 
-fn notification_delivery(
-    method: &str,
-    thread_id: Option<&str>,
-    params: &Map<String, Value>,
-) -> NotificationDelivery {
-    match method {
-        // 结构性通知（error、thread 生命周期/状态变更、turn/* 等）payload 无 message 字段，
-        // 转发给 coworker 只会变成空消息（coworker 也不消费），故归为 StateOnly 不转发。
-        // serverRequest/resolved 经独立路径以非空 JSON 转发；告警类带 message 正常转发。
-        "serverRequest/resolved" => NotificationDelivery::PublishStage,
-        "warning" | "guardianWarning" | "configWarning" | "deprecationNotice"
-            if is_important_warning(method, thread_id, params) =>
-        {
-            NotificationDelivery::PublishStage
-        }
-        _ => NotificationDelivery::StateOnly,
-    }
+fn trace_state_only_notification(method: &str, thread_id: Option<&str>) {
+    debug!(
+        method,
+        thread_id = thread_id.unwrap_or(""),
+        "Handled Codex app-server notification without publishing to Coworker"
+    );
 }
 
-fn is_important_warning(
-    method: &str,
-    thread_id: Option<&str>,
-    params: &Map<String, Value>,
-) -> bool {
-    if method == "guardianWarning" || thread_id.is_some() {
-        return true;
-    }
-    let text = extract_warning_message(params).to_lowercase();
-    [
-        "error", "failed", "failure", "blocked", "blocking", "denied", "refused", "错误", "失败",
-        "阻塞", "拒绝",
-    ]
-    .iter()
-    .any(|marker| text.contains(marker))
+fn log_warning_notification(method: &str, thread_id: Option<&str>, params: &Map<String, Value>) {
+    let warning_params = serialize_warning_params(params);
+    warn!(
+        target: "codex_app_server",
+        method,
+        thread_id = thread_id.unwrap_or(""),
+        params = %warning_params,
+        "Received Codex warning notification"
+    );
 }
 
-fn extract_warning_message(params: &Map<String, Value>) -> String {
-    params
-        .get("message")
-        .and_then(Value::as_str)
-        .or_else(|| params.get("summary").and_then(Value::as_str))
-        .map(str::to_owned)
-        .or_else(|| extract_error_message(params.get("error")))
-        .unwrap_or_default()
+fn serialize_warning_params(params: &Map<String, Value>) -> String {
+    Value::Object(params.clone()).to_string()
 }
 
 fn server_request_id_field(mapping: &Map<String, Value>) -> Option<String> {
@@ -3979,7 +3909,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_important_warning_notifications_are_published() {
+    async fn warning_notifications_are_not_published() {
         let transport = RecordingTransport::new();
         let bridge = bridge_with(config(None), FakeCodexClient::new(), transport.clone());
 
@@ -4013,17 +3943,36 @@ mod tests {
                 "params": {"threadId": "thr_1", "message": "thread warning"}
             }))
             .await;
+        bridge
+            .handle_notification(json!({
+                "method": "windows/worldWritableWarning",
+                "params": {
+                    "threadId": "thr_1",
+                    "message": "workspace permissions are too broad",
+                    "path": "C:\\workspace"
+                }
+            }))
+            .await;
 
-        let posts = transport.bridge_posts().await;
-        let methods: Vec<_> = posts
-            .iter()
-            .map(|(_, payload)| payload["event_type"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(methods, vec!["guardianWarning", "configWarning", "warning"]);
-        assert!(
-            posts
-                .iter()
-                .all(|(coworker_id, _)| coworker_id == DEFAULT_COWORKER_ID)
+        assert!(transport.bridge_posts().await.is_empty());
+    }
+
+    #[test]
+    fn warning_log_serialization_preserves_complete_params() {
+        let params = json!({
+            "threadId": "thr_1",
+            "message": "first line\nsecond line",
+            "details": {
+                "path": "C:\\workspace",
+                "reasons": ["world writable", "untrusted owner"]
+            }
+        });
+        let params = params.as_object().expect("warning params");
+        let serialized = serialize_warning_params(params);
+
+        assert_eq!(
+            serde_json::from_str::<Value>(&serialized).expect("serialized warning params"),
+            Value::Object(params.clone())
         );
     }
 
