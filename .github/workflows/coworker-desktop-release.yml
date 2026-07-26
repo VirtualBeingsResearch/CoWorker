@@ -397,7 +397,7 @@ jobs:
               notes_args+=(-f previous_tag_name="$previous_tag")
             fi
             notes_json="$(gh "${notes_args[@]}")"
-            release_name="$(jq -r '.name' <<< "$notes_json")"
+            release_name="CoWorker $version"
             release_body="$(jq -r '.body' <<< "$notes_json")"
 
             if [[ "$state" == "draft" ]]; then
