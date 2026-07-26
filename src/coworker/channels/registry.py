@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 from loguru import logger
 
@@ -13,6 +12,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
     ParticipantIdResolutionError,
+    PreparedOutbound,
 )
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import ChannelRuntime
@@ -23,18 +23,6 @@ from coworker.i18n import tr
 _PARTICIPANT_SUGGESTION_DISTANCE = 4
 
 
-@dataclass(frozen=True)
-class PreparedChannelAction:
-    request: CommunicateRequest
-    result_note: str = ""
-
-
-ChannelActionHandler = Callable[
-    [CommunicateRequest],
-    Awaitable[PreparedChannelAction | ToolResult],
-]
-
-
 class ChannelRegistry:
     """Compose channels while leaving mutable transport state in their runtimes."""
 
@@ -43,7 +31,6 @@ class ChannelRegistry:
         self._fallback: BaseChannel | None = None
         self._inbound_handler: InboundHandler | None = None
         self._runtime_tasks: dict[int, asyncio.Task[None]] = {}
-        self._action_handlers: dict[str, ChannelActionHandler] = {}
 
     def register(self, channel: BaseChannel) -> None:
         issues = self._registration_issues(channel)
@@ -63,17 +50,6 @@ class ChannelRegistry:
     @property
     def is_running(self) -> bool:
         return bool(self._runtime_tasks)
-
-    def register_action(
-        self,
-        channel: str,
-        handler: ChannelActionHandler,
-    ) -> None:
-        if not channel.strip():
-            raise ValueError("channel action name is required")
-        if channel in self._action_handlers:
-            raise ValueError(f"channel action is already registered: {channel}")
-        self._action_handlers[channel] = handler
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
@@ -117,7 +93,8 @@ class ChannelRegistry:
         if validation_error is not None:
             return validation_error
         prepared = await self._prepare_action(
-            replace(request, participant_id=canonical)
+            replace(request, participant_id=canonical),
+            target,
         )
         if isinstance(prepared, ToolResult):
             return prepared
@@ -143,28 +120,50 @@ class ChannelRegistry:
     async def _prepare_action(
         self,
         request: CommunicateRequest,
-    ) -> PreparedChannelAction | ToolResult:
+        delivery_channel: BaseChannel,
+    ) -> PreparedOutbound | ToolResult:
         raw_action = request.extra.get("channel_action")
         if raw_action is None:
-            return PreparedChannelAction(request)
+            return PreparedOutbound(request)
         if not isinstance(raw_action, dict):
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.communicate.channel_action_invalid"),
                 is_error=True,
             )
-        channel = str(raw_action.get("channel") or "").strip()
-        handler = self._action_handlers.get(channel)
-        if handler is None:
+        channel_name = str(raw_action.get("channel") or "").strip()
+        action_channel = next(
+            (channel for channel in self._channels if channel.name == channel_name),
+            None,
+        )
+        if action_channel is None:
             return ToolResult(
                 tool_call_id="",
                 content=tr(
                     "tool_result.communicate.channel_action_unknown",
-                    channel=channel,
+                    channel=channel_name,
                 ),
                 is_error=True,
             )
-        return await handler(request)
+        recipient = next(
+            (
+                connection
+                for connection in delivery_channel.list_connections()
+                if connection.participant_id == request.participant_id
+            ),
+            None,
+        )
+        prepared = await action_channel.prepare_action(request, recipient)
+        if prepared is not None:
+            return prepared
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.channel_action_unknown",
+                channel=channel_name,
+            ),
+            is_error=True,
+        )
 
     def list_connections(self) -> list[ConnectionInfo]:
         connections: list[ConnectionInfo] = []

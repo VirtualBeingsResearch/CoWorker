@@ -11,8 +11,9 @@ from coworker.channels.base import (
     ChannelCapabilities,
     ConnectionInfo,
     ParticipantIdResolutionError,
+    PreparedOutbound,
 )
-from coworker.channels.registry import ChannelRegistry, PreparedChannelAction
+from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamProfile
 from coworker.channels.system import create_channel_system
 from coworker.core.types import CommunicateRequest, ToolResult
@@ -91,6 +92,27 @@ class _MinimalChannel(BaseChannel):
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
         return ToolResult(tool_call_id="", content=request.message)
+
+
+class _ActionChannel(_MinimalChannel):
+    name = "demo"
+    participant_prefix = "demo:"
+
+    async def prepare_action(
+        self,
+        request: CommunicateRequest,
+        recipient: ConnectionInfo | None,
+    ) -> PreparedOutbound:
+        assert recipient is not None
+        return PreparedOutbound(
+            CommunicateRequest(
+                participant_id=request.participant_id,
+                message="prepared",
+                attachments=[{"type": "image", "path": "code.png"}],
+                extra={"channel_action": {"channel": self.name, "status": "waiting"}},
+            ),
+            result_note="session=session-1",
+        )
 
 
 class _FailingRuntimeChannel(_MinimalChannel):
@@ -289,30 +311,18 @@ async def test_prefix_match_bypasses_resolver(registry: ChannelRegistry) -> None
 
 
 @pytest.mark.asyncio
-async def test_registered_channel_action_prepares_generic_communicate_request(
+async def test_registered_channel_handles_its_action_before_delivery(
     registry: ChannelRegistry,
 ) -> None:
-    channel = _FakeChannel(
+    delivery_channel = _FakeChannel(
         "stream",
         "",
         supports_extra=True,
         live=("person-1",),
         requires_known_participant=True,
     )
-    registry.register(channel)
-
-    async def prepare(request: CommunicateRequest) -> PreparedChannelAction:
-        return PreparedChannelAction(
-            CommunicateRequest(
-                participant_id=request.participant_id,
-                message="prepared",
-                attachments=[{"type": "image", "path": "code.png"}],
-                extra={"channel_action": {"channel": "demo", "status": "waiting"}},
-            ),
-            result_note="session=session-1",
-        )
-
-    registry.register_action("demo", prepare)
+    registry.register(delivery_channel)
+    registry.register(_ActionChannel())
 
     result = await registry.send(
         CommunicateRequest(
@@ -322,8 +332,8 @@ async def test_registered_channel_action_prepares_generic_communicate_request(
     )
 
     assert not result.is_error
-    assert channel.sent[0].message == "prepared"
-    assert channel.sent[0].attachments[0]["path"] == "code.png"
+    assert delivery_channel.sent[0].message == "prepared"
+    assert delivery_channel.sent[0].attachments[0]["path"] == "code.png"
     assert "session=session-1" in result.content
 
 

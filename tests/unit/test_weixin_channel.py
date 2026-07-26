@@ -8,9 +8,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from coworker.channels.base import ConnectionInfo
-from coworker.channels.registry import PreparedChannelAction
-from coworker.channels.weixin.action import WeixinChannelAction
+from coworker.channels.base import ConnectionInfo, PreparedOutbound
 from coworker.channels.weixin.channel import WeixinChannel
 from coworker.channels.weixin.client import WeixinClient, credentials_from_login
 from coworker.channels.weixin.runner import WeixinRunner
@@ -32,21 +30,6 @@ def _config() -> WeixinConfig:
             )
         ],
     )
-
-
-class _ConnectionSource:
-    def __init__(self, kind: str = "stream:private") -> None:
-        self.kind = kind
-
-    def list_connections(self) -> list[ConnectionInfo]:
-        return [
-            ConnectionInfo(
-                participant_id="recipient:user-1",
-                channel="stream",
-                kind=self.kind,
-                active=True,
-            )
-        ]
 
 
 class _ActionRunner:
@@ -190,19 +173,23 @@ async def test_start_login_creates_real_png_for_admin_and_chat(
 
 @pytest.mark.asyncio
 async def test_connect_action_prepares_qrcode_for_generic_communicate() -> None:
-    action = WeixinChannelAction(
-        _ActionRunner(),  # type: ignore[arg-type]
-        _ConnectionSource(),  # type: ignore[arg-type]
+    channel = WeixinChannel(_ActionRunner())  # type: ignore[arg-type]
+    recipient = ConnectionInfo(
+        participant_id="recipient:user-1",
+        channel="stream",
+        kind="stream:private",
+        active=True,
     )
 
-    prepared = await action(
+    prepared = await channel.prepare_action(
         CommunicateRequest(
             participant_id="recipient:user-1",
             extra={"channel_action": {"channel": "weixin", "type": "connect"}},
-        )
+        ),
+        recipient,
     )
 
-    assert isinstance(prepared, PreparedChannelAction)
+    assert isinstance(prepared, PreparedOutbound)
     assert prepared.request.attachments == [{"type": "image", "path": "pairing.png"}]
     assert prepared.request.extra["channel_action"]["session_id"] == "connection-session-1"
     assert "https://example.test/pair" in prepared.request.message
@@ -211,16 +198,20 @@ async def test_connect_action_prepares_qrcode_for_generic_communicate() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_action_rejects_group_delivery() -> None:
-    action = WeixinChannelAction(
-        _ActionRunner(),  # type: ignore[arg-type]
-        _ConnectionSource("stream:group"),  # type: ignore[arg-type]
+    channel = WeixinChannel(_ActionRunner())  # type: ignore[arg-type]
+    recipient = ConnectionInfo(
+        participant_id="recipient:user-1",
+        channel="stream",
+        kind="stream:group",
+        active=True,
     )
 
-    result = await action(
+    result = await channel.prepare_action(
         CommunicateRequest(
             participant_id="recipient:user-1",
             extra={"channel_action": {"channel": "weixin", "type": "connect"}},
-        )
+        ),
+        recipient,
     )
 
     assert isinstance(result, ToolResult)

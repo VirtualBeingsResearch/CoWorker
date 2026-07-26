@@ -36,7 +36,7 @@ from coworker.channels.stream.desktop import (
 )
 from coworker.channels.system import create_channel_system
 from coworker.channels.wecom import WeComChannel, WeComRunner
-from coworker.channels.weixin import WeixinChannel, WeixinChannelAction, WeixinRunner
+from coworker.channels.weixin import WeixinChannel, WeixinRunner
 from coworker.core.config import (
     Config,
     LLMConfig,
@@ -674,10 +674,6 @@ async def _main() -> bool:
             channel_system.activity,
         )
         channel_system.registry.register(WeixinChannel(weixin_runner))
-        channel_system.registry.register_action(
-            "weixin",
-            WeixinChannelAction(weixin_runner, channel_system.registry),
-        )
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
