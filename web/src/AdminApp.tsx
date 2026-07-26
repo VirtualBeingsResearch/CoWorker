@@ -1423,9 +1423,9 @@ const CONTENT_SOURCE_GUIDE: Record<ContentKind, { required: string; tip: string 
 };
 
 function contentTemplate(kind: ContentKind) {
-  if (kind === 'palaces') return '---\nname: \nwhen_to_attach: \ncritical_skills: []\nrelated_skills: []\nmemory_tags: []\n---\n\n# ' + t('领域说明') + '\n\n';
-  if (kind === 'subconscious') return '---\nname: \nenabled: true\ntrigger: periodic\ncontext_builder: short_term\nevery_n_cycles: 40\nevery_seconds: 1800\nevery_n_tool_calls: 0\nmax_cycles: 5\ngoal: \npurpose: \n---\n\n# ' + t('思考方式') + '\n\n';
-  return '---\nname: \ndescription: \nversion: 1.0.0\n---\n\n# ' + t('使用说明') + '\n\n';
+  if (kind === 'palaces') return '---\nname: ""\nwhen_to_attach: ""\ncritical_skills: []\nrelated_skills: []\nmemory_tags: []\n---\n\n# ' + t('领域说明') + '\n\n';
+  if (kind === 'subconscious') return '---\nname: ""\nenabled: true\ntrigger: periodic\ncontext_builder: short_term\nevery_n_cycles: 40\nevery_seconds: 1800\nevery_n_tool_calls: 0\nmax_cycles: 5\ngoal: ""\npurpose: ""\n---\n\n# ' + t('思考方式') + '\n\n';
+  return '---\nname: ""\ndescription: ""\nversion: 1.0.0\n---\n\n# ' + t('使用说明') + '\n\n';
 }
 
 function draftMeta(raw: string) {
@@ -1584,6 +1584,15 @@ type DesktopReleaseSource = { type: string; source_id?: string; api_base_url?: s
 type DesktopReleaseSummary = { version: string; notes: string; pub_date: string; published: boolean; platforms: string[]; installers: string[]; created_at: string; updated_at: string; source?: DesktopReleaseSource };
 type DesktopRelease = Omit<DesktopReleaseSummary, 'platforms' | 'installers'> & { platforms: Record<string, DesktopAsset>; installers: Record<string, DesktopAsset> };
 type DesktopReleaseList = { latest_version: string | null; releases: DesktopReleaseSummary[] };
+type DesktopVersionCount = { version: string | null; desktops: number; active_desktops: number; outdated: boolean | null };
+type DesktopVersionStatistics = {
+  latest_version: string | null;
+  total_desktops: number;
+  active_desktops: number;
+  outdated_desktops: number;
+  unknown_version_desktops: number;
+  versions: DesktopVersionCount[];
+};
 function releaseSourceLabel(source: DesktopReleaseSource) {
   if (source.type === 'coworker_release') return 'Coworker 发布同步';
   if (source.draft) return 'GitHub 草稿同步';
@@ -1761,9 +1770,51 @@ function ReleaseAssetLane({ version, title, note, assets }: { version: string; t
   return <section className="release-asset-lane"><header><div><b>{t(title)}</b><small>{t(note)}</small></div><span>{entries.length}</span></header>{entries.length ? <div>{entries.map(([platform, asset]) => <article key={platform}><div className="asset-platform"><i /> <span>{platform}</span></div><div className="asset-file"><b title={asset.file}>{asset.file}</b><small>{formatBytes(asset.size)}{' · '}{asset.uploaded_at ? new Date(asset.uploaded_at).toLocaleString() : t('时间未知')}</small></div><button type="button" onClick={() => download(asset)} title={t('下载 {{file}}', { file: asset.file })}><Download size={14} /></button></article>)}</div> : <p className="release-lane-empty">{t('还没有这类产物')}</p>}</section>;
 }
 
+function DesktopVersionOverview({
+  statistics,
+  loading,
+  error,
+  onRefresh,
+}: {
+  statistics: DesktopVersionStatistics | null;
+  loading: boolean;
+  error: string;
+  onRefresh: () => void;
+}) {
+  const total = statistics?.total_desktops || 0;
+  return <section className="release-fleet" aria-labelledby="release-fleet-title">
+    <header>
+      <div><p className="eyebrow">{t('安装基线')}</p><h3 id="release-fleet-title">{t('客户端版本分布')}</h3></div>
+      <button className="icon-btn" type="button" title={t('刷新版本统计')} aria-label={t('刷新版本统计')} onClick={onRefresh} disabled={loading}><RefreshCw size={14} /></button>
+    </header>
+    {error && !statistics ? <div className="release-fleet-state error"><TriangleAlert size={17} /><span>{error || t('版本统计读取失败')}</span></div>
+    : loading && !statistics ? <div className="release-fleet-state"><RefreshCw className="spin" size={17} /><span>{t('正在读取客户端版本…')}</span></div>
+    : !total ? <div className="release-fleet-state"><CircleGauge size={18} /><span><b>{t('暂无桌面注册')}</b>{t('桌面端连接后，版本分布会显示在这里。')}</span></div>
+    : <div className="release-fleet-body">
+      <div className="release-fleet-summary">
+        <span><b>{total}</b>{t('台已注册桌面')}</span>
+        <span className="online"><b>{statistics?.active_desktops || 0}</b>{t('台在线')}</span>
+        <span className={statistics?.outdated_desktops ? 'outdated' : ''}><b>{statistics?.outdated_desktops || 0}</b>{t('台待更新')}</span>
+      </div>
+      <div className="release-version-tracks">
+        {statistics?.versions.map(item => {
+          const isLatest = Boolean(item.version && item.version === statistics.latest_version);
+          const trackClass = isLatest ? 'latest' : item.outdated ? 'outdated' : item.version ? '' : 'unknown';
+          return <div className={'release-version-track ' + trackClass} key={item.version || 'unknown'}>
+            <div className="release-version-label"><b>{item.version ? `v${item.version}` : t('未知版本')}</b><span>{isLatest ? t('当前 latest') : item.outdated ? t('待更新') : ''}</span></div>
+            <div className="release-version-rail" aria-hidden="true"><i style={{ width: `${Math.max(4, (item.desktops / total) * 100)}%` }} /></div>
+            <small>{t('{{desktops}} 台 · {{active}} 在线', { desktops: item.desktops, active: item.active_desktops })}</small>
+          </div>;
+        })}
+      </div>
+    </div>}
+  </section>;
+}
+
 function DesktopReleases() {
   const releases = useLoad(() => api<DesktopReleaseList>('/api/desktop-updates/releases'), []);
   const sync = useLoad(() => api<DesktopSyncStatus>('/api/admin/desktop-updates/sync'), []);
+  const versionStatistics = useLoad(() => api<DesktopVersionStatistics>('/api/desktop-updates/statistics'), []);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
@@ -1798,6 +1849,11 @@ function DesktopReleases() {
     const interval = window.setInterval(() => { void sync.reload(); }, sync.data?.outcome === 'running' ? 2000 : 30000);
     return () => window.clearInterval(interval);
   }, [sync.data?.outcome, sync.reload]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => { void versionStatistics.reload(); }, 30000);
+    return () => window.clearInterval(interval);
+  }, [versionStatistics.reload]);
 
   const importedKey = (sync.data?.imported_versions || []).join('|');
   useEffect(() => {
@@ -1943,9 +1999,10 @@ function DesktopReleases() {
   return <div className="release-page page-stack">
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
-      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2></div>
+      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2><p>{heroNote}</p></div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
     </section>
+    <DesktopVersionOverview statistics={versionStatistics.data} loading={versionStatistics.loading} error={versionStatistics.error} onRefresh={() => { void versionStatistics.reload(); }} />
     <section className={'release-sync-card ' + (syncRunning ? 'running' : syncStatus?.outcome || 'idle')}>
       <div className="release-sync-main"><div className="release-sync-icon"><RefreshCw size={20} /></div><div><p className="eyebrow">{t('上游同步')}</p><h3>{syncReady ? syncOutcome : t(syncStatus?.readiness === 'unconfigured' ? '当前上游未配置完整' : '上游同步已关闭')}</h3><p>{syncReady && syncStatus?.source ? <><code>{syncStatus.source.name}</code><span>{' · '}{syncStatus.source.provider}{syncStatus.source.target ? ` · ${syncStatus.source.target}` : ''}</span></> : t('配置一个 GitHub 或 Coworker 上游后，发布页才显示完整同步控制。')} <a href={settingsHref}>{t('配置上游')}</a></p></div></div>
       {syncReady && <div className="release-sync-facts">
@@ -1960,7 +2017,7 @@ function DesktopReleases() {
     </section>
     <div className="release-layout">
       <aside className="release-index">
-        <header><div><span>{t('版本记录')}</span><b>{t('{{count}} 个版本', { count: releaseItems.length })}</b></div><button className="icon-btn" title={t('刷新版本')} aria-label={t('刷新版本')} onClick={() => void releases.reload()}><RefreshCw size={14} /></button></header>
+        <header><div><span>{t('版本记录')}</span><b>{t('{{count}} 个版本', { count: releaseItems.length })}</b></div><button className="icon-btn" title={t('刷新版本')} aria-label={t('刷新版本')} onClick={() => { void releases.reload(); void versionStatistics.reload(); }}><RefreshCw size={14} /></button></header>
         <button className={'release-new ' + (creating ? 'active' : '')} onClick={() => { setCreating(true); setSelectedVersion(''); setDetail(null); setQueued([]); setActionError(''); setMessage(''); }}><Plus size={15} /><span><b>{t('新建版本')}</b><small>{t('准备下一次桌面更新')}</small></span></button>
         {releases.loading ? <Loading /> : releases.error ? <Loading error={releases.error} /> : <div className="release-trace">{releaseItems.length ? releaseItems.map(item => { const state = item.version === latest ? 'latest' : item.published ? 'published' : 'draft'; return <button key={item.version} className={(selectedVersion === item.version ? 'active ' : '') + state} onClick={() => void openRelease(item.version)}><span className="trace-node"><i /></span><span className="trace-copy"><span><b>v{item.version}</b><em>{stateLabel(item.version, item.published)}</em></span><small>{item.notes || t('没有发布说明')}</small><span className="trace-platforms">{t('{{updater}} 个自动更新包 · {{installer}} 个安装包', { updater: item.platforms.length, installer: item.installers.length })}</span><time>{item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '—'}</time></span></button>; }) : <div className="release-index-empty">{t('创建第一个桌面版本')}</div>}</div>}
       </aside>

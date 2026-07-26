@@ -32,6 +32,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
 };
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use tokio::{sync::oneshot, task::JoinHandle};
@@ -875,6 +876,10 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
@@ -921,6 +926,12 @@ pub fn run() {
             install_tray(app)?;
             install_window_close_behavior(app)?;
             install_actor_stream_event_relay(app.handle().clone());
+            if started_by_autostart() {
+                desktop_log_info("CoWorker Desktop launched at sign-in; keeping main window hidden");
+            } else {
+                focus_main_window(app.handle());
+            }
+            start_configured_bridge(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1101,6 +1112,40 @@ fn focus_main_window(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn started_by_autostart() -> bool {
+    std::env::args_os().any(|argument| argument == "--autostart")
+}
+
+fn start_configured_bridge(app: &tauri::AppHandle) {
+    if !configured_start_bridge_on_launch(app) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let path = match ensure_config_file(&app, None) {
+            Ok(path) => path,
+            Err(error) => {
+                desktop_log_error(format!(
+                    "Automatic Bridge start failed before config load error={error}"
+                ));
+                return;
+            }
+        };
+        desktop_log_info(format!(
+            "Automatic Bridge start requested config_path={}",
+            path.display()
+        ));
+        let state = app.state::<AppState>();
+        match state.runtime.start(&path).await {
+            Ok(_) => desktop_log_info("Bridge runtime started automatically"),
+            Err(error) => desktop_log_error(format!(
+                "Automatic Bridge start failed error={}",
+                error_chain(&error)
+            )),
+        }
+    });
 }
 
 fn request_desktop_shutdown(app: &tauri::AppHandle) {
@@ -1322,6 +1367,13 @@ fn close_to_tray_from_config(config: &Value) -> bool {
         .unwrap_or(true)
 }
 
+fn start_bridge_on_launch_from_config(config: &Value) -> bool {
+    config
+        .get("start_bridge_on_launch")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn close_to_tray_choice_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
@@ -1340,6 +1392,14 @@ fn configured_close_to_tray(app: &tauri::AppHandle) -> bool {
         .as_ref()
         .map(close_to_tray_from_config)
         .unwrap_or(true)
+}
+
+fn configured_start_bridge_on_launch(app: &tauri::AppHandle) -> bool {
+    config_path(app, None)
+        .ok()
+        .and_then(|path| read_config_value(&path).ok())
+        .as_ref()
+        .is_some_and(start_bridge_on_launch_from_config)
 }
 
 const PREVIOUS_APP_IDENTIFIERS: [&str; 2] =
@@ -1988,6 +2048,17 @@ mod tests {
         ));
         assert!(!close_to_tray_from_config(
             &serde_json::json!({"close_to_tray": false})
+        ));
+    }
+
+    #[test]
+    fn bridge_autostart_defaults_to_disabled_and_respects_saved_boolean() {
+        assert!(!start_bridge_on_launch_from_config(&serde_json::json!({})));
+        assert!(start_bridge_on_launch_from_config(
+            &serde_json::json!({"start_bridge_on_launch": true})
+        ));
+        assert!(!start_bridge_on_launch_from_config(
+            &serde_json::json!({"start_bridge_on_launch": false})
         ));
     }
 }

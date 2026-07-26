@@ -1999,51 +1999,7 @@ impl DesktopRouter {
         if let Some(registration) = self.registrations.lock().await.get(&key).cloned() {
             return Ok(registration);
         }
-        if let Some(registration) = self.store.registration(&coworker.coworker_id, actor)? {
-            match self
-                .http
-                .list_desktop_registrations(
-                    coworker,
-                    self.bearer_token(&coworker.coworker_id),
-                    self.config.security.development_mode,
-                )
-                .await
-            {
-                Ok(registrations)
-                    if registrations.iter().any(|remote| {
-                        remote.registration_id == registration.registration_id
-                            && remote.participant_id == registration.participant_id
-                    }) =>
-                {
-                    self.registrations
-                        .lock()
-                        .await
-                        .insert(key, registration.clone());
-                    info!(
-                        coworker_id = %coworker.coworker_id,
-                        %actor,
-                        registration_id = %registration.registration_id,
-                        participant_id = %registration.participant_id,
-                        "Reusing persisted CoWorker Desktop actor registration"
-                    );
-                    return Ok(registration);
-                }
-                Ok(_) => {
-                    warn!(
-                        coworker_id = %coworker.coworker_id,
-                        %actor,
-                        registration_id = %registration.registration_id,
-                        participant_id = %registration.participant_id,
-                        "Persisted CoWorker Desktop actor registration is missing remotely; re-registering"
-                    );
-                    self.store
-                        .remove_registration(&coworker.coworker_id, actor)?;
-                }
-                Err(error) => {
-                    return Err(error);
-                }
-            }
-        }
+        let persisted = self.store.registration(&coworker.coworker_id, actor)?;
         let display_name = format!("{} {}", self.config.display_name, actor);
         let registration = self
             .http
@@ -2062,7 +2018,15 @@ impl DesktopRouter {
             .lock()
             .await
             .insert(key, registration.clone());
-        info!(coworker_id = %coworker.coworker_id, %actor, "Registered CoWorker Desktop actor");
+        if persisted.as_ref() == Some(&registration) {
+            info!(
+                coworker_id = %coworker.coworker_id,
+                %actor,
+                "Refreshed CoWorker Desktop actor registration metadata"
+            );
+        } else {
+            info!(coworker_id = %coworker.coworker_id, %actor, "Registered CoWorker Desktop actor");
+        }
         Ok(registration)
     }
 
@@ -3340,7 +3304,7 @@ mod delivery_tests {
     }
 
     #[tokio::test]
-    async fn ensure_registered_reuses_persisted_remote_registration_without_post() {
+    async fn ensure_registered_refreshes_persisted_remote_registration_metadata() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let address = listener.local_addr().expect("test server address");
         let (request_tx, request_rx) = std::sync::mpsc::channel();
@@ -3369,7 +3333,7 @@ mod delivery_tests {
             request_tx
                 .send(String::from_utf8_lossy(&request).into_owned())
                 .expect("record registration request");
-            let body = json!({"registrations": [remote_registration]}).to_string();
+            let body = serde_json::to_string(&remote_registration).expect("serialize registration");
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
@@ -3409,22 +3373,22 @@ mod delivery_tests {
             .save_registration(&coworker.coworker_id, ActorId::Local, &registration)
             .expect("persist registration");
 
-        let reused = router
+        let refreshed = router
             .ensure_registered(&coworker, ActorId::Local)
             .await
-            .expect("reuse registration");
+            .expect("refresh registration");
 
-        assert_eq!(reused, registration);
+        assert_eq!(refreshed, registration);
         let request = request_rx
             .recv_timeout(Duration::from_secs(1))
-            .expect("registration lookup request");
-        assert!(request.starts_with("GET /api/communicate/register "));
+            .expect("registration refresh request");
+        assert!(request.starts_with("POST /api/communicate/register "));
         server.join().expect("registration server");
         let _ = std::fs::remove_dir_all(storage_dir);
     }
 
     #[tokio::test]
-    async fn ensure_registered_revalidates_persisted_registration_after_service_unavailable() {
+    async fn ensure_registered_retries_metadata_refresh_after_service_unavailable() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let address = listener.local_addr().expect("test server address");
         let registration = CoworkerRegistration {
@@ -3451,7 +3415,8 @@ mod delivery_tests {
                     }
                 }
                 assert!(
-                    String::from_utf8_lossy(&request).starts_with("GET /api/communicate/register ")
+                    String::from_utf8_lossy(&request)
+                        .starts_with("POST /api/communicate/register ")
                 );
                 let (status, body) = if attempt == 0 {
                     (
@@ -3461,7 +3426,8 @@ mod delivery_tests {
                 } else {
                     (
                         "200 OK",
-                        json!({"registrations": [remote_registration]}).to_string(),
+                        serde_json::to_string(&remote_registration)
+                            .expect("serialize registration"),
                     )
                 };
                 let response = format!(
@@ -3510,11 +3476,11 @@ mod delivery_tests {
         assert!(is_channel_runtime_not_ready(&first_error));
         assert!(router.registrations.lock().await.is_empty());
 
-        let reused = router
+        let refreshed = router
             .ensure_registered(&coworker, ActorId::Local)
             .await
-            .expect("revalidate registration after runtime becomes ready");
-        assert_eq!(reused, registration);
+            .expect("refresh registration after runtime becomes ready");
+        assert_eq!(refreshed, registration);
 
         server.join().expect("registration server");
         let _ = std::fs::remove_dir_all(storage_dir);

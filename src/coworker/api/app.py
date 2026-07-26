@@ -47,6 +47,7 @@ from coworker.desktop_updates import (
     SemVer,
     SemVerError,
     UnsafePathError,
+    build_desktop_version_statistics,
     normalize_version,
 )
 from coworker.i18n import tr
@@ -682,6 +683,24 @@ async def download_desktop_release_asset(
     if not path.is_file():
         raise HTTPException(status_code=404, detail=tr("api.desktop.update_asset_missing"))
     return FileResponse(path)
+
+
+@app.get("/api/desktop-updates/statistics")
+async def get_desktop_version_statistics(
+    authorization: str | None = Header(default=None),
+):
+    _require_admin(authorization)
+    try:
+        latest = await _desktop_release_store().read_latest()
+    except DesktopReleaseStoreError as error:
+        raise _desktop_store_http_error(error) from error
+    stream = _require_stream()
+    latest_version = str(latest.get("version") or "").strip() if latest else ""
+    return build_desktop_version_statistics(
+        stream.registration_records(),
+        set(stream.list_live_stream_participant_ids()),
+        latest_version or None,
+    )
 
 
 @app.get("/api/desktop-updates/{target}/{arch}/{current_version}")

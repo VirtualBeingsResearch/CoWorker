@@ -110,6 +110,8 @@ Desktop 启动后只为健康检查通过的身份注册 `coworker-desktop` part
 
 Tauri 桌面版位于 `apps/coworker-desktop/desktop`，Rust 入口位于 `apps/coworker-desktop/desktop/src-tauri`。CLI/bridge 核心位于 `apps/coworker-desktop/bridge`。
 
+桌面端设置提供“登录系统时启动 CoWorker”和“打开 CoWorker 时启动 Bridge”两个独立开关。前者在 Windows、macOS 和 Linux 注册系统启动项，并在自动启动时将主窗口隐藏到托盘；后者把 `start_bridge_on_launch=true` 保存到 `coworker_desktop.json`，由桌面后端在每次启动时直接加载当前配置并启动 Bridge。若要实现开机后后台自动连接，需要同时开启这两个选项。
+
 ## 产品版本管理
 
 仓库使用根目录 `VERSION` 作为唯一产品版本源。Coworker Python 包、Rust workspace、Coworker Desktop、Web 包和 Tauri 配置都必须与它保持一致。
@@ -267,6 +269,13 @@ API Base URL 可以指向 GitHub Enterprise（例如 `https://github.company/api
 
 也可以用 `examples/api_test.html` 的 Desktop Release 区域手工创建 release、上传单个平台 asset、publish 或 rollback。
 桌面端启动后会请求 `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`；无更新返回 `204`，有更新返回 Tauri updater 需要的 `version/url/signature`。
+
+管理员可以携带与桌面发布接口相同的 Bearer Token 请求
+`GET /api/desktop-updates/statistics`，查看按版本聚合的已注册桌面数量、当前在线数量、
+落后于最新已发布版本的数量，以及未上报版本的旧客户端数量。同一桌面端的多个 actor
+注册会按 `desktop_id` 去重；管理后台“桌面发布”页会展示相同的版本分布，并每 30 秒刷新。
+Bridge 每次启动时会向所配置的 Coworker 实例刷新一次 actor 注册元数据，进程运行期间不会
+为了版本统计而周期上报。该接口只读取本地注册记录，不会向外部服务发送遥测数据。
 
 人工调用 `publish` 或 `rollback` 后，服务端还会通过现有 Desktop SSE 连接向支持
 `desktop_update_push` 的在线桌面端发送一次检查更新请求。发布响应中的

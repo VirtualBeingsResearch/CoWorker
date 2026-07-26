@@ -69,6 +69,8 @@ vi.mock("./tauri", () => ({
   startBridgeLogStream: vi.fn(),
   stopBridgeLogStream: vi.fn(),
   setCloseToTray: vi.fn(),
+  isLaunchAtLoginEnabled: vi.fn(),
+  setLaunchAtLogin: vi.fn(),
   setTrayCopy: vi.fn(),
   listenCloseToTrayChoice: vi.fn(),
   isCloseToTrayChoicePending: vi.fn(),
@@ -198,6 +200,8 @@ function setDefaultMocks(status: BridgeStatus = stoppedStatus, config: ConfigVal
   vi.mocked(tauri.startBridgeLogStream).mockResolvedValue(undefined);
   vi.mocked(tauri.stopBridgeLogStream).mockResolvedValue(undefined);
   vi.mocked(tauri.setCloseToTray).mockResolvedValue(undefined);
+  vi.mocked(tauri.isLaunchAtLoginEnabled).mockResolvedValue(false);
+  vi.mocked(tauri.setLaunchAtLogin).mockResolvedValue(undefined);
   vi.mocked(tauri.setTrayCopy).mockResolvedValue(undefined);
   vi.mocked(tauri.listenCloseToTrayChoice).mockImplementation(async (handler) => {
     closeToTrayChoiceHandlers.push(handler);
@@ -295,6 +299,32 @@ describe("App backend operation wiring", () => {
     await user.click(inputById("close-to-tray"));
 
     await waitFor(() => expect(tauri.setCloseToTray).toHaveBeenLastCalledWith(false));
+  });
+
+  it("registers CoWorker to launch at sign-in from settings", async () => {
+    const user = await renderApp();
+    await openConfig(user);
+    await waitFor(() => expect(inputById("launch-at-login")).not.toBeDisabled());
+    vi.mocked(tauri.isLaunchAtLoginEnabled).mockResolvedValue(true);
+
+    await user.click(inputById("launch-at-login"));
+
+    await waitFor(() => expect(tauri.setLaunchAtLogin).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(inputById("launch-at-login")).toBeChecked());
+  });
+
+  it("saves the automatic Bridge startup preference", async () => {
+    const user = await renderApp();
+    await openConfig(user);
+
+    await user.click(inputById("start-bridge-on-launch"));
+    vi.mocked(tauri.saveConfig).mockClear();
+    await user.click(screen.getByRole("button", { name: "Save and apply configuration" }));
+
+    await waitFor(() => expect(tauri.saveConfig).toHaveBeenCalledWith(
+      "coworker_desktop.json",
+      expect.objectContaining({ start_bridge_on_launch: true }),
+    ));
   });
 
   it("asks for and remembers the close behavior on the first close", async () => {

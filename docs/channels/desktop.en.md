@@ -108,6 +108,8 @@ After Desktop starts, it registers a `coworker-desktop` participant only for ide
 
 The Tauri desktop application lives in `apps/coworker-desktop/desktop`, with its Rust entry point in `apps/coworker-desktop/desktop/src-tauri`. The CLI and bridge core live in `apps/coworker-desktop/bridge`.
 
+Desktop settings provide two independent switches: “Launch CoWorker when you sign in” and “Start Bridge when CoWorker opens.” The first registers a system startup entry on Windows, macOS, and Linux and keeps the main window hidden in the tray when launched automatically. The second saves `start_bridge_on_launch=true` in `coworker_desktop.json`; the desktop backend then loads the current configuration and starts the Bridge directly on every launch. Enable both options to connect automatically in the background after system startup.
+
 ## Product version management
 
 The root `VERSION` file is the single source of truth for the product version. The Coworker Python package, Rust workspace, Coworker Desktop, web packages, and Tauri configuration must all match it.
@@ -260,6 +262,15 @@ The synchronizer can import a Release containing only a subset of the canonical 
 The Desktop Release section in `examples/api_test.html` can also create a release manually, upload one platform asset at a time, publish, or roll back.
 
 At startup, the desktop application requests `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`. A response of `204` means no update is available. When an update exists, the endpoint returns the `version`, `url`, and `signature` required by the Tauri updater.
+
+An administrator can use the same Bearer token as the desktop release endpoints to request
+`GET /api/desktop-updates/statistics`. The response groups registered desktops by version and
+reports online, outdated, and legacy clients that did not report a version. Multiple actor
+registrations from one desktop are deduplicated by `desktop_id`. The Desktop releases page in the
+management UI shows the same distribution and refreshes it every 30 seconds. The endpoint reads
+only local registration records. On each Bridge start, the desktop refreshes actor registration
+metadata once with each configured Coworker instance; it does not periodically report data for
+version statistics while the process remains running. No telemetry is sent to an external service.
 
 After an operator calls `publish` or `rollback`, the server also sends a check-for-updates request over existing Desktop SSE connections to online clients that support `desktop_update_push`. The `push.eligible` and `push.enqueued` fields in the publish response count eligible desktops and those placed in the online SSE queue; they do not indicate offline delivery. If the bridge is stopped, the client is offline, or the desktop application has exited, the push is not retained. The next startup performs the check through the updater endpoint above. A push triggers only a signed update check and never installs automatically; the desktop application restarts only after the user approves installation.
 
