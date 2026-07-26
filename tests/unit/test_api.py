@@ -1232,6 +1232,60 @@ class TestDesktopUpdatesAPI:
             )
             assert response.status_code == 200
 
+    def test_version_statistics_require_admin_token(self, client, monkeypatch, tmp_path):
+        _desktop_update_env(monkeypatch, tmp_path)
+        response = client.get("/api/desktop-updates/statistics")
+        assert response.status_code == 401
+
+    def test_version_statistics_count_each_registered_desktop_once(
+        self, client, monkeypatch, tmp_path
+    ):
+        headers = _desktop_update_env(monkeypatch, tmp_path)
+        communicate = _channel_system(tmp_path)
+        _setup_api_channels(communicate)
+        first = communicate.stream_runtime.register_participant(
+            kind="coworker-desktop",
+            client_id="desk-a:local:cw",
+            metadata={"desktop_id": "desk-a", "desktop_version": "0.2.0"},
+        )
+        communicate.stream_runtime.register_participant(
+            kind="coworker-desktop",
+            client_id="desk-a:codex:cw",
+            metadata={"desktop_id": "desk-a", "desktop_version": "0.2.0"},
+        )
+        communicate.stream_runtime.register_participant(
+            kind="coworker-desktop",
+            client_id="desk-b:local:cw",
+            metadata={"desktop_id": "desk-b"},
+        )
+        communicate.stream_runtime.register_session(
+            first["participant_id"], asyncio.Queue()
+        )
+
+        response = client.get("/api/desktop-updates/statistics", headers=headers)
+
+        assert response.json() == {
+            "latest_version": None,
+            "total_desktops": 2,
+            "active_desktops": 1,
+            "outdated_desktops": 0,
+            "unknown_version_desktops": 1,
+            "versions": [
+                {
+                    "version": "0.2.0",
+                    "desktops": 1,
+                    "active_desktops": 1,
+                    "outdated": None,
+                },
+                {
+                    "version": None,
+                    "desktops": 1,
+                    "active_desktops": 0,
+                    "outdated": None,
+                },
+            ],
+        }
+
     def test_create_upload_publish_and_check_update(self, client, monkeypatch, tmp_path):
         headers = _desktop_update_env(monkeypatch, tmp_path)
         create = client.post(

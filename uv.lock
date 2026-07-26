@@ -36,7 +36,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.117.0"
+version = "0.120.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -48,9 +48,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/41/0d/8f71d535edb0d438f023bd825fb65f67c14fa88a2bd6b75f292a58a63de4/anthropic-0.117.0.tar.gz", hash = "sha256:98107f2b76439641e0ae2a1754087534b8f178dbab99d6eb1bc4b7bc8c744496", size = 989933, upload-time = "2026-07-16T19:36:13.07Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/5c/3331da4fc009d448008a50c78d86cc929e8c937cd1442245ce3f80561c4e/anthropic-0.120.0.tar.gz", hash = "sha256:6ba6007dc9b00365b20f6101a6618f5196ac1ceef81512e4b5cc0e7436d4975d", size = 1008042, upload-time = "2026-07-24T16:32:52.384Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/4c/917d21d6619a4475cdafc6d13a69fdb3b901ddac57e76caca5a25c117b6d/anthropic-0.117.0-py3-none-any.whl", hash = "sha256:451a0a6905f11dff7663d13e4ee5dbf909eb8942b1d049803c7b937a13ac47ec", size = 998327, upload-time = "2026-07-16T19:36:11.225Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/8a/8522bdf809e1f95f0d9c936540987a3f6afba01d2921a2bf488dedf836a8/anthropic-0.120.0-py3-none-any.whl", hash = "sha256:591bd531563ec7b63a1e138f5c11f14cb94edda99623b349c2ce2ece8e08b8a5", size = 1022602, upload-time = "2026-07-24T16:32:50.506Z" },
 ]
 
 [[package]]
@@ -519,14 +519,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.117.0" },
+    { name = "anthropic", specifier = ">=0.120.0" },
     { name = "chromadb", specifier = ">=0.5" },
     { name = "ddgs", specifier = ">=9.14.4" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "loguru", specifier = ">=0.7" },
-    { name = "mcp2cli", specifier = ">=0.1" },
+    { name = "mcp2cli", specifier = ">=3.3.1" },
     { name = "mem0ai", extras = ["nlp"], specifier = ">=0.1" },
     { name = "openai", specifier = ">=1.40" },
     { name = "pillow", specifier = ">=10.0" },
@@ -535,7 +535,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "python-jenkins", specifier = ">=1.8" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "sentence-transformers", specifier = ">=5.6.0" },
@@ -1405,16 +1405,16 @@ wheels = [
 
 [[package]]
 name = "mcp2cli"
-version = "3.0.3"
+version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/2e/fde67fc1b3940994ee697906281b60f1e1acb2a63d7c36643f050a661d58/mcp2cli-3.0.3.tar.gz", hash = "sha256:264ba773a85ddecdf286cf76017d575046b4e95c00ace08439a17e9417119cf2", size = 33091, upload-time = "2026-05-10T07:59:04.441Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/53/fdc3d016a5e6673f2e8688cf052029c6e6055ef43f30c577a95b99ce6b21/mcp2cli-3.3.1.tar.gz", hash = "sha256:d64917ce080f4d9d264bd9bcf87a65b13363520d86a06c787b994aab13252493", size = 38430, upload-time = "2026-06-30T22:45:39.027Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/5c/d526ee6623876a87b605e8a2d84a68603b83409e32f4fcb83a2bb617bedf/mcp2cli-3.0.3-py3-none-any.whl", hash = "sha256:2de25a65cb47ad5248746bb84be5047bd5f2b2f328e395348bec45d577a80265", size = 34111, upload-time = "2026-05-10T07:59:03.236Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/6c/b99e700edc7ad2b2533ec1caf1f1ebe9b8d6c4adf49ca7a02d43f389c46a/mcp2cli-3.3.1-py3-none-any.whl", hash = "sha256:111072553fed6d7c399a1b9441f8c2f9b57a39bc39a0e2123da8bc471f4dc31b", size = 39516, upload-time = "2026-06-30T22:45:38.027Z" },
 ]
 
 [[package]]
@@ -2437,11 +2437,11 @@ wheels = [
 
 [[package]]
 name = "python-multipart"
-version = "0.0.29"
+version = "0.0.32"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4e/fe/70bd71a6738b09a0bdf6480ca6436b167469ca4578b2a0efbe390b4b0e70/python_multipart-0.0.29.tar.gz", hash = "sha256:643e93849196645e2dbdd81a0f8829a23123ad7f797a84a364c6fb3563f18904", size = 45678, upload-time = "2026-05-17T17:29:47.654Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/cb/769cfc37177252872a45a71f3fbdde9d51b471a3f3c14bfe95dde3407386/python_multipart-0.0.29-py3-none-any.whl", hash = "sha256:2ddcc971cef266225f54f552d8fa10bcfbb1f14446caec199060daac59ff2d69", size = 29640, upload-time = "2026-05-17T17:29:45.69Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
 ]
 
 [[package]]
