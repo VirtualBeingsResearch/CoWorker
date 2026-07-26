@@ -27,7 +27,7 @@ dependencies = [
     "wecom-aibot-sdk==1.0.7",
     "pyyaml>=6.0",
     "mem0ai[nlp]>=0.1",
-    "mcp2cli>=0.1",
+    "mcp2cli>=3.3.1",
     "pillow>=10.0",
     "requests>=2.31",
     "python-jenkins>=1.8",

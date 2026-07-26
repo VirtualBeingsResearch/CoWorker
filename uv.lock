@@ -526,7 +526,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "loguru", specifier = ">=0.7" },
-    { name = "mcp2cli", specifier = ">=0.1" },
+    { name = "mcp2cli", specifier = ">=3.3.1" },
     { name = "mem0ai", extras = ["nlp"], specifier = ">=0.1" },
     { name = "openai", specifier = ">=1.40" },
     { name = "pillow", specifier = ">=10.0" },
@@ -1405,16 +1405,16 @@ wheels = [
 
 [[package]]
 name = "mcp2cli"
-version = "3.0.3"
+version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/2e/fde67fc1b3940994ee697906281b60f1e1acb2a63d7c36643f050a661d58/mcp2cli-3.0.3.tar.gz", hash = "sha256:264ba773a85ddecdf286cf76017d575046b4e95c00ace08439a17e9417119cf2", size = 33091, upload-time = "2026-05-10T07:59:04.441Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/53/fdc3d016a5e6673f2e8688cf052029c6e6055ef43f30c577a95b99ce6b21/mcp2cli-3.3.1.tar.gz", hash = "sha256:d64917ce080f4d9d264bd9bcf87a65b13363520d86a06c787b994aab13252493", size = 38430, upload-time = "2026-06-30T22:45:39.027Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/5c/d526ee6623876a87b605e8a2d84a68603b83409e32f4fcb83a2bb617bedf/mcp2cli-3.0.3-py3-none-any.whl", hash = "sha256:2de25a65cb47ad5248746bb84be5047bd5f2b2f328e395348bec45d577a80265", size = 34111, upload-time = "2026-05-10T07:59:03.236Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/6c/b99e700edc7ad2b2533ec1caf1f1ebe9b8d6c4adf49ca7a02d43f389c46a/mcp2cli-3.3.1-py3-none-any.whl", hash = "sha256:111072553fed6d7c399a1b9441f8c2f9b57a39bc39a0e2123da8bc471f4dc31b", size = 39516, upload-time = "2026-06-30T22:45:38.027Z" },
 ]
 
 [[package]]
