@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.5 - Unreleased
+
+- fix(desktop): apply onboarding update URL default (#107)
+- fix(release): make drafts revisable before publish (#108)
+
 ## 0.3.4 - Unreleased
 
 - docs(release): finalize v0.3.3 changelog (#76)
