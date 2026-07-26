@@ -637,8 +637,12 @@ async def _apply_hot_config(
     return sorted(set(applied)), sorted(set(restart))
 
 
+def _confirmation_name() -> str:
+    return _require_agent()._identity.name or "Coworker"
+
+
 def _require_name_confirmation(name: str) -> None:
-    expected = _require_agent()._identity.name or tr("api.admin.unnamed")
+    expected = _confirmation_name()
     if name.strip() != expected:
         raise HTTPException(
             status_code=400,
@@ -1042,7 +1046,11 @@ def _bubble_snapshot(bubble: Bubble) -> dict[str, object]:
 
 @router.post("/session/verify")
 async def verify_session(_: None = Depends(require_admin)) -> ApiResponse:
-    return {"ok": True, "name": _require_agent()._identity.name}
+    return {
+        "ok": True,
+        "name": _require_agent()._identity.name,
+        "confirmation_name": _confirmation_name(),
+    }
 
 
 @router.get("/bootstrap")

@@ -99,6 +99,36 @@ def test_admin_requires_bearer_token(tmp_path):
     response = client.post("/api/admin/session/verify", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["name"] == "Luna"
+    assert response.json()["confirmation_name"] == "Luna"
+
+
+def test_admin_session_provides_stable_unnamed_confirmation(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._agent._identity.name = ""
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/admin/session/verify",
+        headers=headers,
+    )
+
+    assert response.json() == {
+        "ok": True,
+        "name": "",
+        "confirmation_name": "Coworker",
+    }
+    rejected = client.post(
+        "/api/admin/restart",
+        headers=headers,
+        json={"confirm_name": "未命名"},
+    )
+    accepted = client.post(
+        "/api/admin/restart",
+        headers=headers,
+        json={"confirm_name": response.json()["confirmation_name"]},
+    )
+    assert rejected.status_code == 400
+    assert accepted.status_code == 202
 
 
 def test_admin_error_detail_follows_runtime_locale(tmp_path):

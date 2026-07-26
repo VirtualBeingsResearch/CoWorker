@@ -15,6 +15,7 @@ type Json = Record<string, any>;
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
+type AdminIdentity = { name: string; confirmation_name: string };
 
 const NAV: Array<{ id: Section; label: string; description: string; group: NavGroup; icon: typeof Activity }> = [
   { id: 'overview', label: '生命总览', description: '状态、上下文和当前驻留情况', group: '观察', icon: HeartPulse },
@@ -100,7 +101,7 @@ function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   return { data, error, loading, reload, setData };
 }
 
-function Login({ onReady }: { onReady: (name: string) => void }) {
+function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -108,8 +109,8 @@ function Login({ onReady }: { onReady: (name: string) => void }) {
     event.preventDefault(); setBusy(true); setError('');
     sessionStorage.setItem('coworker-admin-token', token);
     try {
-      const result = await api<{ name: string }>('/api/admin/session/verify', { method: 'POST' });
-      onReady(result.name || '');
+      const result = await api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' });
+      onReady(result);
     } catch (e) {
       sessionStorage.removeItem('coworker-admin-token');
       setError(e instanceof Error ? e.message : t('验证失败'));
@@ -800,16 +801,16 @@ function repeatLabel(seconds?: number | null) {
   return t('每 {{amount}} 秒', { amount: seconds });
 }
 
-function Runtime({ coworkerName }: { coworkerName: string }) {
+function Runtime({ confirmationName }: { confirmationName: string }) {
   const [tab, setTab] = useState<'tasks' | 'alarms' | 'logs' | 'maintenance'>('tasks');
   return <div className="page-stack"><div className="tabbar">{[
     ['tasks', '任务'], ['alarms', '闹钟'], ['logs', '运行日志'], ['maintenance', '维护'],
   ].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as 'tasks' | 'alarms' | 'logs' | 'maintenance')}>{t(label)}</button>)}</div>
-    {tab === 'tasks' && <Tasks />}{tab === 'alarms' && <Alarms />}{tab === 'logs' && <Logs />}{tab === 'maintenance' && <Maintenance name={coworkerName} />}
+    {tab === 'tasks' && <Tasks />}{tab === 'alarms' && <Alarms />}{tab === 'logs' && <Logs />}{tab === 'maintenance' && <Maintenance confirmationName={confirmationName} />}
   </div>;
 }
 
-function MemoryCenter({ coworkerName }: { coworkerName: string }) {
+function MemoryCenter({ coworkerName, confirmationName }: { coworkerName: string; confirmationName: string }) {
   const [tab, setTab] = useState<'short' | 'long' | 'thoughts'>('short');
   return <div className="page-stack memory-center">
     <div className="tabbar memory-tabs">
@@ -817,7 +818,7 @@ function MemoryCenter({ coworkerName }: { coworkerName: string }) {
       <button className={tab === 'long' ? 'active' : ''} onClick={() => setTab('long')}><Database size={14} />{t('长期记忆')}</button>
       <button className={tab === 'thoughts' ? 'active' : ''} onClick={() => setTab('thoughts')}><Orbit size={14} />{t('并行思考记录')}</button>
     </div>
-    {tab === 'short' ? <ShortTermMemoryView coworkerName={coworkerName} /> : tab === 'long' ? <Memories /> : <Bubbles coworkerName={coworkerName} />}
+    {tab === 'short' ? <ShortTermMemoryView coworkerName={coworkerName} confirmationName={confirmationName} /> : tab === 'long' ? <Memories /> : <Bubbles coworkerName={coworkerName} />}
   </div>;
 }
 
@@ -894,7 +895,7 @@ function MemoryTreeNode({ node, depth = 0 }: { node: Json; depth?: number }) {
   </details>;
 }
 
-function ShortTermMemoryView({ coworkerName }: { coworkerName: string }) {
+function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName: string; confirmationName: string }) {
   const { data, error, loading, reload, setData } = useLoad(() => api<Json>('/api/admin/memory/short-term'), []);
   const [maxLeaves, setMaxLeaves] = useState(64);
   const [pinDraft, setPinDraft] = useState({ label: '', content: '' });
@@ -967,7 +968,7 @@ function ShortTermMemoryView({ coworkerName }: { coworkerName: string }) {
     <Panel title="记忆维护" note="压缩会调用模型；回溯在后台从持久日志重建时间脊柱。">
       {(actionError || actionMessage) && <div className={'notice ' + (actionError ? 'error' : 'success')}>{actionError || actionMessage}</div>}
       <div className="danger-list memory-maintenance">
-        <DangerAction title="全量压缩短期记忆" description="把当前主线消息压缩进记忆树，释放上下文空间。执行期间会产生模型调用。" button="开始压缩" name={coworkerName} onConfirm={async () => { await api('/api/admin/memory/compress', { method: 'POST', body: JSON.stringify({ confirm_name: coworkerName || '未命名' }) }); await reload(); }} />
+        <DangerAction title="全量压缩短期记忆" description="把当前主线消息压缩进记忆树，释放上下文空间。执行期间会产生模型调用。" button="开始压缩" confirmationName={confirmationName} onConfirm={async () => { await api('/api/admin/memory/compress', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) }); await reload(); }} />
         <article className="danger-card mild"><ArchiveRestore size={20} /><div><b>{t('回溯记忆树')}</b><p>{data.backfill.running ? t('正在重建：{{done}}/{{total}}', { done: data.backfill.done, total: data.backfill.total || '—' }) : t('从持久日志后台重建多尺度记忆树，不阻塞主循环。')}</p></div><input className="tiny-input" aria-label={t('最多回溯叶子数')} type="number" min="1" max="512" value={maxLeaves} onChange={event => setMaxLeaves(Number(event.target.value))} /><button className="ghost" disabled={data.backfill.running} onClick={() => void startBackfill()}>{data.backfill.running ? t('回溯中…') : t('开始回溯')}</button></article>
       </div>
     </Panel>
@@ -1365,28 +1366,86 @@ function Logs() {
   </Panel>;
 }
 
-function DangerAction({ title, description, button, name, onConfirm }: { title: string; description: string; button: string; name: string; onConfirm: () => Promise<void> }) {
+function DangerAction({ title, description, button, confirmationName, onConfirm }: { title: string; description: string; button: string; confirmationName: string; onConfirm: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
   const [done, setDone] = useState('');
-  const displayExpected = name || t('未命名');
-  return <article className="danger-card"><TriangleAlert size={20} /><div><b>{t(title)}</b><p>{t(description)}</p>{done && <small>{done}</small>}</div><button className="danger-outline" onClick={() => setOpen(true)}>{t(button)}</button>{open && <div className="modal-layer"><div className="confirm-modal"><TriangleAlert size={28} /><h3>{t(title)}</h3><p>{t(description)}</p><Field label={t('输入“{{name}}”以确认', { name: displayExpected })}><input autoFocus value={typed} onChange={event => setTyped(event.target.value)} /></Field><div className="panel-actions"><button className="ghost" onClick={() => { setOpen(false); setTyped(''); }}>{t('取消')}</button><button className="danger-solid" disabled={typed !== displayExpected} onClick={async () => { await onConfirm(); setOpen(false); setTyped(''); setDone(t('操作已提交')); }}>{t(button)}</button></div></div></div>}</article>;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setTyped('');
+    setError('');
+  };
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onConfirm();
+      setOpen(false);
+      setTyped('');
+      setDone(t('操作已提交'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('请求失败'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <article className="danger-card">
+    <TriangleAlert size={20} />
+    <div><b>{t(title)}</b><p>{t(description)}</p>{done && <small>{done}</small>}</div>
+    <button className="danger-outline" onClick={() => { setOpen(true); setDone(''); }}>{t(button)}</button>
+    {open && <div className="modal-layer"><div className="confirm-modal">
+      <TriangleAlert size={28} /><h3>{t(title)}</h3><p>{t(description)}</p>
+      <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
+      {error && <div className="notice error">{error}</div>}
+      <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void submit()}>{busy ? t('正在执行…') : t(button)}</button></div>
+    </div></div>}
+  </article>;
 }
 
-function Maintenance({ name }: { name: string }) {
+function Maintenance({ confirmationName }: { confirmationName: string }) {
   const backups = useLoad(() => api<Json>('/api/admin/backups'), []);
-  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? new Date(backup.timestamp).toLocaleString() : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} name={name} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" name={name} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: name || '未命名' }) })} /></div></Panel></div>;
+  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? new Date(backup.timestamp).toLocaleString() : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} confirmationName={confirmationName} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel></div>;
 }
 
-function BackupFullRestore({ filename, name }: { filename: string; name: string }) {
+function BackupFullRestore({ filename, confirmationName }: { filename: string; confirmationName: string }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
-  const expected = name || '未命名';
-  const displayExpected = name || t('未命名');
-  return <><button className="danger-outline" onClick={() => setOpen(true)}>{t('完整恢复')}</button>{open && <div className="modal-layer"><div className="confirm-modal"><TriangleAlert size={28} /><h3>{t('完整恢复备份')}</h3><p>{t('用 {{filename}} 替换当前短期上下文；现有上下文会被覆盖。', { filename })}</p><Field label={t('输入“{{name}}”以确认', { name: displayExpected })}><input autoFocus value={typed} onChange={event => setTyped(event.target.value)} /></Field><div className="panel-actions"><button className="ghost" onClick={() => setOpen(false)}>{t('取消')}</button><button className="danger-solid" disabled={typed !== displayExpected} onClick={async () => { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename, mode: 'full', confirm_name: expected }) }); setOpen(false); }}>{t('完整恢复')}</button></div></div></div>}</>;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setTyped('');
+    setError('');
+  };
+  const restore = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename, mode: 'full', confirm_name: confirmationName }) });
+      setOpen(false);
+      setTyped('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('请求失败'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <>
+    <button className="danger-outline" onClick={() => setOpen(true)}>{t('完整恢复')}</button>
+    {open && <div className="modal-layer"><div className="confirm-modal">
+      <TriangleAlert size={28} /><h3>{t('完整恢复备份')}</h3><p>{t('用 {{filename}} 替换当前短期上下文；现有上下文会被覆盖。', { filename })}</p>
+      <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
+      {error && <div className="notice error">{error}</div>}
+      <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void restore()}>{busy ? t('正在恢复…') : t('完整恢复')}</button></div>
+    </div></div>}
+  </>;
 }
 
-function Identity({ onName }: { onName: (name: string) => void }) {
+function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => void }) {
   const identity = useLoad(() => api<Json>('/api/admin/identity'), []);
   const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
@@ -1394,8 +1453,9 @@ function Identity({ onName }: { onName: (name: string) => void }) {
   useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
-    const result = await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
-    onName(result.name || '');
+    await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
+    const session = await api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' });
+    onIdentity(session);
     setSaved(true);
     await Promise.all([identity.reload(), systemPrompt.reload()]);
   };
@@ -2092,13 +2152,13 @@ export default function AdminApp() {
   const [ready, setReady] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [bootstrap, setBootstrap] = useState<Json | null>(null);
-  const [name, setName] = useState('');
+  const [identity, setIdentity] = useState<AdminIdentity>({ name: '', confirmation_name: '' });
   const [section, setSection] = useState<Section>(sectionFromLocation);
   const [lifeState, setLifeState] = useState<LifeState>('quiet');
   useEffect(() => {
     if (!storedToken()) { setSessionChecked(true); return; }
-    api<{ name: string }>('/api/admin/session/verify', { method: 'POST' })
-      .then(r => { setName(r.name || ''); setReady(true); })
+    api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' })
+      .then(result => { setIdentity(result); setReady(true); })
       .catch(() => sessionStorage.removeItem('coworker-admin-token'))
       .finally(() => setSessionChecked(true));
   }, []);
@@ -2137,9 +2197,11 @@ export default function AdminApp() {
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`);
     setSection(next);
   };
+  const name = identity.name || '';
+  const confirmationName = identity.confirmation_name || '';
   const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : '等待生命信号');
   if (!sessionChecked) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在确认本地值守状态…')}</span></div></main></>;
-  if (!ready) return <Login onReady={n => { setName(n); setReady(true); }} />;
+  if (!ready) return <Login onReady={result => { setIdentity(result); setReady(true); }} />;
   if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在读取初始化状态…')}</span></div></main></>;
   if (bootstrap.required) return <FirstRun data={bootstrap} onComplete={() => { setBootstrap({ required: false }); location.reload(); }} />;
   return <main className={`admin-shell life-${lifeState}`} data-language={language}>
@@ -2172,9 +2234,9 @@ export default function AdminApp() {
         {section === 'overview' && <Overview name={name} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
-        {section === 'memory' && <MemoryCenter coworkerName={name} />}
-        {section === 'runtime' && <Runtime coworkerName={name} />}
-        {section === 'identity' && <Identity onName={setName} />}
+        {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
+        {section === 'runtime' && <Runtime confirmationName={confirmationName} />}
+        {section === 'identity' && <Identity onIdentity={setIdentity} />}
         {section === 'content' && <ContentManager />}
         {section === 'releases' && <DesktopReleases />}
         {section === 'audit' && <Audit />}
