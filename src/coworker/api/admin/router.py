@@ -20,12 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from coworker.agent.bubble_log_index import (
-    load_completed_bubble_index,
-    synchronize_completed_bubble_index,
-)
-from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.api.admin_config import (
+from coworker.admin.configuration import (
     AdminConfigDependencies,
     AdminConfigService,
     ConfigUpdate,
@@ -33,6 +28,11 @@ from coworker.api.admin_config import (
     JsonObject,
     JsonValue,
 )
+from coworker.agent.bubble_log_index import (
+    load_completed_bubble_index,
+    synchronize_completed_bubble_index,
+)
+from coworker.agent.log_store import LogPageCursor, LogStore
 from coworker.core.config import (
     Config,
     _deep_merge,
@@ -52,7 +52,6 @@ if TYPE_CHECKING:
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
-    from coworker.channels.wecom.runner import WeComRunner
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
@@ -76,7 +75,6 @@ _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
-_wecom_runner: WeComRunner | None = None
 _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
@@ -182,7 +180,6 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
-    wecom_runner: WeComRunner | None = None,
     inherited_config: Config | None = None,
 ) -> None:
     global \
@@ -195,7 +192,6 @@ def setup_admin(
         _palace_loader, \
         _mode_loader, \
         _desktop_update_sync, \
-        _wecom_runner, \
         _admin_config_service
     _agent = agent
     _brain = brain
@@ -206,7 +202,6 @@ def setup_admin(
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
-    _wecom_runner = wecom_runner
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -214,7 +209,6 @@ def setup_admin(
             config=config,
             inherited_config=_inherited_config,
             desktop_update_sync=desktop_update_sync,
-            wecom_runner=wecom_runner,
         )
     )
     _admin_config_service.set_channel_modules(_channel_modules)

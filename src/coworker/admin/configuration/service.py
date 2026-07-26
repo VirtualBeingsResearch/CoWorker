@@ -1,4 +1,4 @@
-"""Configuration lifecycle for the authenticated admin API."""
+"""Configuration lifecycle for Coworker administration."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry, ChannelSettings
-    from coworker.channels.wecom.runner import WeComRunner
     from coworker.desktop_updates import SyncService
 
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -79,7 +78,6 @@ class AdminConfigDependencies:
     config: Config
     inherited_config: Config
     desktop_update_sync: SyncService | None = None
-    wecom_runner: WeComRunner | None = None
 
 
 @dataclass(frozen=True)
@@ -162,7 +160,7 @@ class AdminConfigService:
             overridden_fields=self._overridden_fields(overrides),
             hot_reloadable=sorted(
                 HOT_CONFIG_PATHS
-                | {"llm.managed_providers", "desktop_updates", "wecom"}
+                | {"llm.managed_providers", "desktop_updates"}
                 | (
                     self._channel_modules.hot_reloadable_keys()
                     if self._channel_modules is not None
@@ -354,7 +352,6 @@ class AdminConfigService:
         restart = self._restart_config_paths(changed_paths)
         await self._apply_provider_changes(desired, changed_paths, applied, restart)
         await self._apply_desktop_changes(desired, changed_paths, applied)
-        await self._apply_wecom_changes(desired, changed_paths, applied)
         await self._apply_channel_changes(desired, changed_paths, applied)
         self._apply_scalar_changes(desired, changed_paths, applied)
         return sorted(set(applied)), restart
@@ -418,20 +415,6 @@ class AdminConfigService:
         api_app.setup_desktop_updates(desired.desktop_updates, desired.admin.token)
         applied.append("desktop_updates")
 
-    async def _apply_wecom_changes(
-        self,
-        desired: Config,
-        changed_paths: set[str],
-        applied: list[str],
-    ) -> None:
-        if not any(path.startswith("wecom.") for path in changed_paths):
-            return
-        self._dependencies.config.wecom = desired.wecom
-        runner = self._dependencies.wecom_runner
-        if runner is not None:
-            await runner.reconfigure(desired.wecom)
-        applied.append("wecom")
-
     async def _apply_channel_changes(
         self,
         desired: Config,
@@ -493,7 +476,6 @@ class AdminConfigService:
             for path in changed_paths
             if path not in HOT_CONFIG_PATHS
             and not _is_desktop_hot(path)
-            and not path.startswith("wecom.")
             and not path.startswith("llm.managed_providers")
             and not path.startswith(channel_prefixes)
         }

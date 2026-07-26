@@ -8,9 +8,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coworker.api import admin
+from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
 from coworker.channels.module import ChannelModuleRegistry
+from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
     Config,
     apply_admin_config_file,
@@ -39,7 +40,6 @@ def _client(
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
     wecom: dict | None = None,
-    wecom_runner=None,
     weixin: dict | None = None,
     channel_modules=None,
 ):
@@ -78,7 +78,6 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
-        wecom_runner=wecom_runner,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
@@ -654,10 +653,18 @@ def test_config_patch_preserves_explicit_empty_list_override(tmp_path):
 
 def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     runner = SimpleNamespace(reconfigure=AsyncMock())
+    modules = ChannelModuleRegistry()
+    modules.register(
+        WeComModule(
+            channel=WeComChannel(runner),
+            runtime=runner,
+            settings=WeComSettings(runner),
+        )
+    )
     client, config = _client(
         tmp_path,
         wecom={"enabled": True, "bot_id": "old", "secret": "existing"},
-        wecom_runner=runner,
+        channel_modules=modules,
     )
     headers = {"Authorization": "Bearer secret"}
 
@@ -1325,7 +1332,7 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
 
 
 def test_only_terminal_bubble_logs_are_cached(tmp_path):
-    from coworker.api import admin
+    from coworker.api.admin import router_module as admin
 
     active = tmp_path / "active.jsonl"
     active.write_text(
@@ -1358,7 +1365,7 @@ def test_completed_bubble_index_avoids_rescanning_legacy_logs(tmp_path, monkeypa
         load_completed_bubble_index,
         upsert_completed_bubble_index,
     )
-    from coworker.api import admin
+    from coworker.api.admin import router_module as admin
 
     log_dir = tmp_path / "bubbles"
     log_dir.mkdir()

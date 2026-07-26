@@ -16,6 +16,8 @@ from coworker.channels.base import (
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamProfile
 from coworker.channels.system import create_channel_system
+from coworker.channels.wecom import WeComModuleResources, create_wecom_module
+from coworker.core.config import WeComConfig
 from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import locale_context
@@ -180,6 +182,26 @@ def test_channel_module_validation_prevents_partial_install(tmp_path) -> None:
 
     assert system.modules.names() == []
     assert all(channel.name != "minimal" for channel in system.registry._channels)  # noqa: SLF001
+
+
+def test_wecom_installs_transport_and_hot_settings_as_one_module(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+    module = create_wecom_module(
+        WeComConfig(),
+        WeComModuleResources(
+            attachments_dir=tmp_path / "attachments",
+            contacts_path=tmp_path / "contacts.json",
+            activity=system.activity,
+        ),
+    )
+
+    system.install(module)
+
+    assert system.registry.resolve_participant_id("wecom:single:user") == (
+        "wecom:single:user"
+    )
+    assert system.modules.settings_for("wecom") is module.settings
+    assert system.modules.hot_reloadable_keys() == {"wecom"}
 
 
 async def test_missing_channel_returns_actionable_localized_error() -> None:
