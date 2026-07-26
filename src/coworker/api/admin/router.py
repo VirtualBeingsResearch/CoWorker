@@ -9,22 +9,36 @@ import json
 import re
 import secrets
 import shutil
+import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from coworker.admin.configuration import (
+    AdminConfigDependencies,
+    AdminConfigService,
+    ConfigUpdate,
+    ConfigUpdateError,
+    JsonObject,
+    JsonValue,
+)
 from coworker.agent.bubble_log_index import (
     load_completed_bubble_index,
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
+from coworker.core.config import (
+    Config,
+    _deep_merge,
+    effective_admin_token,
+    load_admin_overrides,
+)
 from coworker.core.startup_intent import (
     clear_startup_intent,
     write_bootstrap_startup_intent,
@@ -37,15 +51,13 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
-    from coworker.channels.wecom.runner import WeComRunner
+    from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
     from coworker.tools.alarm_tools import AlarmManager
     from coworker.tools.reasoning_tools import Task, TaskStore
 
-type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
-type JsonObject = dict[str, JsonValue]
 type ApiResponse = dict[str, object]
 type ContentLoader = SkillLoader | PalaceLoader | SubconsciousModeLoader
 
@@ -57,54 +69,22 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 _agent: AgentLoop | None = None
 _brain: Brain | None = None
 _config: Config | None = None
+_inherited_config: Config | None = None
 _alarms: AlarmManager | None = None
 _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
-_wecom_runner: WeComRunner | None = None
+_channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
-_pending_restart: bool = False
-_config_write_lock = asyncio.Lock()
-
-_SECRET_PATHS = {
-    "admin.token",
-    "api.communication_token",
-    "desktop_updates.admin_token",
-    "desktop_updates.feed_token",
-    "llm.anthropic_api_key",
-    "llm.openai_api_key",
-    "llm.deepseek_api_key",
-    "llm.qwen_api_key",
-    "llm.zhipu_api_key",
-    "llm.minimax_api_key",
-    "wecom.secret",
-}
+_admin_config_service: AdminConfigService | None = None
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
-_SOURCE_TOKEN_PATH_RE = re.compile(
-    r"^desktop_updates\.sync_sources\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.token$"
-)
-
-_HOT_CONFIG_PATHS = {
-    "llm.max_tokens",
-    "agent.idle_sleep_seconds",
-    "agent.passive_mode",
-    "agent.inbox_batch_max",
-    "agent.bubble_max_concurrent",
-    "memory.auto_recall_enabled",
-    "memory.auto_recall_relevance_threshold",
-    "memory.auto_recall_limit",
-    "memory.recent_activity_auto_recall_enabled",
-    "memory.recent_activity_auto_recall_limit",
-    "memory.recent_activity_auto_recall_relevance_threshold",
-}
-
-
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
+    clear_overrides: list[str] = Field(default_factory=list)
 
 
 class IdentityPatch(BaseModel):
@@ -200,31 +180,45 @@ def setup_admin(
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
-    wecom_runner: WeComRunner | None = None,
+    inherited_config: Config | None = None,
 ) -> None:
     global \
         _agent, \
         _brain, \
         _config, \
+        _inherited_config, \
         _alarms, \
         _skill_loader, \
         _palace_loader, \
         _mode_loader, \
         _desktop_update_sync, \
-        _wecom_runner, \
-        _pending_restart, \
-        _config_write_lock
+        _admin_config_service
     _agent = agent
     _brain = brain
     _config = config
+    _inherited_config = (inherited_config or config).model_copy(deep=True)
     _alarms = alarm_manager
     _skill_loader = skill_loader
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
-    _wecom_runner = wecom_runner
-    _pending_restart = False
-    _config_write_lock = asyncio.Lock()
+    _admin_config_service = AdminConfigService(
+        AdminConfigDependencies(
+            agent=agent,
+            brain=brain,
+            config=config,
+            inherited_config=_inherited_config,
+            desktop_update_sync=desktop_update_sync,
+        )
+    )
+    _admin_config_service.set_channel_modules(_channel_modules)
+
+
+def setup_channel_admin(modules: ChannelModuleRegistry | None) -> None:
+    global _channel_modules
+    _channel_modules = modules
+    if _admin_config_service is not None:
+        _admin_config_service.set_channel_modules(modules)
 
 
 def _require_agent() -> AgentLoop:
@@ -245,6 +239,12 @@ def _require_config() -> Config:
     return _config
 
 
+def _require_admin_config_service() -> AdminConfigService:
+    if _admin_config_service is None:
+        raise HTTPException(status_code=503, detail=tr("api.state.config_not_ready"))
+    return _admin_config_service
+
+
 def _require_alarms() -> AlarmManager:
     if _alarms is None:
         raise HTTPException(status_code=503, detail=tr("api.state.alarm_manager_not_ready"))
@@ -258,6 +258,15 @@ def _require_desktop_update_sync() -> SyncService:
             detail=tr("api.state.desktop_update_sync_not_ready"),
         )
     return _desktop_update_sync
+
+
+def _require_channel_modules() -> ChannelModuleRegistry:
+    if _channel_modules is None:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.state.channel_modules_not_ready"),
+        )
+    return _channel_modules
 
 
 def _require_task_store() -> TaskStore:
@@ -376,265 +385,6 @@ def _audit(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
-def _set_path(data: JsonObject, dotted: str, value: JsonValue) -> None:
-    parts = dotted.split(".")
-    node: JsonValue = data
-    for index, part in enumerate(parts[:-1]):
-        if isinstance(node, dict):
-            child = node.get(part)
-            if child is None:
-                child = [] if parts[index + 1].isdigit() else {}
-                node[part] = child
-        elif isinstance(node, list) and part.isdigit():
-            item_index = int(part)
-            if item_index >= len(node):
-                raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
-            child = node[item_index]
-        else:
-            raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
-        node = child
-    last = parts[-1]
-    if isinstance(node, dict):
-        node[last] = value
-    elif isinstance(node, list) and last.isdigit() and int(last) < len(node):
-        node[int(last)] = value
-    else:
-        raise ValueError(tr("api.admin.invalid_config_path", path=dotted))
-
-
-def _get_path(data: JsonObject, dotted: str, default: JsonValue = None) -> JsonValue:
-    node: JsonValue = data
-    for part in dotted.split("."):
-        if isinstance(node, dict) and part in node:
-            node = node[part]
-        elif isinstance(node, list) and part.isdigit() and int(part) < len(node):
-            node = node[int(part)]
-        else:
-            return default
-    return node
-
-
-def _remove_path(data: JsonObject, dotted: str) -> None:
-    parts = dotted.split(".")
-    node: JsonValue = data
-    for part in parts[:-1]:
-        if isinstance(node, dict) and part in node:
-            node = node[part]
-        elif isinstance(node, list) and part.isdigit() and int(part) < len(node):
-            node = node[int(part)]
-        else:
-            return
-    if isinstance(node, dict):
-        node.pop(parts[-1], None)
-    elif isinstance(node, list) and parts[-1].isdigit() and int(parts[-1]) < len(node):
-        node.pop(int(parts[-1]))
-
-
-def _remove_source_tokens(data: JsonObject) -> None:
-    desktop = data.get("desktop_updates")
-    if not isinstance(desktop, dict):
-        return
-    sources = desktop.get("sync_sources")
-    if not isinstance(sources, list):
-        return
-    for item in sources:
-        if isinstance(item, dict):
-            item.pop("token", None)
-
-
-def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:
-    desktop = data.setdefault("desktop_updates", {})
-    if not isinstance(desktop, dict):
-        raise ValueError("desktop_updates override must be an object")
-    sources = desktop.get("sync_sources")
-    if not isinstance(sources, list):
-        raise ValueError("desktop_updates.sync_sources must be present before writing source token")
-    for item in sources:
-        if isinstance(item, dict) and str(item.get("id") or "").lower() == source_id:
-            item["token"] = value
-            return
-    raise ValueError(f"desktop update source does not exist: {source_id}")
-
-
-def _delete_removed_source_tokens(overrides: JsonObject, valid_ids: set[str]) -> None:
-    sources = _get_path(overrides, "desktop_updates.sync_sources")
-    if not isinstance(sources, list):
-        return
-    for item in sources:
-        if isinstance(item, dict) and str(item.get("id") or "") not in valid_ids:
-            item.pop("token", None)
-
-
-def _write_json_atomic(path: Path, payload: JsonObject) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
-class SecretStatus(TypedDict):
-    configured: bool
-    last4: str
-
-
-def _masked_config() -> tuple[JsonObject, dict[str, SecretStatus], list[JsonObject]]:
-    config = _require_config()
-    desired_data = _deep_merge(
-        config.model_dump(mode="json"),
-        load_admin_overrides(config.admin.config_file),
-    )
-    desired = Config.model_validate(desired_data)
-    data: JsonObject = desired.model_dump(mode="json")
-    statuses: dict[str, SecretStatus] = {}
-    for path in _SECRET_PATHS:
-        value = str(_get_path(data, path, "") or "")
-        statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
-        _set_path(data, path, "")
-    desktop_updates = data.get("desktop_updates")
-    sources = desktop_updates.get("sync_sources", []) if isinstance(desktop_updates, dict) else []
-    if isinstance(sources, list):
-        for item in sources:
-            if not isinstance(item, dict):
-                continue
-            source_id = str(item.get("id") or "")
-            if not source_id:
-                continue
-            value = str(item.get("token") or "")
-            path = f"desktop_updates.sync_sources.{source_id}.token"
-            statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
-            item["token"] = ""
-    llm = data.get("llm")
-    providers = llm.get("managed_providers", []) if isinstance(llm, dict) else []
-    if not isinstance(providers, list):
-        providers = []
-    for index, provider in enumerate(providers):
-        if not isinstance(provider, dict):
-            continue
-        value = str(provider.get("api_key", "") or "")
-        path = f"llm.managed_providers.{index}.api_key"
-        statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
-        provider["api_key"] = ""
-
-    managed_names = {spec.name for spec in desired.llm.managed_providers}
-    effective_providers: list[JsonObject] = []
-    for index, spec in enumerate(desired.llm.resolved_providers()):
-        provider = cast(JsonObject, spec.model_dump(mode="json"))
-        value = str(provider.get("api_key", "") or "")
-        statuses[f"effective_providers.{index}.api_key"] = {
-            "configured": bool(value),
-            "last4": value[-4:] if value else "",
-        }
-        provider["api_key"] = ""
-        provider["managed"] = spec.name in managed_names
-        effective_providers.append(provider)
-    return data, statuses, effective_providers
-
-
-def _changed_paths(before: JsonValue, after: JsonValue, prefix: str = "") -> set[str]:
-    if isinstance(before, dict) and isinstance(after, dict):
-        paths: set[str] = set()
-        for key in before.keys() | after.keys():
-            child = f"{prefix}.{key}" if prefix else key
-            paths.update(_changed_paths(before.get(key), after.get(key), child))
-        return paths
-    if before != after:
-        return {prefix}
-    return set()
-
-
-def _assign_config_path(config: Config, path: str, source: Config) -> None:
-    group, field = path.split(".", 1)
-    setattr(getattr(config, group), field, getattr(getattr(source, group), field))
-
-
-async def _apply_hot_config(
-    current: Config,
-    desired: Config,
-    changed_paths: set[str],
-) -> tuple[list[str], list[str]]:
-    applied: list[str] = []
-    desktop_hot = {
-        path
-        for path in changed_paths
-        if path.startswith("desktop_updates.")
-        and not path.startswith("desktop_updates.dir")
-        and not path.startswith("desktop_updates.admin_token")
-    }
-    wecom_hot = {path for path in changed_paths if path.startswith("wecom.")}
-    restart = sorted(
-        path
-        for path in changed_paths
-        if path not in _HOT_CONFIG_PATHS
-        and path not in desktop_hot
-        and path not in wecom_hot
-        and not path.startswith("llm.managed_providers")
-    )
-    brain = _require_brain()
-
-    if "llm.max_tokens" in changed_paths:
-        brain.set_max_tokens(desired.llm.max_tokens)
-        current.llm.max_tokens = desired.llm.max_tokens
-        applied.append("llm.max_tokens")
-
-    provider_changed = any(path.startswith("llm.managed_providers") for path in changed_paths)
-    if provider_changed:
-        from coworker.brain.factory import build_provider
-
-        current_specs = {spec.name: spec for spec in current.llm.resolved_providers()}
-        desired_specs = {spec.name: spec for spec in desired.llm.resolved_providers()}
-        changed_names = {
-            name
-            for name in current_specs.keys() | desired_specs.keys()
-            if current_specs.get(name) != desired_specs.get(name)
-        }
-        for name, spec in desired_specs.items():
-            if name not in changed_names:
-                continue
-            provider = build_provider(
-                spec.type,
-                spec.api_key,
-                base_url=spec.base_url or None,
-                name=spec.name,
-                default_model=spec.default_model,
-                tool_use_models=spec.tool_use_models,
-            )
-            await brain.upsert_provider(provider)
-        removed = current_specs.keys() - desired_specs.keys()
-        current.llm.managed_providers = list(desired.llm.managed_providers)
-        applied.append("llm.managed_providers")
-        if removed:
-            restart.append("llm.managed_providers.removed")
-
-    if desktop_hot:
-        current.desktop_updates = desired.desktop_updates
-        sync = _desktop_update_sync
-        if sync is not None:
-            await sync.reconfigure(build_runtime_spec(desired.desktop_updates))
-        from coworker.api import app as api_app
-
-        api_app.setup_desktop_updates(
-            desired.desktop_updates,
-            desired.admin.token,
-        )
-        applied.append("desktop_updates")
-
-    if wecom_hot:
-        current.wecom = desired.wecom
-        if _wecom_runner is not None:
-            await _wecom_runner.reconfigure(desired.wecom)
-        applied.append("wecom")
-
-    for path in sorted(changed_paths & _HOT_CONFIG_PATHS - {"llm.max_tokens"}):
-        _assign_config_path(current, path, desired)
-        applied.append(path)
-        if path == "agent.bubble_max_concurrent":
-            store = getattr(_require_agent(), "_bubble_store", None)
-            if store is not None:
-                store.max_concurrent = desired.agent.bubble_max_concurrent
-
-    return sorted(set(applied)), sorted(set(restart))
 
 
 def _confirmation_name() -> str:
@@ -1085,11 +835,11 @@ async def complete_bootstrap(
 ) -> ApiResponse:
     """Persist the first provider connection and restart into normal operation."""
 
-    global _pending_restart
-    async with _config_write_lock:
+    config_service = _require_admin_config_service()
+    async with config_service.lock:
         config = _require_config()
         brain = _require_brain()
-        if brain.active_provider is not None or _pending_restart:
+        if brain.active_provider is not None or config_service.pending_restart:
             raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
 
         from coworker.brain.factory import available_models, build_provider
@@ -1155,7 +905,7 @@ async def complete_bootstrap(
             "i18n": {"locale": locale},
             "agent": {"passive_mode": payload.passive_mode},
         }
-        next_overrides = _deep_merge(current_overrides, changes)
+        next_overrides = config_service.merge_overrides(current_overrides, changes)
         try:
             Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
         except ValidationError as e:
@@ -1176,18 +926,18 @@ async def complete_bootstrap(
             model=model,
         )
         try:
-            _write_json_atomic(path, next_overrides)
+            config_service.write_sparse_overrides(path, next_overrides)
         except Exception:
             clear_startup_intent(config.memory.db_path)
             raise
 
-        _pending_restart = True
+        config_service.mark_restart_pending("bootstrap")
         try:
             asyncio.get_running_loop().call_later(
                 0.5, lambda: agent.request_restart(reason="bootstrap")
             )
         except Exception:
-            _pending_restart = False
+            config_service.clear_restart_pending("bootstrap")
             clear_startup_intent(config.memory.db_path)
             raise
         try:
@@ -1234,28 +984,25 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "tree_nodes": len(stm.tree.nodes),
             "backfill": stm.backfill_progress,
         },
-        "pending_restart": _pending_restart,
+        "pending_restart": _require_admin_config_service().pending_restart,
     }
 
 
 @router.get("/config")
 async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
-    config = _require_config()
-    data, statuses, effective_providers = _masked_config()
+    snapshot = _require_admin_config_service().snapshot()
     return {
-        "config": data,
-        "effective_providers": effective_providers,
-        "secret_status": statuses,
-        "hot_reloadable": sorted(
-            _HOT_CONFIG_PATHS
-            | {"llm.managed_providers", "desktop_updates", "wecom"}
-        ),
-        "override_path": config.admin.config_file,
-        "pending_restart": _pending_restart,
+        "config": snapshot.config,
+        "effective_providers": snapshot.effective_providers,
+        "secret_status": snapshot.secret_status,
+        "overridden_fields": snapshot.overridden_fields,
+        "hot_reloadable": snapshot.hot_reloadable,
+        "override_path": snapshot.override_path,
+        "pending_restart": snapshot.pending_restart,
         "sources": {
             "base": ".env / environment",
-            "providers": config.llm.providers_file,
-            "override": config.admin.config_file,
+            "providers": _require_config().llm.providers_file,
+            "override": snapshot.override_path,
         },
     }
 
@@ -1266,115 +1013,72 @@ async def patch_config(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    async with _config_write_lock:
-        if _pending_restart and _require_brain().active_provider is None:
-            raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
-        return await _patch_config_locked(payload, request)
-
-
-async def _patch_config_locked(payload: ConfigPatch, request: Request) -> ApiResponse:
-    global _pending_restart
-    config = _require_config()
-    path = Path(config.admin.config_file)
-    current_overrides = load_admin_overrides(path)
-    safe_changes = json.loads(json.dumps(payload.changes))
-    for secret_path in _SECRET_PATHS:
-        _remove_path(safe_changes, secret_path)
-    _remove_source_tokens(safe_changes)
-    next_overrides = _deep_merge(current_overrides, safe_changes)
-    effective: JsonObject = config.model_dump(mode="json")
-    explicit_source_secret_ids: set[str] = set()
-
-    for secret_path, value in payload.secrets.items():
-        source_token_match = _SOURCE_TOKEN_PATH_RE.fullmatch(secret_path)
-        if source_token_match is not None:
-            source_id = source_token_match.group(1).lower()
-            if not isinstance(_get_path(next_overrides, "desktop_updates.sync_sources"), list):
-                _set_path(
-                    next_overrides,
-                    "desktop_updates.sync_sources",
-                    _get_path(effective, "desktop_updates.sync_sources", []),
-                )
-            try:
-                _set_source_token(next_overrides, source_id, value or "")
-            except ValueError as error:
-                raise HTTPException(status_code=400, detail=str(error)) from error
-            explicit_source_secret_ids.add(source_id)
-            continue
-        if secret_path not in _SECRET_PATHS and not re.fullmatch(
-            r"llm\.managed_providers\.\d+\.api_key", secret_path
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=tr("api.admin.secret_not_writable", path=secret_path),
+    try:
+        result = await _require_admin_config_service().patch(
+            ConfigUpdate(
+                changes=payload.changes,
+                secrets=payload.secrets,
+                clear_overrides=payload.clear_overrides,
             )
-        _set_path(next_overrides, secret_path, value or "")
-
-    desired_sources = _get_path(next_overrides, "desktop_updates.sync_sources")
-    if isinstance(desired_sources, list):
-        old_sources = {str(source.id).lower(): source for source in config.desktop_updates.sync_sources}
-        valid_ids: set[str] = set()
-        for item in desired_sources:
-            if not isinstance(item, dict):
-                continue
-            source_id = str(item.get("id") or "").lower()
-            if not source_id:
-                continue
-            valid_ids.add(source_id)
-            old_source = old_sources.get(source_id)
-            if (
-                source_id not in explicit_source_secret_ids
-                and old_source is not None
-                and str(item.get("type") or "") == old_source.type
-                and not item.get("token")
-            ):
-                item["token"] = old_source.token
-        _delete_removed_source_tokens(next_overrides, valid_ids)
-
-    managed = _get_path(next_overrides, "llm.managed_providers")
-    if isinstance(managed, list):
-        old = {p.name: p for p in config.llm.managed_providers}
-        for item in managed:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("name")
-            if isinstance(name, str) and not item.get("api_key") and name in old:
-                item["api_key"] = old[name].api_key
-
-    try:
-        before_config = Config.model_validate(_deep_merge(effective, current_overrides))
-        desired_config = Config.model_validate(_deep_merge(effective, next_overrides))
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
-    changed_paths = _changed_paths(
-        before_config.model_dump(mode="json"),
-        desired_config.model_dump(mode="json"),
-    )
-    try:
-        applied_now, requires_restart = await _apply_hot_config(
-            config,
-            desired_config,
-            changed_paths,
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=tr("api.admin.runtime_apply_failed", error=e),
-        ) from e
-    _write_json_atomic(path, next_overrides)
-    _pending_restart = _pending_restart or bool(requires_restart)
+    except ConfigUpdateError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
     _audit(
         request,
         "config.update",
-        str(path),
-        detail=f"hot={','.join(applied_now)}; restart={','.join(requires_restart)}",
+        str(result.override_path),
+        detail=(
+            f"hot={','.join(result.applied_now)}; "
+            f"restart={','.join(result.requires_restart)}"
+        ),
     )
     return {
         "saved": True,
-        "pending_restart": _pending_restart,
-        "applied_now": applied_now,
-        "requires_restart": requires_restart,
+        "pending_restart": result.pending_restart,
+        "applied_now": result.applied_now,
+        "requires_restart": result.requires_restart,
     }
+
+
+@router.get("/channels/{channel_name}/management")
+async def get_channel_management(
+    channel_name: str,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    management = _require_channel_modules().management_for(channel_name)
+    if management is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.channel_management_missing", channel=channel_name),
+        )
+    return await management.snapshot()
+
+
+@router.post("/channels/{channel_name}/management/{command}")
+async def execute_channel_management(
+    channel_name: str,
+    command: str,
+    payload: dict[str, object],
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    management = _require_channel_modules().management_for(channel_name)
+    if management is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.channel_management_missing", channel=channel_name),
+        )
+    try:
+        result = await management.execute(command, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.admin.channel_management_failed", error=error),
+        ) from error
+    _audit(request, f"channel.{channel_name}.{command}", channel_name)
+    return result
 
 
 @router.get("/desktop-updates/providers")
@@ -1934,8 +1638,6 @@ async def create_alarm(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    import uuid
-
     alarm_id = f"alarm_{uuid.uuid4().hex[:8]}"
     await _require_alarms().set(
         alarm_id, payload.trigger_at, payload.message, payload.repeat_seconds

@@ -146,9 +146,27 @@ connection_none = "无"
 connection_line = "  - {{participant}}（{{activity}}）{{display_name}}"
 wecom_sent = "消息已通过企业微信发送给 {{participant}}"
 wecom_failed = "消息通过企业微信发送失败: {{error}}"
+weixin_sent = "消息已通过微信发送给 {{participant}}"
+weixin_failed = "消息通过微信发送失败: {{error}}"
 desktop_disconnected = "该通信目标未连接: {{participant}}"
 desktop_sent = "Desktop 请求已发送 request_id={{request_id}}{{conversation}}"
 desktop_conversation = "；conversation_id={{conversation}}"
+weixin_control_action = "weixin:control 不支持 action='{{action}}'。可用操作：connect、status、verify、remove。"
+weixin_control_failed = "微信 Claw 控制操作失败：{{error}}"
+weixin_control_session = "提交微信配对验证码时必须提供 session_id。"
+weixin_control_verify_code = "提交微信配对验证码时必须提供 verify_code。"
+weixin_control_no_pairing = "当前没有微信 Claw 配对会话。"
+weixin_control_instance = "移除微信 ClawBot 连接时必须提供 bot_instance_id。"
+weixin_control_started = '''微信 Claw 配对会话已创建。
+session_id={{session}}
+status={{status}}
+qrcode_path={{path}}
+二维码尚未发送给任何人。选择接收者后，通过 communicate 将 qrcode_path 作为 image 附件发送。'''
+weixin_control_status = "微信 Claw 配对会话 {{session}} 当前状态：{{status}}。"
+weixin_control_confirmed = "微信 Claw 配对会话 {{session}} 已确认，新连接 participant_id='{{participant}}'。"
+weixin_control_confirm_remove = "移除微信 ClawBot 实例 {{instance}} 会删除本地凭证并停止收发。仅在用户明确确认后使用相同 bot_instance_id 和 confirm=true 重试；微信侧授权不会被远程注销。"
+weixin_control_unknown_instance = "微信 ClawBot 实例 {{instance}} 不存在。"
+weixin_control_removed = "微信 ClawBot 实例 {{instance}} 已从 Coworker 移除并停止收发；微信侧授权未被远程注销。"
 
 [tool_result.bubble]
 needs_goal = "创建泡泡需要 goal；续跑超时泡泡请提供 bubble_id。"

@@ -95,7 +95,9 @@ class ChannelRegistry:
             replace(request, participant_id=canonical)
         )
         result = await target.send(outbound)
-        if result.is_error or not omitted:
+        if result.is_error:
+            return result
+        if not omitted:
             return result
         notice_key = (
             "tool_result.communicate.unsupported_message_only"
@@ -103,13 +105,23 @@ class ChannelRegistry:
             else "tool_result.communicate.unsupported_omitted"
         )
         notice = tr(notice_key, fields=", ".join(omitted))
-        return replace(result, content=f"{result.content}\n{notice}")
+        return replace(
+            result,
+            content=f"{result.content}\n{notice}",
+        )
 
     def list_connections(self) -> list[ConnectionInfo]:
         connections: list[ConnectionInfo] = []
         for channel in self._channels:
             connections.extend(channel.list_connections())
         return connections
+
+    def agent_instructions(self) -> list[str]:
+        return [
+            instructions
+            for channel in self._channels
+            if (instructions := channel.agent_instructions().strip())
+        ]
 
     def _participant_validation_error(
         self,

@@ -6,7 +6,17 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Maximize2, Minimize2, Pencil, Send, Trash2, UserRound, X } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  Maximize2,
+  Minimize2,
+  Pencil,
+  Send,
+  Trash2,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
 import { t } from '../i18n/admin';
 
@@ -20,12 +30,26 @@ type BubbleChatMeta = {
   resumed: boolean;
 };
 
+type ChatAttachment = {
+  filename: string;
+  mediaType: string;
+  data: string;
+};
+
+type ConnectionStatusMeta = {
+  channel: string;
+  status: string;
+  sessionId: string;
+};
+
 type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
   createdAt: number;
   bubble?: BubbleChatMeta | null;
+  attachments?: ChatAttachment[];
+  connectionStatus?: ConnectionStatusMeta | null;
 };
 
 type ChatProfile = {
@@ -36,7 +60,11 @@ type ChatProfile = {
 const CHAT_PROFILE_STORAGE_KEY = 'coworker-web-chat-profile';
 const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
+const CHAT_NOTIFICATIONS_STORAGE_KEY = 'coworker-web-chat-notifications';
 const MAX_STORED_MESSAGES = 160;
+const MAX_STORED_ATTACHMENT_CHARS = 600_000;
+const MAX_STORED_ATTACHMENT_TOTAL_CHARS = 1_200_000;
+const MAX_LIVE_ATTACHMENT_CHARS = 28_000_000;
 const BUBBLE_REPLY_PREFIX = '🫧 泡泡：';
 const COMPACT_ID_RE = /^[A-Za-z0-9_-]{12}$/;
 
@@ -108,6 +136,34 @@ function persistChatProfile(profile: ChatProfile) {
   }
 }
 
+function readNotificationPreference(): boolean {
+  try {
+    return window.localStorage.getItem(CHAT_NOTIFICATIONS_STORAGE_KEY) === 'enabled';
+  } catch {
+    return false;
+  }
+}
+
+function persistNotificationPreference(enabled: boolean) {
+  try {
+    if (enabled) window.localStorage.setItem(CHAT_NOTIFICATIONS_STORAGE_KEY, 'enabled');
+    else window.localStorage.removeItem(CHAT_NOTIFICATIONS_STORAGE_KEY);
+  } catch {
+    // 存储不可用时，通知偏好仍在当前页面有效。
+  }
+}
+
+function currentNotificationPermission(): NotificationPermission | 'unsupported' {
+  return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+}
+
+function notificationBody(content: string, attachments: ChatAttachment[]): string {
+  const compactContent = content.replace(/\s+/g, ' ').trim();
+  if (compactContent) return compactContent.slice(0, 160);
+  if (attachments.length === 1) return t('收到一张图片。');
+  return t('收到 {{count}} 张图片。', { count: attachments.length });
+}
+
 function historyKey(clientId: string): string {
   return `${CHAT_HISTORY_PREFIX}${clientId}`;
 }
@@ -122,12 +178,79 @@ function readBubbleMetadata(value: unknown): BubbleChatMeta | null {
   return { id, kind, phase, resumed: bubble.resumed === true };
 }
 
+function readConnectionStatus(value: unknown): ConnectionStatusMeta | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const action = value as Record<string, unknown>;
+  const channel = typeof action.channel === 'string' ? action.channel : '';
+  const status = typeof action.status === 'string' ? action.status : '';
+  const sessionId = typeof action.session_id === 'string' ? action.session_id : '';
+  return channel && status ? { channel, status, sessionId } : null;
+}
+
 function createMessage(
   role: ChatRole,
   content: string,
   bubble: BubbleChatMeta | null = null,
+  attachments: ChatAttachment[] = [],
+  connectionStatus: ConnectionStatusMeta | null = null,
 ): ChatMessage {
-  return { id: newId(), role, content, createdAt: Date.now(), bubble };
+  return {
+    id: newId(),
+    role,
+    content,
+    createdAt: Date.now(),
+    bubble,
+    attachments,
+    connectionStatus,
+  };
+}
+
+function imageAttachment(
+  filename: unknown,
+  mediaType: unknown,
+  data: unknown,
+): ChatAttachment[] {
+  if (
+    typeof mediaType !== 'string'
+    || typeof data !== 'string'
+    || !/^image\/(?:png|jpe?g|gif|webp)$/i.test(mediaType)
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
+    || !data
+    || data.length > MAX_LIVE_ATTACHMENT_CHARS
+  ) return [];
+  return [{
+    filename: typeof filename === 'string' && filename.trim()
+      ? filename.trim()
+      : t('图片'),
+    mediaType,
+    data,
+  }];
+}
+
+function readWireImageAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const attachment = item as Record<string, unknown>;
+    return imageAttachment(
+      attachment.filename,
+      attachment.media_type,
+      attachment.data,
+    );
+  });
+}
+
+function readStoredImageAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const attachment = item as Record<string, unknown>;
+    return imageAttachment(
+      attachment.filename,
+      attachment.mediaType,
+      attachment.data,
+    );
+  });
 }
 
 function loadChatHistory(clientId: string): ChatMessage[] {
@@ -145,10 +268,11 @@ function loadChatHistory(clientId: string): ChatMessage[] {
         typeof message.id !== 'string'
         || (message.role !== 'user' && message.role !== 'assistant')
         || typeof message.content !== 'string'
-        || !message.content.trim()
       ) {
         return [];
       }
+      const attachments = readStoredImageAttachments(message.attachments);
+      if (!message.content.trim() && !attachments.length) return [];
 
       return [{
         id: message.id,
@@ -158,6 +282,8 @@ function loadChatHistory(clientId: string): ChatMessage[] {
           ? message.createdAt
           : Date.now(),
         bubble: readBubbleMetadata(message.bubble),
+        attachments,
+        connectionStatus: readConnectionStatus(message.connectionStatus),
       }];
     }).slice(-MAX_STORED_MESSAGES);
   } catch {
@@ -170,14 +296,21 @@ function participantIdFor(profile: ChatProfile): string {
   return `w:${profile.clientId}`;
 }
 
-function readOutboundMessage(raw: unknown): { content: string; bubble: BubbleChatMeta | null } {
+function readOutboundMessage(raw: unknown): {
+  content: string;
+  bubble: BubbleChatMeta | null;
+  attachments: ChatAttachment[];
+  connectionStatus: ConnectionStatusMeta | null;
+} {
   const text = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
-  if (!text) return { content: '', bubble: null };
+  if (!text) {
+    return { content: '', bubble: null, attachments: [], connectionStatus: null };
+  }
 
   try {
     const decoded: unknown = JSON.parse(text);
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
-      return { content: text, bubble: null };
+      return { content: text, bubble: null, attachments: [], connectionStatus: null };
     }
 
     const payload = decoded as Record<string, unknown>;
@@ -185,21 +318,40 @@ function readOutboundMessage(raw: unknown): { content: string; bubble: BubbleCha
       ? payload.extra as Record<string, unknown>
       : null;
     const bubble = readBubbleMetadata(extra?.bubble);
+    const connectionStatus = readConnectionStatus(extra?.connection_status);
+    const attachments = readWireImageAttachments(payload.attachments);
     const message = payload.message ?? payload.content;
-    if (typeof message === 'string' && message.trim()) {
-      return { content: message.trim(), bubble };
+    const content = typeof message === 'string' ? message.trim() : '';
+    if (content || attachments.length) {
+      return { content, bubble, attachments, connectionStatus };
     }
-
     if (Array.isArray(payload.attachments) && payload.attachments.length) {
       return {
-        content: t('收到了 {{count}} 个附件。', { count: payload.attachments.length }),
+        content: t('收到了暂不支持预览的附件。'),
         bubble,
+        attachments: [],
+        connectionStatus,
       };
     }
-    return { content: '', bubble };
+    return { content: '', bubble, attachments: [], connectionStatus };
   } catch {
-    return { content: text, bubble: null };
+    return { content: text, bubble: null, attachments: [], connectionStatus: null };
   }
+}
+
+function storedChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  let remaining = MAX_STORED_ATTACHMENT_TOTAL_CHARS;
+  return messages.slice(-MAX_STORED_MESSAGES).reverse().map(message => {
+    const attachments = (message.attachments || []).filter(attachment => {
+      if (
+        attachment.data.length > MAX_STORED_ATTACHMENT_CHARS
+        || attachment.data.length > remaining
+      ) return false;
+      remaining -= attachment.data.length;
+      return true;
+    });
+    return { ...message, attachments };
+  }).reverse();
 }
 
 function activeBubbleFromMessages(messages: ChatMessage[]): BubbleChatMeta | null {
@@ -264,13 +416,22 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [draft, setDraft] = useState('');
   const [pendingReplies, setPendingReplies] = useState(0);
   const [isSending, setIsSending] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(readNotificationPreference);
+  const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const openRef = useRef(false);
+  const notificationsEnabledRef = useRef(notificationsEnabled);
+  const counterpartNameRef = useRef(counterpartName);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const hasSharedNameRef = useRef(false);
   const userName = profile.name;
   const activeBubble = useMemo(() => activeBubbleFromMessages(messages), [messages]);
+  const desktopNotificationsActive = notificationsEnabled && notificationPermission === 'granted';
+  notificationsEnabledRef.current = desktopNotificationsActive;
+  counterpartNameRef.current = counterpartName;
 
   useEffect(() => {
     persistChatProfile(profile);
@@ -280,7 +441,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     try {
       window.localStorage.setItem(
         historyKey(profile.clientId),
-        JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)),
+        JSON.stringify(storedChatMessages(messages)),
       );
     } catch {
       // 存储写入失败不影响在线收发。
@@ -318,8 +479,8 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
     source.onmessage = event => {
       if (disposed || eventSourceRef.current !== source) return;
-      const { content, bubble } = readOutboundMessage(event.data);
-      if (!content) return;
+      const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
+      if (!content && !attachments.length) return;
 
       if (content.startsWith('连接被拒绝：')) {
         rejected = true;
@@ -331,10 +492,35 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
       setMessages(current => [
         ...current,
-        createMessage('assistant', content, bubble),
+        createMessage('assistant', content, bubble, attachments, connectionStatus),
       ].slice(-MAX_STORED_MESSAGES));
       if (bubble?.kind !== 'handoff') {
         setPendingReplies(current => Math.max(0, current - 1));
+        if (!openRef.current) {
+          setUnreadCount(current => Math.min(99, current + 1));
+          if (
+            notificationsEnabledRef.current
+            && document.hidden
+            && typeof Notification !== 'undefined'
+            && Notification.permission === 'granted'
+          ) {
+            try {
+              const notification = new Notification(
+                t('{{name}} 发来消息', { name: counterpartNameRef.current }),
+                { body: notificationBody(content, attachments), icon: '/favicon.png' },
+              );
+              notification.onclick = () => {
+                window.focus();
+                openRef.current = true;
+                setOpen(true);
+                setUnreadCount(0);
+                notification.close();
+              };
+            } catch {
+              setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+            }
+          }
+        }
       }
     };
 
@@ -355,6 +541,16 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       source?.close();
     };
   }, [connectionGeneration, participantId, shouldConnect, userName]);
+
+  useEffect(() => {
+    const refreshNotificationPermission = () => {
+      const permission = currentNotificationPermission();
+      setNotificationPermission(permission);
+      if (permission !== 'granted') notificationsEnabledRef.current = false;
+    };
+    window.addEventListener('focus', refreshNotificationPermission);
+    return () => window.removeEventListener('focus', refreshNotificationPermission);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -379,6 +575,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
         setIsFullPage(false);
         return;
       }
+      openRef.current = false;
       setOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -472,6 +669,46 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     setIsProfileEditorOpen(true);
   };
 
+  const toggleDesktopNotifications = async () => {
+    if (typeof Notification === 'undefined') {
+      setNotificationPermission('unsupported');
+      setConnectionDetail('此浏览器不支持桌面通知。');
+      return;
+    }
+
+    if (desktopNotificationsActive) {
+      persistNotificationPreference(false);
+      notificationsEnabledRef.current = false;
+      setNotificationsEnabled(false);
+      setConnectionDetail('桌面通知已关闭。');
+      return;
+    }
+
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        permission = 'denied';
+      }
+    }
+    setNotificationPermission(permission);
+    if (permission === 'granted') {
+      persistNotificationPreference(true);
+      notificationsEnabledRef.current = true;
+      setNotificationsEnabled(true);
+      setConnectionDetail('桌面通知已开启。');
+      return;
+    }
+
+    persistNotificationPreference(false);
+    notificationsEnabledRef.current = false;
+    setNotificationsEnabled(false);
+    setConnectionDetail(permission === 'denied'
+      ? '桌面通知已被浏览器阻止，请在站点设置中开启。'
+      : '没有开启桌面通知；你可以稍后再试。');
+  };
+
   const clearStoredMessages = () => {
     if (!window.confirm(t('清除这个浏览器保存的全部聊天记录？此操作无法恢复。'))) return;
     setMessages([]);
@@ -483,35 +720,52 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   };
 
   const openChat = () => {
+    openRef.current = true;
     setOpen(true);
+    setUnreadCount(0);
     if (userName) setShouldConnect(true);
+  };
+
+  const closeChat = () => {
+    openRef.current = false;
+    setOpen(false);
   };
 
   const status = t(connectionCopy(connection));
   const visibleConnectionDetail = localizedConnectionDetail(connectionDetail);
+  const launcherLabel = unreadCount
+    ? t('与 {{name}} 对话，{{count}} 条未读消息', { name: counterpartName, count: unreadCount })
+    : t('与 {{name}} 对话', { name: counterpartName });
 
   return (
     <>
       <button
         type="button"
-        className={`sprite-btn ${open ? 'open' : ''}`}
+        className={`sprite-btn ${open ? 'open' : ''} ${unreadCount ? 'has-unread' : ''}`}
         onClick={openChat}
-        aria-label={t('与 {{name}} 对话', { name: counterpartName })}
+        aria-label={launcherLabel}
         aria-expanded={open}
         aria-controls="coworker-chat"
       >
         <span className="sprite-pulse" aria-hidden="true" />
         <SignalMark />
+        {unreadCount > 0 && (
+          <span className="sprite-unread" aria-hidden="true">
+            {unreadCount >= 99 ? '99+' : unreadCount}
+          </span>
+        )}
         <span className="sprite-greeting" aria-hidden="true">
           <b>{t('和 {{name}} 说句话', { name: counterpartName })}</b>
-          <small>{t('把眼前的想法直接交给她。')}</small>
+          <small>{unreadCount
+            ? t('{{count}} 条新消息等你查看', { count: unreadCount })
+            : t('把眼前的想法直接交给她。')}</small>
         </span>
       </button>
 
       <div
         className={`chat-overlay ${open ? 'open' : ''} ${isFullPage ? 'chat-overlay-page' : ''}`}
         onMouseDown={event => {
-          if (!isFullPage && event.target === event.currentTarget) setOpen(false);
+          if (!isFullPage && event.target === event.currentTarget) closeChat();
         }}
         aria-hidden={!open}
       >
@@ -544,13 +798,27 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 <span>{isFullPage ? t('收起') : t('全页面聊天')}</span>
               </button>
               {userName && (
+                <button
+                  type="button"
+                  className={`chat-notification-toggle ${desktopNotificationsActive ? 'active' : ''}`}
+                  onClick={() => void toggleDesktopNotifications()}
+                  aria-label={t(desktopNotificationsActive ? '关闭桌面通知' : '开启桌面通知')}
+                  aria-pressed={desktopNotificationsActive}
+                  title={t(desktopNotificationsActive ? '关闭桌面通知' : '开启桌面通知')}
+                >
+                  {desktopNotificationsActive
+                    ? <Bell size={15} aria-hidden="true" />
+                    : <BellOff size={15} aria-hidden="true" />}
+                </button>
+              )}
+              {userName && (
                 <button type="button" className="chat-user-chip" onClick={openProfileEditor} aria-label={t('修改名字：{{name}}', { name: userName })}>
                   <UserRound size={14} aria-hidden="true" />
                   <span title={userName}>{userName}</span>
                   <Pencil size={12} aria-hidden="true" />
                 </button>
               )}
-              <button type="button" className="chat-close" onClick={() => setOpen(false)} aria-label={t('关闭对话')}>
+              <button type="button" className="chat-close" onClick={closeChat} aria-label={t('关闭对话')}>
                 <X size={17} aria-hidden="true" />
               </button>
             </div>
@@ -675,7 +943,20 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                           <code title={bubble.id}>{bubble.id}</code>
                         </span>
                       )}
-                      <span>{content}</span>
+                      {message.connectionStatus && <span className="connection-status-label">
+                        <strong>{t(message.connectionStatus.channel === 'weixin' ? '微信 Claw 连接' : '信道连接')}</strong>
+                        <em>{t(message.connectionStatus.status)}</em>
+                      </span>}
+                      {content && <span>{content}</span>}
+                      {!!message.attachments?.length && <div className="chat-message-images">
+                        {message.attachments.map((attachment, attachmentIndex) => {
+                          const source = `data:${attachment.mediaType};base64,${attachment.data}`;
+                          return <a href={source} target="_blank" rel="noreferrer" download={attachment.filename} key={`${attachment.filename}-${attachmentIndex}`}>
+                            <img src={source} alt={attachment.filename} loading="lazy" />
+                            <small>{attachment.filename}</small>
+                          </a>;
+                        })}
+                      </div>}
                     </article>
                   );
                 })}

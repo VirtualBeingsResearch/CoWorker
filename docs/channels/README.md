@@ -10,3 +10,4 @@
 
 - [API 与通信入口](api-and-channels.md)：REST、SSE、WebSocket、文件消息和 Bubble 直接转交。
 - [Coworker Desktop](desktop.md)：连接本机用户、Codex 与 Claude Code 的桌面工作台。
+- [微信 Claw](weixin-claw.md)：个人微信扫码接入、多账号隔离、管理员配置与搭档定向邀请。

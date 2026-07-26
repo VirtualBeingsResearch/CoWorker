@@ -30,7 +30,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from coworker.api.admin import router as admin_router
+from coworker.api.admin import admin_router
 from coworker.api.routes import router, verify_communication_authorization
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message

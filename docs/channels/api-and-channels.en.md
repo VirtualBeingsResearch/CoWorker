@@ -7,19 +7,27 @@
 > The current v0.x releases should be used only locally or on a trusted network. Read the
 > [security policy](../../SECURITY.en.md) before deployment.
 
-All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream or WeCom. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
+All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream, WeCom, or Weixin Claw. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
 
-When sending through the built-in Stream, Desktop, or WeCom channels, `communicate` accepts only complete participant IDs present in `list_connections` (an exact shorthand explicitly supported by a channel remains valid). An unknown ID is never corrected automatically and no message is sent. If it is within an edit distance of four characters from a known ID, the tool lists similar complete IDs for the model to choose from; otherwise it treats the ID as nonexistent and asks the model to call `list_connections` again. A registered Stream participant remains known while offline and can still receive outbox delivery.
+When sending through the built-in Stream, Desktop, WeCom, or Weixin Claw channels, `communicate` accepts only complete participant IDs present in `list_connections` (an exact shorthand explicitly supported by a channel remains valid). An unknown ID is never corrected automatically and no message is sent. If it is within an edit distance of four characters from a known ID, the tool lists similar complete IDs for the model to choose from; otherwise it treats the ID as nonexistent and asks the model to call `list_connections` again. A registered Stream participant remains known while offline and can still receive outbox delivery.
 
 ## Channel development model
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
 
 - `registry`, which registers Channels, routes inbound and outbound traffic, and starts or stops each shared Runtime exactly once.
 - `stream_runtime`, which owns WS/SSE connections, participant registrations, attachment storage, and offline outbox delivery and provides Stream infrastructure to HTTP and WebSocket routes.
 - `activity`, which records each participant's latest successful send and receive times. When `activity_path` is provided, atomic JSON persistence restores them after an application restart.
+- `modules`, which stores management interfaces and hot-settings providers contributed by complete channel modules.
 
-To add an independent transport, subclass `BaseChannel` and call `channel_system.registry.register(channel)`. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
+To add an independent transport, subclass `BaseChannel`. A transport-only integration may call
+`channel_system.registry.register(channel)`. When it also owns connection management or hot settings,
+implement `ChannelModule` and call `channel_system.install(module)` to register the transport, optional
+`ChannelManagement`, and optional `ChannelSettings` together. Admin only routes snapshots and commands
+through `/api/admin/channels/{channel}/management`; hot configuration iterates the modules' declared
+`config_key` values. Neither generic layer interprets channel-private semantics. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
+
+A Channel may override `agent_instructions()` to teach the agent stable channel operations. The Registry only aggregates text contributed by enabled channels, and `SystemPromptBuilder` places it in a cache-stable `[CHANNELS]` section. Do not inject dynamic connection lists or polling state into the system prompt. Live participants remain discoverable through `list_connections`; interpretation and execution of channel-private `extra` structures stay inside the destination Channel, and the Registry does not inspect them.
 
 The smallest outbound Channel subclasses `BaseChannel` and implements only `send`. The defaults provide a no-op Runtime, no shorthand resolution, no inbound support, an empty connection list, and activity helpers:
 
@@ -114,10 +122,10 @@ An active Bubble bound to the same `participant_id` (and optional `conversation_
 To enable transparent handoff by communication participant, configure case-sensitive full-ID globs:
 
 ```env
-AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","coworker-desktop:*:local:*"]
+AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","coworker-desktop:*:local:*"]
 ```
 
-`*`, `?`, and `[...]` are glob wildcards; an entry without wildcards is an exact `participant_id`. These defaults make WeCom and the Desktop `local` actor transparent. Set `[]` to disable those default matches.
+`*`, `?`, and `[...]` are glob wildcards; an entry without wildcards is an exact `participant_id`. These defaults make WeCom, Weixin Claw, and the Desktop `local` actor transparent. Historical saved copies of the old default list evolve with the product defaults; custom lists, including an explicit `[]`, remain unchanged.
 
 Every live generic WebSocket/SSE session enables a transparent Bubble lifecycle by default. The takeover notice is delayed until the Bubble first receives a new message from that conversation or is about to reply directly. A matching completion notice is sent only after takeover was announced successfully; merely creating or binding a Bubble emits nothing externally. The corresponding default is:
 
@@ -143,7 +151,7 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 }
 ```
 
-An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, do not receive this metadata and retain the `🫧 泡泡：` text prefix instead; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
+An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
 Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. When no dedicated communication token is configured, the server falls back to the administrator token for a smoother first local connection; configure a dedicated token when the permissions must be isolated. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
 

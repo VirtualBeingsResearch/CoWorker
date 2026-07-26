@@ -499,6 +499,7 @@ dependencies = [
     { name = "python-jenkins" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "qrcode", extra = ["pil"] },
     { name = "requests" },
     { name = "sentence-transformers" },
     { name = "spacy" },
@@ -537,6 +538,7 @@ requires-dist = [
     { name = "python-jenkins", specifier = ">=1.8" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "qrcode", extras = ["pil"], specifier = ">=8.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "sentence-transformers", specifier = ">=5.6.0" },
     { name = "spacy", specifier = "==3.8.13" },
@@ -2521,6 +2523,23 @@ wheels = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/b2/7fc2931bfae0af02d5f53b174e9cf701adbb35f39d69c2af63d4a39f81a9/qrcode-8.2.tar.gz", hash = "sha256:35c3f2a4172b33136ab9f6b3ef1c00260dd2f66f858f24d88418a015f446506c", size = 43317, upload-time = "2025-05-01T15:44:24.726Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/b8/d2d6d731733f51684bbf76bf34dab3b70a9148e8f2cef2bb544fccec681a/qrcode-8.2-py3-none-any.whl", hash = "sha256:16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f", size = 45986, upload-time = "2025-05-01T15:44:22.781Z" },
+]
+
+[package.optional-dependencies]
+pil = [
+    { name = "pillow" },
+]
+
+[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3190,13 +3209,13 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "filelock", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "fsspec", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "jinja2", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "networkx", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "setuptools", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "sympy", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "filelock" },
+    { name = "fsspec" },
+    { name = "jinja2" },
+    { name = "networkx" },
+    { name = "setuptools" },
+    { name = "sympy" },
+    { name = "typing-extensions" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.11.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:442ec9dc78592564fdad69cf0beaa9da2f82ab810ccb4f13903869a90bf3f15d", upload-time = "2026-03-23T15:17:02Z" },
@@ -3216,13 +3235,13 @@ resolution-markers = [
     "python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "filelock", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "fsspec", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "jinja2", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "networkx", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "setuptools", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "sympy", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "filelock" },
+    { name = "fsspec" },
+    { name = "jinja2" },
+    { name = "networkx" },
+    { name = "setuptools" },
+    { name = "sympy" },
+    { name = "typing-extensions" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp313-cp313-linux_s390x.whl", hash = "sha256:d1eff25ccc454faf21c9666c81bfab8e405e87c12d300708d4559620bc191a36", upload-time = "2026-04-28T00:06:42Z" },

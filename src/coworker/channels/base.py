@@ -20,8 +20,8 @@ class ConnectionInfo:
     """A reachable communication participant on some channel."""
 
     participant_id: str
-    channel: str  # "stream" / "wecom" / "desktop"
-    kind: str  # "websocket" / "sse" / "wecom:single" / "wecom:group" / "desktop:actor"
+    channel: str  # "stream" / "wecom" / "weixin" / "desktop"
+    kind: str  # transport-specific connection kind
     display_name: str = ""
     active: bool = False  # online now (stream WS/SSE) vs known-reachable (wecom/desktop)
     last_sent_at: str | None = None
@@ -139,6 +139,11 @@ class BaseChannel(ABC):
     @abstractmethod
     async def send(self, request: CommunicateRequest) -> ToolResult:
         """Deliver a request to this channel."""
+
+    def agent_instructions(self) -> str:
+        """Describe stable model-facing behavior exposed by this channel."""
+
+        return ""
 
     def record_received(self, participant_id: str) -> None:
         self._activity.record_received(participant_id)

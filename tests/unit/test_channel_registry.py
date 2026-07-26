@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,9 @@ from coworker.channels.base import (
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamProfile
 from coworker.channels.system import create_channel_system
+from coworker.channels.wecom import WeComModuleResources, create_wecom_module
+from coworker.core.config import WeComConfig
+from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import locale_context
 
@@ -141,6 +145,63 @@ class _FakeStreamProfile(StreamProfile):
                 last_received_at=received_at,
             )
         ]
+
+
+def test_channel_system_installs_transport_management_and_settings_together(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+    channel = _MinimalChannel()
+    management = SimpleNamespace()
+    settings = SimpleNamespace(config_key="sample")
+
+    system.install(
+        SimpleNamespace(
+            name="minimal",
+            channel=channel,
+            management=management,
+            settings=settings,
+        )
+    )
+
+    assert system.registry.resolve_participant_id("minimal:user") == "minimal:user"
+    assert system.modules.management_for("minimal") is management
+    assert system.modules.settings_for("minimal") is settings
+
+
+def test_channel_module_validation_prevents_partial_install(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+
+    with pytest.raises(RegistrationError, match="does not match"):
+        system.install(
+            SimpleNamespace(
+                name="other",
+                channel=_MinimalChannel(),
+                management=None,
+                settings=None,
+            )
+        )
+
+    assert system.modules.names() == []
+    assert all(channel.name != "minimal" for channel in system.registry._channels)  # noqa: SLF001
+
+
+def test_wecom_installs_transport_and_hot_settings_as_one_module(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+    module = create_wecom_module(
+        WeComConfig(),
+        WeComModuleResources(
+            attachments_dir=tmp_path / "attachments",
+            contacts_path=tmp_path / "contacts.json",
+            activity=system.activity,
+        ),
+    )
+
+    system.install(module)
+
+    assert system.registry.resolve_participant_id("wecom:single:user") == (
+        "wecom:single:user"
+    )
+    assert system.modules.settings_for("wecom") is module.settings
+    assert system.modules.hot_reloadable_keys() == {"wecom"}
 
 
 async def test_missing_channel_returns_actionable_localized_error() -> None:
@@ -449,6 +510,22 @@ def test_list_connections_aggregates_across_channels(registry: ChannelRegistry) 
 
     assert [connection.participant_id for connection in connections] == ["a"]
     assert connections[0].channel == "stream"
+
+
+def test_agent_instructions_include_only_contributing_channels(
+    registry: ChannelRegistry,
+) -> None:
+    class InstructedChannel(_MinimalChannel):
+        name = "instructed"
+        participant_prefix = "instructed:"
+
+        def agent_instructions(self) -> str:
+            return "Use instructed:control."
+
+    registry.register(_MinimalChannel())
+    registry.register(InstructedChannel())
+
+    assert registry.agent_instructions() == ["Use instructed:control."]
 
 
 @pytest.mark.asyncio

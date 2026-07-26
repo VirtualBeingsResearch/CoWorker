@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, Fragment, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -6,12 +6,14 @@ import {
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw,
 } from 'lucide-react';
 import './admin.css';
-import { AdminLanguageSwitch, t, useAdminI18n } from './i18n/admin';
+import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
+import type { Json } from './settings/types';
+import { useSettingsDraft } from './settings/useSettingsDraft';
+import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Json = Record<string, any>;
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
@@ -451,7 +453,93 @@ function Models() {
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
-const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端' };
+function StringListEditor({ label, hint, value, onChange, placeholder }: {
+  label: string;
+  hint: string;
+  value: string[];
+  onChange: (value: string[]) => void;
+  placeholder: string;
+}) {
+  const [candidate, setCandidate] = useState('');
+  const addCandidate = () => {
+    const next = candidate.trim();
+    if (!next || value.includes(next)) return;
+    onChange([...value, next]);
+    setCandidate('');
+  };
+  return <div className="field string-list-field">
+    <span>{t(label)}</span>
+    <div className="string-list-editor">
+      {value.length > 0 ? <div className="string-list-items">{value.map((item, index) => <div className="string-list-item" key={`${item}:${index}`}><code>{item}</code><button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))} title={t('删除匹配规则')} aria-label={t('删除匹配规则 {{item}}', { item })}><X size={13} /></button></div>)}</div> : <div className="string-list-empty">{t('当前不按 participant 匹配')}</div>}
+      <div className="string-list-add">
+        <input value={candidate} onChange={event => setCandidate(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCandidate(); } }} placeholder={placeholder} />
+        <button type="button" className="ghost mini" disabled={!candidate.trim() || value.includes(candidate.trim())} onClick={addCandidate}><Plus size={14} />{t('添加规则')}</button>
+      </div>
+    </div>
+    <small>{t(hint)}</small>
+  </div>;
+}
+
+function TransportListEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+  const options = [
+    { value: 'websocket', label: 'WebSocket', hint: '桌面与网页聊天的实时连接' },
+    { value: 'sse', label: 'SSE', hint: '基于事件流的实时连接' },
+  ];
+  const toggle = (transport: string, enabled: boolean) => {
+    onChange(enabled ? [...value, transport] : value.filter(item => item !== transport));
+  };
+  return <div className="field transport-list-field">
+    <span>{t('透明接管实时信道')}</span>
+    <div className="transport-list-editor">{options.map(option => <label key={option.value}><input type="checkbox" checked={value.includes(option.value)} onChange={event => toggle(option.value, event.target.checked)} /><i><Check size={12} /></i><span><b>{option.label}</b><small>{t(option.hint)}</small></span></label>)}</div>
+    <small>{t('勾选后，这些实时信道会显示泡泡接手和归还的结构化状态。修改后需要安全重启。')}</small>
+  </div>;
+}
+
+function JsonEditor({ value, onChange, onValidityChange }: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
+  const serialize = (next: unknown) => JSON.stringify(next, null, 2) ?? '';
+  const [text, setText] = useState(() => serialize(value));
+  const [valid, setValid] = useState(true);
+  const lastSubmitted = useRef(serialize(value));
+  const invalidDraft = useRef(false);
+  const validityCallback = useRef(onValidityChange);
+  validityCallback.current = onValidityChange;
+  useEffect(() => {
+    const serialized = serialize(value);
+    if (invalidDraft.current || serialized !== lastSubmitted.current) {
+      setText(serialized);
+      setValid(true);
+      invalidDraft.current = false;
+      validityCallback.current(true);
+    }
+    lastSubmitted.current = serialized;
+  }, [value]);
+  const edit = (next: string) => {
+    setText(next);
+    try {
+      const parsed = JSON.parse(next);
+      const serialized = serialize(parsed);
+      setValid(true);
+      invalidDraft.current = false;
+      lastSubmitted.current = serialized;
+      onValidityChange(true);
+      onChange(parsed);
+    } catch {
+      setValid(false);
+      invalidDraft.current = true;
+      onValidityChange(false);
+    }
+  };
+  return <>
+    <textarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
+    {!valid && <small className="field-error" role="alert">{t('JSON 格式无效；修正后才能保存这个字段。')}</small>}
+  </>;
+}
+
+const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
@@ -649,6 +737,8 @@ const CONFIG_LABELS: Record<string, string> = {
   'i18n.locale': '模型与运行时语言',
   'agent.passive_mode': 'Passive 模式',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
+  'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
   'api.communication_token': '桌面通信令牌',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
@@ -660,71 +750,65 @@ const CONFIG_LABELS: Record<string, string> = {
 };
 
 function Settings() {
-  const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/config'), []);
-  const [draft, setDraft] = useState<Json | null>(null);
-  const [group, setGroup] = useState(() => new URLSearchParams(window.location.search).get('group') || 'llm');
-  const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [desktopValidationError, setDesktopValidationError] = useState('');
-  useEffect(() => { if (data) setDraft(structuredClone(data.config)); }, [data]);
-  if (loading || !data || !draft) return <Loading error={error} />;
+  const { data, error, setData } = useLoad(() => api<Json>('/api/admin/config'), []);
+  const settings = useSettingsDraft({
+    serverData: data,
+    updateServerData: setData,
+    request: api,
+    describeDesktopSave: describeDesktopUpdateSave,
+  });
+  const {
+    change,
+    changeProvider,
+    clearOverridePaths,
+    desktopValidationError,
+    dirtyGroups,
+    draft,
+    group,
+    invalidJsonPaths,
+    isHot,
+    message,
+    resetGroup,
+    save,
+    saving,
+    secretInputs,
+    selectGroup,
+    setDesktopValidationError,
+    setJsonValidity,
+    setSecretInputs,
+    toggleClearOverride,
+  } = settings;
+  if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
-  const change = (key: string, value: any) => setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
-  const selectGroup = (next: string) => {
-    setGroup(next);
-    const params = new URLSearchParams(window.location.search);
-    params.set('section', 'settings');
-    params.set('group', next);
-    if (next !== 'desktop_updates') params.delete('source');
-    window.history.pushState(null, '', `?${params.toString()}`);
-  };
-  const changeProvider = (index: number, key: string, value: string) => {
-    const providers = [...(draft.llm.managed_providers || [])];
-    providers[index] = { ...providers[index], [key]: value };
-    setDraft({ ...draft, llm: { ...draft.llm, managed_providers: providers } });
-  };
-  const save = async () => {
-    if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return; }
-    const beforeGroup = structuredClone(data.config?.[group] || {});
-    const afterGroup = structuredClone(draft[group] || {});
-    const maxTokensValue = Number(draft.llm?.max_tokens);
-    if (group === 'llm' && (!Number.isInteger(maxTokensValue) || maxTokensValue <= 0)) {
-      setMessage({ kind: 'error', text: t('单次输出上限必须是正整数。') });
-      return;
-    }
-    try {
-      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
-      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: afterGroup }, secrets }) });
-      const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
-      const savedMessage = hotCount && restartCount
-        ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
-        : hotCount
-          ? t('已保存，{{count}} 项修改已立即生效。', { count: hotCount })
-          : restartCount
-            ? t('已保存，{{count}} 项修改将在安全重启后生效。', { count: restartCount })
-            : t('配置没有变化。');
-      setSecretInputs({}); setMessage({ kind: 'success', text: group === 'desktop_updates' ? describeDesktopUpdateSave(beforeGroup, afterGroup, savedMessage) : savedMessage }); await reload();
-    } catch (saveError) {
-      setMessage({ kind: 'error', text: saveError instanceof Error ? saveError.message : t('保存失败') });
-    }
-  };
-  const isHot = (path: string) => (data.hot_reloadable || []).some((item: string) => path === item || path.startsWith(`${item}.`));
   const adminToken = data.secret_status['admin.token'];
   const fallbackToken = data.secret_status['desktop_updates.admin_token'];
   const activeAdminToken = adminToken?.configured ? adminToken : fallbackToken;
   const providerSource = data.sources?.providers ? t('、{{source}}', { source: data.sources.providers }) : '';
   const configNote = t('有效配置来自 {{env}}{{providers}}，并由 {{override}} 覆盖。', { env: '.env', providers: providerSource, override: data.override_path });
+  const groupOverrides = (data.overridden_fields || []).filter((path: string) => {
+    const field = path.split('.')[1] || '';
+    return path.startsWith(`${group}.`)
+      && !HIDDEN_CONFIG.has(path)
+      && field !== 'config_file'
+      && !field.endsWith('runtime_config_file')
+      && !(group === 'llm' && /_(api_key|base_url)$/.test(field));
+  });
+  const CustomSettingsPanel = settingsPanelRegistration(group)?.component;
   return <div className="settings-layout">
-    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} onClick={() => selectGroup(k)} key={k}>{t(GROUP_LABELS[k])}<ChevronRight size={14} /></button>)}</nav>
+    <nav className="subnav">{groups.map(k => <button className={group === k ? 'active' : ''} disabled={saving} onClick={() => selectGroup(k)} key={k}><span>{t(GROUP_LABELS[k])}{dirtyGroups.has(k) && <i className="settings-dirty-dot" title={t('有未保存修改')} />}</span><ChevronRight size={14} /></button>)}</nav>
     <Panel title={GROUP_LABELS[group]} note={configNote} className="config-panel">
       {data.pending_restart && <div className="notice amber"><TriangleAlert size={16} />{t('存在等待重启的修改')}</div>}
+      {group !== 'admin' && groupOverrides.length > 0 && <div className="config-override-strip"><div><Database size={16} /><span><b>{t('管理端覆盖')}</b><small>{t('这些字段不会跟随启动环境变化；可以恢复为继承配置。')}</small></span></div><div>{groupOverrides.map((path: string) => {
+        const pending = clearOverridePaths.has(path);
+        return <button className={pending ? 'pending' : ''} key={path} onClick={() => toggleClearOverride(path)}><span>{t(CONFIG_LABELS[path] || humanize(path.split('.')[1] || path))}</span><RotateCcw size={12} />{t(pending ? '保存后恢复继承' : '恢复继承')}</button>;
+      })}</div></div>}
       {group === 'admin' ? <div className="admin-settings-status">
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -741,12 +825,17 @@ function Settings() {
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
-              <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs({}); }}><Trash2 size={15} /></button>
+              <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+        if (path === 'agent.bubble_handoff_transparency_participant_matches') return <Fragment key={key}>
+          <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>
+          <StringListEditor label={CONFIG_LABELS[path]} hint="支持完整 participant_id 和 glob（例如 weixin:*）。留空表示不按 participant 匹配。" value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} placeholder="weixin:*" />
+        </Fragment>;
+        if (path === 'agent.bubble_handoff_transparency_stream_transports') return <TransportListEditor key={key} value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} />;
         if (data.secret_status[path]) {
           const status = data.secret_status[path];
           const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
@@ -771,10 +860,10 @@ function Settings() {
           return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
         }
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
-        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
+        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -824,7 +913,7 @@ function MemoryCenter({ coworkerName, confirmationName }: { coworkerName: string
 
 const MEMORY_ROLE: Record<string, string> = { user: '消息', assistant: '搭档', system: '系统', tool: '工具结果' };
 const MEMORY_SOURCE: Record<string, string> = {
-  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信',
+  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信', weixin: '微信 Claw',
   coworker_desktop: '桌面端', codex: 'Codex', bubble: '气泡', alarm: '闹钟提醒',
   code_job: '代码任务', task_reminder: '任务提醒', system: '系统', '并行思考': '并行思考',
   system_recovery: '系统恢复', system_error: '系统错误', skill_warning: '技能提醒',

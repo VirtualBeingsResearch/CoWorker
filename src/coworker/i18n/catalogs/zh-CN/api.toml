@@ -7,6 +7,7 @@ task_store_not_ready = "任务存储尚未就绪"
 bubble_store_not_ready = "Bubble 存储尚未就绪"
 channel_runtime_not_ready = "通信运行时尚未就绪"
 desktop_update_sync_not_ready = "桌面更新同步服务尚未就绪"
+channel_modules_not_ready = "信道模块管理接口尚未就绪"
 loader_not_ready = "{{kind}} loader 尚未就绪"
 
 [api.auth]
@@ -30,6 +31,7 @@ api_key_required = "API Key 不能为空"
 custom_model_confirmation_required = "模型 {{model}} 不在 {{provider}} 的推荐目录中；请确认该模型及 API 服务支持工具调用"
 unsupported_tool_model = "模型 {{model}} 不在 {{provider}} 的可用工具模型列表中"
 secret_not_writable = "不可写的密钥路径：{{path}}"
+config_field_not_clearable = "无法清除该配置覆盖：{{path}}"
 runtime_apply_failed = "运行时应用失败：{{error}}"
 task_missing = "任务不存在"
 bubble_record_missing = "Bubble 记录不存在"
@@ -61,6 +63,8 @@ detail_log_unavailable = "该条历史未保留详细日志，当前显示内存
 nested_truncated = "…（嵌套内容已截断）"
 field_truncated = "…（字段已截断）"
 more_fields_truncated = "更多字段已截断"
+channel_management_missing = "信道 {{channel}} 没有提供管理接口"
+channel_management_failed = "信道管理操作失败：{{error}}"
 
 [api.backfill]
 log_store_unconfigured = "未配置原始日志寻址层，无法回溯"

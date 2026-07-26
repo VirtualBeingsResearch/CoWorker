@@ -14,6 +14,7 @@ from coworker.core.config import (
     LLMConfig,
     MemoryConfig,
     WeComConfig,
+    WeixinConfig,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +33,7 @@ CONFIG_TYPES = {
     "I18N": I18NConfig,
     "MEMORY": MemoryConfig,
     "WECOM": WeComConfig,
+    "WEIXIN": WeixinConfig,
 }
 
 

@@ -1,0 +1,22 @@
+import type { ComponentType } from 'react';
+
+export type Json = Record<string, any>;
+
+export type AdminRequest = <T = Json>(
+  path: string,
+  init?: RequestInit,
+) => Promise<T>;
+
+export type SettingsPanelProps = {
+  value: Json;
+  change: (key: string, value: any) => void;
+  apply: () => Promise<boolean>;
+  dirty: boolean;
+  saving: boolean;
+  request: AdminRequest;
+};
+
+export type SettingsPanelRegistration = {
+  label: string;
+  component: ComponentType<SettingsPanelProps>;
+};

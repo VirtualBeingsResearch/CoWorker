@@ -8,14 +8,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from coworker.api import admin
+from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
+from coworker.channels.module import ChannelModuleRegistry
+from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
     Config,
     apply_admin_config_file,
     effective_admin_token,
     effective_communication_token,
     ensure_admin_token,
+    normalize_admin_overrides_file,
 )
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
@@ -33,19 +36,23 @@ def _client(
     tmp_path,
     *,
     providers_file: str = "",
+    api: dict | None = None,
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
     wecom: dict | None = None,
-    wecom_runner=None,
+    weixin: dict | None = None,
+    channel_modules=None,
 ):
     config = Config.model_validate(
         {
             "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
+            "api": api or {},
             "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
             "memory": {"db_path": str(tmp_path / "memory")},
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
+            "weixin": weixin or {},
         }
     )
     agent = SimpleNamespace(
@@ -71,20 +78,20 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
-        wecom_runner=wecom_runner,
     )
+    admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
 
 
-def test_setup_admin_refreshes_config_lock_for_each_runtime(tmp_path):
+def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
-    first_lock = admin._config_write_lock
+    first_service = admin._require_admin_config_service()
 
     _client(tmp_path / "second")
 
-    assert admin._config_write_lock is not first_lock
+    assert admin._require_admin_config_service() is not first_service
 
 
 def test_admin_requires_bearer_token(tmp_path):
@@ -211,8 +218,7 @@ def test_identity_api_rejects_all_retired_fields_together(tmp_path):
 
 
 def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_path):
-    client, config = _client(tmp_path)
-    config.api.communication_token = "desktop-secret"
+    client, config = _client(tmp_path, api={"communication_token": "desktop-secret"})
     headers = {"Authorization": "Bearer secret"}
     response = client.get("/api/admin/config", headers=headers)
     assert response.status_code == 200
@@ -360,7 +366,7 @@ def test_config_response_separates_external_and_managed_providers(tmp_path):
     )
     assert response.status_code == 200
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
-    assert saved["llm"]["managed_providers"] == []
+    assert "managed_providers" not in saved["llm"]
     assert "external-zhipu" not in json.dumps(saved)
     assert "zk-external" not in json.dumps(saved)
 
@@ -411,6 +417,49 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     ]
 
 
+def test_readding_removed_provider_clears_pending_restart(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    provider = {
+        "name": "admin-a",
+        "type": "openai",
+        "api_key": "",
+        "base_url": "",
+        "default_model": None,
+    }
+    monkeypatch.setattr(
+        "coworker.brain.factory.build_provider",
+        lambda type_, api_key, **kwargs: SimpleNamespace(
+            provider_name=kwargs.get("name") or type_
+        ),
+    )
+    client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"llm": {"managed_providers": [provider]}},
+            "secrets": {"llm.managed_providers.0.api_key": "sk-a"},
+        },
+    )
+    removed = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"llm": {"managed_providers": []}}},
+    )
+
+    restored = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"llm": {"managed_providers": [provider]}},
+            "secrets": {"llm.managed_providers.0.api_key": "sk-a"},
+        },
+    )
+
+    assert removed.json()["pending_restart"] is True
+    assert restored.json()["pending_restart"] is False
+
+
 def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
@@ -439,12 +488,183 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_config_patch_persists_only_changed_fields(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"agent": {"idle_sleep_seconds": 12}}, "secrets": {}},
+    )
+
+    assert response.status_code == 200
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved == {"agent": {"idle_sleep_seconds": 12}}
+
+
+def test_config_patch_removes_historical_default_snapshot(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "passive_mode": False,
+                    "bubble_handoff_transparency_participant_matches": [
+                        "wecom:*",
+                        "weixin:*",
+                        "coworker-desktop:*:local:*",
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {}, "secrets": {}},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
+
+
+def test_config_patch_removes_value_restored_to_inherited_config(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"api": {"port": 8123}}),
+        encoding="utf-8",
+    )
+    client, config = _client(tmp_path)
+    config.api.port = 8123
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"api": {"port": 8000}}, "secrets": {}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requires_restart"] == ["api.port"]
+    assert response.json()["pending_restart"] is True
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
+    desired = client.get(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+    ).json()
+    assert desired["config"]["api"]["port"] == 8000
+
+
+def test_config_patch_clears_pending_restart_after_reverting_to_running_value(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"api": {"port": 8123}}},
+    )
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"api": {"port": 8000}}},
+    )
+
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+
+
+def test_config_response_identifies_overridden_fields(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"api": {"port": 8123}, "agent": {"passive_mode": True}}),
+        encoding="utf-8",
+    )
+    client, _ = _client(tmp_path)
+
+    response = client.get(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.json()["overridden_fields"] == [
+        "agent.passive_mode",
+        "api.port",
+    ]
+
+
+def test_config_patch_explicitly_clears_one_override(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"api": {"host": "0.0.0.0", "port": 8123}}),
+        encoding="utf-8",
+    )
+    client, config = _client(tmp_path)
+    config.api.port = 8123
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"clear_overrides": ["api.port"]},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "api": {"host": "0.0.0.0"}
+    }
+
+
+def test_config_patch_rejects_unknown_clear_override(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"clear_overrides": ["api.missing"]},
+    )
+
+    assert response.status_code == 400
+
+
+def test_config_patch_preserves_explicit_empty_list_override(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "changes": {
+                "agent": {
+                    "bubble_handoff_transparency_participant_matches": [],
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved == {
+        "agent": {"bubble_handoff_transparency_participant_matches": []}
+    }
+
+
 def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     runner = SimpleNamespace(reconfigure=AsyncMock())
+    modules = ChannelModuleRegistry()
+    modules.register(
+        WeComModule(
+            channel=WeComChannel(runner),
+            runtime=runner,
+            settings=WeComSettings(runner),
+        )
+    )
     client, config = _client(
         tmp_path,
         wecom={"enabled": True, "bot_id": "old", "secret": "existing"},
-        wecom_runner=runner,
+        channel_modules=modules,
     )
     headers = {"Authorization": "Bearer secret"}
 
@@ -478,6 +698,86 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     applied = runner.reconfigure.await_args.args[0]
     assert applied.ws_url == "wss://wecom.example/ws"
     assert applied.secret == "existing"
+
+
+class _ChannelManagement:
+    async def snapshot(self) -> dict[str, object]:
+        return {"connections": [{"bot_instance_id": "bot-1"}]}
+
+    async def execute(
+        self,
+        command: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return {"command": command, "payload": payload}
+
+
+class _ChannelSettings:
+    config_key = "weixin"
+
+    def __init__(self) -> None:
+        self.applied: list[object] = []
+
+    async def apply(self, config: object) -> None:
+        self.applied.append(config)
+
+
+def _channel_modules(
+    *,
+    management: object | None = None,
+    settings: object | None = None,
+) -> ChannelModuleRegistry:
+    modules = ChannelModuleRegistry()
+    modules.register(
+        SimpleNamespace(
+            name="weixin",
+            channel=SimpleNamespace(name="weixin"),
+            management=management,
+            settings=settings,
+        )
+    )
+    return modules
+
+
+def test_channel_management_api_routes_without_channel_specific_admin_code(tmp_path):
+    modules = _channel_modules(management=_ChannelManagement())
+    client, _ = _client(tmp_path, channel_modules=modules)
+    headers = {"Authorization": "Bearer secret"}
+
+    snapshot = client.get(
+        "/api/admin/channels/weixin/management",
+        headers=headers,
+    )
+    command = client.post(
+        "/api/admin/channels/weixin/management/remove_connection",
+        headers=headers,
+        json={"bot_instance_id": "bot-1", "confirm": True},
+    )
+
+    assert snapshot.json()["connections"][0]["bot_instance_id"] == "bot-1"
+    assert command.json()["command"] == "remove_connection"
+    assert command.json()["payload"]["confirm"] is True
+
+
+def test_registered_channel_settings_are_hot_applied_generically(tmp_path):
+    settings = _ChannelSettings()
+    modules = _channel_modules(settings=settings)
+    client, config = _client(
+        tmp_path,
+        channel_modules=modules,
+        weixin={"enabled": False},
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"weixin": {"enabled": True}}, "secrets": {}},
+    )
+
+    assert response.json()["applied_now"] == ["weixin"]
+    assert config.weixin.enabled is True
+    assert settings.applied[0].enabled is True
 
 
 def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
@@ -516,6 +816,115 @@ def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
     loaded = apply_admin_config_file(config)
     assert loaded.agent.idle_sleep_seconds == 7
     assert loaded.admin.config_file == str(path)
+
+
+def test_admin_overlay_evolves_historical_handoff_defaults(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "bubble_handoff_transparency_participant_matches": [
+                        "wecom:*",
+                        "coworker-desktop:*:local:*",
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == [
+        "wecom:*",
+        "weixin:*",
+        "coworker-desktop:*:local:*",
+    ]
+
+
+def test_admin_overlay_preserves_custom_handoff_matches(tmp_path):
+    path = tmp_path / "admin_config.json"
+    custom_matches = ["wecom:alice", "coworker-desktop:*:local:*"]
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "bubble_handoff_transparency_participant_matches": custom_matches
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == custom_matches
+
+
+def test_admin_overlay_preserves_disabled_handoff_matches(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {"agent": {"bubble_handoff_transparency_participant_matches": []}}
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == []
+
+
+def test_startup_normalization_migrates_old_default_snapshot(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "admin": {"token": "stored-secret"},
+                "agent": {
+                    "idle_sleep_seconds": 12,
+                    "passive_mode": False,
+                    "bubble_handoff_transparency_participant_matches": [
+                        "wecom:*",
+                        "coworker-desktop:*:local:*",
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    inherited = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    migrated = normalize_admin_overrides_file(inherited)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert (migrated, saved) == (
+        True,
+        {
+            "admin": {"token": "stored-secret"},
+            "agent": {"idle_sleep_seconds": 12},
+        },
+    )
+
+
+def test_startup_normalization_preserves_explicit_empty_list(tmp_path):
+    path = tmp_path / "admin_config.json"
+    overrides = {
+        "agent": {"bubble_handoff_transparency_participant_matches": []}
+    }
+    path.write_text(json.dumps(overrides), encoding="utf-8")
+    inherited = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    migrated = normalize_admin_overrides_file(inherited)
+
+    assert (migrated, json.loads(path.read_text(encoding="utf-8"))) == (
+        False,
+        overrides,
+    )
 
 
 def test_first_run_admin_token_is_generated_and_preserves_overrides(tmp_path):
@@ -683,8 +1092,8 @@ def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
     assert saved["llm"]["managed_providers"][0]["tool_use_models"] == [
         "custom-tool-model"
     ]
-    assert saved["llm"]["max_tokens"] == 8192
-    assert saved["i18n"]["locale"] == "zh-CN"
+    assert "max_tokens" not in saved["llm"]
+    assert "i18n" not in saved
     blocked_patch = client.patch(
         "/api/admin/config",
         headers=headers,
@@ -730,7 +1139,11 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
     def fail_config_write(path, payload):
         raise OSError("config write failed")
 
-    monkeypatch.setattr(admin, "_write_json_atomic", fail_config_write)
+    monkeypatch.setattr(
+        admin._require_admin_config_service(),
+        "write_sparse_overrides",
+        fail_config_write,
+    )
     try:
         client.post(
             "/api/admin/bootstrap",
@@ -919,7 +1332,7 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
 
 
 def test_only_terminal_bubble_logs_are_cached(tmp_path):
-    from coworker.api import admin
+    from coworker.api.admin import router_module as admin
 
     active = tmp_path / "active.jsonl"
     active.write_text(
@@ -952,7 +1365,7 @@ def test_completed_bubble_index_avoids_rescanning_legacy_logs(tmp_path, monkeypa
         load_completed_bubble_index,
         upsert_completed_bubble_index,
     )
-    from coworker.api import admin
+    from coworker.api.admin import router_module as admin
 
     log_dir = tmp_path / "bubbles"
     log_dir.mkdir()

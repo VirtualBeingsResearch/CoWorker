@@ -35,6 +35,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+.test-temp-*/
 
 # Claude Code 运行时产物（保留可共享的 settings.json / 项目级 skills）
 .claude/plans/

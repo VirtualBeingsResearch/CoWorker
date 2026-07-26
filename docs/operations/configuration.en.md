@@ -14,7 +14,16 @@ configuration.
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
 environment variables. `data/model_runtime_config.json` overrides only the summary, fallbacks, and
 vision settings changed at runtime. When a container or service manager injects environment
-variables, make sure the working directory does not contain conflicting `.env` values.
+variables, make sure the working directory does not contain conflicting `.env` values. The
+administration page writes only fields that differ from inherited configuration to
+`admin_config.json`; saving removes overrides restored to their `.env` or product-default value.
+An explicit empty list remains an override when it differs from the inherited value. Unchanged
+defaults therefore evolve with the product instead of being frozen merely by opening or saving a
+whole settings group. Startup also normalizes an existing override file with an atomic write:
+inherited values from old snapshots are removed while custom values, secrets, and explicit
+overrides remain intact. Runtime Settings lists the admin overrides in the current section and
+allows individual fields to be restored to inherited configuration. Unsaved drafts and secret
+inputs remain isolated by section, and saving submits only the current section.
 
 Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 
@@ -112,7 +121,7 @@ language-transition system notice when it detects a locale change.
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom and the Desktop `local` actor; set `[]` to disable every default participant match. |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom, Weixin Claw, and the Desktop `local` actor; set `[]` to disable every default participant match. |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON transport array accepting `websocket` and `sse`; both are enabled by default, so live generic streams use transparent handoff automatically. A Desktop actor that does not match a participant glob never falls through to this rule, so `claude` and `codex` remain excluded. Set `[]` to disable transport matching. |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | Grace period in seconds for continuing a Bubble with `bubble_spawn(bubble_id=...)` after it reaches its cycle limit; set to `0` to disable. |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
@@ -143,8 +152,15 @@ language-transition system notice when it detects a locale change.
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
+| `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
+
+The Weixin Claw module registers its transport, management interface, and hot-settings provider
+together. A confirmed scan stores the connection in
+`MEMORY__DB_PATH/weixin_connections.json` and immediately starts one
+`weixin:<bot_instance_id>` participant; connections are not `admin_config.json` settings. One Bot
+instance can bind only one Weixin account. Whoever views the QR code is not automatically bound to that connection, and the agent still organizes contact relationships. An unfinished pairing session is restored after leaving and returning to the administration page. See [Weixin Claw](../channels/weixin-claw.en.md).
 
 ### Container Git workspace
 

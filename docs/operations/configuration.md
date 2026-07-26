@@ -13,7 +13,12 @@
 配置优先级为：管理端保存的 `data/admin_config.json` 高于 `.env`，`.env` 高于
 操作系统环境变量。`data/model_runtime_config.json` 只覆盖在线修改的 summary、
 fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，请确认工作目录中
-没有同名 `.env` 配置。
+没有同名 `.env` 配置。管理端只向 `admin_config.json` 写入相对继承配置实际改变的
+字段；保存时会移除已经恢复为 `.env` 或产品默认值的覆盖项。显式空列表若不同于继承值，
+仍作为有效覆盖保留。因此未修改的默认字段会随版本演进，不会因打开或保存整个设置分组而
+固定在旧值。启动时也会以原子写入自动规范化已有覆盖文件：旧快照中的继承值会被清理，
+自定义值、密钥和显式覆盖保持不变。运行设置页会列出当前分组中的管理端覆盖，并允许将
+单个字段恢复为继承配置；每个分组独立保留未保存草稿和密钥，只会提交当前分组。
 
 未完成首次初始化时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息接收轮询或企业微信等外部通道。命令行每次启动都会显示当前有效的管理员令牌，浏览器访问 `/admin` 之外的页面或普通 API 会被引导到 `/admin`；管理页静态资源、登录校验和 bootstrap 接口仍正常放行。首次初始化向导可以设置运行时语言、单次输出 Token 上限，并从推荐目录选择或手动输入启动模型；保存后通过一次干净重启进入正常运行，不恢复首设阶段的短期快照，也不生成普通重启通知。
 
@@ -106,7 +111,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
@@ -137,8 +142,13 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOT_ID` | 空 | 企业微信机器人 ID |
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
+| `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
+
+微信 Claw 模块会同时注册 transport、管理接口和热设置应用器。扫码成功会把连接保存到
+`MEMORY__DB_PATH/weixin_connections.json`，并立即启动一个
+`weixin:<bot_instance_id>` participant；连接不是 `admin_config.json` 设置。一个 Bot 实例只能绑定一个微信账号。二维码查看者不会与该连接自动绑定，联系人关系仍由搭档组织。未结束的扫码会话在离开并返回管理页后可以恢复。详见[微信 Claw](../channels/weixin-claw.md)。
 
 ### 容器 Git 工作区
 

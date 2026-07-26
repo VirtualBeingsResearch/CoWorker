@@ -7,6 +7,7 @@ task_store_not_ready = "Task store is not ready"
 bubble_store_not_ready = "Bubble store is not ready"
 channel_runtime_not_ready = "Communication runtime is not ready"
 desktop_update_sync_not_ready = "Desktop update sync service is not ready"
+channel_modules_not_ready = "Channel module management is not ready"
 loader_not_ready = "{{kind}} loader is not ready"
 
 [api.auth]
@@ -30,6 +31,7 @@ api_key_required = "The API key is required"
 custom_model_confirmation_required = "Model {{model}} is not in {{provider}}'s recommended catalog; confirm that the model and API service support tool calling"
 unsupported_tool_model = "Model {{model}} is not in {{provider}}'s available tool-capable model list"
 secret_not_writable = "Secret path is not writable: {{path}}"
+config_field_not_clearable = "Configuration override cannot be cleared: {{path}}"
 runtime_apply_failed = "Failed to apply runtime configuration: {{error}}"
 task_missing = "Task not found"
 bubble_record_missing = "Bubble record not found"
@@ -61,6 +63,8 @@ detail_log_unavailable = "No detailed log was retained for this record; showing 
 nested_truncated = "… (nested content truncated)"
 field_truncated = "… (field truncated)"
 more_fields_truncated = "additional fields truncated"
+channel_management_missing = "Channel {{channel}} does not provide a management interface"
+channel_management_failed = "Channel management operation failed: {{error}}"
 
 [api.backfill]
 log_store_unconfigured = "Raw-log addressing is not configured, so backfill is unavailable"

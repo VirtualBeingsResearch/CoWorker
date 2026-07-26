@@ -7,19 +7,27 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.md)。
 
-所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream 或企业微信。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
+所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 
-向内置 Stream、Desktop 或企业微信信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
+向内置 Stream、Desktop、企业微信或微信 Claw 信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
 - `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
 - `activity`：记录 participant 最近成功发送与接收时间。传入 `activity_path` 时使用原子 JSON 持久化，应用重启后仍可恢复。
+- `modules`：保存完整信道模块贡献的管理接口和热设置应用器。
 
-新增独立传输时继承 `BaseChannel` 并调用 `channel_system.registry.register(channel)`。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
+新增独立传输时继承 `BaseChannel`。只需要传输时可调用
+`channel_system.registry.register(channel)`；同时拥有连接管理或热设置时，应实现
+`ChannelModule` 并调用 `channel_system.install(module)`，一次注册 transport、可选
+`ChannelManagement` 和可选 `ChannelSettings`。Admin 只通过通用
+`/api/admin/channels/{channel}/management` 路由快照与命令；配置热应用遍历模块声明的
+`config_key`，两者都不解释信道私有语义。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
+
+需要教给 Agent 的稳定信道操作可以由 Channel 覆写 `agent_instructions()` 提供。Registry 只聚合已启用信道贡献的文本，`SystemPromptBuilder` 将其放入缓存稳定的 `[CHANNELS]` 段；不要把动态连接列表或轮询状态注入系统 Prompt。实时 participant 仍通过 `list_connections` 发现，动作解释和执行仍属于目标 Channel，Registry 不检查 `extra` 的信道私有结构。
 
 最小出站 Channel 只需继承 `BaseChannel` 并实现 `send`；默认已包含空 Runtime、无简写解析、无入站、无连接列表和 activity 辅助方法：
 
@@ -120,10 +128,10 @@ ws.send("你好！");
 按通信对象启用透明转交时，配置大小写敏感的整串 glob：
 
 ```env
-AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","coworker-desktop:*:local:*"]
+AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","coworker-desktop:*:local:*"]
 ```
 
-`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。
+`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微、微信 Claw 和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。历史版本保存的旧默认列表会随默认值演进；任何自定义列表（包括显式 `[]`）保持原样。
 
 所有在线通用 WebSocket/SSE 会话默认启用透明 Bubble 生命周期：Bubble 首次收到该会话的新消息，或首次准备直接回复时，才会发送接管提示；只有接管提示成功发送后，Bubble 结束时才会发送对应的结束提示。仅创建或绑定 Bubble 不会产生外部通知。对应默认配置为：
 
@@ -149,7 +157,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 }
 ```
 
-已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信）不会收到这段元数据，仍通过 `🫧 泡泡：` 文本前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
+已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用
