@@ -1612,4 +1612,71 @@ describe("Onboarding tutorial", () => {
     await user.type(baseUrlInput, "http://partner.local");
     expect(dialog.querySelector<HTMLInputElement>("#onboarding-desktop-update-url")).toHaveValue("http://partner.local");
   });
+
+  it("saves the Coworker base URL when the update URL is left unset", async () => {
+    const user = userEvent.setup();
+    setDefaultMocks(stoppedStatus, { ...baseConfig, desktop_update_url: "" });
+    window.localStorage.removeItem("coworker-desktop-onboarding-completed");
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Setup wizard" });
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    }
+    vi.mocked(tauri.saveConfig).mockClear();
+    await user.click(within(dialog).getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(tauri.saveConfig).toHaveBeenCalledTimes(1));
+    expect(tauri.saveConfig).toHaveBeenCalledWith(
+      "coworker_desktop.json",
+      expect.objectContaining({ desktop_update_url: "http://localhost:8001" }),
+    );
+  });
+
+  it("replaces the packaged default update URL with the Coworker base URL", async () => {
+    const user = userEvent.setup();
+    setDefaultMocks(stoppedStatus, { ...baseConfig, desktop_update_url: "http://placeholder.local" });
+    window.localStorage.removeItem("coworker-desktop-onboarding-completed");
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Setup wizard" });
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    }
+    vi.mocked(tauri.saveConfig).mockClear();
+    await user.click(within(dialog).getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(tauri.saveConfig).toHaveBeenCalledTimes(1));
+    expect(tauri.saveConfig).toHaveBeenCalledWith(
+      "coworker_desktop.json",
+      expect.objectContaining({ desktop_update_url: "http://localhost:8001" }),
+    );
+  });
+
+  it("preserves an existing non-default update URL", async () => {
+    const user = userEvent.setup();
+    const existingUpdateUrl = "https://updates.example.com";
+    setDefaultMocks(stoppedStatus, { ...baseConfig, desktop_update_url: existingUpdateUrl });
+    window.localStorage.removeItem("coworker-desktop-onboarding-completed");
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Setup wizard" });
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    }
+    vi.mocked(tauri.saveConfig).mockClear();
+    await user.click(within(dialog).getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(tauri.saveConfig).toHaveBeenCalledTimes(1));
+    expect(tauri.saveConfig).toHaveBeenCalledWith(
+      "coworker_desktop.json",
+      expect.objectContaining({ desktop_update_url: existingUpdateUrl }),
+    );
+  });
 });

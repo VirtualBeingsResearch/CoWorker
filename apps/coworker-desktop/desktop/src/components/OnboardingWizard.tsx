@@ -79,7 +79,13 @@ export function OnboardingWizard({
       setStep(0);
       setSaving(null);
       updateUrlManuallyEditedRef.current = false;
-      lastSyncedBaseUrlRef.current = selectedCoworker.base_url;
+      const coworkerBaseUrl = selectedCoworker.base_url.trim();
+      const desktopUpdateUrl = String(config.desktop_update_url ?? "").trim();
+      const packagedDefaultUrl = desktopUpdateUrlPlaceholder.trim();
+      lastSyncedBaseUrlRef.current = coworkerBaseUrl;
+      if (coworkerBaseUrl && (!desktopUpdateUrl || desktopUpdateUrl === packagedDefaultUrl)) {
+        updateConfig({ ...config, desktop_update_url: coworkerBaseUrl });
+      }
     }
   }, [open]);
 
