@@ -128,10 +128,10 @@ ws.send("你好！");
 按通信对象启用透明转交时，配置大小写敏感的整串 glob：
 
 ```env
-AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","coworker-desktop:*:local:*"]
+AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","coworker-desktop:*:local:*"]
 ```
 
-`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。
+`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微、微信 Claw 和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。历史版本保存的旧默认列表会随默认值演进；任何自定义列表（包括显式 `[]`）保持原样。
 
 所有在线通用 WebSocket/SSE 会话默认启用透明 Bubble 生命周期：Bubble 首次收到该会话的新消息，或首次准备直接回复时，才会发送接管提示；只有接管提示成功发送后，Bubble 结束时才会发送对应的结束提示。仅创建或绑定 Bubble 不会产生外部通知。对应默认配置为：
 
@@ -157,7 +157,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 }
 ```
 
-已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信）不会收到这段元数据，仍通过 `🫧 泡泡：` 文本前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
+已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用

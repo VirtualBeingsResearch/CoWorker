@@ -603,6 +603,67 @@ def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
     assert loaded.admin.config_file == str(path)
 
 
+def test_admin_overlay_evolves_historical_handoff_defaults(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "bubble_handoff_transparency_participant_matches": [
+                        "wecom:*",
+                        "coworker-desktop:*:local:*",
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == [
+        "wecom:*",
+        "weixin:*",
+        "coworker-desktop:*:local:*",
+    ]
+
+
+def test_admin_overlay_preserves_custom_handoff_matches(tmp_path):
+    path = tmp_path / "admin_config.json"
+    custom_matches = ["wecom:alice", "coworker-desktop:*:local:*"]
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "bubble_handoff_transparency_participant_matches": custom_matches
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == custom_matches
+
+
+def test_admin_overlay_preserves_disabled_handoff_matches(tmp_path):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps(
+            {"agent": {"bubble_handoff_transparency_participant_matches": []}}
+        ),
+        encoding="utf-8",
+    )
+    config = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    loaded = apply_admin_config_file(config)
+
+    assert loaded.agent.bubble_handoff_transparency_participant_matches == []
+
+
 def test_first_run_admin_token_is_generated_and_preserves_overrides(tmp_path):
     path = tmp_path / "admin_config.json"
     path.write_text(json.dumps({"agent": {"tick": False}}), encoding="utf-8")

@@ -30,6 +30,11 @@ _GITHUB_REPOSITORY_RE = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})/"
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$"
 )
+_HANDOFF_MATCHES_KEY = "bubble_handoff_transparency_participant_matches"
+_PRE_WEIXIN_HANDOFF_DEFAULTS = (
+    "wecom:*",
+    "coworker-desktop:*:local:*",
+)
 
 
 class ProviderSpec(BaseModel):
@@ -443,7 +448,23 @@ def load_admin_overrides(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"读取管理配置 {source} 失败：{e}") from e
     if not isinstance(raw, dict):
         raise ValueError(f"管理配置 {source} 顶层必须是 JSON 对象")
-    return raw
+    return _evolve_admin_default_overrides(raw)
+
+
+def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
+    agent = overrides.get("agent")
+    if not isinstance(agent, dict):
+        return overrides
+    matches = agent.get(_HANDOFF_MATCHES_KEY)
+    if not isinstance(matches, list) or tuple(matches) != _PRE_WEIXIN_HANDOFF_DEFAULTS:
+        return overrides
+    evolved = dict(overrides)
+    evolved_agent = dict(agent)
+    evolved_agent[_HANDOFF_MATCHES_KEY] = list(
+        DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES
+    )
+    evolved["agent"] = evolved_agent
+    return evolved
 
 
 def apply_admin_config_file(config: Config) -> Config:

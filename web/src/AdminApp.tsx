@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, Fragment, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -452,6 +452,92 @@ function Models() {
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
+function StringListEditor({ label, hint, value, onChange, placeholder }: {
+  label: string;
+  hint: string;
+  value: string[];
+  onChange: (value: string[]) => void;
+  placeholder: string;
+}) {
+  const [candidate, setCandidate] = useState('');
+  const addCandidate = () => {
+    const next = candidate.trim();
+    if (!next || value.includes(next)) return;
+    onChange([...value, next]);
+    setCandidate('');
+  };
+  return <div className="field string-list-field">
+    <span>{t(label)}</span>
+    <div className="string-list-editor">
+      {value.length > 0 ? <div className="string-list-items">{value.map((item, index) => <div className="string-list-item" key={`${item}:${index}`}><code>{item}</code><button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))} title={t('删除匹配规则')} aria-label={t('删除匹配规则 {{item}}', { item })}><X size={13} /></button></div>)}</div> : <div className="string-list-empty">{t('当前不按 participant 匹配')}</div>}
+      <div className="string-list-add">
+        <input value={candidate} onChange={event => setCandidate(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCandidate(); } }} placeholder={placeholder} />
+        <button type="button" className="ghost mini" disabled={!candidate.trim() || value.includes(candidate.trim())} onClick={addCandidate}><Plus size={14} />{t('添加规则')}</button>
+      </div>
+    </div>
+    <small>{t(hint)}</small>
+  </div>;
+}
+
+function TransportListEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+  const options = [
+    { value: 'websocket', label: 'WebSocket', hint: '桌面与网页聊天的实时连接' },
+    { value: 'sse', label: 'SSE', hint: '基于事件流的实时连接' },
+  ];
+  const toggle = (transport: string, enabled: boolean) => {
+    onChange(enabled ? [...value, transport] : value.filter(item => item !== transport));
+  };
+  return <div className="field transport-list-field">
+    <span>{t('透明接管实时信道')}</span>
+    <div className="transport-list-editor">{options.map(option => <label key={option.value}><input type="checkbox" checked={value.includes(option.value)} onChange={event => toggle(option.value, event.target.checked)} /><i><Check size={12} /></i><span><b>{option.label}</b><small>{t(option.hint)}</small></span></label>)}</div>
+    <small>{t('勾选后，这些实时信道会显示泡泡接手和归还的结构化状态。修改后需要安全重启。')}</small>
+  </div>;
+}
+
+function JsonEditor({ value, onChange, onValidityChange }: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
+  const serialize = (next: unknown) => JSON.stringify(next, null, 2) ?? '';
+  const [text, setText] = useState(() => serialize(value));
+  const [valid, setValid] = useState(true);
+  const lastSubmitted = useRef(serialize(value));
+  const invalidDraft = useRef(false);
+  const validityCallback = useRef(onValidityChange);
+  validityCallback.current = onValidityChange;
+  useEffect(() => {
+    const serialized = serialize(value);
+    if (invalidDraft.current || serialized !== lastSubmitted.current) {
+      setText(serialized);
+      setValid(true);
+      invalidDraft.current = false;
+      validityCallback.current(true);
+    }
+    lastSubmitted.current = serialized;
+  }, [value]);
+  const edit = (next: string) => {
+    setText(next);
+    try {
+      const parsed = JSON.parse(next);
+      const serialized = serialize(parsed);
+      setValid(true);
+      invalidDraft.current = false;
+      lastSubmitted.current = serialized;
+      onValidityChange(true);
+      onChange(parsed);
+    } catch {
+      setValid(false);
+      invalidDraft.current = true;
+      onValidityChange(false);
+    }
+  };
+  return <>
+    <textarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
+    {!valid && <small className="field-error" role="alert">{t('JSON 格式无效；修正后才能保存这个字段。')}</small>}
+  </>;
+}
+
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
@@ -650,6 +736,8 @@ const CONFIG_LABELS: Record<string, string> = {
   'i18n.locale': '模型与运行时语言',
   'agent.passive_mode': 'Passive 模式',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
+  'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
   'api.communication_token': '桌面通信令牌',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
@@ -667,7 +755,15 @@ function Settings() {
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [desktopValidationError, setDesktopValidationError] = useState('');
+  const [invalidJsonPaths, setInvalidJsonPaths] = useState<Set<string>>(new Set());
   useEffect(() => { if (data) setDraft(structuredClone(data.config)); }, [data]);
+  const setJsonValidity = useCallback((path: string, valid: boolean) => {
+    setInvalidJsonPaths(current => {
+      const next = new Set(current);
+      if (valid) next.delete(path); else next.add(path);
+      return next.size === current.size && [...next].every(item => current.has(item)) ? current : next;
+    });
+  }, []);
   if (loading || !data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -675,6 +771,7 @@ function Settings() {
   const change = (key: string, value: any) => setDraft(current => current ? { ...current, [group]: { ...current[group], [key]: value } } : current);
   const selectGroup = (next: string) => {
     setGroup(next);
+    setInvalidJsonPaths(new Set());
     const params = new URLSearchParams(window.location.search);
     params.set('section', 'settings');
     params.set('group', next);
@@ -688,6 +785,7 @@ function Settings() {
   };
   const save = async () => {
     if (group === 'desktop_updates' && desktopValidationError) { setMessage({ kind: 'error', text: desktopValidationError }); return; }
+    if (invalidJsonPaths.size > 0) { setMessage({ kind: 'error', text: t('请先修正标出的 JSON 格式。') }); return; }
     const beforeGroup = structuredClone(data.config?.[group] || {});
     const afterGroup = structuredClone(draft[group] || {});
     const maxTokensValue = Number(draft.llm?.max_tokens);
@@ -749,6 +847,11 @@ function Settings() {
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+        if (path === 'agent.bubble_handoff_transparency_participant_matches') return <Fragment key={key}>
+          <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>
+          <StringListEditor label={CONFIG_LABELS[path]} hint="支持完整 participant_id 和 glob（例如 weixin:*）。留空表示不按 participant 匹配。" value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} placeholder="weixin:*" />
+        </Fragment>;
+        if (path === 'agent.bubble_handoff_transparency_stream_transports') return <TransportListEditor key={key} value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} />;
         if (data.secret_status[path]) {
           const status = data.secret_status[path];
           const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
@@ -773,10 +876,10 @@ function Settings() {
           return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
         }
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
-        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><textarea className="code-area compact" value={JSON.stringify(value, null, 2)} onChange={e => { try { change(key, JSON.parse(e.target.value)); } catch { /* keep last valid */ } }} /></Field>;
+        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><button className="primary" disabled={group === 'desktop_updates' && !!desktopValidationError} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setMessage(null); }}>{t('重置本页')}</button></div></>}
+      <div className="panel-actions"><button className="primary" disabled={(group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" onClick={() => { setDraft(structuredClone(data.config)); setSecretInputs({}); setInvalidJsonPaths(new Set()); setMessage(null); }}>{t('重置本页')}</button></div></>}
     </Panel>
   </div>;
 }

@@ -299,6 +299,7 @@ class TestBubbleHandoff:
         assert not unconfigured.matches(local)
         assert not unconfigured.matches("web-client", stream_transport="websocket")
         assert configured.matches("wecom:alice")
+        assert configured.matches("weixin:bot-1")
         assert configured.matches(local)
         assert configured.matches("web-client", stream_transport="websocket")
         assert configured.matches("sse-client", stream_transport="sse")
@@ -799,7 +800,11 @@ class TestBubbleMiniLoop:
 
     @pytest.mark.parametrize(
         "participant_id",
-        ["wecom:alice", "coworker-desktop:desk:local:cw_default:abcd1234"],
+        [
+            "wecom:alice",
+            "weixin:bot-1",
+            "coworker-desktop:desk:local:cw_default:abcd1234",
+        ],
     )
     @pytest.mark.parametrize(("resume_count", "resumed"), [(0, False), (1, True)])
     async def test_transparent_bound_bubble_starts_handoff_on_first_reply(
