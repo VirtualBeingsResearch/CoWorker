@@ -31,7 +31,7 @@ dependencies = [
     "pillow>=10.0",
     "requests>=2.31",
     "python-jenkins>=1.8",
-    "python-multipart>=0.0.9",
+    "python-multipart>=0.0.32",
     "spacy==3.8.13",
     "en-core-web-sm>=3.8.0",
 ]
