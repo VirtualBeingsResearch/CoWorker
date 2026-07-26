@@ -187,7 +187,7 @@ macOS 正式分发需要 Developer ID 签名和 notarization；Linux 打包需�
 
 版本准备 PR 合并后，从默认分支手动运行 `.github/workflows/draft-release.yml` 中的 `Build CoWorker Release Draft`：输入 `vX.Y.Z` tag，并按需选择是否尝试 macOS 公证。流程会先确认 tag 与 `VERSION` 一致且正式 tag 尚不存在，再构建三平台桌面产物，并用 `release-candidate-vX.Y.Z` 临时候选 tag 创建 Release 草稿。该候选 tag 只标识可修订草稿；它不匹配正式发布使用的 `v*` tag 规则，也不会用于容器镜像或稳定版本。
 
-如果草稿审核期间发现问题，先将修复合入 `main`，然后用同一 tag 重跑 `Build CoWorker Release Draft`。流程会刷新自动生成的说明、目标 commit 和全部草稿资产；已经存在正式 tag 或已经公开的 Release 时会拒绝修改。草稿包含 Windows EXE、两架构 macOS dmg、Linux AppImage/deb、各平台 updater 与签名，以及覆盖全部文件的 `SHA256SUMS.txt`。
+如果草稿审核期间发现问题，先将修复合入 `main`，然后用同一 tag 重跑 `Build CoWorker Release Draft`。流程会从最近一个已公开的 Release（忽略被跳过的 tag 和仍为草稿的 Release）开始刷新自动生成的说明，并同步目标 commit 和全部草稿资产；已经存在正式 tag 或已经公开的 Release 时会拒绝修改。草稿包含 Windows EXE、两架构 macOS dmg、Linux AppImage/deb、各平台 updater 与签名，以及覆盖全部文件的 `SHA256SUMS.txt`。
 
 草稿确认无误后，从默认分支运行 `.github/workflows/release.yml` 中的 `Publish CoWorker Release`。流程只在候选 tag 仍指向当前 `main` commit、候选构建已完整上传 12 个附件时创建不可变的正式 tag，把草稿切换到正式 tag 并公开，删除临时候选 tag，创建 changelog finalization PR，并开始推送容器镜像；桌面安装包不会在此阶段重新构建。发布后重跑只接受指向同一 commit 的 tag；直接推送 `v*` tag 的兼容流程仍然可用，但它会立即进入不可修订的正式 tag 构建，不提供候选草稿阶段。
 
