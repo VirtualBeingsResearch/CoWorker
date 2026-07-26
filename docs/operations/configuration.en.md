@@ -14,7 +14,14 @@ configuration.
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
 environment variables. `data/model_runtime_config.json` overrides only the summary, fallbacks, and
 vision settings changed at runtime. When a container or service manager injects environment
-variables, make sure the working directory does not contain conflicting `.env` values.
+variables, make sure the working directory does not contain conflicting `.env` values. The
+administration page writes only fields that differ from inherited configuration to
+`admin_config.json`; saving removes overrides restored to their `.env` or product-default value.
+An explicit empty list remains an override when it differs from the inherited value. Unchanged
+defaults therefore evolve with the product instead of being frozen merely by opening or saving a
+whole settings group. Startup also normalizes an existing override file with an atomic write:
+inherited values from old snapshots are removed while custom values, secrets, and explicit
+overrides remain intact.
 
 Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 

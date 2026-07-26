@@ -795,7 +795,9 @@ function Settings() {
     }
     try {
       const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v !== ''));
-      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { [group]: afterGroup }, secrets }) });
+      const changedFields = changedConfigFields(beforeGroup, afterGroup);
+      const changes = Object.keys(changedFields).length > 0 ? { [group]: changedFields } : {};
+      const result = await api<Json>('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes, secrets }) });
       const hotCount = result.applied_now?.length || 0; const restartCount = result.requires_restart?.length || 0;
       const savedMessage = hotCount && restartCount
         ? t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', { hot: hotCount, restart: restartCount })
@@ -885,6 +887,10 @@ function Settings() {
 }
 
 function humanize(text: string) { return text.replace(/_/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase()); }
+
+function changedConfigFields(before: Json, after: Json): Json {
+  return Object.fromEntries(Object.entries(after).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(before[key])));
+}
 
 const TASK_STATUS: Record<string, string> = { pending: '待处理', in_progress: '进行中', completed: '已完成' };
 

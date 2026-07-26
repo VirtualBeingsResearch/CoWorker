@@ -467,6 +467,52 @@ def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]
     return evolved
 
 
+def _remove_inherited_values(
+    overrides: dict[str, Any],
+    inherited: dict[str, Any],
+) -> dict[str, Any]:
+    sparse: dict[str, Any] = {}
+    for key, value in overrides.items():
+        inherited_value = inherited.get(key)
+        if isinstance(value, dict) and isinstance(inherited_value, dict):
+            nested = _remove_inherited_values(value, inherited_value)
+            if nested:
+                sparse[key] = nested
+        elif key not in inherited or value != inherited_value:
+            sparse[key] = value
+    return sparse
+
+
+def sparse_admin_overrides(
+    overrides: dict[str, Any],
+    inherited: Config,
+) -> dict[str, Any]:
+    return _remove_inherited_values(overrides, inherited.model_dump(mode="json"))
+
+
+def write_admin_overrides(path: str | Path, overrides: dict[str, Any]) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(overrides, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(destination)
+    if os.name != "nt":
+        destination.chmod(0o600)
+
+
+def normalize_admin_overrides_file(inherited: Config) -> bool:
+    path = Path(inherited.admin.config_file)
+    overrides = load_admin_overrides(path)
+    sparse = sparse_admin_overrides(overrides, inherited)
+    if sparse == overrides:
+        return False
+    write_admin_overrides(path, sparse)
+    return True
+
+
 def apply_admin_config_file(config: Config) -> Config:
     """以最高静态优先级应用管理页持久化的 typed JSON 覆盖。"""
 
@@ -505,11 +551,6 @@ def ensure_admin_token(config: Config) -> str | None:
     path = Path(config.admin.config_file)
     overrides = load_admin_overrides(path)
     updated = _deep_merge(overrides, {"admin": {"token": token}})
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
-    if os.name != "nt":
-        path.chmod(0o600)
+    write_admin_overrides(path, updated)
     config.admin.token = token
     return token

@@ -48,6 +48,7 @@ from coworker.core.config import (
     effective_admin_token,
     effective_communication_token,
     ensure_admin_token,
+    normalize_admin_overrides_file,
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
@@ -282,11 +283,17 @@ def _register_providers(brain: Brain, config: Config) -> None:
             logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 
-def _load_config() -> Config:
-    config = apply_admin_config_file(Config())
+def _load_config_layers() -> tuple[Config, Config]:
+    inherited = Config()
+    normalize_admin_overrides_file(inherited)
+    config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
     apply_runtime_model_config_file(config.llm)
-    return config
+    return inherited, config
+
+
+def _load_config() -> Config:
+    return _load_config_layers()[1]
 
 
 async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
@@ -432,7 +439,7 @@ def _print_setup_admin_token(config: Config) -> None:
 
 async def _main() -> bool:
     """主入口。返回 True 表示请求重启，由 run_sync() 交给平台 launcher 处理。"""
-    config = _load_config()
+    inherited_config, config = _load_config_layers()
     _setup_logging(config.agent.logs_dir)
     ensure_admin_token(config)
     logger.info("Starting coworker")
@@ -942,6 +949,7 @@ async def _main() -> bool:
         mode_loader=mode_loader,
         desktop_update_sync=desktop_update_sync,
         wecom_runner=wecom_runner,
+        inherited_config=inherited_config,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(

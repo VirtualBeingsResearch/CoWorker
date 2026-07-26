@@ -25,7 +25,14 @@ from coworker.agent.bubble_log_index import (
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.core.config import Config, _deep_merge, effective_admin_token, load_admin_overrides
+from coworker.core.config import (
+    Config,
+    _deep_merge,
+    effective_admin_token,
+    load_admin_overrides,
+    sparse_admin_overrides,
+    write_admin_overrides,
+)
 from coworker.core.startup_intent import (
     clear_startup_intent,
     write_bootstrap_startup_intent,
@@ -59,6 +66,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 _agent: AgentLoop | None = None
 _brain: Brain | None = None
 _config: Config | None = None
+_inherited_config: Config | None = None
 _alarms: AlarmManager | None = None
 _skill_loader: SkillLoader | None = None
 _palace_loader: PalaceLoader | None = None
@@ -203,11 +211,13 @@ def setup_admin(
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
     wecom_runner: WeComRunner | None = None,
+    inherited_config: Config | None = None,
 ) -> None:
     global \
         _agent, \
         _brain, \
         _config, \
+        _inherited_config, \
         _alarms, \
         _skill_loader, \
         _palace_loader, \
@@ -219,6 +229,7 @@ def setup_admin(
     _agent = agent
     _brain = brain
     _config = config
+    _inherited_config = (inherited_config or config).model_copy(deep=True)
     _alarms = alarm_manager
     _skill_loader = skill_loader
     _palace_loader = palace_loader
@@ -250,6 +261,12 @@ def _require_config() -> Config:
     if _config is None:
         raise HTTPException(status_code=503, detail=tr("api.state.config_not_ready"))
     return _config
+
+
+def _require_inherited_config() -> Config:
+    if _inherited_config is None:
+        raise HTTPException(status_code=503, detail=tr("api.state.config_not_ready"))
+    return _inherited_config
 
 
 def _require_alarms() -> AlarmManager:
@@ -484,10 +501,22 @@ def _delete_removed_source_tokens(overrides: JsonObject, valid_ids: set[str]) ->
 
 
 def _write_json_atomic(path: Path, payload: JsonObject) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    write_admin_overrides(path, payload)
+
+
+def _merge_override_fields(overrides: JsonObject, changes: JsonObject) -> JsonObject:
+    merged = dict(overrides)
+    for section, section_changes in changes.items():
+        current_section = merged.get(section)
+        if isinstance(current_section, dict) and isinstance(section_changes, dict):
+            merged[section] = {**current_section, **section_changes}
+        else:
+            merged[section] = section_changes
+    return merged
+
+
+def _sparse_admin_overrides(overrides: JsonObject) -> JsonObject:
+    return cast(JsonObject, sparse_admin_overrides(overrides, _require_inherited_config()))
 
 
 class SecretStatus(TypedDict):
@@ -498,7 +527,7 @@ class SecretStatus(TypedDict):
 def _masked_config() -> tuple[JsonObject, dict[str, SecretStatus], list[JsonObject]]:
     config = _require_config()
     desired_data = _deep_merge(
-        config.model_dump(mode="json"),
+        _require_inherited_config().model_dump(mode="json"),
         load_admin_overrides(config.admin.config_file),
     )
     desired = Config.model_validate(desired_data)
@@ -1198,7 +1227,7 @@ async def complete_bootstrap(
             "i18n": {"locale": locale},
             "agent": {"passive_mode": payload.passive_mode},
         }
-        next_overrides = _deep_merge(current_overrides, changes)
+        next_overrides = _merge_override_fields(current_overrides, changes)
         try:
             Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
         except ValidationError as e:
@@ -1219,7 +1248,7 @@ async def complete_bootstrap(
             model=model,
         )
         try:
-            _write_json_atomic(path, next_overrides)
+            _write_json_atomic(path, _sparse_admin_overrides(next_overrides))
         except Exception:
             clear_startup_intent(config.memory.db_path)
             raise
@@ -1370,7 +1399,7 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
     for secret_path in _SECRET_PATHS:
         _remove_path(safe_changes, secret_path)
     _remove_source_tokens(safe_changes)
-    next_overrides = _deep_merge(current_overrides, safe_changes)
+    next_overrides = _merge_override_fields(current_overrides, safe_changes)
     effective: JsonObject = config.model_dump(mode="json")
     explicit_source_secret_ids: set[str] = set()
 
@@ -1450,7 +1479,7 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
             status_code=400,
             detail=tr("api.admin.runtime_apply_failed", error=e),
         ) from e
-    _write_json_atomic(path, next_overrides)
+    _write_json_atomic(path, _sparse_admin_overrides(next_overrides))
     _pending_restart = _pending_restart or bool(requires_restart)
     if request is not None:
         _audit(
