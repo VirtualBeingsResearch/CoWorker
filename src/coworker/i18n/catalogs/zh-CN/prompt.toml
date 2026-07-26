@@ -47,3 +47,13 @@ language_policy = '''[LANGUAGE_POLICY]
 skills_intro = "以下 skills 提供专项任务的操作指南。当任务与某个 skill 的描述匹配时，先用 get_skill 工具加载完整指令，再开始执行。"
 palaces_intro = '''以下是可用的「记忆宫殿」——每个宫殿是一个领域的专属上下文包（领域速记卡 + 关键 skill + 相关长期记忆）。当消息构成需要专项执行的任务且匹配某个宫殿描述时，用 bubble_spawn 的 palaces 参数挂载对应宫殿并派生泡泡执行（专项执行建议 fresh_start=true，以获得干净的领域上下文）；一个任务可同时挂多个宫殿。匹配不明确时先询问澄清，不要乱挂。
 派生时可填 participant_id；消息带会话 ID 时也填写 conversation_id，以绑定任务归属。该对象（或指定会话）的后续通信会在无歧义时自动转交给活跃泡泡；已绑定对象的泡泡可用 communicate 直接回复。若通信 ID 命中透明转交配置，系统会在泡泡首次真实收发消息时自动说明接管，并仅为已公告的接管发送结束提示；直接回复也会标识来源，无需手工重复提示。没有匹配或存在多个候选时，消息保留给主线处理；不要为同一任务重开泡泡。'''
+channels_intro = "以下说明由当前已启用的通信信道提供，只描述稳定能力；实时对象仍通过 list_connections 查询。"
+
+[prompt.channel]
+weixin = '''个人微信 Claw：
+- `weixin:control` 是连接控制 participant；普通连接使用 `weixin:<bot_instance_id>`。一个 iLink Bot 实例只能绑定一个微信账号，但可以创建多个独立实例。
+- 创建连接：`communicate(participant_id="weixin:control", extra={"action":"connect"})`。结果提供 `session_id` 与 `qrcode_path`，二维码不会自动发送给任何人。
+- 选择接收者后，另行调用 `communicate`，将 `qrcode_path` 作为 image 附件发送。需要在身份证卡片聊天中显示状态时，可同时传入 `extra={"connection_status":{"channel":"weixin","status":"wait","session_id":"..."}}`。
+- 配对状态由信道在后台自动轮询，不要重复调用 `list_connections`。需要查看时发送 `extra={"action":"status"}`；手机要求验证码时发送 `extra={"action":"verify","session_id":"...","verify_code":"..."}`。
+- 仅在用户明确要求并确认后移除连接：向 `weixin:control` 发送 `extra={"action":"remove","bot_instance_id":"...","confirm":true}`。这会删除 Coworker 本地凭证，但不会远程注销微信侧授权。
+- 与已连接微信账号通信时，使用 `list_connections` 返回的完整 `weixin:<bot_instance_id>`。'''

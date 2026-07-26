@@ -1,57 +1,54 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from coworker.channels.base import (
     BaseChannel,
+    ChannelCapabilities,
     ConnectionInfo,
     InboundHandler,
-    PreparedOutbound,
 )
+from coworker.channels.weixin.connections import WeixinConnectionManager
 from coworker.channels.weixin.runner import WeixinRunner
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
+CONTROL_PARTICIPANT_ID = "weixin:control"
+
+if TYPE_CHECKING:
+    from coworker.channels.runtime import ChannelRuntime
+
 
 class WeixinChannel(BaseChannel):
-    """Personal-Weixin ClawBot channel using participant IDs prefixed by ``weixin:``."""
+    """Personal-Weixin ClawBot communication and connection control."""
 
     name = "weixin"
     participant_prefix = "weixin:"
     requires_known_participant = True
 
-    def __init__(self, runner: WeixinRunner) -> None:
-        super().__init__(runtime=runner)
+    def __init__(
+        self,
+        runtime: ChannelRuntime,
+        runner: WeixinRunner,
+        connections: WeixinConnectionManager,
+    ) -> None:
+        super().__init__(runtime=runtime)
         self._runner = runner
+        self._connections = connections
 
     def resolve(self, participant_id: str) -> str | None:
         return self._runner.resolve_participant(participant_id)
 
-    async def prepare_action(
-        self,
-        request: CommunicateRequest,
-        recipient: ConnectionInfo | None,
-    ) -> PreparedOutbound | ToolResult:
-        raw_action = request.extra.get("channel_action")
-        action = raw_action if isinstance(raw_action, dict) else {}
-        operation = str(action.get("type") or "")
-        if operation == "connect":
-            return await self._prepare_connect(request, recipient)
-        if operation == "poll":
-            return await self._prepare_poll(request, action)
-        return self._action_error(
-            tr("tool_result.communicate.channel_action_operation", operation=operation)
-        )
-
     async def send(self, request: CommunicateRequest) -> ToolResult:
+        if request.participant_id == CONTROL_PARTICIPANT_ID:
+            return await self._control(request.extra)
+        if not request.message.strip():
+            return self._error(tr("tool_result.communicate.message_empty"))
         try:
             await self._runner.send(request.participant_id, request.message)
         except Exception as error:
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.communicate.weixin_failed", error=error),
-                is_error=True,
+            return self._error(
+                tr("tool_result.communicate.weixin_failed", error=error)
             )
         return ToolResult(
             tool_call_id="",
@@ -61,132 +58,155 @@ class WeixinChannel(BaseChannel):
             ),
         )
 
+    def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
+        return ChannelCapabilities(extra=participant_id == CONTROL_PARTICIPANT_ID)
+
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
         self._runner.set_inbound_handler(handler)
 
     def list_connections(self) -> list[ConnectionInfo]:
-        connections: list[ConnectionInfo] = []
+        connections = [
+            ConnectionInfo(
+                participant_id=CONTROL_PARTICIPANT_ID,
+                channel=self.name,
+                kind="weixin:control",
+                display_name=tr("channel.weixin.control_name"),
+                active=True,
+            )
+        ]
         for participant_id in self._runner.participant_ids():
             sent_at, received_at = self._runner.activity_for(participant_id)
-            account_id = participant_id.split(":", maxsplit=2)[1]
+            bot_instance_id = participant_id.removeprefix("weixin:")
             connections.append(
                 ConnectionInfo(
                     participant_id=participant_id,
                     channel=self.name,
                     kind="weixin:direct",
-                    active=self._runner.is_account_active(account_id),
+                    display_name=self._runner.instance_name(bot_instance_id),
+                    active=self._runner.is_instance_active(bot_instance_id),
                     last_sent_at=sent_at,
                     last_received_at=received_at,
                 )
             )
         return connections
 
-    async def _prepare_connect(
-        self,
-        request: CommunicateRequest,
-        recipient: ConnectionInfo | None,
-    ) -> PreparedOutbound | ToolResult:
-        if recipient is None or "group" in recipient.kind:
-            return self._action_error(
-                tr("tool_result.communicate.channel_action_private")
-            )
-        try:
-            login = await self._runner.start_login()
-        except Exception as error:
-            return self._action_error(
-                tr("tool_result.communicate.channel_action_failed", error=error)
-            )
-        message = "\n\n".join(
-            part
-            for part in (
-                request.message.strip(),
-                tr(
-                    "channel.weixin.connection_invitation",
-                    url=login["qrcode_content"],
-                ),
-            )
-            if part
+    def agent_instructions(self) -> str:
+        return tr("prompt.channel.weixin")
+
+    async def _control(self, extra: dict[str, Any]) -> ToolResult:
+        action = str(extra.get("action") or "").strip()
+        if action == "connect":
+            return await self._connect()
+        if action == "status":
+            return self._status()
+        if action == "verify":
+            return await self._verify(extra)
+        if action == "remove":
+            return await self._remove(extra)
+        return self._error(
+            tr("tool_result.communicate.weixin_control_action", action=action)
         )
-        return PreparedOutbound(
-            request=replace(
-                request,
-                message=message,
-                attachments=[
-                    *request.attachments,
-                    {"type": "image", "path": login["qrcode_path"]},
-                ],
-                extra={
-                    **request.extra,
-                    "channel_action": {
-                        "channel": self.name,
-                        "type": "connection",
-                        "status": "waiting",
-                        "session_id": login["session_id"],
-                    },
-                },
-            ),
-            result_note=tr(
-                "tool_result.communicate.channel_action_started",
+
+    async def _connect(self) -> ToolResult:
+        try:
+            login = await self._connections.start_pairing()
+        except Exception as error:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_failed", error=error)
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.weixin_control_started",
                 session=login["session_id"],
+                path=login["qrcode_path"],
+                status=login["status"],
             ),
         )
 
-    async def _prepare_poll(
-        self,
-        request: CommunicateRequest,
-        action: dict[str, Any],
-    ) -> PreparedOutbound | ToolResult:
-        session_id = str(action.get("session_id") or "")
-        if not session_id:
-            return self._action_error(
-                tr("tool_result.communicate.channel_action_session")
-            )
-        try:
-            result = await self._runner.poll_login(
-                session_id,
-                str(action.get("verify_code") or ""),
-            )
-        except Exception as error:
-            return self._action_error(
-                tr("tool_result.communicate.channel_action_failed", error=error)
-            )
-        status = str(result["status"])
-        credentials = result.get("credentials")
-        if credentials is not None:
-            from coworker.api.admin import persist_weixin_credentials
-
-            account_id, _ = await persist_weixin_credentials(credentials)
-            status = "confirmed"
-            message = tr(
-                "channel.weixin.connection_confirmed",
-                account=account_id,
+    def _status(self) -> ToolResult:
+        result = self._connections.current_pairing()
+        if result is None:
+            return self._error(tr("tool_result.communicate.weixin_control_no_pairing"))
+        participant_id = result.get("participant_id")
+        if participant_id:
+            content = tr(
+                "tool_result.communicate.weixin_control_confirmed",
+                session=result["session_id"],
+                participant=participant_id,
             )
         else:
-            message = tr("channel.weixin.connection_status", status=status)
-        return PreparedOutbound(
-            request=replace(
-                request,
-                message="\n\n".join(
-                    part for part in (request.message.strip(), message) if part
-                ),
-                extra={
-                    **request.extra,
-                    "channel_action": {
-                        "channel": self.name,
-                        "type": "connection",
-                        "status": status,
-                        "session_id": session_id,
-                    },
-                },
-            ),
-            result_note=tr(
-                "tool_result.communicate.channel_action_status",
-                status=status,
+            content = tr(
+                "tool_result.communicate.weixin_control_status",
+                session=result["session_id"],
+                status=result["status"],
+            )
+        return ToolResult(tool_call_id="", content=content)
+
+    async def _verify(self, extra: dict[str, Any]) -> ToolResult:
+        session_id = str(extra.get("session_id") or "").strip()
+        if not session_id:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_session")
+            )
+        verify_code = str(extra.get("verify_code") or "").strip()
+        if not verify_code:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_verify_code")
+            )
+        try:
+            result = await self._connections.submit_verification(
+                session_id,
+                verify_code,
+            )
+        except Exception as error:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_failed", error=error)
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.weixin_control_status",
                 session=session_id,
+                status=result["status"],
+            ),
+        )
+
+    async def _remove(self, extra: dict[str, Any]) -> ToolResult:
+        bot_instance_id = str(extra.get("bot_instance_id") or "").strip()
+        if not bot_instance_id:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_instance")
+            )
+        if extra.get("confirm") is not True:
+            return self._error(
+                tr(
+                    "tool_result.communicate.weixin_control_confirm_remove",
+                    instance=bot_instance_id,
+                )
+            )
+        try:
+            removed = await self._connections.remove(bot_instance_id)
+        except Exception as error:
+            return self._error(
+                tr("tool_result.communicate.weixin_control_failed", error=error)
+            )
+        if not removed:
+            return self._error(
+                tr(
+                    "tool_result.communicate.weixin_control_unknown_instance",
+                    instance=bot_instance_id,
+                )
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.weixin_control_removed",
+                instance=bot_instance_id,
             ),
         )
 
     @staticmethod
-    def _action_error(content: str) -> ToolResult:
+    def _error(content: str) -> ToolResult:
         return ToolResult(tool_call_id="", content=content, is_error=True)

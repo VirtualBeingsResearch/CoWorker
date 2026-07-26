@@ -4,31 +4,99 @@
 
 [← 返回通信与客户端](README.md)
 
-微信 Claw 信道通过腾讯个人微信 iLink ClawBot 接口连接 Coworker。它不同于企业微信智能机器人：每个个人微信账号通过二维码授权，并由独立的长轮询任务收发私聊消息。
+微信 Claw 信道通过腾讯个人微信 iLink ClawBot 接口连接 Coworker。它不同于企业微信智能机器人：一个 iLink Bot 实例只能绑定一个个人微信账号，并由独立的长轮询任务收发消息；同一个 Coworker 可以创建多个彼此独立的 Bot 实例。
 
-## 添加和管理账号
+## Participant 与连接
 
-在 `/admin` 打开「微信 Claw」，启用信道后点击「扫码连接微信」。管理页会在本地生成并显示真正的二维码 PNG，扫码确认后凭据写入管理员覆盖配置并立即热加载，无需重启。可以重复扫码添加多个账号，并在同一页面重命名、停用或移除各账号。
-
-每个账号拥有稳定 UUID。参与者 ID 格式为：
+每个已绑定的 Bot 实例对应一个通信 participant：
 
 ```text
-weixin:<account_uuid>:<weixin_user_id>
+weixin:<bot_instance_id>
 ```
 
-因此同一个联系人即使出现在两个绑定账号中，其上下文、游标和回复路由也不会混淆。Token 会在管理 API 响应中遮蔽，并只保存在管理员配置文件中。
+微信侧用户 ID、凭据、游标和 context token 都属于该实例的内部协议状态，不进入 participant ID。`list_connections` 还会列出固定的管理入口：
 
-## 由搭档发起扫码邀请
+```text
+weixin:control
+```
 
-当已知的私聊用户明确要求接入微信 Claw 时，搭档仍使用通用 `communicate`，在 `extra.channel_action` 中传入 `{"channel":"weixin","type":"connect"}`：
+`ConnectionInfo.kind` 分别为 `weixin:direct` 与 `weixin:control`，无需额外的 participant role。
 
-1. Channel Action Registry 为指定的已知 `participant_id` 生成一次性二维码；
-2. Coworker 把二维码 PNG 附件和备用链接定向发送到该私聊，并在工具结果中返回连接 `session_id`；
-3. 再次使用 `communicate`，传入 `{"channel":"weixin","type":"poll","session_id":"..."}` 查询扫码结果；手机要求数字时同时传 `verify_code`；
-4. 扫码者从微信发出第一条消息后，系统为这段微信联系人关系产生新的 `weixin:*` participant，搭档再自行确认和组织它与既有联系人的关系。
+## 由搭档管理连接
 
-二维码的接收 `participant_id` 只决定邀请投递到哪里，不会与新 ClawBot 或后来产生的微信 participant 建立底层绑定。微信连接不是独立模型工具，而是可注册的通用信道动作；后端拒绝把连接卡片发送到群聊。管理员仍可独立在管理页完成扫码。是否发起邀请、以及如何识别和维护新旧联系人关系，都由搭档根据对话决定。
+微信连接没有独立模型工具。信道启用时会向系统 Prompt 注入简短操作说明，搭档继续使用通用 `communicate`。
 
-当前微信 Claw 入站会提取文本和语音转写；图片、文件和视频以本地化占位说明交给 Agent。出站目前发送文本；二维码图片借助发起邀请所在信道的附件能力发送，若该信道不支持附件，用户仍会收到备用链接。
+创建配对会话：
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {"action": "connect"}
+}
+```
+
+结果返回 `session_id` 和本地 `qrcode_path`。二维码不会自动发送给任何 participant；搭档根据当前对话选择接收者，再使用普通 `communicate` 将该路径作为 `image` 附件发送。需要让身份证卡片页面的 ChatDock 显示连接状态时，可以同时携带纯展示元数据：
+
+```json
+{
+  "connection_status": {
+    "channel": "weixin",
+    "status": "wait",
+    "session_id": "..."
+  }
+}
+```
+
+配对状态由微信信道在后台自动轮询，搭档不需要反复调用工具或
+`list_connections`。需要主动查看当前状态时：
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {"action": "status"}
+}
+```
+
+手机要求验证码时，再发送：
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {
+    "action": "verify",
+    "session_id": "...",
+    "verify_code": "手机显示的数字"
+  }
+}
+```
+
+确认后会得到新的 `weixin:<bot_instance_id>`。二维码接收者与新连接没有底层绑定，搭档自行组织它们之间的联系人关系。
+
+仅在用户明确要求并确认后移除本地连接：
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {
+    "action": "remove",
+    "bot_instance_id": "...",
+    "confirm": true
+  }
+}
+```
+
+移除会停止轮询并删除 Coworker 本地凭据和运行状态，但不会远程注销微信侧授权，也不会删除既有聊天记录。
+
+## 管理页面与运行行为
+
+在 `/admin` 打开「微信 Claw」也可以扫码添加、重命名、停用或移除实例。前端通过通用的
+`/api/admin/channels/{channel}/management` 接口访问模块贡献的能力，Admin 后端不理解微信命令。未结束的配对会话由后端维护；离开再返回设置页时，页面会恢复二维码和当前状态。配对会话是临时状态，Coworker 进程重启后不会恢复。
+
+已绑定实例保存在 `MEMORY__DB_PATH/weixin_connections.json`，不属于
+`admin_config.json` 设置。正常空轮询和管理页状态查询只记录为 DEBUG。首次消息轮询故障记录 WARNING，重复重试降为 DEBUG，恢复时记录一次 INFO；鉴权或协议错误仍保持可见。日志不会记录 token、二维码内容、context token 或消息正文。
+
+身份证卡片页面的 ChatDock 会把二维码作为聊天展示数据保存在 localStorage，因此切换页面后仍能恢复，不要求终端聊天接口维护额外的二维码资源。
+
+当前微信 Claw 入站会提取文本和语音转写；图片、文件和视频以本地化占位说明交给 Agent。普通出站目前发送文本。
 
 协议兼容以腾讯的 [openclaw-weixin](https://github.com/Tencent/openclaw-weixin) 实现为参考。

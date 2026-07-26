@@ -7,7 +7,7 @@ task_store_not_ready = "任务存储尚未就绪"
 bubble_store_not_ready = "Bubble 存储尚未就绪"
 channel_runtime_not_ready = "通信运行时尚未就绪"
 desktop_update_sync_not_ready = "桌面更新同步服务尚未就绪"
-weixin_runtime_not_ready = "个人微信信道运行时尚未就绪"
+channel_modules_not_ready = "信道模块管理接口尚未就绪"
 loader_not_ready = "{{kind}} loader 尚未就绪"
 
 [api.auth]
@@ -62,7 +62,8 @@ detail_log_unavailable = "该条历史未保留详细日志，当前显示内存
 nested_truncated = "…（嵌套内容已截断）"
 field_truncated = "…（字段已截断）"
 more_fields_truncated = "更多字段已截断"
-weixin_login_failed = "微信扫码连接失败：{{error}}"
+channel_management_missing = "信道 {{channel}} 没有提供管理接口"
+channel_management_failed = "信道管理操作失败：{{error}}"
 
 [api.backfill]
 log_store_unconfigured = "未配置原始日志寻址层，无法回溯"

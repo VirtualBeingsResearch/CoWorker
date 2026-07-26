@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,11 +12,11 @@ from coworker.channels.base import (
     ChannelCapabilities,
     ConnectionInfo,
     ParticipantIdResolutionError,
-    PreparedOutbound,
 )
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamProfile
 from coworker.channels.system import create_channel_system
+from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import locale_context
 
@@ -94,27 +95,6 @@ class _MinimalChannel(BaseChannel):
         return ToolResult(tool_call_id="", content=request.message)
 
 
-class _ActionChannel(_MinimalChannel):
-    name = "demo"
-    participant_prefix = "demo:"
-
-    async def prepare_action(
-        self,
-        request: CommunicateRequest,
-        recipient: ConnectionInfo | None,
-    ) -> PreparedOutbound:
-        assert recipient is not None
-        return PreparedOutbound(
-            CommunicateRequest(
-                participant_id=request.participant_id,
-                message="prepared",
-                attachments=[{"type": "image", "path": "code.png"}],
-                extra={"channel_action": {"channel": self.name, "status": "waiting"}},
-            ),
-            result_note="session=session-1",
-        )
-
-
 class _FailingRuntimeChannel(_MinimalChannel):
     def __init__(
         self,
@@ -163,6 +143,43 @@ class _FakeStreamProfile(StreamProfile):
                 last_received_at=received_at,
             )
         ]
+
+
+def test_channel_system_installs_transport_management_and_settings_together(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+    channel = _MinimalChannel()
+    management = SimpleNamespace()
+    settings = SimpleNamespace(config_key="sample")
+
+    system.install(
+        SimpleNamespace(
+            name="minimal",
+            channel=channel,
+            management=management,
+            settings=settings,
+        )
+    )
+
+    assert system.registry.resolve_participant_id("minimal:user") == "minimal:user"
+    assert system.modules.management_for("minimal") is management
+    assert system.modules.settings_for("minimal") is settings
+
+
+def test_channel_module_validation_prevents_partial_install(tmp_path) -> None:
+    system = create_channel_system(tmp_path / "outbox")
+
+    with pytest.raises(RegistrationError, match="does not match"):
+        system.install(
+            SimpleNamespace(
+                name="other",
+                channel=_MinimalChannel(),
+                management=None,
+                settings=None,
+            )
+        )
+
+    assert system.modules.names() == []
+    assert all(channel.name != "minimal" for channel in system.registry._channels)  # noqa: SLF001
 
 
 async def test_missing_channel_returns_actionable_localized_error() -> None:
@@ -308,33 +325,6 @@ async def test_prefix_match_bypasses_resolver(registry: ChannelRegistry) -> None
     await registry.send(CommunicateRequest(participant_id="channel:alice", message="hi"))
 
     assert channel.sent[0].participant_id == "channel:alice"
-
-
-@pytest.mark.asyncio
-async def test_registered_channel_handles_its_action_before_delivery(
-    registry: ChannelRegistry,
-) -> None:
-    delivery_channel = _FakeChannel(
-        "stream",
-        "",
-        supports_extra=True,
-        live=("person-1",),
-        requires_known_participant=True,
-    )
-    registry.register(delivery_channel)
-    registry.register(_ActionChannel())
-
-    result = await registry.send(
-        CommunicateRequest(
-            participant_id="person-1",
-            extra={"channel_action": {"channel": "demo", "type": "connect"}},
-        )
-    )
-
-    assert not result.is_error
-    assert delivery_channel.sent[0].message == "prepared"
-    assert delivery_channel.sent[0].attachments[0]["path"] == "code.png"
-    assert "session=session-1" in result.content
 
 
 @pytest.mark.asyncio
@@ -498,6 +488,22 @@ def test_list_connections_aggregates_across_channels(registry: ChannelRegistry) 
 
     assert [connection.participant_id for connection in connections] == ["a"]
     assert connections[0].channel == "stream"
+
+
+def test_agent_instructions_include_only_contributing_channels(
+    registry: ChannelRegistry,
+) -> None:
+    class InstructedChannel(_MinimalChannel):
+        name = "instructed"
+        participant_prefix = "instructed:"
+
+        def agent_instructions(self) -> str:
+            return "Use instructed:control."
+
+    registry.register(_MinimalChannel())
+    registry.register(InstructedChannel())
+
+    assert registry.agent_instructions() == ["Use instructed:control."]
 
 
 @pytest.mark.asyncio

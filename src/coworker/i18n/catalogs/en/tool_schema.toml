@@ -141,7 +141,7 @@ participant_id = "Recipient ID."
 message = "Message content to send."
 conversation_id = "Conversation ID under the same participant_id."
 attachments = "Optional attachments; exact support depends on the destination channel."
-extra = "Low-frequency channel extensions. To offer a Weixin connection in a known private chat, use channel_action={channel='weixin', type='connect'}. To check it, use type='poll' with the returned session_id and optional verify_code."
+extra = "Low-frequency channel extensions whose fields and semantics are defined by the destination channel selected by participant_id."
 
 "attachments.item.type" = "Attachment type: image or file."
 "attachments.item.filename" = "Optional display filename; defaults to the filename from path."

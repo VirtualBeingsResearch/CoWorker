@@ -13,13 +13,21 @@
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
 - `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
 - `activity`：记录 participant 最近成功发送与接收时间。传入 `activity_path` 时使用原子 JSON 持久化，应用重启后仍可恢复。
+- `modules`：保存完整信道模块贡献的管理接口和热设置应用器。
 
-新增独立传输时继承 `BaseChannel` 并调用 `channel_system.registry.register(channel)`。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
+新增独立传输时继承 `BaseChannel`。只需要传输时可调用
+`channel_system.registry.register(channel)`；同时拥有连接管理或热设置时，应实现
+`ChannelModule` 并调用 `channel_system.install(module)`，一次注册 transport、可选
+`ChannelManagement` 和可选 `ChannelSettings`。Admin 只通过通用
+`/api/admin/channels/{channel}/management` 路由快照与命令；配置热应用遍历模块声明的
+`config_key`，两者都不解释信道私有语义。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
+
+需要教给 Agent 的稳定信道操作可以由 Channel 覆写 `agent_instructions()` 提供。Registry 只聚合已启用信道贡献的文本，`SystemPromptBuilder` 将其放入缓存稳定的 `[CHANNELS]` 段；不要把动态连接列表或轮询状态注入系统 Prompt。实时 participant 仍通过 `list_connections` 发现，动作解释和执行仍属于目标 Channel，Registry 不检查 `extra` 的信道私有结构。
 
 最小出站 Channel 只需继承 `BaseChannel` 并实现 `send`；默认已包含空 Runtime、无简写解析、无入站、无连接列表和 activity 辅助方法：
 

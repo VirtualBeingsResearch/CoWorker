@@ -18,15 +18,17 @@ from coworker.channels.weixin.client import (
     WeixinClient,
     credentials_from_login,
 )
+from coworker.channels.weixin.logging import configure_weixin_polling_logs
+from coworker.channels.weixin.repository import WeixinConnection
 from coworker.channels.weixin.state import (
-    WeixinAccountState,
+    WeixinConnectionState,
     WeixinStateStore,
 )
 from coworker.core.types import IncomingEvent
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
-    from coworker.core.config import WeixinAccountConfig, WeixinConfig
+    from coworker.core.config import WeixinConfig
 
 _MESSAGE_TYPE_USER = 1
 _TEXT_ITEM_TYPE = 1
@@ -42,7 +44,9 @@ _TERMINAL_LOGIN_STATUSES = {"expired", "verify_code_blocked", "binded_redirect"}
 class _LoginSession:
     client: WeixinClient
     qrcode: str
+    qrcode_content: str
     image_path: Path
+    status: str = "wait"
 
 
 class WeixinRunner:
@@ -53,10 +57,15 @@ class WeixinRunner:
     def __init__(
         self,
         config: WeixinConfig,
+        connections: list[WeixinConnection],
         state_path: Path,
         activity: ChannelActivityStore | None = None,
     ) -> None:
+        configure_weixin_polling_logs()
         self._config = config.model_copy(deep=True)
+        self._connections = {
+            connection.bot_instance_id: connection for connection in connections
+        }
         self._state_store = WeixinStateStore(state_path)
         self._state_path = state_path
         self._state = self._state_store.load()
@@ -68,6 +77,8 @@ class WeixinRunner:
         self._wake = asyncio.Event()
         self._active_accounts: set[str] = set()
         self._login_sessions: dict[str, _LoginSession] = {}
+        self._login_lock = asyncio.Lock()
+        self._polling_failures: set[str] = set()
 
     @property
     def config(self) -> WeixinConfig:
@@ -95,13 +106,31 @@ class WeixinRunner:
         await self._cancel_account_tasks()
         self._wake.set()
 
+    async def replace_connections(self, connections: list[WeixinConnection]) -> None:
+        next_connections = {
+            connection.bot_instance_id: connection for connection in connections
+        }
+        if self._connections == next_connections:
+            return
+        restart_required = _runtime_connections(self._connections) != _runtime_connections(
+            next_connections
+        )
+        self._connections = next_connections
+        self._prune_removed_connection_state()
+        if restart_required:
+            await self._cancel_account_tasks()
+            self._wake.set()
+
     async def send(self, participant_id: str, message: str) -> None:
-        account_id, user_id = self._parse_participant(participant_id)
-        account = self._account(account_id)
-        state = self._account_state(account_id)
-        client = self._clients.get(account_id)
+        bot_instance_id = self._parse_participant(participant_id)
+        connection = self._connection(bot_instance_id)
+        state = self._connection_state(bot_instance_id)
+        user_id = connection.weixin_user_id or _only_user_id(state)
+        if not user_id:
+            raise ValueError(f"Weixin recipient is unavailable: {bot_instance_id}")
+        client = self._clients.get(bot_instance_id)
         temporary = client is None
-        client = client or WeixinClient(account.base_url, account.token)
+        client = client or WeixinClient(connection.base_url, connection.token)
         try:
             await client.send_text(
                 user_id,
@@ -115,89 +144,100 @@ class WeixinRunner:
 
     def resolve_participant(self, participant_id: str) -> str | None:
         matches = [
-            self._participant_id(account_id, participant_id)
-            for account_id, state in self._state.accounts.items()
-            if participant_id in state.context_tokens
+            self._participant_id(connection.bot_instance_id)
+            for connection in self._connections.values()
+            if _connection_is_available(connection)
+            and participant_id
+            in {connection.bot_instance_id, connection.display_name}
         ]
         return matches[0] if len(matches) == 1 else None
 
     def participant_ids(self) -> list[str]:
         return [
-            self._participant_id(account_id, user_id)
-            for account_id, state in self._state.accounts.items()
-            for user_id in state.context_tokens
+            self._participant_id(connection.bot_instance_id)
+            for connection in self._connections.values()
+            if _connection_is_available(connection)
         ]
 
-    def is_account_active(self, account_id: str) -> bool:
-        return account_id in self._active_accounts
+    def is_instance_active(self, bot_instance_id: str) -> bool:
+        self._connection(bot_instance_id)
+        return bot_instance_id in self._active_accounts
+
+    def instance_name(self, bot_instance_id: str) -> str:
+        connection = self._connection(bot_instance_id)
+        return connection.display_name or bot_instance_id
 
     def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
         return self._activity.activity_for(participant_id)
 
     async def start_login(self) -> dict[str, str]:
-        session_id = str(uuid4())
-        client = WeixinClient(DEFAULT_BASE_URL)
-        local_tokens = [
-            account.token
-            for account in self._config.accounts
-            if account.token
-        ]
-        response = await client.start_login(local_tokens)
-        qrcode_value = str(response.get("qrcode") or "")
-        qrcode_content = str(response.get("qrcode_img_content") or "")
-        if not qrcode_value or not qrcode_content:
-            await client.close()
-            raise RuntimeError("Weixin login response did not include a QR code")
-        image_bytes = _render_qrcode(qrcode_content)
-        image_path = self._state_path.with_name(f"weixin-pairing-{session_id}.png")
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        image_path.write_bytes(image_bytes)
-        self._login_sessions[session_id] = _LoginSession(
-            client=client,
-            qrcode=qrcode_value,
-            image_path=image_path,
-        )
-        image_data = base64.b64encode(image_bytes).decode()
-        return {
-            "session_id": session_id,
-            "status": "wait",
-            "qrcode_content": qrcode_content,
-            "qrcode_data_url": f"data:image/png;base64,{image_data}",
-            "qrcode_path": str(image_path),
-        }
+        async with self._login_lock:
+            session_id = str(uuid4())
+            client = WeixinClient(DEFAULT_BASE_URL)
+            local_tokens = [
+                connection.token
+                for connection in self._connections.values()
+                if connection.token
+            ]
+            response = await client.start_login(local_tokens)
+            qrcode_value = str(response.get("qrcode") or "")
+            qrcode_content = str(response.get("qrcode_img_content") or "")
+            if not qrcode_value or not qrcode_content:
+                await client.close()
+                raise RuntimeError("Weixin login response did not include a QR code")
+            image_bytes = _render_qrcode(qrcode_content)
+            image_path = self._state_path.with_name(f"weixin-pairing-{session_id}.png")
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(image_bytes)
+            self._login_sessions[session_id] = _LoginSession(
+                client=client,
+                qrcode=qrcode_value,
+                qrcode_content=qrcode_content,
+                image_path=image_path,
+            )
+            await self._close_login_sessions(except_session_id=session_id)
+            return self._login_snapshot(session_id, self._login_sessions[session_id])
+
+    def current_login(self) -> dict[str, str] | None:
+        if not self._login_sessions:
+            return None
+        session_id, session = next(reversed(self._login_sessions.items()))
+        return self._login_snapshot(session_id, session)
 
     async def poll_login(
         self,
         session_id: str,
         verify_code: str = "",
     ) -> dict[str, Any]:
-        session = self._login_sessions.get(session_id)
-        if session is None:
-            raise RuntimeError("Weixin login session is unavailable")
-        response = await session.client.poll_login(session.qrcode, verify_code)
-        status = str(response.get("status") or "wait")
-        if status == "scaned_but_redirect" and response.get("redirect_host"):
-            await self._redirect_login(session, str(response["redirect_host"]))
-        result = {
-            "status": status,
-            "credentials": credentials_from_login(response),
-        }
-        if result["credentials"] is not None or status in _TERMINAL_LOGIN_STATUSES:
-            await self._close_login_session(session_id)
-        return result
+        async with self._login_lock:
+            session = self._login_sessions.get(session_id)
+            if session is None:
+                raise RuntimeError("Weixin login session is unavailable")
+            response = await session.client.poll_login(session.qrcode, verify_code)
+            status = str(response.get("status") or "wait")
+            session.status = status
+            if status == "scaned_but_redirect" and response.get("redirect_host"):
+                await self._redirect_login(session, str(response["redirect_host"]))
+            result = {
+                "status": status,
+                "credentials": credentials_from_login(response),
+            }
+            if result["credentials"] is not None or status in _TERMINAL_LOGIN_STATUSES:
+                await self._close_login_session(session_id)
+            return result
 
     async def _replace_account_tasks(self) -> None:
         await self._cancel_account_tasks()
         if not self._config.enabled:
             return
-        for account in self._config.accounts:
-            if not _account_is_configured(account):
+        for connection in self._connections.values():
+            if not _connection_is_available(connection):
                 continue
             task = asyncio.create_task(
-                self._run_account(account),
-                name=f"weixin-account:{account.id}",
+                self._run_connection(connection),
+                name=f"weixin-account:{connection.bot_instance_id}",
             )
-            self._tasks[str(account.id)] = task
+            self._tasks[connection.bot_instance_id] = task
 
     async def _cancel_account_tasks(self) -> None:
         tasks = list(self._tasks.values())
@@ -209,39 +249,54 @@ class WeixinRunner:
         clients = list(self._clients.values())
         self._clients.clear()
         self._active_accounts.clear()
+        self._polling_failures.clear()
         await asyncio.gather(
             *(client.close() for client in clients),
             return_exceptions=True,
         )
 
-    async def _run_account(self, account: WeixinAccountConfig) -> None:
-        account_id = str(account.id)
-        client = WeixinClient(account.base_url, account.token)
-        self._clients[account_id] = client
+    async def _run_connection(self, connection: WeixinConnection) -> None:
+        bot_instance_id = connection.bot_instance_id
+        client = WeixinClient(connection.base_url, connection.token)
+        self._clients[bot_instance_id] = client
         while True:
             try:
-                await self._poll_account(account, client)
-                self._active_accounts.add(account_id)
+                await self._poll_connection(connection, client)
+                self._active_accounts.add(bot_instance_id)
+                if bot_instance_id in self._polling_failures:
+                    self._polling_failures.remove(bot_instance_id)
+                    logger.info(
+                        tr(
+                            "channel.weixin.poll_recovered",
+                            account=bot_instance_id,
+                        )
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                self._active_accounts.discard(account_id)
-                logger.warning(
+                self._active_accounts.discard(bot_instance_id)
+                log = (
+                    logger.debug
+                    if bot_instance_id in self._polling_failures
+                    else logger.warning
+                )
+                log(
                     tr(
                         "channel.weixin.poll_failed",
-                        account=account_id,
+                        account=bot_instance_id,
                         error=error,
                     )
                 )
+                self._polling_failures.add(bot_instance_id)
                 await asyncio.sleep(_RETRY_SECONDS)
 
-    async def _poll_account(
+    async def _poll_connection(
         self,
-        account: WeixinAccountConfig,
+        connection: WeixinConnection,
         client: WeixinClient,
     ) -> None:
-        account_id = str(account.id)
-        state = self._account_state(account_id)
+        bot_instance_id = connection.bot_instance_id
+        state = self._connection_state(bot_instance_id)
         response = await client.get_updates(state.cursor)
         return_code = response.get("ret")
         if return_code not in (None, 0):
@@ -251,13 +306,13 @@ class WeixinRunner:
             )
         for message in response.get("msgs") or []:
             if isinstance(message, dict):
-                await self._publish_message(account_id, message)
+                await self._publish_message(bot_instance_id, message)
         state.cursor = str(response.get("get_updates_buf") or state.cursor)
         self._state_store.save(self._state)
 
     async def _publish_message(
         self,
-        account_id: str,
+        bot_instance_id: str,
         message: dict[str, Any],
     ) -> None:
         if message.get("message_type") not in (None, _MESSAGE_TYPE_USER):
@@ -267,8 +322,8 @@ class WeixinRunner:
             return
         context_token = str(message.get("context_token") or "")
         if context_token:
-            self._account_state(account_id).context_tokens[user_id] = context_token
-        participant_id = self._participant_id(account_id, user_id)
+            self._connection_state(bot_instance_id).context_tokens[user_id] = context_token
+        participant_id = self._participant_id(bot_instance_id)
         self._activity.record_received(participant_id)
         if self._inbound_handler is None:
             logger.warning(tr("channel.weixin.inbound_unhandled"))
@@ -283,14 +338,17 @@ class WeixinRunner:
             )
         )
 
-    def _account(self, account_id: str) -> WeixinAccountConfig:
-        for account in self._config.accounts:
-            if str(account.id) == account_id and _account_is_configured(account):
-                return account
-        raise ValueError(f"Weixin account is unavailable: {account_id}")
+    def _connection(self, bot_instance_id: str) -> WeixinConnection:
+        connection = self._connections.get(bot_instance_id)
+        if connection is not None and _connection_is_available(connection):
+            return connection
+        raise ValueError(f"Weixin Bot instance is unavailable: {bot_instance_id}")
 
-    def _account_state(self, account_id: str) -> WeixinAccountState:
-        return self._state.accounts.setdefault(account_id, WeixinAccountState())
+    def _connection_state(self, bot_instance_id: str) -> WeixinConnectionState:
+        return self._state.connections.setdefault(
+            bot_instance_id,
+            WeixinConnectionState(),
+        )
 
     async def _redirect_login(self, session: _LoginSession, host: str) -> None:
         await session.client.close()
@@ -303,27 +361,71 @@ class WeixinRunner:
         session.image_path.unlink(missing_ok=True)
         await session.client.close()
 
-    async def _close_login_sessions(self) -> None:
-        session_ids = list(self._login_sessions)
+    async def _close_login_sessions(self, except_session_id: str = "") -> None:
+        session_ids = [
+            session_id
+            for session_id in self._login_sessions
+            if session_id != except_session_id
+        ]
         await asyncio.gather(
             *(self._close_login_session(session_id) for session_id in session_ids),
             return_exceptions=True,
         )
 
     @staticmethod
-    def _participant_id(account_id: str, user_id: str) -> str:
-        return f"weixin:{account_id}:{user_id}"
+    def _participant_id(bot_instance_id: str) -> str:
+        return f"weixin:{bot_instance_id}"
 
     @staticmethod
-    def _parse_participant(participant_id: str) -> tuple[str, str]:
-        parts = participant_id.split(":", maxsplit=2)
-        if len(parts) != 3 or parts[0] != "weixin" or not all(parts[1:]):
+    def _parse_participant(participant_id: str) -> str:
+        parts = participant_id.split(":", maxsplit=1)
+        if len(parts) != 2 or parts[0] != "weixin" or not parts[1]:
             raise ValueError(f"not a Weixin participant_id: {participant_id}")
-        return parts[1], parts[2]
+        return parts[1]
+
+    def _login_snapshot(
+        self,
+        session_id: str,
+        session: _LoginSession,
+    ) -> dict[str, str]:
+        image_data = base64.b64encode(session.image_path.read_bytes()).decode()
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "qrcode_content": session.qrcode_content,
+            "qrcode_data_url": f"data:image/png;base64,{image_data}",
+            "qrcode_path": str(session.image_path),
+        }
+
+    def _prune_removed_connection_state(self) -> None:
+        removed_ids = self._state.connections.keys() - self._connections.keys()
+        for bot_instance_id in removed_ids:
+            self._state.connections.pop(bot_instance_id, None)
+            self._polling_failures.discard(bot_instance_id)
+        if removed_ids:
+            self._state_store.save(self._state)
 
 
-def _account_is_configured(account: WeixinAccountConfig) -> bool:
-    return bool(account.enabled and account.bot_id and account.token)
+def _connection_is_available(connection: WeixinConnection) -> bool:
+    return bool(connection.enabled and connection.bot_instance_id and connection.token)
+
+
+def _runtime_connections(
+    connections: dict[str, WeixinConnection],
+) -> dict[str, tuple[str, str, str, bool]]:
+    return {
+        bot_instance_id: (
+            connection.token,
+            connection.base_url,
+            connection.weixin_user_id,
+            connection.enabled,
+        )
+        for bot_instance_id, connection in connections.items()
+    }
+
+
+def _only_user_id(state: WeixinConnectionState) -> str:
+    return next(iter(state.context_tokens)) if len(state.context_tokens) == 1 else ""
 
 
 def _message_text(message: dict[str, Any]) -> str:

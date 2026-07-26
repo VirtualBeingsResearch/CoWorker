@@ -28,14 +28,6 @@ class ConnectionInfo:
     last_received_at: str | None = None
 
 
-@dataclass(frozen=True)
-class PreparedOutbound:
-    """A channel-owned action transformed into a deliverable request."""
-
-    request: CommunicateRequest
-    result_note: str = ""
-
-
 class ParticipantIdResolutionError(ValueError):
     """Raised when a shorthand participant ID cannot be resolved unambiguously."""
 
@@ -144,18 +136,14 @@ class BaseChannel(ABC):
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         raise NotImplementedError(f"channel {self.name} does not accept raw inbound payloads")
 
-    async def prepare_action(
-        self,
-        request: CommunicateRequest,
-        recipient: ConnectionInfo | None,
-    ) -> PreparedOutbound | ToolResult | None:
-        """Handle this channel's action payload before another channel delivers it."""
-
-        return None
-
     @abstractmethod
     async def send(self, request: CommunicateRequest) -> ToolResult:
         """Deliver a request to this channel."""
+
+    def agent_instructions(self) -> str:
+        """Describe stable model-facing behavior exposed by this channel."""
+
+        return ""
 
     def record_received(self, participant_id: str) -> None:
         self._activity.record_received(participant_id)

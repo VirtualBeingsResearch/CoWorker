@@ -26,7 +26,7 @@ type ChatAttachment = {
   data: string;
 };
 
-type ChannelActionMeta = {
+type ConnectionStatusMeta = {
   channel: string;
   status: string;
   sessionId: string;
@@ -39,7 +39,7 @@ type ChatMessage = {
   createdAt: number;
   bubble?: BubbleChatMeta | null;
   attachments?: ChatAttachment[];
-  channelAction?: ChannelActionMeta | null;
+  connectionStatus?: ConnectionStatusMeta | null;
 };
 
 type ChatProfile = {
@@ -139,7 +139,7 @@ function readBubbleMetadata(value: unknown): BubbleChatMeta | null {
   return { id, kind, phase, resumed: bubble.resumed === true };
 }
 
-function readChannelAction(value: unknown): ChannelActionMeta | null {
+function readConnectionStatus(value: unknown): ConnectionStatusMeta | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const action = value as Record<string, unknown>;
   const channel = typeof action.channel === 'string' ? action.channel : '';
@@ -153,7 +153,7 @@ function createMessage(
   content: string,
   bubble: BubbleChatMeta | null = null,
   attachments: ChatAttachment[] = [],
-  channelAction: ChannelActionMeta | null = null,
+  connectionStatus: ConnectionStatusMeta | null = null,
 ): ChatMessage {
   return {
     id: newId(),
@@ -162,30 +162,55 @@ function createMessage(
     createdAt: Date.now(),
     bubble,
     attachments,
-    channelAction,
+    connectionStatus,
   };
 }
 
-function readImageAttachments(value: unknown): ChatAttachment[] {
+function imageAttachment(
+  filename: unknown,
+  mediaType: unknown,
+  data: unknown,
+): ChatAttachment[] {
+  if (
+    typeof mediaType !== 'string'
+    || typeof data !== 'string'
+    || !/^image\/(?:png|jpe?g|gif|webp)$/i.test(mediaType)
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
+    || !data
+    || data.length > MAX_LIVE_ATTACHMENT_CHARS
+  ) return [];
+  return [{
+    filename: typeof filename === 'string' && filename.trim()
+      ? filename.trim()
+      : t('图片'),
+    mediaType,
+    data,
+  }];
+}
+
+function readWireImageAttachments(value: unknown): ChatAttachment[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap(item => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const attachment = item as Record<string, unknown>;
-    const mediaType = typeof attachment.media_type === 'string' ? attachment.media_type : '';
-    const data = typeof attachment.data === 'string' ? attachment.data : '';
-    if (
-      !/^image\/(?:png|jpe?g|gif|webp)$/i.test(mediaType)
-      || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
-      || !data
-      || data.length > MAX_LIVE_ATTACHMENT_CHARS
-    ) return [];
-    return [{
-      filename: typeof attachment.filename === 'string' && attachment.filename.trim()
-        ? attachment.filename.trim()
-        : t('图片'),
-      mediaType,
-      data,
-    }];
+    return imageAttachment(
+      attachment.filename,
+      attachment.media_type,
+      attachment.data,
+    );
+  });
+}
+
+function readStoredImageAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const attachment = item as Record<string, unknown>;
+    return imageAttachment(
+      attachment.filename,
+      attachment.mediaType,
+      attachment.data,
+    );
   });
 }
 
@@ -207,7 +232,7 @@ function loadChatHistory(clientId: string): ChatMessage[] {
       ) {
         return [];
       }
-      const attachments = readImageAttachments(message.attachments);
+      const attachments = readStoredImageAttachments(message.attachments);
       if (!message.content.trim() && !attachments.length) return [];
 
       return [{
@@ -219,7 +244,7 @@ function loadChatHistory(clientId: string): ChatMessage[] {
           : Date.now(),
         bubble: readBubbleMetadata(message.bubble),
         attachments,
-        channelAction: readChannelAction(message.channelAction),
+        connectionStatus: readConnectionStatus(message.connectionStatus),
       }];
     }).slice(-MAX_STORED_MESSAGES);
   } catch {
@@ -236,17 +261,17 @@ function readOutboundMessage(raw: unknown): {
   content: string;
   bubble: BubbleChatMeta | null;
   attachments: ChatAttachment[];
-  channelAction: ChannelActionMeta | null;
+  connectionStatus: ConnectionStatusMeta | null;
 } {
   const text = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
   if (!text) {
-    return { content: '', bubble: null, attachments: [], channelAction: null };
+    return { content: '', bubble: null, attachments: [], connectionStatus: null };
   }
 
   try {
     const decoded: unknown = JSON.parse(text);
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
-      return { content: text, bubble: null, attachments: [], channelAction: null };
+      return { content: text, bubble: null, attachments: [], connectionStatus: null };
     }
 
     const payload = decoded as Record<string, unknown>;
@@ -254,24 +279,24 @@ function readOutboundMessage(raw: unknown): {
       ? payload.extra as Record<string, unknown>
       : null;
     const bubble = readBubbleMetadata(extra?.bubble);
-    const channelAction = readChannelAction(extra?.channel_action);
-    const attachments = readImageAttachments(payload.attachments);
+    const connectionStatus = readConnectionStatus(extra?.connection_status);
+    const attachments = readWireImageAttachments(payload.attachments);
     const message = payload.message ?? payload.content;
     const content = typeof message === 'string' ? message.trim() : '';
     if (content || attachments.length) {
-      return { content, bubble, attachments, channelAction };
+      return { content, bubble, attachments, connectionStatus };
     }
     if (Array.isArray(payload.attachments) && payload.attachments.length) {
       return {
         content: t('收到了暂不支持预览的附件。'),
         bubble,
         attachments: [],
-        channelAction,
+        connectionStatus,
       };
     }
-    return { content: '', bubble, attachments: [], channelAction };
+    return { content: '', bubble, attachments: [], connectionStatus };
   } catch {
-    return { content: text, bubble: null, attachments: [], channelAction: null };
+    return { content: text, bubble: null, attachments: [], connectionStatus: null };
   }
 }
 
@@ -406,7 +431,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
     source.onmessage = event => {
       if (disposed || eventSourceRef.current !== source) return;
-      const { content, bubble, attachments, channelAction } = readOutboundMessage(event.data);
+      const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
       if (!content && !attachments.length) return;
 
       if (content.startsWith('连接被拒绝：')) {
@@ -419,7 +444,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
       setMessages(current => [
         ...current,
-        createMessage('assistant', content, bubble, attachments, channelAction),
+        createMessage('assistant', content, bubble, attachments, connectionStatus),
       ].slice(-MAX_STORED_MESSAGES));
       if (bubble?.kind !== 'handoff') {
         setPendingReplies(current => Math.max(0, current - 1));
@@ -763,9 +788,9 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                           <code title={bubble.id}>{bubble.id}</code>
                         </span>
                       )}
-                      {message.channelAction && <span className="channel-action-label">
-                        <strong>{t(message.channelAction.channel === 'weixin' ? '微信 Claw 连接' : '信道连接')}</strong>
-                        <em>{t(message.channelAction.status)}</em>
+                      {message.connectionStatus && <span className="connection-status-label">
+                        <strong>{t(message.connectionStatus.channel === 'weixin' ? '微信 Claw 连接' : '信道连接')}</strong>
+                        <em>{t(message.connectionStatus.status)}</em>
                       </span>}
                       {content && <span>{content}</span>}
                       {!!message.attachments?.length && <div className="chat-message-images">

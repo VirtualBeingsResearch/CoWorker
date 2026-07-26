@@ -39,6 +39,7 @@ def _build_env_section(git_commit: str | None = None) -> str:
 
 
 if TYPE_CHECKING:
+    from coworker.channels.registry import ChannelRegistry
     from coworker.identity.identity import Identity
     from coworker.palaces.loader import PalaceLoader
     from coworker.skills.loader import SkillLoader
@@ -51,6 +52,7 @@ class SystemPromptBuilder:
         tool_registry: ToolRegistry,
         skill_loader: SkillLoader,
         palace_loader: PalaceLoader | None = None,
+        channel_registry: ChannelRegistry | None = None,
         thinking_path: str | Path = "data/thinking.md",
         git_commit: str | None = None,
     ) -> None:
@@ -58,6 +60,7 @@ class SystemPromptBuilder:
         self._tools = tool_registry
         self._skills = skill_loader
         self._palaces = palace_loader
+        self._channels = channel_registry
         self._thinking_path = Path(thinking_path)
         self._git_commit = git_commit
         # Runtime locale changes require a process restart.  Capture the locale
@@ -97,6 +100,17 @@ class SystemPromptBuilder:
             thinking_text = self._read_thinking()
             if thinking_text:
                 sections.append(f"[THINKING]\n{thinking_text}")
+
+            channel_instructions = (
+                self._channels.agent_instructions()
+                if self._channels is not None
+                else []
+            )
+            if channel_instructions:
+                sections.append(
+                    f"[CHANNELS]\n{tr('prompt.channels_intro')}\n\n"
+                    + "\n\n".join(channel_instructions)
+                )
 
             skills_text = self._skills.format_for_prompt()
             if skills_text:

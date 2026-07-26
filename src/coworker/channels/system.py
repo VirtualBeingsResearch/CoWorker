@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from coworker.channels.activity import ChannelActivityStore
+from coworker.channels.module import ChannelModule, ChannelModuleRegistry
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamChannel, StreamProfile, StreamRuntime
 from coworker.core.registration import RegistrationError
@@ -16,6 +17,7 @@ class ChannelSystem:
     registry: ChannelRegistry
     stream_runtime: StreamRuntime
     activity: ChannelActivityStore
+    modules: ChannelModuleRegistry
     _stream_channel: StreamChannel = field(repr=False)
 
     def register_stream_profile(self, profile: StreamProfile) -> None:
@@ -25,6 +27,18 @@ class ChannelSystem:
                 ["cannot register while the channel system is running"],
             )
         self._stream_channel.register_profile(profile)
+
+    def install(self, module: ChannelModule) -> None:
+        if self.registry.is_running:
+            raise RegistrationError(
+                "channel module",
+                ["cannot install while the channel system is running"],
+            )
+        issues = self.modules.registration_issues(module)
+        if issues:
+            raise RegistrationError("channel module", issues)
+        self.registry.register(module.channel)
+        self.modules.register(module)
 
 
 def create_channel_system(
@@ -39,11 +53,13 @@ def create_channel_system(
         activity,
     )
     registry = ChannelRegistry()
+    modules = ChannelModuleRegistry()
     stream_channel = StreamChannel(stream)
     registry.register(stream_channel)
     return ChannelSystem(
         registry=registry,
         stream_runtime=stream,
         activity=activity,
+        modules=modules,
         _stream_channel=stream_channel,
     )

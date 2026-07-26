@@ -12,7 +12,6 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
     ParticipantIdResolutionError,
-    PreparedOutbound,
 )
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import ChannelRuntime
@@ -92,77 +91,23 @@ class ChannelRegistry:
         )
         if validation_error is not None:
             return validation_error
-        prepared = await self._prepare_action(
-            replace(request, participant_id=canonical),
-            target,
+        outbound, omitted = target.capabilities_for(canonical).filter(
+            replace(request, participant_id=canonical)
         )
-        if isinstance(prepared, ToolResult):
-            return prepared
-        outbound, omitted = target.capabilities_for(canonical).filter(prepared.request)
         result = await target.send(outbound)
         if result.is_error:
             return result
-        notices = [prepared.result_note] if prepared.result_note else []
         if not omitted:
-            return (
-                replace(result, content=f"{result.content}\n{prepared.result_note}")
-                if prepared.result_note
-                else result
-            )
+            return result
         notice_key = (
             "tool_result.communicate.unsupported_message_only"
             if self._contains_only_message(outbound)
             else "tool_result.communicate.unsupported_omitted"
         )
-        notices.append(tr(notice_key, fields=", ".join(omitted)))
-        return replace(result, content=f"{result.content}\n" + "\n".join(notices))
-
-    async def _prepare_action(
-        self,
-        request: CommunicateRequest,
-        delivery_channel: BaseChannel,
-    ) -> PreparedOutbound | ToolResult:
-        raw_action = request.extra.get("channel_action")
-        if raw_action is None:
-            return PreparedOutbound(request)
-        if not isinstance(raw_action, dict):
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.communicate.channel_action_invalid"),
-                is_error=True,
-            )
-        channel_name = str(raw_action.get("channel") or "").strip()
-        action_channel = next(
-            (channel for channel in self._channels if channel.name == channel_name),
-            None,
-        )
-        if action_channel is None:
-            return ToolResult(
-                tool_call_id="",
-                content=tr(
-                    "tool_result.communicate.channel_action_unknown",
-                    channel=channel_name,
-                ),
-                is_error=True,
-            )
-        recipient = next(
-            (
-                connection
-                for connection in delivery_channel.list_connections()
-                if connection.participant_id == request.participant_id
-            ),
-            None,
-        )
-        prepared = await action_channel.prepare_action(request, recipient)
-        if prepared is not None:
-            return prepared
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.communicate.channel_action_unknown",
-                channel=channel_name,
-            ),
-            is_error=True,
+        notice = tr(notice_key, fields=", ".join(omitted))
+        return replace(
+            result,
+            content=f"{result.content}\n{notice}",
         )
 
     def list_connections(self) -> list[ConnectionInfo]:
@@ -170,6 +115,13 @@ class ChannelRegistry:
         for channel in self._channels:
             connections.extend(channel.list_connections())
         return connections
+
+    def agent_instructions(self) -> list[str]:
+        return [
+            instructions
+            for channel in self._channels
+            if (instructions := channel.agent_instructions().strip())
+        ]
 
     def _participant_validation_error(
         self,

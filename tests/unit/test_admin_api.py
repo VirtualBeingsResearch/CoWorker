@@ -10,11 +10,9 @@ from fastapi.testclient import TestClient
 
 from coworker.api import admin
 from coworker.application import _print_setup_admin_token
-from coworker.channels.weixin.client import WeixinCredentials
+from coworker.channels.module import ChannelModuleRegistry
 from coworker.core.config import (
     Config,
-    WeixinAccountConfig,
-    WeixinConfig,
     apply_admin_config_file,
     effective_admin_token,
     effective_communication_token,
@@ -41,7 +39,7 @@ def _client(
     wecom: dict | None = None,
     wecom_runner=None,
     weixin: dict | None = None,
-    weixin_runner=None,
+    channel_modules=None,
 ):
     config = Config.model_validate(
         {
@@ -79,7 +77,7 @@ def _client(
         desktop_update_sync=desktop_update_sync,
         wecom_runner=wecom_runner,
     )
-    admin.setup_weixin_admin(weixin_runner)
+    admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
@@ -457,74 +455,84 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     assert applied.secret == "existing"
 
 
-def test_weixin_qr_sessions_persist_masked_multi_account_credentials(tmp_path):
-    first_account_id = "7ad0bbf4-93d2-4807-94ca-f6de629095de"
-    runtime_config = WeixinConfig(
-        enabled=True,
-        accounts=[
-            WeixinAccountConfig(
-                id=first_account_id,
-                name="existing",
-                bot_id="bot-existing",
-                token="existing-secret",
-            )
-        ],
+class _ChannelManagement:
+    async def snapshot(self) -> dict[str, object]:
+        return {"connections": [{"bot_instance_id": "bot-1"}]}
+
+    async def execute(
+        self,
+        command: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return {"command": command, "payload": payload}
+
+
+class _ChannelSettings:
+    config_key = "weixin"
+
+    def __init__(self) -> None:
+        self.applied: list[object] = []
+
+    async def apply(self, config: object) -> None:
+        self.applied.append(config)
+
+
+def _channel_modules(
+    *,
+    management: object | None = None,
+    settings: object | None = None,
+) -> ChannelModuleRegistry:
+    modules = ChannelModuleRegistry()
+    modules.register(
+        SimpleNamespace(
+            name="weixin",
+            channel=SimpleNamespace(name="weixin"),
+            management=management,
+            settings=settings,
+        )
     )
-    runner = SimpleNamespace(
-        config=runtime_config,
-        start_login=AsyncMock(
-            return_value={
-                "session_id": "4e75880f-282c-4389-8f9b-703e00fd268f",
-                "status": "wait",
-                "qrcode_data_url": "data:image/png;base64,abc",
-            }
-        ),
-        poll_login=AsyncMock(
-            return_value={
-                "status": "confirmed",
-                "credentials": WeixinCredentials(
-                    bot_id="bot-new",
-                    token="new-secret",
-                    user_id="weixin-owner",
-                ),
-            }
-        ),
-        reconfigure=AsyncMock(),
+    return modules
+
+
+def test_channel_management_api_routes_without_channel_specific_admin_code(tmp_path):
+    modules = _channel_modules(management=_ChannelManagement())
+    client, _ = _client(tmp_path, channel_modules=modules)
+    headers = {"Authorization": "Bearer secret"}
+
+    snapshot = client.get(
+        "/api/admin/channels/weixin/management",
+        headers=headers,
     )
-    client, _ = _client(
+    command = client.post(
+        "/api/admin/channels/weixin/management/remove_connection",
+        headers=headers,
+        json={"bot_instance_id": "bot-1", "confirm": True},
+    )
+
+    assert snapshot.json()["connections"][0]["bot_instance_id"] == "bot-1"
+    assert command.json()["command"] == "remove_connection"
+    assert command.json()["payload"]["confirm"] is True
+
+
+def test_registered_channel_settings_are_hot_applied_generically(tmp_path):
+    settings = _ChannelSettings()
+    modules = _channel_modules(settings=settings)
+    client, config = _client(
         tmp_path,
-        weixin=runtime_config.model_dump(mode="json"),
-        weixin_runner=runner,
+        channel_modules=modules,
+        weixin={"enabled": False},
     )
     headers = {"Authorization": "Bearer secret"}
 
-    start = client.post("/api/admin/channels/weixin/login/start", headers=headers)
-    assert start.status_code == 200
-    session_id = start.json()["session_id"]
-
-    confirmed = client.post(
-        "/api/admin/channels/weixin/login/poll",
+    response = client.patch(
+        "/api/admin/config",
         headers=headers,
-        json={"session_id": session_id, "verify_code": ""},
+        json={"changes": {"weixin": {"enabled": True}}, "secrets": {}},
     )
 
-    assert confirmed.status_code == 200
-    assert confirmed.json()["status"] == "confirmed"
-    runner.poll_login.assert_awaited_once_with(session_id, "")
-    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
-    assert len(saved["weixin"]["accounts"]) == 2
-    new_account = next(
-        account for account in saved["weixin"]["accounts"] if account["bot_id"] == "bot-new"
-    )
-    assert new_account["token"] == "new-secret"
-    assert new_account["weixin_user_id"] == "weixin-owner"
-
-    config_body = client.get("/api/admin/config", headers=headers).json()
-    assert all(not account.get("token") for account in config_body["config"]["weixin"]["accounts"])
-    assert config_body["secret_status"][f"weixin.accounts.{first_account_id}.token"] == {
-        "configured": True,
-        "last4": "cret",
-    }
+    assert response.json()["applied_now"] == ["weixin"]
+    assert config.weixin.enabled is True
+    assert settings.applied[0].enabled is True
 
 
 def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):

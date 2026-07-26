@@ -4,31 +4,100 @@
 
 [← Back to Channels and Clients](README.en.md)
 
-The Weixin Claw channel connects Coworker through Tencent's personal-Weixin iLink ClawBot API. It is separate from the WeCom intelligent bot: each personal account is authorized by QR code and receives its own long-polling task for direct messages.
+The Weixin Claw channel connects Coworker through Tencent's personal-Weixin iLink ClawBot API. It is separate from the WeCom intelligent bot: one iLink Bot instance can bind only one personal Weixin account and owns an independent long-polling task. One Coworker may create multiple independent Bot instances.
 
-## Adding and managing accounts
+## Participants and connections
 
-Open Weixin Claw under `/admin`, enable the channel, and choose Scan to connect Weixin. The administration page generates and displays a real QR-code PNG locally. After confirmation, credentials are written to the administration override and hot-reloaded without a restart. Repeat the flow to add multiple accounts, then rename, disable, or remove each account on the same page.
-
-Every account has a stable UUID. Participant IDs use:
+Each bound Bot instance is one communication participant:
 
 ```text
-weixin:<account_uuid>:<weixin_user_id>
+weixin:<bot_instance_id>
 ```
 
-This keeps cursor, context, and reply routing isolated even when the same contact is visible through two bound accounts. Tokens are masked in administration API responses and stored only in the administration configuration file.
+The Weixin-side user ID, credentials, cursor, and context token are internal protocol state owned by that instance and do not appear in the participant ID. `list_connections` also exposes a stable management endpoint:
 
-## Agent-controlled pairing invitations
+```text
+weixin:control
+```
 
-When a known direct-message participant explicitly asks to add Weixin Claw, the agent keeps using the generic `communicate` tool with `extra.channel_action` set to `{"channel":"weixin","type":"connect"}`:
+Their `ConnectionInfo.kind` values are `weixin:direct` and `weixin:control`; no additional participant role is needed.
 
-1. the Channel Action Registry creates a one-time QR code for the selected known `participant_id`;
-2. Coworker sends the QR-code PNG attachment and fallback link only to that direct chat, returning a connection `session_id` in the tool result;
-3. another `communicate` call with `{"channel":"weixin","type":"poll","session_id":"..."}` checks the scan result; include `verify_code` when the phone requests a number;
-4. after the scanner sends the first message from Weixin, the channel creates a new `weixin:*` participant and the agent decides how to recognize and organize its relationship with existing contacts.
+## Agent-managed connections
 
-The recipient `participant_id` controls only where the invitation is delivered. It is never bound at the system level to the new ClawBot or to later Weixin participants. Weixin connection is a registered generic channel action, not a dedicated model tool, and the backend rejects group-chat recipients. An administrator can still scan independently in the administration page. The agent decides whether to send an invitation and how to maintain contact relationships from conversation context.
+Weixin pairing is not a dedicated model tool. When the channel is enabled, it contributes a short guide to the system prompt, and the agent continues to use the generic `communicate` tool.
 
-Inbound Weixin Claw messages currently extract text and voice transcripts; images, files, and video reach the agent as localized placeholders. Normal outbound traffic is currently text-only. The pairing QR image uses the attachment support of the channel where the invitation originated; when that channel has no attachment support, the fallback link is still delivered.
+Create a pairing session:
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {"action": "connect"}
+}
+```
+
+The result returns a `session_id` and local `qrcode_path`. The QR code is not sent to any participant automatically. The agent selects a recipient from the current conversation and sends that path as an `image` attachment in a separate `communicate` call. To show connection status in the identity-card ChatDock, it may also include presentation-only metadata:
+
+```json
+{
+  "connection_status": {
+    "channel": "weixin",
+    "status": "wait",
+    "session_id": "..."
+  }
+}
+```
+
+The channel polls pairing in the background, so the agent does not repeatedly invoke a tool or
+`list_connections`. To inspect the current state:
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {"action": "status"}
+}
+```
+
+If the phone requests a verification code, submit it separately:
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {
+    "action": "verify",
+    "session_id": "...",
+    "verify_code": "number shown on the phone"
+  }
+}
+```
+
+Confirmation yields a new `weixin:<bot_instance_id>`. The QR recipient is not bound to the new connection; the agent organizes contact relationships itself.
+
+Remove a local connection only after an explicit user request and confirmation:
+
+```json
+{
+  "participant_id": "weixin:control",
+  "extra": {
+    "action": "remove",
+    "bot_instance_id": "...",
+    "confirm": true
+  }
+}
+```
+
+Removal stops polling and deletes Coworker's local credentials and runtime state. It does not remotely revoke Weixin-side authorization or delete existing chat history.
+
+## Administration and runtime behavior
+
+Weixin Claw under `/admin` can also scan, rename, disable, or remove instances. The frontend uses the
+generic `/api/admin/channels/{channel}/management` interface contributed by the module; the Admin
+backend does not interpret Weixin commands. The backend owns an unfinished pairing session, so leaving and returning to the page restores its QR code and current state. Pairing sessions are temporary and do not survive a Coworker process restart.
+
+Bound instances are stored in `MEMORY__DB_PATH/weixin_connections.json` rather than
+`admin_config.json`. Successful empty polls and administration-page status reads are DEBUG-only. The first message-polling failure is WARNING, repeated retries are DEBUG, and recovery emits one INFO record. Authentication and protocol errors remain visible. Logs never include tokens, QR contents, context tokens, or message bodies.
+
+The identity-page ChatDock keeps the QR image as chat presentation data in localStorage, so it survives page navigation without adding QR resources to the terminal chat interface.
+
+Inbound Weixin Claw messages currently extract text and voice transcripts; images, files, and video reach the agent as localized placeholders. Normal outbound traffic is currently text-only.
 
 Protocol compatibility follows Tencent's [openclaw-weixin](https://github.com/Tencent/openclaw-weixin) implementation.

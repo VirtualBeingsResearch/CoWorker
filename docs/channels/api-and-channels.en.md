@@ -13,13 +13,21 @@ When sending through the built-in Stream, Desktop, WeCom, or Weixin Claw channel
 
 ## Channel development model
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
+`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
 
 - `registry`, which registers Channels, routes inbound and outbound traffic, and starts or stops each shared Runtime exactly once.
 - `stream_runtime`, which owns WS/SSE connections, participant registrations, attachment storage, and offline outbox delivery and provides Stream infrastructure to HTTP and WebSocket routes.
 - `activity`, which records each participant's latest successful send and receive times. When `activity_path` is provided, atomic JSON persistence restores them after an application restart.
+- `modules`, which stores management interfaces and hot-settings providers contributed by complete channel modules.
 
-To add an independent transport, subclass `BaseChannel` and call `channel_system.registry.register(channel)`. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
+To add an independent transport, subclass `BaseChannel`. A transport-only integration may call
+`channel_system.registry.register(channel)`. When it also owns connection management or hot settings,
+implement `ChannelModule` and call `channel_system.install(module)` to register the transport, optional
+`ChannelManagement`, and optional `ChannelSettings` together. Admin only routes snapshots and commands
+through `/api/admin/channels/{channel}/management`; hot configuration iterates the modules' declared
+`config_key` values. Neither generic layer interprets channel-private semantics. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
+
+A Channel may override `agent_instructions()` to teach the agent stable channel operations. The Registry only aggregates text contributed by enabled channels, and `SystemPromptBuilder` places it in a cache-stable `[CHANNELS]` section. Do not inject dynamic connection lists or polling state into the system prompt. Live participants remain discoverable through `list_connections`; interpretation and execution of channel-private `extra` structures stay inside the destination Channel, and the Registry does not inspect them.
 
 The smallest outbound Channel subclasses `BaseChannel` and implements only `send`. The defaults provide a no-op Runtime, no shorthand resolution, no inbound support, an empty connection list, and activity helpers:
 

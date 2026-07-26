@@ -2,6 +2,12 @@
 
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import BaseChannel, ChannelCapabilities
+from coworker.channels.module import (
+    ChannelManagement,
+    ChannelModule,
+    ChannelModuleRegistry,
+    ChannelSettings,
+)
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.runtime import ChannelRuntime, InlineRuntime
 from coworker.channels.stream import StreamProfile
@@ -12,8 +18,12 @@ __all__ = [
     "BaseChannel",
     "ChannelActivityStore",
     "ChannelCapabilities",
+    "ChannelManagement",
+    "ChannelModule",
+    "ChannelModuleRegistry",
     "ChannelRegistry",
     "ChannelRuntime",
+    "ChannelSettings",
     "ChannelSystem",
     "InlineRuntime",
     "RegistrationError",

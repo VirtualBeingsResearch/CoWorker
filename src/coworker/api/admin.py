@@ -38,9 +38,8 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
     from coworker.brain.brain import Brain
+    from coworker.channels.module import ChannelModuleRegistry
     from coworker.channels.wecom.runner import WeComRunner
-    from coworker.channels.weixin.client import WeixinCredentials
-    from coworker.channels.weixin.runner import WeixinRunner
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.skills.loader import Skill, SkillLoader
@@ -66,7 +65,7 @@ _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
 _wecom_runner: WeComRunner | None = None
-_weixin_runner: WeixinRunner | None = None
+_channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _pending_restart: bool = False
 _config_write_lock = asyncio.Lock()
@@ -90,10 +89,6 @@ _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
 _SOURCE_TOKEN_PATH_RE = re.compile(
     r"^desktop_updates\.sync_sources\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.token$"
 )
-_WEIXIN_TOKEN_PATH_RE = re.compile(
-    r"^weixin\.accounts\.([0-9a-fA-F-]{36})\.token$"
-)
-
 _HOT_CONFIG_PATHS = {
     "llm.max_tokens",
     "agent.idle_sleep_seconds",
@@ -159,11 +154,6 @@ class SwitchModelPayload(BaseModel):
 
 class ConfirmPayload(BaseModel):
     confirm_name: str = ""
-
-
-class WeixinLoginPollPayload(BaseModel):
-    session_id: uuid.UUID
-    verify_code: str = Field(default="", max_length=32)
 
 
 class TaskPayload(BaseModel):
@@ -239,9 +229,9 @@ def setup_admin(
     _config_write_lock = asyncio.Lock()
 
 
-def setup_weixin_admin(runner: WeixinRunner | None) -> None:
-    global _weixin_runner
-    _weixin_runner = runner
+def setup_channel_admin(modules: ChannelModuleRegistry | None) -> None:
+    global _channel_modules
+    _channel_modules = modules
 
 
 def _require_agent() -> AgentLoop:
@@ -277,13 +267,13 @@ def _require_desktop_update_sync() -> SyncService:
     return _desktop_update_sync
 
 
-def _require_weixin_runner() -> WeixinRunner:
-    if _weixin_runner is None:
+def _require_channel_modules() -> ChannelModuleRegistry:
+    if _channel_modules is None:
         raise HTTPException(
             status_code=503,
-            detail=tr("api.state.weixin_runtime_not_ready"),
+            detail=tr("api.state.channel_modules_not_ready"),
         )
-    return _weixin_runner
+    return _channel_modules
 
 
 def _require_task_store() -> TaskStore:
@@ -470,27 +460,6 @@ def _remove_source_tokens(data: JsonObject) -> None:
             item.pop("token", None)
 
 
-def _remove_weixin_tokens(data: JsonObject) -> None:
-    weixin = data.get("weixin")
-    accounts = weixin.get("accounts") if isinstance(weixin, dict) else None
-    if not isinstance(accounts, list):
-        return
-    for account in accounts:
-        if isinstance(account, dict):
-            account.pop("token", None)
-
-
-def _set_weixin_token(data: JsonObject, account_id: str, value: str) -> None:
-    accounts = _get_path(data, "weixin.accounts")
-    if not isinstance(accounts, list):
-        raise ValueError("weixin.accounts must be present before writing an account token")
-    for account in accounts:
-        if isinstance(account, dict) and str(account.get("id") or "").lower() == account_id:
-            account["token"] = value
-            return
-    raise ValueError(f"Weixin account does not exist: {account_id}")
-
-
 def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:
     desktop = data.setdefault("desktop_updates", {})
     if not isinstance(desktop, dict):
@@ -552,17 +521,6 @@ def _masked_config() -> tuple[JsonObject, dict[str, SecretStatus], list[JsonObje
             path = f"desktop_updates.sync_sources.{source_id}.token"
             statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
             item["token"] = ""
-    weixin = data.get("weixin")
-    accounts = weixin.get("accounts", []) if isinstance(weixin, dict) else []
-    if isinstance(accounts, list):
-        for account in accounts:
-            if not isinstance(account, dict):
-                continue
-            account_id = str(account.get("id") or "")
-            value = str(account.get("token") or "")
-            path = f"weixin.accounts.{account_id}.token"
-            statuses[path] = {"configured": bool(value), "last4": value[-4:] if value else ""}
-            account["token"] = ""
     llm = data.get("llm")
     providers = llm.get("managed_providers", []) if isinstance(llm, dict) else []
     if not isinstance(providers, list):
@@ -621,14 +579,31 @@ async def _apply_hot_config(
         and not path.startswith("desktop_updates.admin_token")
     }
     wecom_hot = {path for path in changed_paths if path.startswith("wecom.")}
-    weixin_hot = {path for path in changed_paths if path.startswith("weixin.")}
+    channel_settings = (
+        _channel_modules.settings_items()
+        if _channel_modules is not None
+        else []
+    )
+    channel_hot = {
+        channel_name: {
+            path
+            for path in changed_paths
+            if path.startswith(f"{settings.config_key}.")
+        }
+        for channel_name, settings in channel_settings
+    }
+    channel_hot_paths = {
+        path
+        for paths in channel_hot.values()
+        for path in paths
+    }
     restart = sorted(
         path
         for path in changed_paths
         if path not in _HOT_CONFIG_PATHS
         and path not in desktop_hot
         and path not in wecom_hot
-        and path not in weixin_hot
+        and path not in channel_hot_paths
         and not path.startswith("llm.managed_providers")
     )
     brain = _require_brain()
@@ -686,11 +661,13 @@ async def _apply_hot_config(
             await _wecom_runner.reconfigure(desired.wecom)
         applied.append("wecom")
 
-    if weixin_hot:
-        current.weixin = desired.weixin
-        if _weixin_runner is not None:
-            await _weixin_runner.reconfigure(desired.weixin)
-        applied.append("weixin")
+    for channel_name, settings in channel_settings:
+        if not channel_hot[channel_name]:
+            continue
+        desired_settings = getattr(desired, settings.config_key)
+        await settings.apply(desired_settings)
+        setattr(current, settings.config_key, desired_settings)
+        applied.append(settings.config_key)
 
     for path in sorted(changed_paths & _HOT_CONFIG_PATHS - {"llm.max_tokens"}):
         _assign_config_path(current, path, desired)
@@ -1306,7 +1283,12 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
         "secret_status": statuses,
         "hot_reloadable": sorted(
             _HOT_CONFIG_PATHS
-            | {"llm.managed_providers", "desktop_updates", "wecom", "weixin"}
+            | {"llm.managed_providers", "desktop_updates", "wecom"}
+            | (
+                _channel_modules.hot_reloadable_keys()
+                if _channel_modules is not None
+                else set()
+            )
         ),
         "override_path": config.admin.config_file,
         "pending_restart": _pending_restart,
@@ -1330,81 +1312,45 @@ async def patch_config(
         return await _patch_config_locked(payload, request)
 
 
-@router.post("/channels/weixin/login/start")
-async def start_weixin_login(_: None = Depends(require_admin)) -> ApiResponse:
-    try:
-        return cast(ApiResponse, await _require_weixin_runner().start_login())
-    except Exception as error:
+@router.get("/channels/{channel_name}/management")
+async def get_channel_management(
+    channel_name: str,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    management = _require_channel_modules().management_for(channel_name)
+    if management is None:
         raise HTTPException(
-            status_code=502,
-            detail=tr("api.admin.weixin_login_failed", error=error),
-        ) from error
+            status_code=404,
+            detail=tr("api.admin.channel_management_missing", channel=channel_name),
+        )
+    return await management.snapshot()
 
 
-@router.post("/channels/weixin/login/poll")
-async def poll_weixin_login(
-    payload: WeixinLoginPollPayload,
+@router.post("/channels/{channel_name}/management/{command}")
+async def execute_channel_management(
+    channel_name: str,
+    command: str,
+    payload: dict[str, object],
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    try:
-        result = await _require_weixin_runner().poll_login(
-            str(payload.session_id),
-            payload.verify_code.strip(),
+    management = _require_channel_modules().management_for(channel_name)
+    if management is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.channel_management_missing", channel=channel_name),
         )
+    try:
+        result = await management.execute(command, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=502,
-            detail=tr("api.admin.weixin_login_failed", error=error),
+            detail=tr("api.admin.channel_management_failed", error=error),
         ) from error
-    credentials = result.get("credentials")
-    if credentials is None:
-        return {"status": result["status"]}
-    account_id, applied = await persist_weixin_credentials(credentials, request)
-    return {
-        "status": "confirmed",
-        "bot_id": credentials.bot_id,
-        "account_id": str(account_id),
-        "user_id": credentials.user_id,
-        "applied": applied,
-    }
-
-
-async def persist_weixin_credentials(
-    credentials: WeixinCredentials,
-    request: Request | None = None,
-) -> tuple[uuid.UUID, ApiResponse]:
-    current_accounts = _require_weixin_runner().config.accounts
-    existing = next(
-        (account for account in current_accounts if account.bot_id == credentials.bot_id),
-        None,
-    )
-    account_id = existing.id if existing is not None else uuid.uuid4()
-    accounts = [
-        account.model_dump(mode="json", exclude={"token"})
-        for account in current_accounts
-        if account.id != account_id
-    ]
-    accounts.append(
-        {
-            "id": str(account_id),
-            "name": existing.name if existing is not None else "",
-            "enabled": True,
-            "bot_id": credentials.bot_id,
-            "base_url": credentials.base_url,
-            "weixin_user_id": credentials.user_id,
-        }
-    )
-    config_patch = ConfigPatch(
-        changes=cast(
-            JsonObject,
-            {"weixin": {"enabled": True, "accounts": accounts}},
-        ),
-        secrets={f"weixin.accounts.{account_id}.token": credentials.token},
-    )
-    async with _config_write_lock:
-        applied = await _patch_config_locked(config_patch, request)
-    return account_id, applied
+    _audit(request, f"channel.{channel_name}.{command}", channel_name)
+    return result
 
 
 async def _patch_config_locked(payload: ConfigPatch, request: Request | None) -> ApiResponse:
@@ -1416,7 +1362,6 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
     for secret_path in _SECRET_PATHS:
         _remove_path(safe_changes, secret_path)
     _remove_source_tokens(safe_changes)
-    _remove_weixin_tokens(safe_changes)
     next_overrides = _deep_merge(current_overrides, safe_changes)
     effective: JsonObject = config.model_dump(mode="json")
     explicit_source_secret_ids: set[str] = set()
@@ -1436,20 +1381,6 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
             explicit_source_secret_ids.add(source_id)
-            continue
-        weixin_token_match = _WEIXIN_TOKEN_PATH_RE.fullmatch(secret_path)
-        if weixin_token_match is not None:
-            account_id = weixin_token_match.group(1).lower()
-            if not isinstance(_get_path(next_overrides, "weixin.accounts"), list):
-                _set_path(
-                    next_overrides,
-                    "weixin.accounts",
-                    _get_path(effective, "weixin.accounts", []),
-                )
-            try:
-                _set_weixin_token(next_overrides, account_id, value or "")
-            except ValueError as error:
-                raise HTTPException(status_code=400, detail=str(error)) from error
             continue
         if secret_path not in _SECRET_PATHS and not re.fullmatch(
             r"llm\.managed_providers\.\d+\.api_key", secret_path
@@ -1480,17 +1411,6 @@ async def _patch_config_locked(payload: ConfigPatch, request: Request | None) ->
             ):
                 item["token"] = old_source.token
         _delete_removed_source_tokens(next_overrides, valid_ids)
-
-    desired_weixin_accounts = _get_path(next_overrides, "weixin.accounts")
-    if isinstance(desired_weixin_accounts, list):
-        old_accounts = {str(account.id): account for account in config.weixin.accounts}
-        for item in desired_weixin_accounts:
-            if not isinstance(item, dict):
-                continue
-            account_id = str(item.get("id") or "")
-            old_account = old_accounts.get(account_id)
-            if old_account is not None and not item.get("token"):
-                item["token"] = old_account.token
 
     managed = _get_path(next_overrides, "llm.managed_providers")
     if isinstance(managed, list):
@@ -2096,8 +2016,6 @@ async def create_alarm(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    import uuid
-
     alarm_id = f"alarm_{uuid.uuid4().hex[:8]}"
     await _require_alarms().set(
         alarm_id, payload.trigger_at, payload.message, payload.repeat_seconds

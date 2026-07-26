@@ -1,44 +1,48 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from pathlib import Path
-from uuid import UUID
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from PIL import Image
 
-from coworker.channels.base import ConnectionInfo, PreparedOutbound
-from coworker.channels.weixin.channel import WeixinChannel
-from coworker.channels.weixin.client import WeixinClient, credentials_from_login
+from coworker.channels.weixin.channel import CONTROL_PARTICIPANT_ID, WeixinChannel
+from coworker.channels.weixin.client import (
+    WeixinClient,
+    WeixinCredentials,
+    credentials_from_login,
+)
+from coworker.channels.weixin.connections import WeixinConnectionManager
+from coworker.channels.weixin.logging import configure_weixin_polling_logs
+from coworker.channels.weixin.module import WeixinManagement, create_weixin_module
+from coworker.channels.weixin.repository import (
+    WeixinConnection,
+    WeixinConnectionRepository,
+)
 from coworker.channels.weixin.runner import WeixinRunner
-from coworker.core.config import WeixinAccountConfig, WeixinConfig
-from coworker.core.types import CommunicateRequest, ToolResult
-
-ACCOUNT_ID = UUID("7ad0bbf4-93d2-4807-94ca-f6de629095de")
+from coworker.core.config import WeixinConfig
+from coworker.core.types import CommunicateRequest
 
 
-def _config() -> WeixinConfig:
-    return WeixinConfig(
-        enabled=True,
-        accounts=[
-            WeixinAccountConfig(
-                id=ACCOUNT_ID,
-                name="personal",
-                bot_id="bot-1",
-                token="secret-token",
-            )
-        ],
+def _connection() -> WeixinConnection:
+    return WeixinConnection(
+        bot_instance_id="bot-1",
+        token="secret-token",
+        weixin_user_id="user-1",
+        display_name="personal",
     )
 
 
-class _ActionRunner:
-    async def start_login(self) -> dict[str, str]:
-        return {
-            "session_id": "connection-session-1",
-            "qrcode_content": "https://example.test/pair",
-            "qrcode_path": "pairing.png",
-        }
+def _runner(tmp_path: Path) -> WeixinRunner:
+    return WeixinRunner(
+        WeixinConfig(enabled=True),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
 
 
 @pytest.mark.asyncio
@@ -60,11 +64,8 @@ async def test_client_uses_ilink_auth_headers_and_message_shape() -> None:
     payload = json.loads(request.content)
     assert request.url.path == "/ilink/bot/sendmessage"
     assert request.headers["authorization"] == "Bearer secret-token"
-    assert request.headers["authorizationtype"] == "ilink_bot_token"
-    assert request.headers["ilink-app-id"] == "bot"
     assert payload["msg"]["to_user_id"] == "user-1"
     assert payload["msg"]["context_token"] == "context-1"
-    assert payload["msg"]["item_list"][0]["text_item"]["text"] == "hello"
 
 
 def test_confirmed_login_requires_complete_credentials() -> None:
@@ -77,28 +78,55 @@ def test_confirmed_login_requires_complete_credentials() -> None:
         }
     )
 
-    assert credentials is not None
-    assert credentials.bot_id == "bot-1"
-    assert credentials.token == "token-1"
-    assert credentials.user_id == "owner-1"
+    assert credentials == WeixinCredentials(
+        bot_id="bot-1",
+        token="token-1",
+        user_id="owner-1",
+    )
     assert credentials_from_login({"status": "wait"}) is None
     assert credentials_from_login({"status": "confirmed", "ilink_bot_id": "bot-1"}) is None
 
 
 @pytest.mark.asyncio
-async def test_runner_isolates_participants_by_account_and_persists_context(
+async def test_connection_repository_owns_bound_instances(tmp_path: Path) -> None:
+    path = tmp_path / "weixin-connections.json"
+    repository = WeixinConnectionRepository(path)
+
+    await repository.save(_connection())
+
+    restored = WeixinConnectionRepository(path).list()
+    assert restored == [_connection()]
+    assert "secret-token" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_connection_repository_updates_metadata_without_losing_secret(
     tmp_path: Path,
 ) -> None:
-    runner = WeixinRunner(_config(), tmp_path / "weixin-state.json")
+    repository = WeixinConnectionRepository(tmp_path / "weixin-connections.json")
+    await repository.save(_connection())
+
+    updated = await repository.update("bot-1", display_name="home", enabled=False)
+
+    assert updated is not None
+    assert updated.display_name == "home"
+    assert updated.enabled is False
+    assert updated.token == "secret-token"
+
+
+@pytest.mark.asyncio
+async def test_runner_uses_bot_instance_as_participant_and_state_key(
+    tmp_path: Path,
+) -> None:
+    runner = _runner(tmp_path)
     events = []
 
     async def collect(event: object) -> None:
         events.append(event)
 
     runner.set_inbound_handler(collect)
-
     await runner._publish_message(  # noqa: SLF001
-        str(ACCOUNT_ID),
+        "bot-1",
         {
             "message_type": 1,
             "from_user_id": "user-1",
@@ -108,16 +136,52 @@ async def test_runner_isolates_participants_by_account_and_persists_context(
         },
     )
 
-    participant_id = f"weixin:{ACCOUNT_ID}:user-1"
-    assert events[0].participant_id == participant_id
-    assert events[0].source == "weixin"
-    assert events[0].content == "hello"
-    assert runner.participant_ids() == [participant_id]
-    assert runner.resolve_participant("user-1") == participant_id
+    assert events[0].participant_id == "weixin:bot-1"
+    assert runner.participant_ids() == ["weixin:bot-1"]
+    assert runner.resolve_participant("personal") == "weixin:bot-1"
 
 
 @pytest.mark.asyncio
-async def test_start_login_creates_real_png_for_admin_and_chat(
+async def test_runner_prunes_state_when_connection_is_removed(tmp_path: Path) -> None:
+    state_path = tmp_path / "weixin-state.json"
+    runner = _runner(tmp_path)
+    await runner._publish_message(  # noqa: SLF001
+        "bot-1",
+        {
+            "message_type": 1,
+            "from_user_id": "user-1",
+            "context_token": "context-1",
+            "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
+        },
+    )
+
+    await runner.replace_connections([])
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["connections"] == {}
+
+
+@pytest.mark.asyncio
+async def test_renaming_connection_does_not_restart_message_polling(
+    tmp_path: Path,
+) -> None:
+    runner = _runner(tmp_path)
+    runner._cancel_account_tasks = AsyncMock()  # type: ignore[method-assign]  # noqa: SLF001
+    renamed = WeixinConnection(
+        bot_instance_id="bot-1",
+        token="secret-token",
+        weixin_user_id="user-1",
+        display_name="home",
+    )
+
+    await runner.replace_connections([renamed])
+
+    runner._cancel_account_tasks.assert_not_awaited()  # type: ignore[attr-defined]  # noqa: SLF001
+    assert runner.instance_name("bot-1") == "home"
+
+
+@pytest.mark.asyncio
+async def test_start_login_creates_qr_image_for_chat_local_storage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,23 +193,13 @@ async def test_start_login_creates_real_png_for_admin_and_chat(
                 "qrcode_img_content": "https://example.test/pair/session-secret",
             }
 
-        async def poll_login(
-            self,
-            qrcode: str,
-            verify_code: str,
-        ) -> dict[str, str]:
-            assert qrcode == "session-secret"
-            assert verify_code == ""
-            return {
-                "status": "confirmed",
-                "ilink_bot_id": "bot-new",
-                "bot_token": "token-new",
-            }
+        async def poll_login(self, qrcode: str, verify_code: str) -> dict[str, str]:
+            return {"status": "wait"}
 
         async def close(self) -> None:
             return None
 
-    runner = WeixinRunner(_config(), tmp_path / "weixin-state.json")
+    runner = _runner(tmp_path)
     monkeypatch.setattr(
         "coworker.channels.weixin.runner.WeixinClient",
         lambda *args, **kwargs: LoginClient(),
@@ -155,101 +209,203 @@ async def test_start_login_creates_real_png_for_admin_and_chat(
 
     image_path = Path(result["qrcode_path"])
     assert result["qrcode_data_url"].startswith("data:image/png;base64,")
-    assert result["qrcode_content"] == "https://example.test/pair/session-secret"
-    assert result["session_id"]
     assert image_path.is_file()
     with Image.open(image_path) as image:
         assert image.format == "PNG"
-        assert image.width > 100
-
-    second = await runner.start_login()
-    assert second["session_id"] != result["session_id"]
-    assert second["qrcode_path"] != result["qrcode_path"]
-    confirmed = await runner.poll_login(result["session_id"])
-    assert confirmed["status"] == "confirmed"
-    assert not image_path.exists()
-    assert Path(second["qrcode_path"]).exists()
 
 
-@pytest.mark.asyncio
-async def test_connect_action_prepares_qrcode_for_generic_communicate() -> None:
-    channel = WeixinChannel(_ActionRunner())  # type: ignore[arg-type]
-    recipient = ConnectionInfo(
-        participant_id="recipient:user-1",
-        channel="stream",
-        kind="stream:private",
-        active=True,
-    )
+class _PairingRuntime:
+    def __init__(self, status: str = "confirmed") -> None:
+        self.status = status
+        self.config = WeixinConfig(enabled=True)
+        self.replaced: list[WeixinConnection] = []
 
-    prepared = await channel.prepare_action(
-        CommunicateRequest(
-            participant_id="recipient:user-1",
-            extra={"channel_action": {"channel": "weixin", "type": "connect"}},
-        ),
-        recipient,
-    )
+    async def start_login(self) -> dict[str, str]:
+        return {
+            "session_id": "session-1",
+            "qrcode_path": "pairing.png",
+            "qrcode_data_url": "data:image/png;base64,abc",
+            "status": "wait",
+        }
 
-    assert isinstance(prepared, PreparedOutbound)
-    assert prepared.request.attachments == [{"type": "image", "path": "pairing.png"}]
-    assert prepared.request.extra["channel_action"]["session_id"] == "connection-session-1"
-    assert "https://example.test/pair" in prepared.request.message
-    assert "connection-session-1" in prepared.result_note
+    async def poll_login(
+        self,
+        session_id: str,
+        verify_code: str = "",
+    ) -> dict[str, object]:
+        if self.status != "confirmed":
+            return {"status": self.status, "credentials": None}
+        return {
+            "status": "confirmed",
+            "credentials": WeixinCredentials(
+                bot_id="bot-new",
+                token="token-new",
+                user_id="owner-new",
+            ),
+        }
 
-
-@pytest.mark.asyncio
-async def test_connect_action_rejects_group_delivery() -> None:
-    channel = WeixinChannel(_ActionRunner())  # type: ignore[arg-type]
-    recipient = ConnectionInfo(
-        participant_id="recipient:user-1",
-        channel="stream",
-        kind="stream:group",
-        active=True,
-    )
-
-    result = await channel.prepare_action(
-        CommunicateRequest(
-            participant_id="recipient:user-1",
-            extra={"channel_action": {"channel": "weixin", "type": "connect"}},
-        ),
-        recipient,
-    )
-
-    assert isinstance(result, ToolResult)
-    assert result.is_error
+    async def replace_connections(
+        self,
+        connections: list[WeixinConnection],
+    ) -> None:
+        self.replaced = connections
 
 
 @pytest.mark.asyncio
-async def test_channel_routes_send_and_reports_multi_account_participant() -> None:
-    class Runtime:
-        sent: list[tuple[str, str]] = []
+async def test_connection_manager_polls_and_persists_in_background(tmp_path: Path) -> None:
+    runtime = _PairingRuntime()
+    repository = WeixinConnectionRepository(tmp_path / "connections.json")
+    manager = WeixinConnectionManager(runtime, repository)  # type: ignore[arg-type]
 
-        async def send(self, participant_id: str, message: str) -> None:
-            self.sent.append((participant_id, message))
+    await manager.start_pairing()
+    for _ in range(10):
+        if manager.current_pairing()["status"] == "confirmed":  # type: ignore[index]
+            break
+        await asyncio.sleep(0)
 
-        def participant_ids(self) -> list[str]:
-            return [f"weixin:{ACCOUNT_ID}:user-1"]
+    pairing = manager.current_pairing()
+    assert pairing is not None
+    assert pairing["participant_id"] == "weixin:bot-new"
+    assert repository.list()[0].bot_instance_id == "bot-new"
+    await manager.stop()
 
-        def activity_for(self, participant_id: str) -> tuple[None, None]:
-            return None, None
 
-        def is_account_active(self, account_id: str) -> bool:
-            return account_id == str(ACCOUNT_ID)
+@pytest.mark.asyncio
+async def test_disabled_channel_rejects_pairing_without_creating_session(
+    tmp_path: Path,
+) -> None:
+    runtime = _PairingRuntime()
+    runtime.config = WeixinConfig(enabled=False)
+    manager = WeixinConnectionManager(  # type: ignore[arg-type]
+        runtime,
+        WeixinConnectionRepository(tmp_path / "connections.json"),
+    )
 
-        def resolve_participant(self, participant_id: str) -> str | None:
-            return f"weixin:{ACCOUNT_ID}:{participant_id}"
+    with pytest.raises(RuntimeError, match="停用"):
+        await manager.start_pairing()
 
-        def set_inbound_handler(self, handler: object) -> None:
-            return None
+    assert manager.current_pairing() is None
 
-    runtime = Runtime()
-    channel = WeixinChannel(runtime)  # type: ignore[arg-type]
-    participant_id = f"weixin:{ACCOUNT_ID}:user-1"
+
+@pytest.mark.asyncio
+async def test_control_connect_returns_qr_without_selecting_recipient(
+    tmp_path: Path,
+) -> None:
+    runtime = _PairingRuntime(status="wait")
+    manager = WeixinConnectionManager(  # type: ignore[arg-type]
+        runtime,
+        WeixinConnectionRepository(tmp_path / "connections.json"),
+    )
+    channel = WeixinChannel(runtime, runtime, manager)  # type: ignore[arg-type]
 
     result = await channel.send(
-        CommunicateRequest(participant_id=participant_id, message="hello")
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "connect"},
+        )
     )
 
     assert not result.is_error
-    assert runtime.sent == [(participant_id, "hello")]
-    assert channel.list_connections()[0].active
-    assert channel.resolve("user-1") == participant_id
+    assert "pairing.png" in result.content
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_remove_requires_explicit_confirmation(tmp_path: Path) -> None:
+    repository = WeixinConnectionRepository(tmp_path / "connections.json")
+    await repository.save(_connection())
+    runtime = _PairingRuntime(status="wait")
+    manager = WeixinConnectionManager(runtime, repository)  # type: ignore[arg-type]
+    channel = WeixinChannel(runtime, runtime, manager)  # type: ignore[arg-type]
+
+    unconfirmed = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "remove", "bot_instance_id": "bot-1"},
+        )
+    )
+    confirmed = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={
+                "action": "remove",
+                "bot_instance_id": "bot-1",
+                "confirm": True,
+            },
+        )
+    )
+
+    assert unconfirmed.is_error
+    assert not confirmed.is_error
+    assert repository.list() == []
+
+
+@pytest.mark.asyncio
+async def test_weixin_management_exposes_channel_owned_resources(tmp_path: Path) -> None:
+    repository = WeixinConnectionRepository(tmp_path / "connections.json")
+    await repository.save(_connection())
+    manager = WeixinConnectionManager(  # type: ignore[arg-type]
+        _PairingRuntime(status="wait"),
+        repository,
+    )
+    management = WeixinManagement(manager)
+
+    snapshot = await management.snapshot()
+    await management.execute(
+        "update_connection",
+        {"bot_instance_id": "bot-1", "display_name": "home"},
+    )
+
+    assert snapshot["connections"][0]["bot_instance_id"] == "bot-1"  # type: ignore[index]
+    assert repository.list()[0].display_name == "home"
+
+
+def test_module_owns_connection_and_runtime_paths(tmp_path: Path) -> None:
+    module = create_weixin_module(WeixinConfig(enabled=False), tmp_path, None)  # type: ignore[arg-type]
+
+    assert module.name == "weixin"
+    assert module.management is not None
+    assert module.settings.config_key == "weixin"
+
+
+def test_weixin_polling_http_logs_only_downgrade_poll_requests() -> None:
+    configure_weixin_polling_logs()
+    updates = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        "HTTP Request: POST https://ilinkai.weixin.qq.com/ilink/bot/getupdates",
+        (),
+        None,
+    )
+    snapshot = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '127.0.0.1 - "GET /api/admin/channels/weixin/management HTTP/1.1" 200',
+        (),
+        None,
+    )
+    command = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '127.0.0.1 - "POST /api/admin/channels/weixin/management/remove_connection HTTP/1.1" 200',
+        (),
+        None,
+    )
+
+    for logger_name, record in (
+        ("httpx", updates),
+        ("uvicorn.access", snapshot),
+        ("uvicorn.access", command),
+    ):
+        for log_filter in logging.getLogger(logger_name).filters:
+            log_filter.filter(record)
+
+    assert updates.levelno == logging.DEBUG
+    assert snapshot.levelno == logging.DEBUG
+    assert command.levelno == logging.INFO

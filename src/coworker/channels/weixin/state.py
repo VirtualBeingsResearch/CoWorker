@@ -10,14 +10,14 @@ from coworker.i18n import tr
 
 
 @dataclass
-class WeixinAccountState:
+class WeixinConnectionState:
     cursor: str = ""
     context_tokens: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class WeixinState:
-    accounts: dict[str, WeixinAccountState] = field(default_factory=dict)
+    connections: dict[str, WeixinConnectionState] = field(default_factory=dict)
 
 
 class WeixinStateStore:
@@ -34,14 +34,14 @@ class WeixinStateStore:
             return WeixinState()
         if not isinstance(payload, dict):
             return WeixinState()
-        accounts = payload.get("accounts")
-        if not isinstance(accounts, dict):
+        connections = payload.get("connections")
+        if not isinstance(connections, dict):
             return WeixinState()
         return WeixinState(
-            accounts={
-                str(account_id): _account_state(account)
-                for account_id, account in accounts.items()
-                if account_id and isinstance(account, dict)
+            connections={
+                str(bot_instance_id): _connection_state(connection)
+                for bot_instance_id, connection in connections.items()
+                if bot_instance_id and isinstance(connection, dict)
             }
         )
 
@@ -52,12 +52,12 @@ class WeixinStateStore:
             temporary.write_text(
                 json.dumps(
                     {
-                        "accounts": {
-                            account_id: {
-                                "cursor": account.cursor,
-                                "context_tokens": account.context_tokens,
+                        "connections": {
+                            bot_instance_id: {
+                                "cursor": connection.cursor,
+                                "context_tokens": connection.context_tokens,
                             }
-                            for account_id, account in state.accounts.items()
+                            for bot_instance_id, connection in state.connections.items()
                         }
                     },
                     ensure_ascii=False,
@@ -71,9 +71,9 @@ class WeixinStateStore:
             temporary.unlink(missing_ok=True)
 
 
-def _account_state(payload: dict[str, object]) -> WeixinAccountState:
+def _connection_state(payload: dict[str, object]) -> WeixinConnectionState:
     tokens = payload.get("context_tokens")
-    return WeixinAccountState(
+    return WeixinConnectionState(
         cursor=str(payload.get("cursor") or ""),
         context_tokens={
             str(user_id): str(token)

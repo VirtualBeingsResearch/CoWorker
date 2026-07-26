@@ -143,12 +143,15 @@ language-transition system notice when it detects a locale change.
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
-| `WEIXIN__ENABLED` | `false` | Whether the personal-Weixin ClawBot channel is enabled |
-| `WEIXIN__ACCOUNTS` | `[]` | JSON array of ClawBot connection accounts; use the administration QR flow to add and manage them without exposing tokens |
+| `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
 
-The Weixin Claw administration panel is registered through the extensible settings-panel registry. A confirmed scan adds a new instance-level ClawBot connection and starts it immediately; the participant that received the QR code is not bound to that connection. A Weixin contact's first message creates a new `weixin:<account_uuid>:<weixin_user_id>` participant, whose contact relationships are organized by the agent. See [Weixin Claw](../channels/weixin-claw.en.md).
+The Weixin Claw module registers its transport, management interface, and hot-settings provider
+together. A confirmed scan stores the connection in
+`MEMORY__DB_PATH/weixin_connections.json` and immediately starts one
+`weixin:<bot_instance_id>` participant; connections are not `admin_config.json` settings. One Bot
+instance can bind only one Weixin account. Whoever views the QR code is not automatically bound to that connection, and the agent still organizes contact relationships. An unfinished pairing session is restored after leaving and returning to the administration page. See [Weixin Claw](../channels/weixin-claw.en.md).
 
 ### Container Git workspace
 

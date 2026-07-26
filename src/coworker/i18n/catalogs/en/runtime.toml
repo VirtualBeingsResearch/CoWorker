@@ -100,17 +100,25 @@ voice = "[voice message without transcript]"
 file = "[file]"
 video = "[video]"
 unsupported = "[unsupported Weixin message]"
-config_missing = "Weixin Claw is enabled without a connection account; scan a QR code in the administration console"
 prepared = "Weixin Claw runtime prepared with {{count}} connection accounts"
 poll_failed = "Weixin Claw account {{account}} long poll failed: {{error}}"
+poll_recovered = "Weixin ClawBot instance {{account}} recovered its long poll"
 inbound_unhandled = "Dropped a Weixin Claw inbound event because no channel handler is configured"
 state_load_failed = "Failed to load Weixin Claw state: {{error}}"
 state_save_failed = "Failed to save Weixin Claw state: {{error}}"
-connection_invitation = '''Weixin Claw connection
-Open or scan this one-time QR code to add a ClawBot connection: {{url}}
-After it connects, send a message from Weixin. That first message creates a new participant; it is not automatically linked to this chat.'''
-connection_confirmed = "ClawBot connection {{account}} is ready. A Weixin contact's first message will create a new participant."
-connection_status = "Weixin connection status: {{status}}."
+connections_load_failed = "Failed to load Weixin Claw connections: {{error}}"
+connections_save_failed = "Failed to save Weixin Claw connections: {{error}}"
+pairing_poll_failed = "Background polling failed for Weixin Claw pairing session {{session}}: {{error}}"
+connection_missing = "Weixin ClawBot instance {{instance}} does not exist."
+remove_confirm = "Explicit confirmation is required before removing Weixin ClawBot instance {{instance}}."
+verify_code_required = "A Weixin pairing verification code is required"
+pairing_unavailable = "The Weixin Claw pairing session is unavailable"
+disabled = "The Weixin Claw channel is disabled; enable it before creating a connection"
+control_name = "Weixin Claw connection control"
+
+[channel.management]
+command_unknown = "Unknown channel management command: {{command}}"
+field_required = "Channel management field {{field}} is required"
 
 [channel.desktop]
 command_rejected = "Command was not accepted"

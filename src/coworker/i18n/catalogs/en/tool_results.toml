@@ -151,14 +151,22 @@ weixin_failed = "Weixin message delivery failed: {{error}}"
 desktop_disconnected = "Communication target is not connected: {{participant}}"
 desktop_sent = "Desktop request sent with request_id={{request_id}}{{conversation}}"
 desktop_conversation = "; conversation_id={{conversation}}"
-channel_action_invalid = "extra.channel_action must be an object."
-channel_action_unknown = "Channel '{{channel}}' is unavailable or does not support this channel action."
-channel_action_operation = "Unsupported Weixin channel action operation: {{operation}}."
-channel_action_private = "Weixin connection cards can be sent only to a known private-chat participant."
-channel_action_failed = "Weixin channel action failed: {{error}}"
-channel_action_session = "Polling a Weixin connection requires session_id."
-channel_action_started = "Weixin connection session {{session}} was created and its QR card was delivered. The recipient is only the delivery target and is not bound to the new connection."
-channel_action_status = "Weixin connection session {{session}} status: {{status}}."
+weixin_control_action = "weixin:control does not support action='{{action}}'. Available actions: connect, status, verify, remove."
+weixin_control_failed = "Weixin Claw control operation failed: {{error}}"
+weixin_control_session = "Submitting a Weixin pairing verification code requires session_id."
+weixin_control_verify_code = "Submitting a Weixin pairing verification code requires verify_code."
+weixin_control_no_pairing = "There is no active Weixin Claw pairing session."
+weixin_control_instance = "Removing a Weixin ClawBot connection requires bot_instance_id."
+weixin_control_started = '''A Weixin Claw pairing session was created.
+session_id={{session}}
+status={{status}}
+qrcode_path={{path}}
+The QR code has not been sent to anyone. Choose a recipient, then send qrcode_path as an image attachment with communicate.'''
+weixin_control_status = "Weixin Claw pairing session {{session}} status: {{status}}."
+weixin_control_confirmed = "Weixin Claw pairing session {{session}} is confirmed. The new connection participant_id is '{{participant}}'."
+weixin_control_confirm_remove = "Removing Weixin ClawBot instance {{instance}} deletes its local credentials and stops messaging. Retry with the same bot_instance_id and confirm=true only after explicit user confirmation. Weixin-side authorization is not remotely revoked."
+weixin_control_unknown_instance = "Weixin ClawBot instance {{instance}} does not exist."
+weixin_control_removed = "Weixin ClawBot instance {{instance}} was removed from Coworker and stopped. Weixin-side authorization was not remotely revoked."
 
 [tool_result.bubble]
 needs_goal = "Creating a bubble requires goal; provide bubble_id to resume a timed-out bubble."

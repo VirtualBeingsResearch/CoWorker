@@ -55,6 +55,20 @@ class TestSystemPromptBuilder:
         assert "[GUIDELINES]" in prompt
         assert "[TOOLS]" not in prompt
 
+    def test_build_includes_enabled_channel_instructions(self, tmp_path):
+        class Channels:
+            @staticmethod
+            def agent_instructions() -> list[str]:
+                return ["Use channel:control."]
+
+        builder = make_builder(tmp_path)
+        builder._channels = Channels()
+
+        prompt = builder.build()
+
+        assert "[CHANNELS]" in prompt
+        assert "Use channel:control." in prompt
+
     def test_build_newborn_identity(self, tmp_path):
         builder = make_builder(tmp_path, with_name=False)
         prompt = builder.build()
