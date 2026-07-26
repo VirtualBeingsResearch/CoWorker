@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.3.4 - Unreleased
+
+- docs(release): finalize v0.3.3 changelog (#76)
+- feat(desktop): add launch and bridge autostart settings (#77)
+- fix(desktop): restore Unix command discovery (#78)
+- feat(desktop): add version statistics (#79)
+- build(deps): bump the vite group across 3 directories with 1 update (#85)
+- build(deps): bump clap from 4.6.2 to 4.6.4 (#96)
+- build(deps): bump lucide-react in /apps/coworker-desktop/desktop (#97)
+- build(deps): bump tauri-plugin-single-instance from 2.4.2 to 2.4.3 (#94)
+- build(deps): bump @tauri-apps/plugin-dialog (#95)
+- build(deps-dev): bump @testing-library/jest-dom (#93)
+- build(deps): bump mcp2cli from 3.0.3 to 3.3.1 (#91)
+- build(deps): bump anthropic from 0.117.0 to 0.120.0 (#88)
+- build(deps): bump tauri-plugin-dialog from 2.7.1 to 2.7.2 (#87)
+- build(deps): bump python-multipart from 0.0.29 to 0.0.32 (#86)
+- build(deps): bump regex from 1.13.0 to 1.13.1 (#84)
+- build(deps): bump actions/cache from 5 to 6 (#82)
+- build(deps): bump astral-sh/setup-uv from 8.3.2 to 9.0.0 (#81)
+- build(deps): bump thiserror from 2.0.18 to 2.0.19 (#90)
+- build(deps): bump lucide-react from 1.25.0 to 1.27.0 in /web (#98)
+- build(deps): bump openai from 2.35.1 to 2.48.0 (#83)
+- fix(admin): align destructive action confirmation (#99)
+- build(deps): bump the react group across 3 directories with 4 updates (#92)
+- chore(deps): group Dependabot updates (#100)
+- fix(frontend): support TypeScript 7 module resolution (#102)
+- fix(desktop): bootstrap native Codex coworker replies (#104)
+- fix(desktop): keep Codex warnings local (#103)
+- feat(channels): add extensible Weixin module (#80)
+
 ## 0.3.3 - 2026-07-25
 
 - feat(container): initialize persistent Git workspaces from an embedded repository bundle, support configurable repository sources, and expose container health without application code changes
