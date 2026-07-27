@@ -1,0 +1,45 @@
+{
+  "name": "CoWorker",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "PYTHON_VERSION": "3.13"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    }
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "containerEnv": {
+    "API__HOST": "0.0.0.0"
+  },
+  "postCreateCommand": "uv sync --frozen --dev",
+  "forwardPorts": [
+    8000,
+    8100
+  ],
+  "portsAttributes": {
+    "8000": {
+      "label": "CoWorker API"
+    },
+    "8100": {
+      "label": "Explore Lab"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.terminal.activateEnvironment": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}
