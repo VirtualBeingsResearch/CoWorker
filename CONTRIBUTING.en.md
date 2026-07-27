@@ -15,7 +15,7 @@ Requirements:
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 20+ for web or desktop changes
 - Stable Rust for bridge or Tauri changes
-- Go 1.25+ for Relay changes
+- Go 1.26.5+ for Relay changes
 
 Install the Python workspace and development dependencies:
 
