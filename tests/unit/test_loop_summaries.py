@@ -30,6 +30,7 @@ def _make_loop(brain, mem, events=None):
     config = MagicMock()
     config.agent.idle_sleep_seconds = 0
     config.agent.inbox_batch_max = 10
+    config.agent.passive_mode = False
 
     state = MagicMock()
     state.tick = False
@@ -207,6 +208,82 @@ async def test_assistant_response_appended_to_primary():
     asst_msgs = [m for m in mem.primary if m.role == "assistant"]
     assert len(asst_msgs) == 1
     assert asst_msgs[0].content == "my reply"
+
+
+@pytest.mark.asyncio
+async def test_passive_mode_waits_before_thinking_on_clean_start():
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    loop = _make_loop(brain, mem)
+    loop._config.agent.passive_mode = True
+    loop.state.tick = True
+    loop._rest = AsyncMock()
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    await loop._cycle()
+
+    brain.think.assert_not_awaited()
+    loop._rest.assert_awaited_once()
+    assert mem.primary == []
+
+
+@pytest.mark.asyncio
+async def test_passive_mode_rests_after_handling_event_without_heartbeat():
+    mem = ShortTermMemory()
+    brain = _make_brain(content="done")
+    event = IncomingEvent(participant_id="alice", content="hello")
+    loop = _make_loop(brain, mem, events=[event])
+    loop._config.agent.passive_mode = True
+    loop.state.tick = True
+    loop._rest = AsyncMock()
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    await loop._cycle()
+
+    brain.think.assert_awaited_once()
+    loop._rest.assert_awaited_once()
+    assert not any(m.source == "tick" for m in mem.primary)
+
+
+@pytest.mark.asyncio
+async def test_passive_mode_waits_after_restored_terminal_response():
+    mem = ShortTermMemory()
+    mem.primary.append(Message(role="assistant", content="done", stop_reason="end_turn"))
+    brain = _make_brain()
+    loop = _make_loop(brain, mem, events=[])
+    loop._config.agent.passive_mode = True
+    loop.state.tick = True
+    loop._rest = AsyncMock()
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    await loop._cycle()
+
+    brain.think.assert_not_awaited()
+    loop._rest.assert_awaited_once()
+    assert not any(m.source == "tick" for m in mem.primary)
+
+
+@pytest.mark.asyncio
+async def test_passive_mode_continues_pending_tool_result_before_resting():
+    mem = ShortTermMemory()
+    mem.primary.extend(
+        [
+            Message(role="assistant", content="", stop_reason="tool_use"),
+            Message(role="tool", content="tool result", tool_call_id="tool-1"),
+        ]
+    )
+    brain = _make_brain(content="finished")
+    loop = _make_loop(brain, mem, events=[])
+    loop._config.agent.passive_mode = True
+    loop.state.tick = True
+    loop._rest = AsyncMock()
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    await loop._cycle()
+
+    brain.think.assert_awaited_once()
+    loop._rest.assert_awaited_once()
+    assert mem.primary[-1].content == "finished"
 
 
 def _make_rest_loop(*, passive: bool, idle_sleep_seconds: int = 0) -> AgentLoop:

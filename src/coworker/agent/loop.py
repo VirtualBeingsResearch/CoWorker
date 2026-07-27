@@ -298,6 +298,11 @@ class AgentLoop:
             logger.warning(
                 f"Injected {len(skill_load_warnings)} skill load warning(s) into model context"
             )
+
+        if self._should_wait_passively(events):
+            await self._rest()
+            return
+
         if self._ilog:
             self._ilog.log_system_prompt(system_prompt)
 
@@ -306,6 +311,7 @@ class AgentLoop:
         )
         if (
             self.state.tick
+            and not self._config.agent.passive_mode
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
@@ -409,7 +415,7 @@ class AgentLoop:
             recall_query = assistant_msg.reasoning_content or assistant_msg.content_text()
             await self._auto_recall(recall_query)
             await self._task_reminder()
-        elif not events:
+        elif self._config.agent.passive_mode or not events:
             await self._rest()
 
         self.state.cycle_count += 1
@@ -422,6 +428,15 @@ class AgentLoop:
                 short_term_snapshot=list(self._short_term.primary),
                 tool_calls_this_cycle=len(response.tool_calls),
             )
+
+    def _should_wait_passively(self, events: list[IncomingEvent]) -> bool:
+        """Wait before thinking when passive mode has no work left to continue."""
+        if not self._config.agent.passive_mode or events:
+            return False
+        if not self._short_term.primary:
+            return True
+        last_message = self._short_term.primary[-1]
+        return last_message.role == "assistant" and last_message.stop_reason != "tool_use"
 
     @staticmethod
     def _build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
