@@ -1,0 +1,24 @@
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    environment:
+      RELAY_PUBLIC_URL: https://relay.example.com:8443
+      RELAY_LISTEN: :8443
+      RELAY_DATABASE: /var/lib/coworker-relay/relay.db
+      RELAY_CACHE_DIR: /var/lib/coworker-relay/cache
+      RELAY_CACHE_MAX_BYTES: "4294967296"
+      RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?set RELAY_ADMIN_TOKEN}
+      RELAY_TLS_CERT: /run/tls/fullchain.pem
+      RELAY_TLS_KEY: /run/tls/privkey.pem
+    ports:
+      - "8443:8443"
+    volumes:
+      - relay-data:/var/lib/coworker-relay
+      - ./tls:/run/tls:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  relay-data:

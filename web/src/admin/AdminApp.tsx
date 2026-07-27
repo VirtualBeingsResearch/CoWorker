@@ -14,7 +14,7 @@ import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
+type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'relay' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
@@ -27,6 +27,7 @@ const NAV: Array<{ id: Section; label: string; description: string; group: NavGr
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
   { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
   { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
+  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', group: '扩展', icon: CloudUpload },
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
 ];
@@ -2236,6 +2237,100 @@ function Audit() {
 
 function Empty({ text }: { text: string }) { return <div className="empty"><Wrench size={23} /><p>{t(text)}</p></div>; }
 
+function RelayAccess() {
+  const relay = useLoad<Json>(() => api('/api/admin/relay'), []);
+  const [relayUrl, setRelayUrl] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [communicationToken, setCommunicationToken] = useState('');
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => void relay.reload(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [relay.reload]);
+  useEffect(() => {
+    if (relay.data && !relay.data.instance_id) {
+      setShowToken(false);
+      setCommunicationToken('');
+    }
+  }, [relay.data]);
+  const action = async (name: string, operation: () => Promise<unknown>, success: string) => {
+    setBusy(name); setNotice(null);
+    try {
+      await operation();
+      setNotice({ kind: 'success', text: t(success) });
+      await relay.reload();
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') });
+    } finally {
+      setBusy('');
+    }
+  };
+  const copy = async (value: string, label: string) => {
+    await navigator.clipboard.writeText(value);
+    setNotice({ kind: 'success', text: t('{{label}}已复制', { label: t(label) }) });
+  };
+  const loadToken = async () => {
+    const result = await api<Json>('/api/admin/relay/token');
+    const token = String(result.communication_token || '');
+    setCommunicationToken(token);
+    return token;
+  };
+  if (relay.loading && !relay.data) return <Loading error={relay.error} />;
+  const data = relay.data || {};
+  const configured = Boolean(data.instance_id);
+  const connected = data.status === 'connected';
+  return <div className="page-stack relay-access">
+    <Panel title="自托管 Relay" note="Coworker 主动建立加密出站隧道，不需要开放内网端口。">
+      <section className={`relay-hero ${connected ? 'connected' : configured ? 'waiting' : 'idle'}`}>
+        <div className="relay-signal"><CloudUpload size={26} /><i /></div>
+        <div><span>{t('远程访问状态')}</span><h3>{t(connected ? '已安全连接' : configured ? '正在等待连接' : '尚未配对')}</h3>
+          <p>{t(connected ? '桌面端可以使用下方地址连接这台 Coworker。' : configured ? '内置 Relay Client 会自动重连，本地访问不受影响。' : '使用 Relay 管理员创建的一次性配对码完成连接。')}</p>
+        </div>
+        <b>{t(String(data.status || 'disabled'))}</b>
+      </section>
+      {!configured ? <form className="relay-enroll" onSubmit={event => {
+        event.preventDefault();
+        void action('connect', () => api('/api/admin/relay/connect', {
+          method: 'POST',
+          body: JSON.stringify({ relay_url: relayUrl, pairing_code: pairingCode }),
+        }), 'Relay 配对成功');
+      }}>
+        <label><span>{t('Relay 地址')}</span><input type="url" required placeholder="https://relay.example.com" value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label>
+        <label><span>{t('一次性配对码')}</span><input required autoComplete="one-time-code" value={pairingCode} onChange={event => setPairingCode(event.target.value)} /></label>
+        <button className="primary" disabled={Boolean(busy)}><CloudUpload size={15} />{t(busy === 'connect' ? '正在连接…' : '连接 Relay')}</button>
+      </form> : <>
+        <div className="relay-config-grid">
+          <article><span>{t('桌面端 Base URL')}</span><code>{String(data.public_base_url || '')}</code><button className="ghost mini" onClick={() => void copy(String(data.public_base_url || ''), 'Base URL')}>{t('复制到剪贴板')}</button></article>
+          <article><span>{t('Bearer Token')}</span><code>{showToken ? communicationToken : '••••••••••••••••'}</code><div><button className="ghost mini" disabled={busy === 'token'} onClick={() => {
+            if (showToken) { setShowToken(false); setCommunicationToken(''); return; }
+            setBusy('token');
+            void loadToken().then(() => setShowToken(true)).catch(error => setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') })).finally(() => setBusy(''));
+          }}>{t(showToken ? '隐藏' : '显示')}</button><button className="ghost mini" disabled={busy === 'token'} onClick={() => {
+            setBusy('token');
+            void (communicationToken ? Promise.resolve(communicationToken) : loadToken()).then(token => copy(token, 'Bearer Token')).catch(error => setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') })).finally(() => setBusy(''));
+          }}>{t('复制到剪贴板')}</button></div></article>
+          <article><span>{t('实例 ID')}</span><code>{String(data.instance_id || '')}</code></article>
+          <article><span>{t('最后心跳')}</span><b>{data.last_heartbeat ? new Date(String(data.last_heartbeat)).toLocaleString() : t('尚无')}</b><small>{data.latency_ms == null ? '' : `${data.latency_ms} ms`}</small></article>
+        </div>
+        {data.last_error && <div className="notice error" role="alert">{String(data.last_error)}</div>}
+        {connected && data.verifier_synced === false && <div className="notice error" role="alert">{t('Token verifier 尚未同步；Relay 会继续使用上一版本并自动重试。')}</div>}
+        <div className="panel-actions">
+          <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 连通性测试成功')}>{t('测试远程连接')}</button>
+          <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/relay/reconnect', { method: 'POST' }), '已请求重新连接')}>{t('重新连接')}</button>
+          <button className="danger" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 relayctl 撤销。'))) {
+              void action('disconnect', () => api('/api/admin/relay', { method: 'DELETE' }), 'Relay 已断开');
+            }
+          }}>{t('断开连接')}</button>
+        </div>
+      </>}
+      {notice && <div className={`notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
+    </Panel>
+  </div>;
+}
+
 export default function AdminApp() {
   const { language } = useAdminI18n();
   const [ready, setReady] = useState(false);
@@ -2327,6 +2422,7 @@ export default function AdminApp() {
         {section === 'runtime' && <Runtime confirmationName={confirmationName} />}
         {section === 'identity' && <Identity onIdentity={setIdentity} />}
         {section === 'content' && <ContentManager />}
+        {section === 'relay' && <RelayAccess />}
         {section === 'releases' && <DesktopReleases />}
         {section === 'audit' && <Audit />}
       </div>

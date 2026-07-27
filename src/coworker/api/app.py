@@ -31,7 +31,11 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from coworker.api.admin import admin_router
-from coworker.api.routes import router, verify_communication_authorization
+from coworker.api.routes import (
+    is_authenticated_relay_request,
+    router,
+    verify_communication_authorization,
+)
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
@@ -824,7 +828,9 @@ async def sse_endpoint(
 
     入站方向使用 POST /messages；EventSource 原生自动重连。
     """
-    if participant_id.startswith("coworker-desktop:"):
+    if participant_id.startswith("coworker-desktop:") or is_authenticated_relay_request(
+        request
+    ):
         verify_communication_authorization(authorization)
     queue: asyncio.Queue = asyncio.Queue()
     stream = _channel_system.stream_runtime if _channel_system is not None else None

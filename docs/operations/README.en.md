@@ -7,4 +7,5 @@
 This domain contains configuration and operational guidance for deploying and running Coworker.
 
 - [Configuration and models](configuration.en.md): environment variables, providers, model selection, multi-instance setup, and runtime model switching.
+- [Self-hosted Relay](relay.en.md): path-based public access, Coworker pairing, bans, and Desktop compatibility migration.
 - For local data, external services, and cleanup scope, see [Data and trust boundaries](../architecture/data-boundaries.en.md).

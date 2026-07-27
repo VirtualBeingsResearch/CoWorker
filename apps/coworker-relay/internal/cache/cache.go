@@ -1,0 +1,248 @@
+package cache
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"hash"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+)
+
+type Header [2]string
+
+type Metadata struct {
+	Status    int       `json:"status"`
+	Headers   []Header  `json:"headers"`
+	Size      int64     `json:"size"`
+	SHA256    string    `json:"sha256"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Entry struct {
+	Metadata Metadata
+	Path     string
+}
+
+type Cache struct {
+	root     string
+	maxBytes int64
+	locksMu  sync.Mutex
+	locks    map[string]*sync.Mutex
+}
+
+func New(root string, maxBytes int64) (*Cache, error) {
+	if maxBytes <= 0 {
+		maxBytes = 4 << 30
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	return &Cache{root: root, maxBytes: maxBytes, locks: make(map[string]*sync.Mutex)}, nil
+}
+
+func Key(instanceID, target string) string {
+	sum := sha256.Sum256([]byte(instanceID + "\x00" + target))
+	return hex.EncodeToString(sum[:])
+}
+
+func (c *Cache) Lock(key string) func() {
+	c.locksMu.Lock()
+	lock := c.locks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		c.locks[key] = lock
+	}
+	c.locksMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
+
+func (c *Cache) Get(key string) (Entry, bool) {
+	var entry Entry
+	metaPath, bodyPath := c.paths(key)
+	raw, err := os.ReadFile(metaPath)
+	if err != nil || json.Unmarshal(raw, &entry.Metadata) != nil {
+		return Entry{}, false
+	}
+	info, err := os.Stat(bodyPath)
+	if err != nil || info.Size() != entry.Metadata.Size {
+		_ = os.Remove(metaPath)
+		_ = os.Remove(bodyPath)
+		return Entry{}, false
+	}
+	digest, err := fileSHA256(bodyPath)
+	if err != nil || digest != entry.Metadata.SHA256 {
+		_ = os.Remove(metaPath)
+		_ = os.Remove(bodyPath)
+		return Entry{}, false
+	}
+	now := time.Now()
+	_ = os.Chtimes(bodyPath, now, now)
+	entry.Path = bodyPath
+	return entry, true
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+type Writer struct {
+	cache    *Cache
+	key      string
+	file     *os.File
+	hash     hashWriter
+	size     int64
+	metadata Metadata
+}
+
+type hashWriter struct{ value hash.Hash }
+
+func (c *Cache) Begin(key string, status int, headers []Header) (*Writer, error) {
+	temporary, err := os.CreateTemp(c.root, ".relay-cache-*")
+	if err != nil {
+		return nil, err
+	}
+	return &Writer{
+		cache: c, key: key, file: temporary,
+		hash:     hashWriter{value: sha256.New()},
+		metadata: Metadata{Status: status, Headers: headers, CreatedAt: time.Now().UTC()},
+	}, nil
+}
+
+func (w *Writer) Write(value []byte) error {
+	count, err := w.file.Write(value)
+	if err == nil {
+		_, _ = w.hash.value.Write(value[:count])
+		w.size += int64(count)
+	}
+	return err
+}
+
+func (w *Writer) Abort() {
+	name := w.file.Name()
+	_ = w.file.Close()
+	_ = os.Remove(name)
+}
+
+func (w *Writer) Commit() error {
+	if err := w.file.Sync(); err != nil {
+		w.Abort()
+		return err
+	}
+	if err := w.file.Close(); err != nil {
+		w.Abort()
+		return err
+	}
+	metaPath, bodyPath := w.cache.paths(w.key)
+	if err := os.Rename(w.file.Name(), bodyPath); err != nil {
+		w.Abort()
+		return err
+	}
+	w.metadata.Size = w.size
+	w.metadata.SHA256 = hex.EncodeToString(w.hash.value.Sum(nil))
+	raw, err := json.Marshal(w.metadata)
+	if err != nil {
+		return err
+	}
+	tempMeta := metaPath + ".tmp"
+	if err := os.WriteFile(tempMeta, raw, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tempMeta, metaPath); err != nil {
+		return err
+	}
+	return w.cache.prune()
+}
+
+func (c *Cache) Purge() error {
+	entries, err := os.ReadDir(c.root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			if err := os.Remove(filepath.Join(c.root, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Cache) Stats() (map[string]int64, error) {
+	entries, err := os.ReadDir(c.root)
+	if err != nil {
+		return nil, err
+	}
+	var files, bytes int64
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".body" {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil {
+			files++
+			bytes += info.Size()
+		}
+	}
+	return map[string]int64{"entries": files, "bytes": bytes, "max_bytes": c.maxBytes}, nil
+}
+
+func (c *Cache) paths(key string) (string, string) {
+	return filepath.Join(c.root, key+".json"), filepath.Join(c.root, key+".body")
+}
+
+func (c *Cache) prune() error {
+	type item struct {
+		path string
+		key  string
+		size int64
+		used time.Time
+	}
+	entries, err := os.ReadDir(c.root)
+	if err != nil {
+		return err
+	}
+	var items []item
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".body" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
+		items = append(items, item{
+			path: filepath.Join(c.root, entry.Name()),
+			key:  entry.Name()[:len(entry.Name())-len(".body")],
+			size: info.Size(), used: info.ModTime(),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].used.Before(items[j].used) })
+	for _, entry := range items {
+		if total <= c.maxBytes {
+			break
+		}
+		_ = os.Remove(entry.path)
+		_ = os.Remove(filepath.Join(c.root, entry.key+".json"))
+		total -= entry.size
+	}
+	return nil
+}

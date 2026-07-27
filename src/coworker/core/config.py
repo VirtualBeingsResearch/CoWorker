@@ -219,6 +219,46 @@ class APIConfig(_EnvSettings):
     )
 
 
+class RelayConfig(_EnvSettings):
+    """Outbound connection to a self-hosted Coworker Relay."""
+
+    model_config = SettingsConfigDict(env_prefix="RELAY__", env_file=".env", extra="ignore")
+
+    enabled: bool = False
+    url: str = ""
+    instance_id: str = ""
+    instance_credential: str = Field(default="", repr=False)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("relay url must be an absolute HTTPS URL")
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "relay url must not contain credentials, path, query, or fragment"
+            )
+        return value
+
+    @field_validator("instance_id")
+    @classmethod
+    def _validate_instance_id(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"cw_[A-Za-z0-9_-]{8,80}", value):
+            raise ValueError("relay instance_id has an invalid format")
+        return value
+
+
 class DesktopUpdateSourceBase(BaseModel):
     """A named upstream connection.  ``id`` is the durable identity; ``name`` is display-only."""
 
@@ -420,6 +460,7 @@ class Config(_EnvSettings):
     llm: LLMConfig = Field(default_factory=lambda: LLMConfig(max_tokens=DEFAULT_LLM_MAX_TOKENS))
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     api: APIConfig = Field(default_factory=APIConfig)
+    relay: RelayConfig = Field(default_factory=RelayConfig)
     desktop_updates: DesktopUpdatesConfig = Field(default_factory=DesktopUpdatesConfig)
     admin: AdminConfig = Field(default_factory=AdminConfig)
     i18n: I18NConfig = Field(default_factory=I18NConfig)

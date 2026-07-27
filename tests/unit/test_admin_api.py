@@ -42,6 +42,7 @@ def _client(
     wecom: dict | None = None,
     weixin: dict | None = None,
     channel_modules=None,
+    relay_client=None,
 ):
     config = Config.model_validate(
         {
@@ -78,11 +79,31 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
+        relay_client=relay_client,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
+
+
+def test_relay_status_does_not_return_token_until_explicitly_requested(tmp_path):
+    class FakeRelayClient:
+        def snapshot(self, *, include_token: bool = False):
+            result = {"status": "connected", "instance_id": "cw_abcdefgh"}
+            if include_token:
+                result["communication_token"] = "desktop-secret"
+            return result
+
+    client, _ = _client(tmp_path, relay_client=FakeRelayClient())
+    headers = {"Authorization": "Bearer secret"}
+
+    status = client.get("/api/admin/relay", headers=headers)
+    token = client.get("/api/admin/relay/token", headers=headers)
+
+    assert status.status_code == 200
+    assert "communication_token" not in status.json()
+    assert token.json() == {"communication_token": "desktop-secret"}
 
 
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
