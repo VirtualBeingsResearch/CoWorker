@@ -120,11 +120,51 @@ class RelayClient:
         self._status = "disabled" if not self._config.relay.enabled else "disconnected"
 
     async def reconnect(self) -> None:
+        if self._config.relay.enabled:
+            self._status = "connecting"
         self._wake.set()
         socket = self._socket
         if socket is not None:
             await socket.close(code=1012, reason="reconnect requested")
         await self.start()
+
+    async def rotate_credential(self) -> dict[str, object]:
+        relay = self._config.relay
+        if not (relay.url and relay.instance_id and relay.instance_credential):
+            raise RelayConnectionError(tr("api.relay.not_configured"))
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+                response = await client.post(
+                    f"{relay.url}/_relay/v1/credential/rotate",
+                    headers={
+                        "Authorization": f"Bearer {relay.instance_credential}",
+                        "X-Coworker-Relay-Instance": relay.instance_id,
+                    },
+                )
+        except httpx.HTTPError as error:
+            raise RelayConnectionError(
+                tr("api.relay.credential_rotation_failed", error=str(error))
+            ) from error
+        if response.status_code != 200:
+            raise RelayConnectionError(
+                tr(
+                    "api.relay.credential_rotation_rejected",
+                    status=response.status_code,
+                )
+            )
+        credential = str(response.json().get("instance_credential", ""))
+        if not credential:
+            raise RelayConnectionError(tr("api.relay.credential_rotation_incomplete"))
+        relay_data = relay.model_dump(mode="json")
+        relay_data["instance_credential"] = credential
+        overrides = load_admin_overrides(self._config.admin.config_file)
+        write_admin_overrides(
+            self._config.admin.config_file,
+            _deep_merge(overrides, {"relay": relay_data}),
+        )
+        relay.instance_credential = credential
+        await self.reconnect()
+        return self.snapshot()
 
     async def enroll(self, relay_url: str, pairing_code: str) -> dict[str, object]:
         relay_url = relay_url.strip().rstrip("/")

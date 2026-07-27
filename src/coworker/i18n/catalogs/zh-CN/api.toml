@@ -126,6 +126,9 @@ connectivity_failed = "Relay 连通性测试失败：{{error}}"
 request_body_too_large = "请求正文超过 Coworker Relay 限制"
 request_failed = "Coworker 无法处理 Relay 转发的请求"
 tunnel_not_connected = "Relay 隧道尚未连接"
+credential_rotation_failed = "Relay 实例凭据轮换失败：{{error}}"
+credential_rotation_rejected = "Relay 拒绝实例凭据轮换（HTTP {{status}}）"
+credential_rotation_incomplete = "Relay 返回的实例凭据轮换响应不完整"
 
 [api.attachment]
 count_exceeded = "附件数量超过限制：{{limit}}"

@@ -2,12 +2,20 @@ services:
   relay:
     build: .
     restart: unless-stopped
+    stop_grace_period: 35s
     environment:
       RELAY_PUBLIC_URL: https://relay.example.com:8443
       RELAY_LISTEN: :8443
       RELAY_DATABASE: /var/lib/coworker-relay/relay.db
       RELAY_CACHE_DIR: /var/lib/coworker-relay/cache
       RELAY_CACHE_MAX_BYTES: "4294967296"
+      RELAY_REQUESTS_PER_MINUTE: "600"
+      RELAY_ANONYMOUS_PER_MINUTE: "60"
+      RELAY_BAN_FAILURE_LIMIT: "5"
+      RELAY_BAN_FAILURE_WINDOW: 10m
+      RELAY_BAN_DURATION: 1h
+      RELAY_MAX_REQUEST_BODY_BYTES: "33554432"
+      RELAY_MAX_TUNNEL_FRAME_BYTES: "50331648"
       RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?set RELAY_ADMIN_TOKEN}
       RELAY_TLS_CERT: /run/tls/fullchain.pem
       RELAY_TLS_KEY: /run/tls/privkey.pem
@@ -17,8 +25,24 @@ services:
       - relay-data:/var/lib/coworker-relay
       - ./tls:/run/tls:ro
     read_only: true
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     tmpfs:
       - /tmp
+    healthcheck:
+      test: ["CMD", "relayctl", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
 
 volumes:
   relay-data:

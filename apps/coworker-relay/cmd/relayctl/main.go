@@ -19,6 +19,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo"
+	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/store"
 )
 
 type client struct {
@@ -35,13 +38,21 @@ func main() {
 		initDeployment(os.Args[2:])
 		return
 	}
+	if os.Args[1] == "version" {
+		fmt.Printf("relayctl %s (%s, %s)\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
+		return
+	}
+	if os.Args[1] == "restore" {
+		restoreDatabase(os.Args[2:])
+		return
+	}
 	loadLocalEnvironment()
 	httpClient, err := newHTTPClient()
 	if err != nil {
 		fatal(err.Error())
 	}
 	c := client{
-		baseURL: strings.TrimRight(os.Getenv("RELAY_URL"), "/"),
+		baseURL: strings.TrimRight(firstEnvironment("RELAY_URL", "RELAY_PUBLIC_URL"), "/"),
 		token:   os.Getenv("RELAY_ADMIN_TOKEN"),
 		http:    httpClient,
 	}
@@ -57,9 +68,24 @@ func main() {
 		c.bans(os.Args[2:])
 	case "cache":
 		c.cache(os.Args[2:])
+	case "backup":
+		c.backup(os.Args[2:])
+	case "gc":
+		c.print("POST", "/_relay/v1/admin/gc", nil, true)
+	case "metrics":
+		c.print("GET", "/_relay/v1/admin/metrics", nil, true)
 	default:
 		usage()
 	}
+}
+
+func firstEnvironment(names ...string) string {
+	for _, name := range names {
+		if value := os.Getenv(name); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func newHTTPClient() (*http.Client, error) {
@@ -104,7 +130,12 @@ func initDeployment(args []string) {
 	flags.StringVar(&options.acmeDomain, "acme-domain", "", "ACME certificate domain")
 	flags.StringVar(&options.tlsCert, "tls-cert", "", "host path to PEM certificate")
 	flags.StringVar(&options.tlsKey, "tls-key", "", "host path to PEM private key")
-	flags.StringVar(&options.image, "image", "coworker-relay:latest", "container image")
+	flags.StringVar(
+		&options.image,
+		"image",
+		"ghcr.io/virtualbeingsresearch/coworker-relay:"+releaseTag(),
+		"container image",
+	)
 	flags.BoolVar(&options.force, "force", false, "replace generated files")
 	_ = flags.Parse(args)
 	adminToken, normalizedURL, err := initialize(options)
@@ -178,6 +209,13 @@ func initialize(options initOptions) (string, string, error) {
 		"RELAY_DATABASE=/var/lib/coworker-relay/relay.db",
 		"RELAY_CACHE_DIR=/var/lib/coworker-relay/cache",
 		"RELAY_CACHE_MAX_BYTES=4294967296",
+		"RELAY_REQUESTS_PER_MINUTE=600",
+		"RELAY_ANONYMOUS_PER_MINUTE=60",
+		"RELAY_BAN_FAILURE_LIMIT=5",
+		"RELAY_BAN_FAILURE_WINDOW=10m",
+		"RELAY_BAN_DURATION=1h",
+		"RELAY_MAX_REQUEST_BODY_BYTES=33554432",
+		"RELAY_MAX_TUNNEL_FRAME_BYTES=50331648",
 		"RELAY_EXTERNAL_PORT=" + strconv.Itoa(options.externalPort),
 		"RELAY_IMAGE=" + options.image,
 	}, "\n") + "\n"
@@ -205,13 +243,30 @@ func initialize(options initOptions) (string, string, error) {
 		"  relay:\n" +
 		"    image: ${RELAY_IMAGE}\n" +
 		"    restart: unless-stopped\n" +
+		"    stop_grace_period: 35s\n" +
 		"    env_file:\n" +
 		"      - .env\n" +
 		"    ports:\n" + ports +
 		"    volumes:\n" + composeVolumes +
 		"    read_only: true\n" +
+		"    pids_limit: 256\n" +
+		"    ulimits:\n" +
+		"      nofile:\n" +
+		"        soft: 65536\n" +
+		"        hard: 65536\n" +
 		"    tmpfs:\n" +
-		"      - /tmp\n\n" +
+		"      - /tmp\n" +
+		"    healthcheck:\n" +
+		"      test: [\"CMD\", \"relayctl\", \"health\"]\n" +
+		"      interval: 30s\n" +
+		"      timeout: 10s\n" +
+		"      retries: 3\n" +
+		"      start_period: 15s\n" +
+		"    logging:\n" +
+		"      driver: json-file\n" +
+		"      options:\n" +
+		"        max-size: \"10m\"\n" +
+		"        max-file: \"5\"\n\n" +
 		"volumes:\n" +
 		"  relay-data:\n"
 	flag := os.O_WRONLY | os.O_CREATE
@@ -230,6 +285,13 @@ func initialize(options initOptions) (string, string, error) {
 		return "", "", err
 	}
 	return adminToken, normalizedURL, nil
+}
+
+func releaseTag() string {
+	if buildinfo.Version == "" || buildinfo.Version == "dev" {
+		return "latest"
+	}
+	return buildinfo.Version
 }
 
 func normalizePublicURL(raw string, externalPort int) (*url.URL, string, error) {
@@ -328,6 +390,12 @@ func (c client) instance(args []string) {
 			fatal("usage: relayctl instance revoke <instance_id>")
 		}
 		c.print("DELETE", "/_relay/v1/admin/instances/"+url.PathEscape(args[1]), nil, true)
+	case "rotate-credential":
+		if len(args) != 2 {
+			fatal("usage: relayctl instance rotate-credential <instance_id>")
+		}
+		path := "/_relay/v1/admin/instances/" + url.PathEscape(args[1]) + "/rotate-credential"
+		c.print("POST", path, nil, true)
 	case "update-auth":
 		if len(args) != 3 || (args[2] != "optional" && args[2] != "required") {
 			fatal("usage: relayctl instance update-auth <instance_id> <optional|required>")
@@ -343,6 +411,100 @@ func (c client) instance(args []string) {
 	default:
 		usage()
 	}
+}
+
+func (c client) backup(args []string) {
+	flags := flag.NewFlagSet("backup", flag.ExitOnError)
+	output := flags.String("output", "", "backup output path")
+	_ = flags.Parse(args)
+	if *output == "" {
+		*output = "coworker-relay-" + time.Now().UTC().Format("20060102T150405Z") + ".db"
+	}
+	request, err := http.NewRequest("GET", c.baseURL+"/_relay/v1/admin/backup", nil)
+	if err != nil {
+		fatal(err.Error())
+	}
+	if c.token == "" {
+		fatal("RELAY_ADMIN_TOKEN is required")
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	response, err := c.http.Do(request)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		fatal(fmt.Sprintf("%s: %s", response.Status, strings.TrimSpace(string(raw))))
+	}
+	file, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		fatal(err.Error())
+	}
+	_, copyErr := io.Copy(file, response.Body)
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(*output)
+		if copyErr != nil {
+			fatal(copyErr.Error())
+		}
+		fatal(closeErr.Error())
+	}
+	fmt.Println(*output)
+}
+
+func restoreDatabase(args []string) {
+	flags := flag.NewFlagSet("restore", flag.ExitOnError)
+	source := flags.String("from", "", "backup database path")
+	destination := flags.String("database", "", "stopped Relay database path")
+	force := flags.Bool("force", false, "replace an existing database after preserving it")
+	_ = flags.Parse(args)
+	if *source == "" || *destination == "" {
+		fatal("--from and --database are required")
+	}
+	sourcePath, sourceErr := filepath.Abs(*source)
+	destinationPath, destinationErr := filepath.Abs(*destination)
+	if sourceErr != nil || destinationErr != nil {
+		fatal("unable to resolve backup or database path")
+	}
+	if sourcePath == destinationPath {
+		fatal("--from and --database must be different paths")
+	}
+	*source, *destination = sourcePath, destinationPath
+	if err := store.Validate(*source); err != nil {
+		fatal("backup validation failed: " + err.Error())
+	}
+	if _, err := os.Stat(*destination); err == nil {
+		if !*force {
+			fatal("destination exists; stop Relay and pass --force to preserve and replace it")
+		}
+		preserved := *destination + ".before-restore-" + time.Now().UTC().Format("20060102T150405Z")
+		if err := os.Rename(*destination, preserved); err != nil {
+			fatal(err.Error())
+		}
+		fmt.Fprintln(os.Stderr, "preserved previous database:", preserved)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fatal(err.Error())
+	}
+	input, err := os.Open(*source)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer input.Close()
+	output, err := os.OpenFile(*destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		fatal(err.Error())
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(*destination)
+		if copyErr != nil {
+			fatal(copyErr.Error())
+		}
+		fatal(closeErr.Error())
+	}
+	fmt.Println(*destination)
 }
 
 func (c client) bans(args []string) {
@@ -424,9 +586,15 @@ func usage() {
                 [--external-port 8443]
                 [--acme-domain <domain> | --tls-cert <path> --tls-key <path>]
   relayctl health
+  relayctl version
+  relayctl backup [--output <path>]
+  relayctl restore --from <backup.db> --database <stopped-relay.db> [--force]
+  relayctl gc
+  relayctl metrics
   relayctl instance create --name <name>
   relayctl instance list
   relayctl instance revoke <instance_id>
+  relayctl instance rotate-credential <instance_id>
   relayctl instance update-auth <instance_id> <optional|required>
   relayctl instance update-stats <instance_id>
   relayctl bans list [--instance <instance_id>]

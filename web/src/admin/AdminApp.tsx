@@ -2319,6 +2319,11 @@ function RelayAccess() {
         <div className="panel-actions">
           <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 连通性测试成功')}>{t('测试远程连接')}</button>
           <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/relay/reconnect', { method: 'POST' }), '已请求重新连接')}>{t('重新连接')}</button>
+          <button className="ghost" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('轮换 Relay 实例凭据并立即重新连接？'))) {
+              void action('rotate-credential', () => api('/api/admin/relay/rotate-credential', { method: 'POST' }), 'Relay 实例凭据已轮换');
+            }
+          }}>{t('轮换实例凭据')}</button>
           <button className="danger" disabled={Boolean(busy)} onClick={() => {
             if (window.confirm(t('断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 relayctl 撤销。'))) {
               void action('disconnect', () => api('/api/admin/relay', { method: 'DELETE' }), 'Relay 已断开');

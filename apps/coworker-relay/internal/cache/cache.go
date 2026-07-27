@@ -17,11 +17,12 @@ import (
 type Header [2]string
 
 type Metadata struct {
-	Status    int       `json:"status"`
-	Headers   []Header  `json:"headers"`
-	Size      int64     `json:"size"`
-	SHA256    string    `json:"sha256"`
-	CreatedAt time.Time `json:"created_at"`
+	InstanceID string    `json:"instance_id,omitempty"`
+	Status     int       `json:"status"`
+	Headers    []Header  `json:"headers"`
+	Size       int64     `json:"size"`
+	SHA256     string    `json:"sha256"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Entry struct {
@@ -30,10 +31,13 @@ type Entry struct {
 }
 
 type Cache struct {
-	root     string
-	maxBytes int64
-	locksMu  sync.Mutex
-	locks    map[string]*sync.Mutex
+	root      string
+	maxBytes  int64
+	locksMu   sync.Mutex
+	locks     map[string]*sync.Mutex
+	healthMu  sync.Mutex
+	healthAt  time.Time
+	healthErr error
 }
 
 func New(root string, maxBytes int64) (*Cache, error) {
@@ -112,15 +116,18 @@ type Writer struct {
 
 type hashWriter struct{ value hash.Hash }
 
-func (c *Cache) Begin(key string, status int, headers []Header) (*Writer, error) {
+func (c *Cache) Begin(key, instanceID string, status int, headers []Header) (*Writer, error) {
 	temporary, err := os.CreateTemp(c.root, ".relay-cache-*")
 	if err != nil {
 		return nil, err
 	}
 	return &Writer{
 		cache: c, key: key, file: temporary,
-		hash:     hashWriter{value: sha256.New()},
-		metadata: Metadata{Status: status, Headers: headers, CreatedAt: time.Now().UTC()},
+		hash: hashWriter{value: sha256.New()},
+		metadata: Metadata{
+			InstanceID: instanceID,
+			Status:     status, Headers: headers, CreatedAt: time.Now().UTC(),
+		},
 	}, nil
 }
 
@@ -175,13 +182,68 @@ func (c *Cache) Purge() error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			if err := os.Remove(filepath.Join(c.root, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if entry.IsDir() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(c.root, entry.Name())); err != nil &&
+			!errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Cache) PurgeInstance(instanceID string) error {
+	return c.purgeMatching(func(metadata Metadata) bool {
+		return metadata.InstanceID == instanceID
+	})
+}
+
+func (c *Cache) purgeMatching(match func(Metadata) bool) error {
+	entries, err := os.ReadDir(c.root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		metaPath := filepath.Join(c.root, entry.Name())
+		raw, readErr := os.ReadFile(metaPath)
+		var metadata Metadata
+		if readErr == nil && json.Unmarshal(raw, &metadata) == nil && !match(metadata) {
+			continue
+		}
+		key := entry.Name()[:len(entry.Name())-len(".json")]
+		for _, path := range []string{metaPath, filepath.Join(c.root, key+".body")} {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (c *Cache) Check() error {
+	c.healthMu.Lock()
+	defer c.healthMu.Unlock()
+	if time.Since(c.healthAt) < 10*time.Second {
+		return c.healthErr
+	}
+	c.healthAt = time.Now()
+	probe, err := os.CreateTemp(c.root, ".health-*")
+	if err != nil {
+		c.healthErr = err
+		return err
+	}
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(name)
+		c.healthErr = err
+		return err
+	}
+	c.healthErr = os.Remove(name)
+	return c.healthErr
 }
 
 func (c *Cache) Stats() (map[string]int64, error) {

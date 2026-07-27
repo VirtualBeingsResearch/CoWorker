@@ -1,0 +1,17 @@
+{
+  "type": "request",
+  "request_id": "req_fixture",
+  "method": "POST",
+  "path": "/messages",
+  "raw_path": "/messages",
+  "query": "source=desktop",
+  "headers": [
+    ["X-Coworker-Relay", "client-value"],
+    ["Authorization", "Bearer fixture-token"],
+    ["X-Coworker-Relay", "v1"],
+    ["X-Coworker-Relay-Instance", "cw_fixture"]
+  ],
+  "relay_header_start": 2,
+  "body": "e30=",
+  "client_ip": "203.0.113.8"
+}

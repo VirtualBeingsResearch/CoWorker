@@ -106,6 +106,28 @@ def test_relay_status_does_not_return_token_until_explicitly_requested(tmp_path)
     assert token.json() == {"communication_token": "desktop-secret"}
 
 
+def test_relay_credential_rotation_uses_built_in_client(tmp_path):
+    class FakeRelayClient:
+        def __init__(self):
+            self.rotate_credential = AsyncMock(
+                return_value={"status": "connecting", "instance_id": "cw_abcdefgh"}
+            )
+
+        def snapshot(self, *, include_token: bool = False):
+            return {"status": "connected", "instance_id": "cw_abcdefgh"}
+
+    relay = FakeRelayClient()
+    client, _ = _client(tmp_path, relay_client=relay)
+    response = client.post(
+        "/api/admin/relay/rotate-credential",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["instance_id"] == "cw_abcdefgh"
+    relay.rotate_credential.assert_awaited_once()
+
+
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
     first_service = admin._require_admin_config_service()

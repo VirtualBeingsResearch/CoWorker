@@ -72,6 +72,54 @@ async def _completed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rotate_credential_persists_new_secret_before_reconnect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"instance_credential": "next-instance-secret"}
+
+    class FakeClient:
+        def __init__(self, **_: Any):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: Any):
+            return None
+
+        async def post(self, url: str, *, headers: dict[str, str]):
+            assert url == "https://relay.example.com/_relay/v1/credential/rotate"
+            assert headers["Authorization"] == "Bearer previous-instance-secret"
+            return FakeResponse()
+
+    config = _config(tmp_path)
+    config.relay.url = "https://relay.example.com"
+    config.relay.instance_id = "cw_abcdefgh"
+    config.relay.instance_credential = "previous-instance-secret"
+    client = RelayClient(lambda *_: None, config)
+    reconnected = False
+
+    async def reconnect() -> None:
+        nonlocal reconnected
+        persisted = json.loads((tmp_path / "admin.json").read_text())
+        assert persisted["relay"]["instance_credential"] == "next-instance-secret"
+        reconnected = True
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(client, "reconnect", reconnect)
+
+    await client.rotate_credential()
+
+    assert reconnected
+    assert config.relay.instance_credential == "next-instance-secret"
+
+
+@pytest.mark.asyncio
 async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicate_headers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -182,3 +230,21 @@ def test_relay_origin_comes_from_authenticated_tunnel_context_not_headers():
 
     assert is_authenticated_relay_request(direct) is False
     assert is_authenticated_relay_request(relayed) is True
+
+
+def test_go_python_protocol_v1_golden_fixture():
+    fixture = (
+        Path(__file__).parents[2]
+        / "apps"
+        / "coworker-relay"
+        / "internal"
+        / "protocol"
+        / "testdata"
+        / "request-v1.json"
+    )
+    message = json.loads(fixture.read_text())
+
+    assert message["type"] == "request"
+    assert message["relay_header_start"] == 2
+    assert message["headers"][0] == ["X-Coworker-Relay", "client-value"]
+    assert message["headers"][2] == ["X-Coworker-Relay", "v1"]

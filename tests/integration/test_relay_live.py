@@ -76,5 +76,19 @@ async def test_live_go_relay_python_client_contract(tmp_path: Path):
         boundary = observed["scope"]["state"]["coworker_relay"]["relay_header_start"]
         assert (b"x-coworker-relay", b"forged") in normalized[:boundary]
         assert (b"x-coworker-relay", b"v1") in normalized[boundary:]
+
+        await client.rotate_credential()
+        for _ in range(100):
+            if client.snapshot()["status"] == "connected":
+                break
+            await __import__("asyncio").sleep(0.05)
+        assert client.snapshot()["status"] == "connected"
+        async with httpx.AsyncClient(timeout=10) as http:
+            rotated_response = await http.get(
+                f"{enrollment['public_base_url']}/status",
+                headers={"Authorization": "Bearer desktop-e2e-secret"},
+            )
+        assert rotated_response.status_code == 200
+        assert rotated_response.json() == {"ok": True, "via_relay": True}
     finally:
         await client.stop()

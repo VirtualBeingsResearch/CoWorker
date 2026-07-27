@@ -41,8 +41,16 @@ For the current v0.x releases:
   deliberately local HTTP setup; never enable it on a shared or public listener.
 - Do not expose port 8000 directly to the public internet or an untrusted network. The admin token
   protects the management API, but it is not a complete authorization boundary for every route.
+- Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. Relay terminates
+  TLS and sees tokens and messages while forwarding, so its host and administrators are inside the
+  trust boundary. Use the non-root container, pinned image versions, a strong administrator token,
+  trusted certificates, backups, and a minimal `RELAY_TRUSTED_PROXY_CIDRS`. Do not describe Relay
+  as E2EE.
+- Relay v1 is single-node. Do not share its bbolt volume among replicas or load-balance one
+  instance's tunnel and requests across different replicas.
 - Keep `.env`, `providers.json`, runtime data, logs, exported configuration, and desktop credentials
   out of commits and vulnerability reports.
 
 Reports about authentication bypasses, command or path traversal, secret disclosure, unsafe update
-handling, and escapes from documented permission boundaries are especially welcome.
+handling, Relay cross-instance access, header-boundary confusion, ban bypasses, and escapes from
+documented permission boundaries are especially welcome.

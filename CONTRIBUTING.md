@@ -14,6 +14,7 @@
 - [uv](https://docs.astral.sh/uv/)
 - 修改 Web 或桌面端时需要 Node.js 20+
 - 修改 Bridge 或 Tauri 时需要稳定版 Rust
+- 修改 Relay 时需要 Go 1.25+
 
 安装 Python workspace 和开发依赖：
 

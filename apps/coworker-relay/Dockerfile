@@ -1,10 +1,17 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
+ARG RELAY_VERSION=dev
+ARG RELAY_COMMIT=unknown
+ARG RELAY_BUILD_DATE=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coworker-relay ./cmd/coworker-relay \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/relayctl ./cmd/relayctl
+RUN ldflags="-s -w \
+      -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Version=${RELAY_VERSION} \
+      -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Commit=${RELAY_COMMIT} \
+      -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Date=${RELAY_BUILD_DATE}" \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/coworker-relay ./cmd/coworker-relay \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/relayctl ./cmd/relayctl
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates \
@@ -16,4 +23,5 @@ RUN mkdir -p /var/lib/coworker-relay && chown relay:relay /var/lib/coworker-rela
 USER relay
 VOLUME ["/var/lib/coworker-relay"]
 EXPOSE 8080 8443
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["relayctl", "health"]
 ENTRYPOINT ["coworker-relay"]

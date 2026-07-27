@@ -286,11 +286,36 @@ jobs:
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Test Relay
-        run: go test ./...
+        run: go test -race ./...
+      - name: Vet Relay
+        run: go vet ./...
+      - name: Scan Relay Go dependencies
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: Build Relay binaries
         run: |
           go build ./cmd/coworker-relay
           go build ./cmd/relayctl
+      - name: Build Relay container
+        working-directory: ${{ github.workspace }}
+        run: docker build --tag coworker-relay:ci --file apps/coworker-relay/Dockerfile apps/coworker-relay
+      - name: Scan Relay container
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: coworker-relay:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Validate initialized Compose deployment
+        run: |
+          go run ./cmd/relayctl init \
+            --dir "$RUNNER_TEMP/relay-deployment" \
+            --public-url https://relay.example.com \
+            --external-port 8443
+          docker compose \
+            --env-file "$RUNNER_TEMP/relay-deployment/.env" \
+            --file "$RUNNER_TEMP/relay-deployment/compose.yaml" \
+            config --quiet
 
   frontend:
     name: Frontend (${{ matrix.name }})

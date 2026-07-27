@@ -1,5 +1,7 @@
 # 自托管 Relay
 
+中文 · [English](relay.en.md)
+
 Coworker Relay 让内网中的 Coworker 主动建立加密出站连接，并通过统一路径为 Desktop 提供状态、注册、消息、SSE 和桌面更新服务：
 
 ```text
@@ -13,13 +15,16 @@ Relay 会终止公网 HTTPS，并能在请求处理期间看到 Header 和正文
 Go 服务和管理 CLI 位于 `apps/coworker-relay/`：
 
 ```bash
-cd apps/coworker-relay
-docker build -t coworker-relay .
-go build -o relayctl ./cmd/relayctl
-./relayctl init --public-url https://relay.example.com:8443
+docker pull ghcr.io/virtualbeingsresearch/coworker-relay:VERSION
+relayctl init --public-url https://relay.example.com:8443
 cd coworker-relay-deploy
 docker compose up -d
 ```
+
+每次 Coworker发行会同时提供 GHCR 的 `linux/amd64`、`linux/arm64` Relay镜像，以及
+Linux、macOS和 Windows 的 `coworker-relay`、`relayctl` 压缩包、SHA-256和构建来源证明。
+建议生产部署固定版本标签。源码开发时仍可在 `apps/coworker-relay/` 执行
+`docker build -t coworker-relay .` 和 `go build ./cmd/...`。
 
 `relayctl init` 会生成权限为 `0600` 的部署 `.env`、`compose.yaml` 和
 `.gitignore`，持久化数据使用独立 Docker 卷，并自动生成且仅显示一次随机管理员 Token。外部端口默认
@@ -41,6 +46,9 @@ RELAY_ADMIN_TOKEN=<至少 24 个字符的随机管理令牌>
 RELAY_DATABASE=/var/lib/coworker-relay/relay.db
 RELAY_LISTEN=:8443
 ```
+
+容器 secret可用 `RELAY_ADMIN_TOKEN_FILE=/run/secrets/relay-admin-token` 代替直接的
+`RELAY_ADMIN_TOKEN`；两者不能同时设置。
 
 示例 Compose 将容器的 `8443` 端口发布为宿主机的 `8443` 端口。直接连接时将
 `RELAY_PUBLIC_URL` 设为 `https://relay.example.com:8443`。如果由反向代理对外
@@ -67,15 +75,93 @@ relayctl instance create --name home-coworker
 ## 管理
 
 ```bash
+relayctl health
+relayctl version
 relayctl instance list
 relayctl instance update-auth cw_xxx optional
 relayctl instance update-auth cw_xxx required
+relayctl instance update-stats cw_xxx
 relayctl bans list --instance cw_xxx
 relayctl bans remove --instance cw_xxx --ip 203.0.113.8 --reason "误封"
+relayctl cache inspect
+relayctl metrics
+relayctl gc
 relayctl instance revoke cw_xxx
 ```
 
+在 Coworker管理台点击“轮换实例凭据”会先在 Relay暂存新凭据摘要；旧凭据保持有效，
+直到 Coworker持久化新凭据并用它完成 WSS认证后才原子失效。响应丢失或中途断网不会锁死
+实例。管理员应急操作也可
+执行 `relayctl instance rotate-credential cw_xxx`，但输出的新凭据必须同步写入对应
+Coworker配置，否则隧道会保持离线。管理员 Token是单一共享高权限凭据，v1不提供
+多管理员 RBAC；请通过 secret manager分发并限制 CLI主机。
+
+轮换管理员 Token时，先生成至少 32 bytes随机值并更新部署 `.env` 中的
+`RELAY_ADMIN_TOKEN`，再执行 `docker compose up -d --force-recreate relay`。旧 Token在
+新进程启动后立即失效；轮换前应先完成数据库备份，并通过安全渠道更新 CLI配置。
+
 桌面更新最初使用 `optional`，允许旧版 Desktop 匿名更新。新版会为更新检查和安装包下载携带 Coworker Bearer。确认旧客户端完成迁移后，再切换为 `required`。
+
+## 备份、升级与恢复
+
+升级前创建一致的在线 bbolt快照：
+
+```bash
+relayctl backup --output relay-before-upgrade.db
+docker compose pull
+docker compose up -d
+relayctl health
+```
+
+恢复必须在 Relay停止后进行。`--force` 不直接删除旧数据库，而是把它重命名为带
+`before-restore` 时间戳的可恢复文件：
+
+```bash
+docker compose stop relay
+relayctl restore \
+  --from relay-before-upgrade.db \
+  --database /path/to/mounted/relay.db \
+  --force
+docker compose start relay
+```
+
+Relay数据库具有显式 schema version。程序拒绝打开比自身更新或不受支持的 schema，
+不会猜测降级。备份数据库、`.env`、ACME状态和 Coworker本地实例凭据都属于敏感数据；
+应加密保存并验证恢复演练。`relayctl gc` 可立即清理过期配对、失败和封禁记录，服务也会
+每小时自动清理。撤销实例会级联删除其安全状态、统计和缓存。
+
+容器收到 SIGTERM 后会停止接受新请求、关闭隧道并给 HTTP请求最多 30 秒 drain时间。
+Compose配置使用 35 秒 stop grace period。
+
+## 健康、指标与日志
+
+- `/_relay/v1/livez` 只表示进程存活。
+- `/_relay/v1/readyz` 和兼容端点 `/_relay/v1/health` 会检查 draining状态、数据库和
+  缓存目录可用性，并返回构建与协议版本。
+- `relayctl metrics` 返回受管理员 Bearer保护的 Prometheus文本，包括请求、认证失败、
+  封禁、延迟、Argon2并发、隧道连接、在线隧道和缓存容量/命中率。
+
+Relay输出结构化 JSON日志到 stdout。安全日志包含完整来源 IP、实例、路由类别、认证结果
+和 Request ID，但不包含 Token、Cookie、正文、附件或完整原始 URL。部署方必须在容器
+运行时设置日志轮转和保留期，并按个人数据处理来源 IP。建议对 ready失败、认证失败突增、
+重连风暴、缓存接近配额和 TLS证书临期设置告警。
+
+## 容量与拓扑边界
+
+v1是单节点服务：bbolt位于本地卷中，隧道归属保存在进程内，不能把同一数据卷同时挂给
+多个 Relay副本。可以使用冷备份恢复，但不支持 active-active或无状态滚动升级。
+
+公网请求每个实例和来源 IP默认每分钟 600 次，匿名请求默认每分钟 60 次；Argon2验证具有
+全局并发上限。可通过 `RELAY_REQUESTS_PER_MINUTE`、`RELAY_ANONYMOUS_PER_MINUTE`、
+`RELAY_VERIFIER_CONCURRENCY`、`RELAY_BAN_FAILURE_LIMIT`、`RELAY_BAN_FAILURE_WINDOW`
+和 `RELAY_BAN_DURATION` 调整策略。请求 Header上限 32 KiB、请求正文上限 32 MiB、
+隧道帧上限 48 MiB；部署方可用 `RELAY_MAX_REQUEST_BODY_BYTES` 和
+`RELAY_MAX_TUNNEL_FRAME_BYTES` 调低但不能突破协议上限。
+上线前应按实际 SSE连接数、更新包大小和实例数进行负载测试，并配置足够的文件描述符、
+内存和缓存卷。反向代理必须允许 WebSocket升级，关闭 SSE响应缓冲，并把空闲超时设为
+大于 Relay的 90 秒；只有 `RELAY_TRUSTED_PROXY_CIDRS` 中的代理才可提供来源 IP。
+
+协议的帧、Header顺序和重试边界见 [Relay v1 协议](relay-protocol.md)。
 
 ## 安全边界
 
@@ -83,5 +169,7 @@ relayctl instance revoke cw_xxx
 - Relay 使用派生 Argon2id verifier 做前置认证；原始 Bearer 仍由 Coworker 接口再次认证。
 - 同一实例和来源 IP 在十分钟内五次错误 Bearer 会被封禁一小时。
 - 缺少 Bearer 不计密码失败，但受匿名速率限制。
+- 配对、隧道认证、凭据轮换和管理员 API 在执行凭据校验前也有来源 IP 限速。
 - Relay 追加 `X-Coworker-Relay-*`，同时保留客户端原有同名 Header。Coworker 依靠已认证隧道而不是 Header 判断来源。
 - 私网 Relay 应使用系统信任的私有 CA；不能关闭证书校验。
+- v1 不提供 E2EE、P2P、离线消息存储、任意上游下载、通用反向代理或多节点高可用。

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -20,9 +21,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/auth"
+	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo"
 	relaycache "github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/cache"
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/protocol"
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/store"
@@ -41,6 +44,10 @@ type Config struct {
 	TrustedProxies   []netip.Prefix
 	VerifierParallel int
 	Cache            *relaycache.Cache
+	RequestLimit     int
+	AnonymousLimit   int
+	MaxRequestBody   int64
+	MaxTunnelFrame   int64
 }
 
 type responseEvent struct {
@@ -85,16 +92,29 @@ type windowCounter struct {
 }
 
 type Server struct {
-	config    Config
-	store     *store.Store
-	logger    *slog.Logger
-	tunnelsMu sync.RWMutex
-	tunnels   map[string]*tunnel
-	verifySem chan struct{}
-	cache     *relaycache.Cache
-	anonMu    sync.Mutex
-	anonymous map[string]windowCounter
-	requests  map[string]windowCounter
+	config             Config
+	store              *store.Store
+	logger             *slog.Logger
+	tunnelsMu          sync.RWMutex
+	tunnels            map[string]*tunnel
+	verifySem          chan struct{}
+	cache              *relaycache.Cache
+	anonMu             sync.Mutex
+	anonymous          map[string]windowCounter
+	requests           map[string]windowCounter
+	requestLimit       int
+	anonymousLimit     int
+	maxRequestBody     int64
+	maxTunnelFrame     int64
+	draining           atomic.Bool
+	requestTotal       atomic.Uint64
+	requestCompleted   atomic.Uint64
+	requestDuration    atomic.Uint64
+	authFailureTotal   atomic.Uint64
+	banTotal           atomic.Uint64
+	tunnelConnectTotal atomic.Uint64
+	cacheHitTotal      atomic.Uint64
+	cacheMissTotal     atomic.Uint64
 }
 
 func New(config Config, database *store.Store, logger *slog.Logger) *Server {
@@ -102,34 +122,96 @@ func New(config Config, database *store.Store, logger *slog.Logger) *Server {
 	if parallel <= 0 {
 		parallel = 4
 	}
+	requestLimit := config.RequestLimit
+	if requestLimit <= 0 {
+		requestLimit = 600
+	}
+	anonymousLimit := config.AnonymousLimit
+	if anonymousLimit <= 0 {
+		anonymousLimit = 60
+	}
+	requestBody := config.MaxRequestBody
+	if requestBody <= 0 {
+		requestBody = maxRequestBody
+	}
+	tunnelFrame := config.MaxTunnelFrame
+	if tunnelFrame <= 0 {
+		tunnelFrame = maxTunnelFrame
+	}
 	return &Server{
-		config:    config,
-		store:     database,
-		logger:    logger,
-		tunnels:   make(map[string]*tunnel),
-		verifySem: make(chan struct{}, parallel),
-		cache:     config.Cache,
-		anonymous: make(map[string]windowCounter),
-		requests:  make(map[string]windowCounter),
+		config:         config,
+		store:          database,
+		logger:         logger,
+		tunnels:        make(map[string]*tunnel),
+		verifySem:      make(chan struct{}, parallel),
+		cache:          config.Cache,
+		anonymous:      make(map[string]windowCounter),
+		requests:       make(map[string]windowCounter),
+		requestLimit:   requestLimit,
+		anonymousLimit: anonymousLimit,
+		maxRequestBody: requestBody,
+		maxTunnelFrame: tunnelFrame,
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /_relay/v1/health", s.health)
+	mux.HandleFunc("GET /_relay/v1/livez", s.live)
+	mux.HandleFunc("GET /_relay/v1/readyz", s.ready)
 	mux.HandleFunc("POST /_relay/v1/enroll", s.enroll)
+	mux.HandleFunc("POST /_relay/v1/credential/rotate", s.rotateOwnCredential)
 	mux.HandleFunc("GET /_relay/v1/connect", s.connect)
 	mux.HandleFunc("POST /_relay/v1/admin/instances", s.adminCreateInstance)
 	mux.HandleFunc("GET /_relay/v1/admin/instances", s.adminListInstances)
 	mux.HandleFunc("DELETE /_relay/v1/admin/instances/{instance}", s.adminDeleteInstance)
+	mux.HandleFunc("POST /_relay/v1/admin/instances/{instance}/rotate-credential", s.adminRotateCredential)
 	mux.HandleFunc("PATCH /_relay/v1/admin/instances/{instance}/update-auth", s.adminUpdateAuth)
 	mux.HandleFunc("GET /_relay/v1/admin/instances/{instance}/update-stats", s.adminUpdateStats)
 	mux.HandleFunc("GET /_relay/v1/admin/bans", s.adminListBans)
 	mux.HandleFunc("DELETE /_relay/v1/admin/bans", s.adminRemoveBan)
 	mux.HandleFunc("GET /_relay/v1/admin/cache", s.adminCacheStats)
 	mux.HandleFunc("DELETE /_relay/v1/admin/cache", s.adminCachePurge)
+	mux.HandleFunc("GET /_relay/v1/admin/backup", s.adminBackup)
+	mux.HandleFunc("POST /_relay/v1/admin/gc", s.adminGarbageCollect)
+	mux.HandleFunc("GET /_relay/v1/admin/metrics", s.adminMetrics)
 	mux.HandleFunc("/", s.facade)
 	return s.securityHeaders(mux)
+}
+
+func (s *Server) rotateOwnCredential(w http.ResponseWriter, r *http.Request) {
+	instanceID := r.Header.Get("X-Coworker-Relay-Instance")
+	if !s.allowAnonymous("_credential:"+instanceID, s.clientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
+	credential, ok := auth.ParseBearer(r.Header.Get("Authorization"))
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "instance_auth_required")
+		return
+	}
+	if _, err := s.store.AuthenticateInstance(instanceID, credential); err != nil {
+		writeError(w, http.StatusUnauthorized, "instance_auth_invalid")
+		return
+	}
+	next, err := s.store.PrepareCredential(instanceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_failed")
+		return
+	}
+	s.logger.Info(
+		"relay instance credential rotation prepared",
+		"instance_id", instanceID,
+		"actor", "instance",
+	)
+	writeJSON(w, http.StatusOK, map[string]string{"instance_credential": next})
+	s.tunnelsMu.RLock()
+	current := s.tunnels[instanceID]
+	s.tunnelsMu.RUnlock()
+	if current != nil {
+		_ = current.conn.Close(websocket.StatusServiceRestart, "instance credential rotated")
+	}
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -151,11 +233,43 @@ func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
 }
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "protocol_version": 1})
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	s.ready(w, r)
+}
+
+func (s *Server) live(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok", "protocol_version": 1, "build": buildinfo.Values(),
+	})
+}
+
+func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
+	if s.draining.Load() {
+		writeError(w, http.StatusServiceUnavailable, "draining")
+		return
+	}
+	if err := s.store.Check(); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable")
+		return
+	}
+	if s.cache != nil {
+		if err := s.cache.Check(); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "cache_unavailable")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ready", "protocol_version": 1, "build": buildinfo.Values(),
+	})
 }
 
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
+	ip := s.clientIP(r)
+	if !s.allowAnonymous("_enrollment", ip) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	var input struct {
 		PairingCode     string `json:"pairing_code"`
 		Verifier        string `json:"verifier"`
@@ -171,6 +285,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	instance, credential, err := s.store.Enroll(input.PairingCode, input.Verifier)
 	if err != nil {
+		s.logger.Info("relay enrollment", "source_ip", ip, "result", "rejected")
 		writeError(w, http.StatusUnauthorized, "pairing_rejected")
 		return
 	}
@@ -191,7 +306,16 @@ func decodeJSON(r *http.Request, target any, limit int64) error {
 }
 
 func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
+	if s.draining.Load() {
+		writeError(w, http.StatusServiceUnavailable, "draining")
+		return
+	}
 	instanceID := r.Header.Get("X-Coworker-Relay-Instance")
+	if !s.allowAnonymous("_tunnel:"+instanceID, s.clientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	if r.Header.Get("X-Coworker-Relay-Protocol") != protocolVersion {
 		writeError(w, http.StatusUpgradeRequired, "protocol_incompatible")
 		return
@@ -211,7 +335,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(maxTunnelFrame)
+	conn.SetReadLimit(s.maxTunnelFrame)
 	current := &tunnel{instanceID: instanceID, conn: conn, pending: make(map[string]chan responseEvent)}
 	s.tunnelsMu.Lock()
 	previous := s.tunnels[instanceID]
@@ -221,6 +345,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		_ = previous.conn.Close(websocket.StatusPolicyViolation, "superseded by a newer connection")
 	}
 	s.logger.Info("relay tunnel connected", "instance_id", instanceID)
+	s.tunnelConnectTotal.Add(1)
 	heartbeatCtx, stopHeartbeat := context.WithCancel(r.Context())
 	defer stopHeartbeat()
 	go func() {
@@ -323,6 +448,16 @@ func (s *Server) cancelOverloadedStream(current *tunnel, requestID string) {
 }
 
 func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	s.requestTotal.Add(1)
+	defer func() {
+		s.requestCompleted.Add(1)
+		s.requestDuration.Add(uint64(time.Since(startedAt)))
+	}()
+	if s.draining.Load() {
+		writeError(w, http.StatusServiceUnavailable, "draining")
+		return
+	}
 	instanceID, path, ok := splitInstancePath(r.URL.Path)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not_found")
@@ -389,9 +524,11 @@ func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
 		token, validFormat := auth.ParseBearer(rawAuthorization)
 		valid := validFormat && s.verify(instance.Verifier, token)
 		if !valid {
+			s.authFailureTotal.Add(1)
 			banned, until, _ := s.store.RecordFailure(instanceID, ip, time.Now().UTC())
 			result := "invalid"
 			if banned {
+				s.banTotal.Add(1)
 				result = "banned"
 				w.Header().Set("Retry-After", auth.RetryAfterSeconds(until.Unix(), time.Now().Unix()))
 				writeError(w, http.StatusTooManyRequests, "temporarily_banned")
@@ -414,9 +551,11 @@ func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
 		unlock = s.cache.Lock(cacheKey)
 		defer unlock()
 		if entry, found := s.cache.Get(cacheKey); found {
+			s.cacheHitTotal.Add(1)
 			s.serveCached(w, r, entry)
 			return
 		}
+		s.cacheMissTotal.Add(1)
 		if r.Header.Get("Range") != "" {
 			cacheKey = ""
 		}
@@ -429,6 +568,22 @@ func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.forward(w, r, instanceID, path, ip, cacheKey, requestID)
+}
+
+func (s *Server) Drain() {
+	s.draining.Store(true)
+}
+
+func (s *Server) CloseTunnels() {
+	s.tunnelsMu.RLock()
+	tunnels := make([]*tunnel, 0, len(s.tunnels))
+	for _, current := range s.tunnels {
+		tunnels = append(tunnels, current)
+	}
+	s.tunnelsMu.RUnlock()
+	for _, current := range tunnels {
+		_ = current.conn.Close(websocket.StatusGoingAway, "relay shutting down")
+	}
 }
 
 func (s *Server) logAccess(instanceID, ip, category, result, requestID string) {
@@ -520,11 +675,11 @@ func (s *Server) verify(verifier, token string) bool {
 }
 
 func (s *Server) allowAnonymous(instanceID, ip string) bool {
-	return s.allowWindow(s.anonymous, instanceID+"\x00"+ip, 60)
+	return s.allowWindow(s.anonymous, instanceID+"\x00"+ip, s.anonymousLimit)
 }
 
 func (s *Server) allowRequest(instanceID, ip string) bool {
-	return s.allowWindow(s.requests, instanceID+"\x00"+ip, 600)
+	return s.allowWindow(s.requests, instanceID+"\x00"+ip, s.requestLimit)
 }
 
 func (s *Server) allowWindow(
@@ -565,9 +720,9 @@ func (s *Server) forward(
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(time.Now().Add(30 * time.Second))
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, s.maxRequestBody+1))
 	_ = controller.SetReadDeadline(time.Time{})
-	if err != nil || len(body) > maxRequestBody {
+	if err != nil || int64(len(body)) > s.maxRequestBody {
 		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large")
 		return
 	}
@@ -655,7 +810,9 @@ func (s *Server) forward(
 							cacheHeaders = append(cacheHeaders, relaycache.Header(header))
 						}
 					}
-					cacheWriter, _ = s.cache.Begin(cacheKey, event.message.Status, cacheHeaders)
+					cacheWriter, _ = s.cache.Begin(
+						cacheKey, instanceID, event.message.Status, cacheHeaders,
+					)
 				}
 				if flusher, ok := w.(http.Flusher); ok {
 					flusher.Flush()
@@ -789,6 +946,11 @@ func (s *Server) clientIP(r *http.Request) string {
 }
 
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !s.allowAnonymous("_admin", s.clientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return false
+	}
 	token, ok := auth.ParseBearer(r.Header.Get("Authorization"))
 	if !ok || s.config.AdminToken == "" {
 		writeError(w, http.StatusUnauthorized, "admin_auth_required")
@@ -852,6 +1014,11 @@ func (s *Server) adminDeleteInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "store_failed")
 		return
 	}
+	if s.cache != nil {
+		if err := s.cache.PurgeInstance(id); err != nil {
+			s.logger.Warn("relay instance cache cleanup failed", "instance_id", id, "error", safeError(err))
+		}
+	}
 	s.tunnelsMu.RLock()
 	current := s.tunnels[id]
 	s.tunnelsMu.RUnlock()
@@ -860,6 +1027,22 @@ func (s *Server) adminDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("relay instance revoked", "instance_id", id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) adminRotateCredential(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.PathValue("instance")
+	credential, err := s.store.PrepareCredential(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "instance_not_found")
+		return
+	}
+	s.logger.Info("relay instance credential rotation prepared", "instance_id", id)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"instance_id": id, "instance_credential": credential,
+	})
 }
 
 func (s *Server) adminUpdateAuth(w http.ResponseWriter, r *http.Request) {
@@ -952,6 +1135,91 @@ func (s *Server) adminCachePurge(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("relay cache purged")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) adminBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set(
+		"Content-Disposition",
+		fmt.Sprintf(`attachment; filename="coworker-relay-%s.db"`, time.Now().UTC().Format("20060102T150405Z")),
+	)
+	w.Header().Set("Cache-Control", "no-store")
+	if err := s.store.Backup(w); err != nil {
+		s.logger.Error("relay backup failed", "error", safeError(err))
+	}
+}
+
+func (s *Server) adminGarbageCollect(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	removed, err := s.store.GarbageCollect(time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_failed")
+		return
+	}
+	s.logger.Info("relay garbage collection completed", "removed", removed)
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
+}
+
+func (s *Server) adminMetrics(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	s.tunnelsMu.RLock()
+	online := len(s.tunnels)
+	s.tunnelsMu.RUnlock()
+	cacheStats := map[string]int64{"entries": 0, "bytes": 0, "max_bytes": 0}
+	if s.cache != nil {
+		if values, err := s.cache.Stats(); err == nil {
+			cacheStats = values
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = fmt.Fprintf(
+		w,
+		"# TYPE coworker_relay_requests_total counter\n"+
+			"coworker_relay_requests_total %d\n"+
+			"# TYPE coworker_relay_auth_failures_total counter\n"+
+			"coworker_relay_auth_failures_total %d\n"+
+			"# TYPE coworker_relay_bans_total counter\n"+
+			"coworker_relay_bans_total %d\n"+
+			"# TYPE coworker_relay_tunnel_connections_total counter\n"+
+			"coworker_relay_tunnel_connections_total %d\n"+
+			"# TYPE coworker_relay_tunnels gauge\n"+
+			"coworker_relay_tunnels %d\n"+
+			"# TYPE coworker_relay_request_duration_seconds summary\n"+
+			"coworker_relay_request_duration_seconds_count %d\n"+
+			"coworker_relay_request_duration_seconds_sum %.6f\n"+
+			"# TYPE coworker_relay_verifier_inflight gauge\n"+
+			"coworker_relay_verifier_inflight %d\n"+
+			"# TYPE coworker_relay_cache_hits_total counter\n"+
+			"coworker_relay_cache_hits_total %d\n"+
+			"# TYPE coworker_relay_cache_misses_total counter\n"+
+			"coworker_relay_cache_misses_total %d\n"+
+			"# TYPE coworker_relay_cache_entries gauge\n"+
+			"coworker_relay_cache_entries %d\n"+
+			"# TYPE coworker_relay_cache_bytes gauge\n"+
+			"coworker_relay_cache_bytes %d\n"+
+			"# TYPE coworker_relay_cache_max_bytes gauge\n"+
+			"coworker_relay_cache_max_bytes %d\n",
+		s.requestTotal.Load(),
+		s.authFailureTotal.Load(),
+		s.banTotal.Load(),
+		s.tunnelConnectTotal.Load(),
+		online,
+		s.requestCompleted.Load(),
+		float64(s.requestDuration.Load())/float64(time.Second),
+		len(s.verifySem),
+		s.cacheHitTotal.Load(),
+		s.cacheMissTotal.Load(),
+		cacheStats["entries"],
+		cacheStats["bytes"],
+		cacheStats["max_bytes"],
+	)
 }
 
 func (s *Server) isOnline(id string) bool {

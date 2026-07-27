@@ -1136,6 +1136,28 @@ async def reconnect_relay(
     _audit(request, "relay.reconnect", "relay")
     return {"accepted": True}
 
+@router.post("/relay/rotate-credential")
+async def rotate_relay_credential(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    try:
+        result = await _require_relay_client().rotate_credential()
+    except Exception as error:
+        _audit(
+            request,
+            "relay.credential.rotate",
+            "relay",
+            result="error",
+            detail=type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.relay.credential_rotation_failed", error=error),
+        ) from error
+    _audit(request, "relay.credential.rotate", str(result.get("instance_id", "")))
+    return result
+
 
 @router.delete("/relay", status_code=204)
 async def disconnect_relay(
