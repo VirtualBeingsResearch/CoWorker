@@ -33,6 +33,30 @@ git status --short -- src/coworker/web
 
 On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` if the required browser system libraries are missing.
 
+### Dev Container
+
+The current PyTorch release no longer provides a `macosx_x86_64` wheel for Intel macOS. The
+checked-in [`.devcontainer`](../../.devcontainer/devcontainer.json) configuration runs the
+development environment in Linux, so an Intel Mac uses PyTorch's `linux/x86_64` CPU wheel.
+Apple Silicon uses native `linux/arm64` without forced x86 emulation.
+
+Install Docker Desktop (or a compatible container runtime) and the VS Code Dev Containers
+extension, then run **Dev Containers: Reopen in Container** from the repository. The first build:
+
+- installs Python 3.13, uv, Node.js 24, and FFmpeg;
+- installs the locked Python development dependencies and Linux CPU build of PyTorch;
+- installs Playwright Chromium and its Linux system libraries;
+- forwards port `8000` for the CoWorker API and `8100` for Explore Lab.
+
+The source checkout remains bind-mounted from the host, while the container's Python environment
+lives at `/opt/venv`. After creation, run the `uv run ...`, `npm ...`, and test commands from this
+guide directly. Run **Dev Containers: Rebuild Container** after dependency or lockfile changes to
+refresh the cached layers.
+
+The Dev Container is a Linux environment. It supports Python, web, and Explore Lab development,
+but cannot build or validate macOS-specific Tauri `.app`/`.dmg` artifacts, signing, or
+notarization. Continue to perform those tasks on macOS or a matching CI runner.
+
 ### Explore Lab
 
 The Explore Lab backend can serve the frontend build directly. Branch runtimes use virtual communication participants (`explore_lab` by default): `communicate` records outbound messages in branch state without external delivery, and `list_connections` reports those virtual participants as active connections. Normal use requires starting only the backend after building the UI:

@@ -164,6 +164,11 @@ The current `pyproject.toml` uses the PyTorch CPU index on every platform. To us
 on Windows or Linux, switch the `torch` source as shown in that file, then run
 `uv lock && uv sync`.
 
+> [!NOTE]
+> Intel macOS cannot install the current PyTorch wheel. Use the checked-in
+> [Dev Container](docs/development/development.en.md#dev-container) to develop and test Python
+> code in a Linux x86_64 container.
+
 Coworker starts the agent loop, file inbox watcher, and FastAPI service together. The API is available at `http://localhost:8000` by default.
 
 > [!TIP]

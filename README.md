@@ -163,6 +163,11 @@ uv run python -m coworker
 上使用 NVIDIA GPU（CUDA 13.0），请按文件中的注释切换 `torch` source，再执行
 `uv lock && uv sync`。
 
+> [!NOTE]
+> Intel macOS 无法安装当前版本的 PyTorch wheel。请使用仓库内的
+> [Dev Container](docs/development/development.md#dev-container)，在 Linux x86_64
+> 容器中完成 Python 开发和测试。
+
 启动后，Agent 循环、文件 inbox 监听和 FastAPI 服务会同时运行。默认 API 地址为 `http://localhost:8000`。
 
 > [!TIP]
