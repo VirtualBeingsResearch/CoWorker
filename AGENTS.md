@@ -1,5 +1,16 @@
 # Standard development workflow
 
+## Required project guidance
+
+Before planning or modifying code or documentation:
+
+1. Read `CONTRIBUTING.md` completely. It is the canonical source for contribution scope, validation, localization, commit, and pull-request requirements.
+2. Read `docs/development/README.md` completely and follow every link relevant to the task. For implementation, environment setup, or test selection, also read `docs/development/development.md` completely.
+3. For security-sensitive changes or vulnerability-reporting work, read `SECURITY.md` completely before proceeding.
+4. When changing localized documentation, open both the Chinese and English companion files before editing and update them together.
+
+Do not rely only on summaries in this file; the applicable referenced documents are part of the instructions for the task.
+
 ## Repository roles
 
 - The canonical upstream repository is `git@github.com:VirtualBeingsResearch/CoWorker.git`.
