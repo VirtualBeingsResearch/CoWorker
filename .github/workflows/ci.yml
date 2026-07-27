@@ -299,7 +299,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: docker build --tag coworker-relay:ci --file apps/coworker-relay/Dockerfile apps/coworker-relay
       - name: Scan Relay container
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: coworker-relay:ci
           format: table
