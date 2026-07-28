@@ -33,7 +33,7 @@ services:
     tmpfs:
       - /tmp
     healthcheck:
-      test: ["CMD", "relayctl", "health"]
+      test: ["CMD", "coworker-relay", "health"]
       interval: 30s
       timeout: 10s
       retries: 3

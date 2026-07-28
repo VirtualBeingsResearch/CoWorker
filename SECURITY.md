@@ -31,7 +31,7 @@ Coworker 是自主 Agent，不是安全沙箱。它的工具可以用运行进�
 - 公网 Desktop访问应使用[自托管 Relay](docs/operations/relay.md)。Relay会终止 TLS并在
   转发期间看到 Token和消息，因此 Relay主机及管理员属于信任边界。使用非 root容器、
   固定版本镜像、强管理员 Token、受信任证书、备份和最小化的
-  `RELAY_TRUSTED_PROXY_CIDRS`；不要将 Relay描述为 E2EE。
+  `RELAY_TRUSTED_PROXY_CIDRS`。
 - Relay v1 只支持单节点。不要让多个副本共享 bbolt数据卷；不要通过负载均衡器把同一
   实例的隧道和请求分配到不同副本。
 - 不要把 `.env`、`providers.json`、运行时数据、日志、导出的配置和桌面端凭据提交到仓库或附在漏洞报告中。

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/acmetls"
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo"
 	relaycache "github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/cache"
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/server"
@@ -22,16 +25,31 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if len(os.Args) == 2 && os.Args[1] == "version" {
-		fmt.Printf(
-			"coworker-relay %s (%s, %s)\n",
-			buildinfo.Version,
-			buildinfo.Commit,
-			buildinfo.Date,
-		)
+	args := os.Args[1:]
+	if len(args) == 1 && args[0] == "--version" {
+		args[0] = "version"
+	}
+	if handled, err := handleHelp(args, os.Stdout); handled {
+		if err != nil {
+			fatal(err.Error())
+		}
 		return
 	}
+	if args[0] != "serve" {
+		runCLI(args)
+		return
+	}
+	if len(args) != 1 {
+		usage()
+	}
+	if err := loadLocalEnvironment(); err != nil {
+		fatal(err.Error())
+	}
+	serveRelay()
+}
+
+func serveRelay() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("coworker relay build", "build", buildinfo.Values())
 	publicURL, err := server.ValidatePublicURL(os.Getenv("RELAY_PUBLIC_URL"))
 	if err != nil {
@@ -155,6 +173,8 @@ func main() {
 	cert, key := os.Getenv("RELAY_TLS_CERT"), os.Getenv("RELAY_TLS_KEY")
 	logger.Info("coworker relay starting", "listen", httpServer.Addr, "public_url", publicURL)
 	var challengeServer *http.Server
+	runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	serve := func() error {
 		if cert != "" || key != "" {
 			if cert == "" || key == "" {
@@ -163,8 +183,54 @@ func main() {
 			return httpServer.ListenAndServeTLS(cert, key)
 		}
 		domain := strings.TrimSpace(os.Getenv("RELAY_ACME_DOMAIN"))
-		if domain == "" {
-			return errors.New("configure RELAY_TLS_CERT/RELAY_TLS_KEY or RELAY_ACME_DOMAIN")
+		ipIdentifier := strings.TrimSpace(os.Getenv("RELAY_ACME_IP"))
+		if domain != "" && ipIdentifier != "" {
+			return errors.New("configure only one of RELAY_ACME_DOMAIN and RELAY_ACME_IP")
+		}
+		if domain == "" && ipIdentifier == "" {
+			return errors.New(
+				"configure RELAY_TLS_CERT/RELAY_TLS_KEY, RELAY_ACME_DOMAIN, or RELAY_ACME_IP",
+			)
+		}
+		parsedPublicURL, parseErr := url.Parse(publicURL)
+		if parseErr != nil {
+			return errors.New("unable to parse RELAY_PUBLIC_URL for ACME")
+		}
+		if ipIdentifier != "" {
+			configuredIP := net.ParseIP(ipIdentifier)
+			publicIP := net.ParseIP(parsedPublicURL.Hostname())
+			if configuredIP == nil {
+				return errors.New("RELAY_ACME_IP must be an IP address")
+			}
+			if publicIP == nil || !configuredIP.Equal(publicIP) {
+				return errors.New("RELAY_ACME_IP must match RELAY_PUBLIC_URL hostname")
+			}
+			manager, managerErr := acmetls.NewIPManager(acmetls.IPConfig{
+				Identifier:   ipIdentifier,
+				Email:        os.Getenv("RELAY_ACME_EMAIL"),
+				CacheDir:     env("RELAY_ACME_CACHE", filepath.Join(dataDirectory, "acme")),
+				HTTPListen:   env("RELAY_ACME_HTTP_LISTEN", ":80"),
+				DirectoryURL: os.Getenv("RELAY_ACME_DIRECTORY_URL"),
+				Logger:       logger,
+			})
+			if managerErr != nil {
+				return managerErr
+			}
+			if managerErr = manager.StartHTTPChallenge(runContext); managerErr != nil {
+				return managerErr
+			}
+			if managerErr = manager.WaitForCertificate(runContext); managerErr != nil {
+				return managerErr
+			}
+			httpServer.TLSConfig = manager.TLSConfig()
+			go manager.Run(runContext)
+			return httpServer.ListenAndServeTLS("", "")
+		}
+		if net.ParseIP(domain) != nil {
+			return errors.New("use RELAY_ACME_IP, not RELAY_ACME_DOMAIN, for an IP address")
+		}
+		if !strings.EqualFold(parsedPublicURL.Hostname(), domain) {
+			return errors.New("RELAY_ACME_DOMAIN must match RELAY_PUBLIC_URL hostname")
 		}
 		manager := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
@@ -186,8 +252,6 @@ func main() {
 		return httpServer.ListenAndServeTLS("", "")
 	}
 
-	runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()

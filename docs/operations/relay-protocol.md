@@ -61,5 +61,5 @@ Desktop继续独立验证 Tauri更新签名，Relay缓存校验不能替代发�
 
 - 协议 `1` 内可以增加接收方会忽略的响应 JSON 字段，但不能改变已有字段含义。
 - 新帧类型、请求分块上传或认证语义变化需要新的协议版本或能力协商。
-- Relay和 Coworker版本应一起升级；`relayctl health` 会显示 Relay构建版本和协议版本。
+- Relay和 Coworker版本应一起升级；`coworker-relay health` 会显示 Relay构建版本和协议版本。
 - v1 是单节点协议。实例在任一时刻只能有一个活动隧道，新连接会替换旧连接。

@@ -69,7 +69,9 @@ def client(tmp_path):
     api_app.set_setup_required(False)
 
 
-def test_api_defaults_bind_locally_and_require_desktop_authentication():
+def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatch):
+    for name in ("API__HOST", "API__DEVELOPMENT_MODE", "API__CORS_ORIGINS"):
+        monkeypatch.delenv(name, raising=False)
     config = APIConfig(_env_file=None)
 
     assert config.host == "127.0.0.1"

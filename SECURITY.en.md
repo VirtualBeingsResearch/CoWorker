@@ -44,8 +44,7 @@ For the current v0.x releases:
 - Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. Relay terminates
   TLS and sees tokens and messages while forwarding, so its host and administrators are inside the
   trust boundary. Use the non-root container, pinned image versions, a strong administrator token,
-  trusted certificates, backups, and a minimal `RELAY_TRUSTED_PROXY_CIDRS`. Do not describe Relay
-  as E2EE.
+  trusted certificates, backups, and a minimal `RELAY_TRUSTED_PROXY_CIDRS`.
 - Relay v1 is single-node. Do not share its bbolt volume among replicas or load-balance one
   instance's tunnel and requests across different replicas.
 - Keep `.env`, `providers.json`, runtime data, logs, exported configuration, and desktop credentials

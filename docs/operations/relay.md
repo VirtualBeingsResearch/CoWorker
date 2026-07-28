@@ -12,31 +12,42 @@ Relay 会终止公网 HTTPS，并能在请求处理期间看到 Header 和正文
 
 ## 部署
 
-Go 服务和管理 CLI 位于 `apps/coworker-relay/`：
+Go 服务和管理命令已经合并为 `apps/coworker-relay/` 下的单一
+`coworker-relay` 可执行文件。先从 Coworker Release 下载适合当前系统的 Relay
+压缩包，将其中的可执行文件放入 `PATH`，然后运行：
 
 ```bash
-docker pull ghcr.io/virtualbeingsresearch/coworker-relay:VERSION
-relayctl init --public-url https://relay.example.com:8443
+coworker-relay init
 cd coworker-relay-deploy
 docker compose up -d
 ```
 
+`coworker-relay init` 在终端中启动交互式向导；自动化部署可继续使用
+`coworker-relay init --public-url https://relay.example.com:8443`。运行
+`coworker-relay --help`、`coworker-relay init --help` 或任意子命令的 `--help` 可查看完整用法，
+帮助命令不会读取配置或访问 Relay。
+
 每次 Coworker发行会同时提供 GHCR 的 `linux/amd64`、`linux/arm64` Relay镜像，以及
-Linux、macOS和 Windows 的 `coworker-relay`、`relayctl` 压缩包、SHA-256和构建来源证明。
+Linux、macOS和 Windows 的 `coworker-relay` 压缩包、SHA-256和构建来源证明。
 建议生产部署固定版本标签。源码开发时仍可在 `apps/coworker-relay/` 执行
 `docker build -t coworker-relay .` 和 `go build ./cmd/...`。
 
-`relayctl init` 会生成权限为 `0600` 的部署 `.env`、`compose.yaml` 和
-`.gitignore`，持久化数据使用独立 Docker 卷，并自动生成且仅显示一次随机管理员 Token。外部端口默认
-为 8443；已有生成文件时会拒绝覆盖，只有显式传入 `--force` 才会替换。域名默认
-使用 ACME，可用 `--acme-domain <domain>` 指定证书域名；私有 CA、公网 IP 或
-已有证书使用 `--tls-cert <path> --tls-key <path>`。`relayctl` 会自动读取当前
-目录的 `.env`，也可通过 `RELAY_CONFIG` 指定其他文件。私有 CA 可通过
+`coworker-relay init` 会生成权限为 `0600` 的部署 `.env`、`compose.yaml` 和
+`.gitignore`，持久化数据使用独立 Docker 卷，并自动生成随机管理员 Token。Token 只写入
+`.env`，不会打印到终端。外部端口默认为 8443；已有生成文件时会拒绝覆盖，交互式向导会
+请求确认，非交互模式只有显式传入 `--force` 才会替换。公网域名和公网 IP 默认使用
+ACME 自动申请、安装和续期证书；私网 IP、私有 CA 或已有证书使用
+`--tls-cert <path> --tls-key <path>`。`coworker-relay` 的服务和管理命令都会自动读取当前
+目录的 `.env`，也可通过 `RELAY_CONFIG` 指定其他文件；进程中显式设置的环境变量优先。
+容器默认执行 `coworker-relay serve`。私有 CA 可通过
 `RELAY_CA_CERT` 指向 PEM 信任包；它只扩展正常的证书信任，CLI 不提供跳过证书
 校验的选项。
 
-生成的容器以非 root 用户运行。ACME 模式下，Compose 会把宿主机 80 端口映射到
-容器 8080 端口，并将 ACME 状态保存在 Relay 数据卷中。
+生成的容器以非 root 用户运行。ACME 模式下，Compose 会把宿主机公网 TCP 80 端口映射到
+容器 8080 端口，并将 ACME账户、私钥、证书和续期状态保存在 Relay 数据卷中。公网 IP
+证书使用 `shortlived` profile；Relay 会在证书生命周期约三分之二处开始续期，失败时继续
+使用尚未过期的旧证书并每小时重试。首次签发失败或旧证书已过期时，HTTPS 保持未就绪并
+以带抖动的指数退避重试；Relay 不会以不安全的明文或自签名模式启动。
 
 最低配置：
 
@@ -55,7 +66,12 @@ RELAY_LISTEN=:8443
 提供标准 443 端口，则使用 `https://relay.example.com`，并将代理转发到容器
 8443 端口。
 
-TLS 可选择外部 PEM（`RELAY_TLS_CERT`、`RELAY_TLS_KEY`）或域名 ACME（`RELAY_ACME_DOMAIN`、可选的 `RELAY_ACME_EMAIL`）。公网 IP 和私有 CA 使用外部 PEM。ACME 模式还需开放 `RELAY_ACME_HTTP_LISTEN`，默认 `:80`。
+TLS 可选择外部 PEM（`RELAY_TLS_CERT`、`RELAY_TLS_KEY`）、域名 ACME
+（`RELAY_ACME_DOMAIN`）或公网 IP ACME（`RELAY_ACME_IP`），ACME 可选
+`RELAY_ACME_EMAIL`。证书标识必须与 `RELAY_PUBLIC_URL` 的主机一致；公网 IP 自动固定
+使用 `shortlived` profile。ACME 模式还需保证公网 TCP 80 能到达
+`RELAY_ACME_HTTP_LISTEN`，默认 `:80`；如果端口被占用、NAT 未转发或地址不属于本机，
+签发会失败。私网 IP 和私有 CA 使用外部 PEM。
 
 经过其他反向代理部署时，用 `RELAY_TRUSTED_PROXY_CIDRS` 配置可信代理网段；其他来源提交的转发地址不参与封禁身份判断。
 
@@ -64,10 +80,10 @@ TLS 可选择外部 PEM（`RELAY_TLS_CERT`、`RELAY_TLS_KEY`）或域名 ACME（
 ```bash
 export RELAY_URL=https://relay.example.com
 export RELAY_ADMIN_TOKEN='<管理令牌>'
-relayctl instance create --name home-coworker
+coworker-relay instance create --name home-coworker
 ```
 
-如果在生成的部署目录中执行，`relayctl` 会读取 `.env`，无需手动执行上述两个
+如果在生成的部署目录中执行，`coworker-relay` 会读取 `.env`，无需手动执行上述两个
 `export`。
 
 将输出的一次性配对码填入 Coworker 管理台的“远程访问”页面。配对码十分钟后过期且只能使用一次。配对完成后，把页面显示的 Base URL 和 Bearer Token 填入 Desktop。“测试远程连接”会携带当前通信 Token 请求公开实例的 `/status`，同时验证公网 HTTPS、Relay 前置认证、活动隧道和 Coworker 响应。
@@ -75,24 +91,24 @@ relayctl instance create --name home-coworker
 ## 管理
 
 ```bash
-relayctl health
-relayctl version
-relayctl instance list
-relayctl instance update-auth cw_xxx optional
-relayctl instance update-auth cw_xxx required
-relayctl instance update-stats cw_xxx
-relayctl bans list --instance cw_xxx
-relayctl bans remove --instance cw_xxx --ip 203.0.113.8 --reason "误封"
-relayctl cache inspect
-relayctl metrics
-relayctl gc
-relayctl instance revoke cw_xxx
+coworker-relay health
+coworker-relay version
+coworker-relay instance list
+coworker-relay instance update-auth cw_xxx optional
+coworker-relay instance update-auth cw_xxx required
+coworker-relay instance update-stats cw_xxx
+coworker-relay bans list --instance cw_xxx
+coworker-relay bans remove --instance cw_xxx --ip 203.0.113.8 --reason "误封"
+coworker-relay cache inspect
+coworker-relay metrics
+coworker-relay gc
+coworker-relay instance revoke cw_xxx
 ```
 
 在 Coworker管理台点击“轮换实例凭据”会先在 Relay暂存新凭据摘要；旧凭据保持有效，
 直到 Coworker持久化新凭据并用它完成 WSS认证后才原子失效。响应丢失或中途断网不会锁死
 实例。管理员应急操作也可
-执行 `relayctl instance rotate-credential cw_xxx`，但输出的新凭据必须同步写入对应
+执行 `coworker-relay instance rotate-credential cw_xxx`，但输出的新凭据必须同步写入对应
 Coworker配置，否则隧道会保持离线。管理员 Token是单一共享高权限凭据，v1不提供
 多管理员 RBAC；请通过 secret manager分发并限制 CLI主机。
 
@@ -107,10 +123,10 @@ Coworker配置，否则隧道会保持离线。管理员 Token是单一共享高
 升级前创建一致的在线 bbolt快照：
 
 ```bash
-relayctl backup --output relay-before-upgrade.db
+coworker-relay backup --output relay-before-upgrade.db
 docker compose pull
 docker compose up -d
-relayctl health
+coworker-relay health
 ```
 
 恢复必须在 Relay停止后进行。`--force` 不直接删除旧数据库，而是把它重命名为带
@@ -118,7 +134,7 @@ relayctl health
 
 ```bash
 docker compose stop relay
-relayctl restore \
+coworker-relay restore \
   --from relay-before-upgrade.db \
   --database /path/to/mounted/relay.db \
   --force
@@ -127,7 +143,7 @@ docker compose start relay
 
 Relay数据库具有显式 schema version。程序拒绝打开比自身更新或不受支持的 schema，
 不会猜测降级。备份数据库、`.env`、ACME状态和 Coworker本地实例凭据都属于敏感数据；
-应加密保存并验证恢复演练。`relayctl gc` 可立即清理过期配对、失败和封禁记录，服务也会
+应加密保存并验证恢复演练。`coworker-relay gc` 可立即清理过期配对、失败和封禁记录，服务也会
 每小时自动清理。撤销实例会级联删除其安全状态、统计和缓存。
 
 容器收到 SIGTERM 后会停止接受新请求、关闭隧道并给 HTTP请求最多 30 秒 drain时间。
@@ -138,7 +154,7 @@ Compose配置使用 35 秒 stop grace period。
 - `/_relay/v1/livez` 只表示进程存活。
 - `/_relay/v1/readyz` 和兼容端点 `/_relay/v1/health` 会检查 draining状态、数据库和
   缓存目录可用性，并返回构建与协议版本。
-- `relayctl metrics` 返回受管理员 Bearer保护的 Prometheus文本，包括请求、认证失败、
+- `coworker-relay metrics` 返回受管理员 Bearer保护的 Prometheus文本，包括请求、认证失败、
   封禁、延迟、Argon2并发、隧道连接、在线隧道和缓存容量/命中率。
 
 Relay输出结构化 JSON日志到 stdout。安全日志包含完整来源 IP、实例、路由类别、认证结果

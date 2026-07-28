@@ -80,7 +80,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '已请求重新连接': 'Reconnect requested',
   'Relay 已断开': 'Relay disconnected',
   'Token verifier 尚未同步；Relay 会继续使用上一版本并自动重试。': 'The token verifier is not synchronized yet; Relay will keep using the previous version and retry automatically.',
-  '断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 relayctl 撤销。': 'Disconnect Relay and delete the local instance credential? The Relay instance must still be revoked with relayctl.',
+  '断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 coworker-relay 撤销。': 'Disconnect Relay and delete the local instance credential? The Relay instance must still be revoked with coworker-relay.',
   '{{label}}已复制': '{{label}} copied',
   '请求失败': 'Request failed',
   '正在执行…': 'Working…',

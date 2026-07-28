@@ -661,11 +661,12 @@ def test_config_response_identifies_overridden_fields(tmp_path):
 
 def test_config_patch_explicitly_clears_one_override(tmp_path):
     path = tmp_path / "admin_config.json"
+    client, config = _client(tmp_path)
+    retained_host = "0.0.0.0" if config.api.host != "0.0.0.0" else "127.0.0.1"
     path.write_text(
-        json.dumps({"api": {"host": "0.0.0.0", "port": 8123}}),
+        json.dumps({"api": {"host": retained_host, "port": 8123}}),
         encoding="utf-8",
     )
-    client, config = _client(tmp_path)
     config.api.port = 8123
 
     response = client.patch(
@@ -675,9 +676,7 @@ def test_config_patch_explicitly_clears_one_override(tmp_path):
     )
 
     assert response.status_code == 200
-    assert json.loads(path.read_text(encoding="utf-8")) == {
-        "api": {"host": "0.0.0.0"}
-    }
+    assert json.loads(path.read_text(encoding="utf-8")) == {"api": {"host": retained_host}}
 
 
 def test_config_patch_rejects_unknown_clear_override(tmp_path):

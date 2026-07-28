@@ -81,8 +81,8 @@ uv run python scripts/cleanup.py backup-delete
 `data/_backups/`；删除前确认不再需要恢复。容器部署还应检查绑定目录和命名卷，而不是只删除
 容器。
 
-Relay数据不在 `cleanup.py` 范围内。删除前先用 `relayctl backup` 创建一致快照；撤销单个
-实例使用 `relayctl instance revoke`，它会级联清理该实例的 verifier、失败/封禁状态、
+Relay数据不在 `cleanup.py` 范围内。删除前先用 `coworker-relay backup` 创建一致快照；撤销单个
+实例使用 `coworker-relay instance revoke`，它会级联清理该实例的 verifier、失败/封禁状态、
 统计和缓存。完整退役还需移除 Relay部署目录中的 `.env`、备份文件和独立 Docker卷。
 
 [← 返回项目首页](../../README.md)

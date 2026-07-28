@@ -76,6 +76,6 @@ replace release signing.
   cannot change.
 - New frame types, chunked request uploads, or authentication-semantic changes require a new
   protocol version or capability negotiation.
-- Upgrade Relay and Coworker together. `relayctl health` reports Relay's build and protocol
+- Upgrade Relay and Coworker together. `coworker-relay health` reports Relay's build and protocol
   versions.
 - v1 is single-node. An instance has one active tunnel; a new connection supersedes the old one.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/tls"
@@ -21,7 +22,9 @@ import (
 	"time"
 
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo"
+	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/netutil"
 	"github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/store"
+	"golang.org/x/term"
 )
 
 type client struct {
@@ -30,23 +33,41 @@ type client struct {
 	http    *http.Client
 }
 
-func main() {
-	if len(os.Args) < 2 {
+func runCLI(args []string) {
+	if handled, err := handleHelp(args, os.Stdout); handled {
+		if err != nil {
+			fatal(err.Error())
+		}
+		return
+	}
+	if args[0] == "init" {
+		initDeployment(args[1:])
+		return
+	}
+	if args[0] == "version" {
+		if len(args) != 1 {
+			usage()
+		}
+		fmt.Printf(
+			"coworker-relay %s (%s, %s)\n",
+			buildinfo.Version,
+			buildinfo.Commit,
+			buildinfo.Date,
+		)
+		return
+	}
+	if args[0] == "restore" {
+		restoreDatabase(args[1:])
+		return
+	}
+	switch args[0] {
+	case "health", "instance", "bans", "cache", "backup", "gc", "metrics":
+	default:
 		usage()
 	}
-	if os.Args[1] == "init" {
-		initDeployment(os.Args[2:])
-		return
+	if err := loadLocalEnvironment(); err != nil {
+		fatal(err.Error())
 	}
-	if os.Args[1] == "version" {
-		fmt.Printf("relayctl %s (%s, %s)\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
-		return
-	}
-	if os.Args[1] == "restore" {
-		restoreDatabase(os.Args[2:])
-		return
-	}
-	loadLocalEnvironment()
 	httpClient, err := newHTTPClient()
 	if err != nil {
 		fatal(err.Error())
@@ -59,17 +80,17 @@ func main() {
 	if c.baseURL == "" {
 		fatal("RELAY_URL is required")
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "health":
 		c.print("GET", "/_relay/v1/health", nil, false)
 	case "instance":
-		c.instance(os.Args[2:])
+		c.instance(args[1:])
 	case "bans":
-		c.bans(os.Args[2:])
+		c.bans(args[1:])
 	case "cache":
-		c.cache(os.Args[2:])
+		c.cache(args[1:])
 	case "backup":
-		c.backup(os.Args[2:])
+		c.backup(args[1:])
 	case "gc":
 		c.print("POST", "/_relay/v1/admin/gc", nil, true)
 	case "metrics":
@@ -121,9 +142,52 @@ type initOptions struct {
 	force        bool
 }
 
+var errInitCancelled = errors.New("initialization cancelled")
+
 func initDeployment(args []string) {
-	flags := flag.NewFlagSet("init", flag.ExitOnError)
-	options := initOptions{}
+	options := defaultInitOptions()
+	var err error
+	if len(args) == 0 {
+		if !isTerminal(os.Stdin) {
+			fatal("interactive init requires a terminal; use --public-url for non-interactive setup")
+		}
+		options, err = promptInitOptions(os.Stdin, os.Stderr, options)
+		if errors.Is(err, errInitCancelled) {
+			fmt.Fprintln(os.Stdout, "Initialization cancelled.")
+			return
+		}
+	} else {
+		options, err = parseInitOptions(args)
+	}
+	if err != nil {
+		fatal(err.Error())
+	}
+	_, normalizedURL, err := initialize(options)
+	if err != nil {
+		fatal(err.Error())
+	}
+	absolute, _ := filepath.Abs(options.directory)
+	fmt.Printf(
+		"Relay deployment initialized in %s\nPublic URL: %s\nAdministrator token: saved only in %s\n\nNext:\n  cd %s\n  docker compose up -d\n  coworker-relay health\n  coworker-relay instance create --name home-coworker\n",
+		absolute,
+		normalizedURL,
+		filepath.Join(absolute, ".env"),
+		absolute,
+	)
+}
+
+func defaultInitOptions() initOptions {
+	return initOptions{
+		directory:    "coworker-relay-deploy",
+		externalPort: 8443,
+		image:        "ghcr.io/virtualbeingsresearch/coworker-relay:" + releaseTag(),
+	}
+}
+
+func parseInitOptions(args []string) (initOptions, error) {
+	options := defaultInitOptions()
+	flags := flag.NewFlagSet("init", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.directory, "dir", "coworker-relay-deploy", "deployment directory")
 	flags.StringVar(&options.publicURL, "public-url", "", "public HTTPS URL")
 	flags.IntVar(&options.externalPort, "external-port", 8443, "published HTTPS port")
@@ -133,23 +197,285 @@ func initDeployment(args []string) {
 	flags.StringVar(
 		&options.image,
 		"image",
-		"ghcr.io/virtualbeingsresearch/coworker-relay:"+releaseTag(),
+		options.image,
 		"container image",
 	)
 	flags.BoolVar(&options.force, "force", false, "replace generated files")
-	_ = flags.Parse(args)
-	adminToken, normalizedURL, err := initialize(options)
-	if err != nil {
-		fatal(err.Error())
+	if err := flags.Parse(args); err != nil {
+		return initOptions{}, err
 	}
-	absolute, _ := filepath.Abs(options.directory)
-	fmt.Printf(
-		"Relay deployment initialized in %s\nPublic URL: %s\nAdmin token: %s\n\nNext:\n  cd %s\n  docker compose up -d\n  relayctl health\n  relayctl instance create --name home-coworker\n",
-		absolute,
-		normalizedURL,
-		adminToken,
-		absolute,
+	if flags.NArg() != 0 {
+		return initOptions{}, fmt.Errorf("unexpected init argument %q", flags.Arg(0))
+	}
+	return options, nil
+}
+
+func promptInitOptions(
+	input io.Reader,
+	output io.Writer,
+	options initOptions,
+) (initOptions, error) {
+	reader := bufio.NewReader(input)
+	fmt.Fprintln(output, "Coworker Relay setup")
+	fmt.Fprintln(output, "Press Enter to accept a displayed default.")
+
+	var err error
+	options.directory, err = prompt(reader, output, "Deployment directory", options.directory)
+	if err != nil {
+		return initOptions{}, err
+	}
+	for {
+		rawPort, promptErr := prompt(
+			reader,
+			output,
+			"Published HTTPS port",
+			strconv.Itoa(options.externalPort),
+		)
+		if promptErr != nil {
+			return initOptions{}, promptErr
+		}
+		port, parseErr := strconv.Atoi(rawPort)
+		if parseErr == nil && port >= 1 && port <= 65535 {
+			options.externalPort = port
+			break
+		}
+		fmt.Fprintln(output, "Enter a port between 1 and 65535.")
+	}
+	for {
+		options.publicURL, err = prompt(reader, output, "Public HTTPS origin", "")
+		if err != nil {
+			return initOptions{}, err
+		}
+		if options.publicURL == "" {
+			fmt.Fprintln(output, "A public HTTPS origin is required.")
+			continue
+		}
+		if _, normalized, normalizeErr := normalizePublicURL(
+			options.publicURL,
+			options.externalPort,
+		); normalizeErr == nil {
+			options.publicURL = normalized
+			break
+		} else {
+			fmt.Fprintln(output, normalizeErr)
+		}
+	}
+	parsed, _, _ := normalizePublicURL(options.publicURL, options.externalPort)
+	hostname := parsed.Hostname()
+	ip := net.ParseIP(hostname)
+	if ip != nil && !netutil.IsPublicIP(ip) {
+		fmt.Fprintln(
+			output,
+			"Private or non-routable IP detected; use a certificate from your private CA.",
+		)
+		options.tlsCert, err = requiredPrompt(reader, output, "TLS certificate path")
+		if err != nil {
+			return initOptions{}, err
+		}
+		options.tlsKey, err = requiredPrompt(reader, output, "TLS private key path")
+		if err != nil {
+			return initOptions{}, err
+		}
+	} else {
+		acmeDescription := "  1) Automatic ACME certificate (requires public TCP port 80)\n" +
+			"  2) Existing PEM certificate"
+		if ip != nil {
+			acmeDescription = "  1) Automatic public-IP certificate (requires public TCP port 80)\n" +
+				"  2) Existing PEM certificate"
+		}
+		mode, modeErr := promptChoice(
+			reader,
+			output,
+			"TLS mode",
+			"acme",
+			map[string]string{
+				"1": "acme", "acme": "acme",
+				"2": "pem", "pem": "pem",
+			},
+			acmeDescription,
+		)
+		if modeErr != nil {
+			return initOptions{}, modeErr
+		}
+		if mode == "acme" {
+			options.acmeDomain = hostname
+			if ip == nil {
+				options.acmeDomain, err = prompt(
+					reader,
+					output,
+					"ACME certificate domain",
+					hostname,
+				)
+				if err != nil {
+					return initOptions{}, err
+				}
+			}
+		} else {
+			options.tlsCert, err = requiredPrompt(reader, output, "TLS certificate path")
+			if err != nil {
+				return initOptions{}, err
+			}
+			options.tlsKey, err = requiredPrompt(reader, output, "TLS private key path")
+			if err != nil {
+				return initOptions{}, err
+			}
+		}
+	}
+	options.image, err = prompt(reader, output, "Container image", options.image)
+	if err != nil {
+		return initOptions{}, err
+	}
+	existing, err := generatedDeploymentExists(options.directory)
+	if err != nil {
+		return initOptions{}, err
+	}
+	if existing {
+		replace, confirmErr := promptConfirm(
+			reader,
+			output,
+			"Generated deployment files already exist. Replace them?",
+			false,
+		)
+		if confirmErr != nil {
+			return initOptions{}, confirmErr
+		}
+		if !replace {
+			return initOptions{}, errInitCancelled
+		}
+		options.force = true
+	}
+	modeSummary := "ACME for " + options.acmeDomain
+	if options.tlsCert != "" {
+		modeSummary = "PEM certificate " + options.tlsCert
+	}
+	fmt.Fprintf(
+		output,
+		"\nDeployment summary:\n  Directory: %s\n  Public URL: %s\n  TLS: %s\n  Image: %s\n",
+		options.directory,
+		options.publicURL,
+		modeSummary,
+		options.image,
 	)
+	confirmed, err := promptConfirm(reader, output, "Create deployment files?", true)
+	if err != nil {
+		return initOptions{}, err
+	}
+	if !confirmed {
+		return initOptions{}, errInitCancelled
+	}
+	return options, nil
+}
+
+func prompt(
+	reader *bufio.Reader,
+	output io.Writer,
+	label string,
+	defaultValue string,
+) (string, error) {
+	if defaultValue == "" {
+		fmt.Fprintf(output, "%s: ", label)
+	} else {
+		fmt.Fprintf(output, "%s [%s]: ", label, defaultValue)
+	}
+	value, err := reader.ReadString('\n')
+	if err != nil && !(errors.Is(err, io.EOF) && value != "") {
+		return "", errors.New("interactive input ended")
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultValue, nil
+	}
+	return value, nil
+}
+
+func requiredPrompt(
+	reader *bufio.Reader,
+	output io.Writer,
+	label string,
+) (string, error) {
+	for {
+		value, err := prompt(reader, output, label, "")
+		if err != nil {
+			return "", err
+		}
+		if value != "" {
+			return value, nil
+		}
+		fmt.Fprintln(output, "A value is required.")
+	}
+}
+
+func promptChoice(
+	reader *bufio.Reader,
+	output io.Writer,
+	label string,
+	defaultValue string,
+	choices map[string]string,
+	description string,
+) (string, error) {
+	for {
+		fmt.Fprintln(output, description)
+		value, err := prompt(reader, output, label, defaultValue)
+		if err != nil {
+			return "", err
+		}
+		if choice, ok := choices[strings.ToLower(value)]; ok {
+			return choice, nil
+		}
+		fmt.Fprintln(output, "Choose one of the listed options.")
+	}
+}
+
+func promptConfirm(
+	reader *bufio.Reader,
+	output io.Writer,
+	label string,
+	defaultValue bool,
+) (bool, error) {
+	defaultLabel := "y/N"
+	if defaultValue {
+		defaultLabel = "Y/n"
+	}
+	for {
+		fmt.Fprintf(output, "%s [%s]: ", label, defaultLabel)
+		value, readErr := reader.ReadString('\n')
+		if readErr != nil && !(errors.Is(readErr, io.EOF) && value != "") {
+			return false, errors.New("interactive input ended")
+		}
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			return defaultValue, nil
+		}
+		switch value {
+		case "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		default:
+			fmt.Fprintln(output, "Enter yes or no.")
+		}
+	}
+}
+
+func generatedDeploymentExists(directory string) (bool, error) {
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return false, err
+	}
+	for _, name := range []string{".env", "compose.yaml", ".gitignore"} {
+		_, statErr := os.Stat(filepath.Join(absolute, name))
+		if statErr == nil {
+			return true, nil
+		}
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return false, statErr
+		}
+	}
+	return false, nil
+}
+
+func isTerminal(file *os.File) bool {
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func initialize(options initOptions) (string, string, error) {
@@ -174,8 +500,17 @@ func initialize(options initOptions) (string, string, error) {
 		if options.acmeDomain == "" {
 			options.acmeDomain = parsed.Hostname()
 		}
-		if net.ParseIP(options.acmeDomain) != nil {
-			return "", "", errors.New("an IP address requires --tls-cert and --tls-key")
+		options.acmeDomain = strings.TrimSpace(options.acmeDomain)
+		if options.acmeDomain == "" || strings.ContainsAny(options.acmeDomain, "\r\n") {
+			return "", "", errors.New("--acme-domain must be a hostname or public IP address")
+		}
+		if !strings.EqualFold(options.acmeDomain, parsed.Hostname()) {
+			return "", "", errors.New("--acme-domain must match the public URL hostname")
+		}
+		if ip := net.ParseIP(options.acmeDomain); ip != nil && !netutil.IsPublicIP(ip) {
+			return "", "", errors.New(
+				"a private or non-routable IP address requires --tls-cert and --tls-key",
+			)
 		}
 	}
 	directory, err := filepath.Abs(options.directory)
@@ -234,7 +569,11 @@ func initialize(options initOptions) (string, string, error) {
 		composeVolumes += "      - " + strconv.Quote(cert+":/run/tls/fullchain.pem:ro") + "\n"
 		composeVolumes += "      - " + strconv.Quote(key+":/run/tls/privkey.pem:ro") + "\n"
 	} else {
-		env += "RELAY_ACME_DOMAIN=" + options.acmeDomain + "\n"
+		if net.ParseIP(options.acmeDomain) != nil {
+			env += "RELAY_ACME_IP=" + options.acmeDomain + "\n"
+		} else {
+			env += "RELAY_ACME_DOMAIN=" + options.acmeDomain + "\n"
+		}
 		env += "RELAY_ACME_HTTP_LISTEN=:8080\n"
 		env += "RELAY_ACME_CACHE=/var/lib/coworker-relay/acme\n"
 		ports += "      - \"80:8080\"\n"
@@ -257,7 +596,7 @@ func initialize(options initOptions) (string, string, error) {
 		"    tmpfs:\n" +
 		"      - /tmp\n" +
 		"    healthcheck:\n" +
-		"      test: [\"CMD\", \"relayctl\", \"health\"]\n" +
+		"      test: [\"CMD\", \"coworker-relay\", \"health\"]\n" +
 		"      interval: 30s\n" +
 		"      timeout: 10s\n" +
 		"      retries: 3\n" +
@@ -337,26 +676,47 @@ func writeFile(path string, body []byte, mode os.FileMode, flag int) error {
 	return file.Close()
 }
 
-func loadLocalEnvironment() {
+func loadLocalEnvironment() error {
 	path := os.Getenv("RELAY_CONFIG")
+	explicit := path != ""
 	if path == "" {
 		path = ".env"
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return
+		if errors.Is(err, os.ErrNotExist) && !explicit {
+			return nil
+		}
+		return fmt.Errorf("read Relay configuration %s: %w", path, err)
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for lineNumber, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		name, value, ok := strings.Cut(line, "=")
 		name = strings.TrimSpace(name)
-		if ok && os.Getenv(name) == "" {
-			_ = os.Setenv(name, value)
+		if !ok {
+			return fmt.Errorf(
+				"invalid Relay configuration %s:%d",
+				path,
+				lineNumber+1,
+			)
+		}
+		if strings.HasPrefix(name, "RELAY_") {
+			if _, exists := os.LookupEnv(name); exists {
+				continue
+			}
+			if err := os.Setenv(name, value); err != nil {
+				return fmt.Errorf(
+					"invalid Relay configuration variable %s: %w",
+					name,
+					err,
+				)
+			}
 		}
 	}
+	return nil
 }
 
 func (c client) cache(args []string) {
@@ -387,24 +747,24 @@ func (c client) instance(args []string) {
 		c.print("GET", "/_relay/v1/admin/instances", nil, true)
 	case "revoke":
 		if len(args) != 2 {
-			fatal("usage: relayctl instance revoke <instance_id>")
+			fatal("usage: coworker-relay instance revoke <instance_id>")
 		}
 		c.print("DELETE", "/_relay/v1/admin/instances/"+url.PathEscape(args[1]), nil, true)
 	case "rotate-credential":
 		if len(args) != 2 {
-			fatal("usage: relayctl instance rotate-credential <instance_id>")
+			fatal("usage: coworker-relay instance rotate-credential <instance_id>")
 		}
 		path := "/_relay/v1/admin/instances/" + url.PathEscape(args[1]) + "/rotate-credential"
 		c.print("POST", path, nil, true)
 	case "update-auth":
 		if len(args) != 3 || (args[2] != "optional" && args[2] != "required") {
-			fatal("usage: relayctl instance update-auth <instance_id> <optional|required>")
+			fatal("usage: coworker-relay instance update-auth <instance_id> <optional|required>")
 		}
 		path := "/_relay/v1/admin/instances/" + url.PathEscape(args[1]) + "/update-auth"
 		c.print("PATCH", path, map[string]string{"mode": args[2]}, true)
 	case "update-stats":
 		if len(args) != 2 {
-			fatal("usage: relayctl instance update-stats <instance_id>")
+			fatal("usage: coworker-relay instance update-stats <instance_id>")
 		}
 		path := "/_relay/v1/admin/instances/" + url.PathEscape(args[1]) + "/update-stats"
 		c.print("GET", path, nil, true)
@@ -582,25 +942,26 @@ func (c client) print(method, path string, body any, admin bool) {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  relayctl init --public-url <https-origin> [--dir <directory>]
+  coworker-relay serve
+  coworker-relay init --public-url <https-origin> [--dir <directory>]
                 [--external-port 8443]
                 [--acme-domain <domain> | --tls-cert <path> --tls-key <path>]
-  relayctl health
-  relayctl version
-  relayctl backup [--output <path>]
-  relayctl restore --from <backup.db> --database <stopped-relay.db> [--force]
-  relayctl gc
-  relayctl metrics
-  relayctl instance create --name <name>
-  relayctl instance list
-  relayctl instance revoke <instance_id>
-  relayctl instance rotate-credential <instance_id>
-  relayctl instance update-auth <instance_id> <optional|required>
-  relayctl instance update-stats <instance_id>
-  relayctl bans list [--instance <instance_id>]
-  relayctl bans remove --instance <instance_id> --ip <ip> --reason <reason>
-  relayctl cache inspect
-  relayctl cache purge
+  coworker-relay health
+  coworker-relay version
+  coworker-relay backup [--output <path>]
+  coworker-relay restore --from <backup.db> --database <stopped-relay.db> [--force]
+  coworker-relay gc
+  coworker-relay metrics
+  coworker-relay instance create --name <name>
+  coworker-relay instance list
+  coworker-relay instance revoke <instance_id>
+  coworker-relay instance rotate-credential <instance_id>
+  coworker-relay instance update-auth <instance_id> <optional|required>
+  coworker-relay instance update-stats <instance_id>
+  coworker-relay bans list [--instance <instance_id>]
+  coworker-relay bans remove --instance <instance_id> --ip <ip> --reason <reason>
+  coworker-relay cache inspect
+  coworker-relay cache purge
 
 configuration:
   RELAY_URL=https://relay.example.com:8443
@@ -611,6 +972,6 @@ configuration:
 }
 
 func fatal(message string) {
-	fmt.Fprintln(os.Stderr, "relayctl:", message)
+	fmt.Fprintln(os.Stderr, "coworker-relay:", message)
 	os.Exit(1)
 }

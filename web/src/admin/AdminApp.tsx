@@ -2325,7 +2325,7 @@ function RelayAccess() {
             }
           }}>{t('轮换实例凭据')}</button>
           <button className="danger" disabled={Boolean(busy)} onClick={() => {
-            if (window.confirm(t('断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 relayctl 撤销。'))) {
+            if (window.confirm(t('断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 coworker-relay 撤销。'))) {
               void action('disconnect', () => api('/api/admin/relay', { method: 'DELETE' }), 'Relay 已断开');
             }
           }}>{t('断开连接')}</button>

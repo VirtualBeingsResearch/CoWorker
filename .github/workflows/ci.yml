@@ -291,10 +291,8 @@ jobs:
         run: go vet ./...
       - name: Scan Relay Go dependencies
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
-      - name: Build Relay binaries
-        run: |
-          go build ./cmd/coworker-relay
-          go build ./cmd/relayctl
+      - name: Build Relay binary
+        run: go build ./cmd/coworker-relay
       - name: Build Relay container
         working-directory: ${{ github.workspace }}
         run: docker build --tag coworker-relay:ci --file apps/coworker-relay/Dockerfile apps/coworker-relay
@@ -308,7 +306,7 @@ jobs:
           exit-code: "1"
       - name: Validate initialized Compose deployment
         run: |
-          go run ./cmd/relayctl init \
+          go run ./cmd/coworker-relay init \
             --dir "$RUNNER_TEMP/relay-deployment" \
             --public-url https://relay.example.com \
             --external-port 8443

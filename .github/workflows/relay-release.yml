@@ -88,7 +88,6 @@ jobs:
             -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Commit=$GITHUB_SHA \
             -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Date=$(date -u +%FT%TZ)"
           CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o "$directory/coworker-relay$suffix" ./cmd/coworker-relay
-          CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o "$directory/relayctl$suffix" ./cmd/relayctl
           cp ../../LICENSE "$directory/LICENSE"
           go list -m all > "$directory/go-modules.txt"
           if [[ "$ARCHIVE_FORMAT" == zip ]]; then

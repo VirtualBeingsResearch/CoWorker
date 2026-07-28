@@ -12,35 +12,51 @@ Relay terminates public HTTPS and can see headers and bodies while processing a 
 
 ## Deployment
 
-The Go service and management CLI live in `apps/coworker-relay/`:
+The Go service and administration commands are combined into one
+`coworker-relay` executable under `apps/coworker-relay/`. Download the Relay
+archive for the current system from the Coworker release, place its executable
+on `PATH`, then run:
 
 ```bash
-docker pull ghcr.io/virtualbeingsresearch/coworker-relay:VERSION
-relayctl init --public-url https://relay.example.com:8443
+coworker-relay init
 cd coworker-relay-deploy
 docker compose up -d
 ```
 
+`coworker-relay init` starts an interactive wizard in a terminal. Automated deployments
+can continue to use `coworker-relay init --public-url https://relay.example.com:8443`.
+Run `coworker-relay --help`, `coworker-relay init --help`, or `--help` on any subcommand for
+complete usage. Help never loads configuration or contacts Relay.
+
 Each Coworker release publishes a multi-platform `linux/amd64` and `linux/arm64` Relay image on
-GHCR, plus Linux, macOS, and Windows archives containing `coworker-relay` and `relayctl`,
+GHCR, plus Linux, macOS, and Windows archives containing `coworker-relay`,
 SHA-256 checksums, and build provenance. Pin a version tag in production. For source development,
 continue to use `docker build -t coworker-relay .` and `go build ./cmd/...` under
 `apps/coworker-relay/`.
 
-`relayctl init` creates a deployment `.env` (mode `0600`), `compose.yaml`, and
-`.gitignore`; persistent state uses a dedicated Docker volume. It generates and displays a random
-administrator token once, defaults to external port 8443, and refuses to
-replace existing generated files unless `--force` is explicitly supplied.
-For a DNS name, ACME is the default. Use `--acme-domain <domain>` to select the
-certificate name, or `--tls-cert <path> --tls-key <path>` for PEM files,
-private CAs, and public IP addresses. `relayctl` automatically reads `.env` in
-its working directory; `RELAY_CONFIG` selects another file. For a private CA,
+`coworker-relay init` creates a deployment `.env` (mode `0600`), `compose.yaml`, and
+.gitignore`; persistent state uses a dedicated Docker volume. It generates a random administrator
+token and writes it only to `.env`, without printing it to the terminal.
+The external port defaults to 8443. Existing generated files are not replaced;
+the interactive wizard requests confirmation, while non-interactive use
+requires an explicit `--force`. Public DNS names and public IP addresses use
+automatic ACME issuance, installation, and renewal by default. Use
+`--tls-cert <path> --tls-key <path>` for private IPs, private CAs, or existing
+certificates. Both service and administration commands automatically read
+`.env` in the working directory; `RELAY_CONFIG` selects another file and
+explicit process environment values take precedence. The container defaults
+to `coworker-relay serve`. For a private CA,
 set `RELAY_CA_CERT` to its PEM bundle. This extends normal trust validation;
 there is no insecure skip-verification mode.
 
 The generated container runs without root privileges. In ACME mode Compose maps
-host port 80 to container port 8080 and stores ACME state in the Relay data
-volume.
+public host TCP port 80 to container port 8080 and stores the ACME account, keys,
+certificates, and renewal state in the Relay data volume. Public-IP certificates
+use the `shortlived` profile. Relay starts renewal around two thirds into the
+certificate lifetime, continues serving an unexpired cached certificate after a
+renewal failure, and retries hourly. A first-issuance failure or an expired cache
+keeps HTTPS unready while Relay retries with jittered exponential backoff; Relay
+never falls back to plaintext or a self-signed certificate.
 
 Minimum configuration:
 
@@ -59,7 +75,14 @@ Set `RELAY_PUBLIC_URL=https://relay.example.com:8443` when connecting to it
 directly. If a reverse proxy publishes standard port 443, set the public URL to
 `https://relay.example.com` and forward that proxy to the container's port 8443.
 
-Use external PEM files (`RELAY_TLS_CERT`, `RELAY_TLS_KEY`) or domain ACME (`RELAY_ACME_DOMAIN`, optional `RELAY_ACME_EMAIL`). Public-IP and private-CA certificates use the PEM mode. ACME also requires `RELAY_ACME_HTTP_LISTEN`, which defaults to `:80`.
+Choose external PEM files (`RELAY_TLS_CERT`, `RELAY_TLS_KEY`), DNS-name ACME
+(`RELAY_ACME_DOMAIN`), or public-IP ACME (`RELAY_ACME_IP`); ACME also accepts an
+optional `RELAY_ACME_EMAIL`. The certificate identifier must match the
+`RELAY_PUBLIC_URL` host. Public IPs always use the `shortlived` profile. ACME
+requires public TCP port 80 to reach `RELAY_ACME_HTTP_LISTEN`, which defaults to
+`:80`; issuance fails if the port is occupied, NAT does not forward it, or the
+address does not belong to the host. Private IPs and private CAs use external
+PEM files.
 
 When another reverse proxy is in front, set `RELAY_TRUSTED_PROXY_CIDRS`. Forwarded addresses from other peers are not used as ban identities.
 
@@ -68,36 +91,36 @@ When another reverse proxy is in front, set `RELAY_TRUSTED_PROXY_CIDRS`. Forward
 ```bash
 export RELAY_URL=https://relay.example.com
 export RELAY_ADMIN_TOKEN='<administrator token>'
-relayctl instance create --name home-coworker
+coworker-relay instance create --name home-coworker
 ```
 
 When running from the generated deployment directory, the two exports are not
-needed because `relayctl` reads its `.env`.
+needed because `coworker-relay` reads its `.env`.
 
 Enter the one-time code on Coworker's Remote access page. It expires after ten minutes and works once. After pairing, copy the displayed Base URL and Bearer Token into Desktop. Test remote connection sends the current communication token to the public instance's `/status`, covering public HTTPS, Relay pre-authentication, the active tunnel, and the Coworker response.
 
 ## Administration
 
 ```bash
-relayctl health
-relayctl version
-relayctl instance list
-relayctl instance update-auth cw_xxx optional
-relayctl instance update-auth cw_xxx required
-relayctl instance update-stats cw_xxx
-relayctl bans list --instance cw_xxx
-relayctl bans remove --instance cw_xxx --ip 203.0.113.8 --reason "false positive"
-relayctl cache inspect
-relayctl metrics
-relayctl gc
-relayctl instance revoke cw_xxx
+coworker-relay health
+coworker-relay version
+coworker-relay instance list
+coworker-relay instance update-auth cw_xxx optional
+coworker-relay instance update-auth cw_xxx required
+coworker-relay instance update-stats cw_xxx
+coworker-relay bans list --instance cw_xxx
+coworker-relay bans remove --instance cw_xxx --ip 203.0.113.8 --reason "false positive"
+coworker-relay cache inspect
+coworker-relay metrics
+coworker-relay gc
+coworker-relay instance revoke cw_xxx
 ```
 
 “Rotate instance credential” first stages only the new credential digest at Relay. The old
 credential remains valid until Coworker persists the new credential and successfully authenticates
 a WSS connection with it, at which point Relay promotes it atomically. A lost response or
 mid-rotation disconnect cannot lock out the instance.
-`relayctl instance rotate-credential cw_xxx` is available for emergency
+`coworker-relay instance rotate-credential cw_xxx` is available for emergency
 administration, but its returned credential must be written to that Coworker or the tunnel remains
 offline. The administrator token is one shared privileged credential; v1 has no multi-admin RBAC.
 Distribute it through a secret manager and restrict CLI hosts.
@@ -114,10 +137,10 @@ Desktop updates start in `optional` mode so older builds can update anonymously.
 Create a consistent online bbolt snapshot before upgrading:
 
 ```bash
-relayctl backup --output relay-before-upgrade.db
+coworker-relay backup --output relay-before-upgrade.db
 docker compose pull
 docker compose up -d
-relayctl health
+coworker-relay health
 ```
 
 Restore only while Relay is stopped. `--force` preserves the previous database under a timestamped
@@ -125,7 +148,7 @@ Restore only while Relay is stopped. `--force` preserves the previous database u
 
 ```bash
 docker compose stop relay
-relayctl restore \
+coworker-relay restore \
   --from relay-before-upgrade.db \
   --database /path/to/mounted/relay.db \
   --force
@@ -134,7 +157,7 @@ docker compose start relay
 
 The database has an explicit schema version. Relay refuses a newer or unsupported schema instead
 of guessing a downgrade. Treat database backups, `.env`, ACME state, and Coworker's local instance
-credential as secrets; encrypt them and test restoration. `relayctl gc` immediately removes
+credential as secrets; encrypt them and test restoration. `coworker-relay gc` immediately removes
 expired pairing, failure, and ban records, and Relay also performs hourly collection. Revoking an
 instance cascades through its security state, statistics, and cache.
 
@@ -146,7 +169,7 @@ to drain. Compose grants a 35-second stop grace period.
 - `/_relay/v1/livez` reports process liveness.
 - `/_relay/v1/readyz` and the compatible `/_relay/v1/health` check draining state, database and
   cache availability, and report build and protocol versions.
-- `relayctl metrics` returns administrator-Bearer-protected Prometheus text for requests,
+- `coworker-relay metrics` returns administrator-Bearer-protected Prometheus text for requests,
   authentication failures, bans, latency, Argon2 concurrency, tunnel connections, online tunnels,
   and cache capacity/hits.
 

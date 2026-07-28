@@ -68,8 +68,8 @@ uv run python scripts/cleanup.py backup-delete
 
 `cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container.
 
-Relay data is outside `cleanup.py`'s scope. Run `relayctl backup` before deletion. Use
-`relayctl instance revoke` for one instance; it cascades through that instance's verifier,
+Relay data is outside `cleanup.py`'s scope. Run `coworker-relay backup` before deletion. Use
+`coworker-relay instance revoke` for one instance; it cascades through that instance's verifier,
 failure/ban state, statistics, and cache. Full decommissioning also requires removing `.env`,
 backup files, and the Relay deployment's separate Docker volume.
 

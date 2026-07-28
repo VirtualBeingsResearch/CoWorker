@@ -10,18 +10,17 @@ RUN ldflags="-s -w \
       -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Version=${RELAY_VERSION} \
       -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Commit=${RELAY_COMMIT} \
       -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Date=${RELAY_BUILD_DATE}" \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/coworker-relay ./cmd/coworker-relay \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/relayctl ./cmd/relayctl
+    && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/coworker-relay ./cmd/coworker-relay
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates \
     && addgroup -S relay \
     && adduser -S -G relay relay
 COPY --from=build /out/coworker-relay /usr/local/bin/coworker-relay
-COPY --from=build /out/relayctl /usr/local/bin/relayctl
 RUN mkdir -p /var/lib/coworker-relay && chown relay:relay /var/lib/coworker-relay
 USER relay
 VOLUME ["/var/lib/coworker-relay"]
 EXPOSE 8080 8443
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["relayctl", "health"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["coworker-relay", "health"]
 ENTRYPOINT ["coworker-relay"]
+CMD ["serve"]
