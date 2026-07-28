@@ -2,7 +2,8 @@
 set -euo pipefail
 
 if [[ $# -lt 3 || $# -gt 4 ]]; then
-  echo "用法 / Usage: $0 <搭档地址/Coworker URL> <通信token/token> [发送方ID/sender ID] <消息/message>" >&2
+  echo "Usage: $0 <Coworker URL> <communication token> [sender ID] <message>" >&2
+  echo "用法: $0 <搭档地址> <通信token> [发送方ID] <消息>" >&2
   exit 2
 fi
 
