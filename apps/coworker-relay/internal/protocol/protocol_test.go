@@ -18,9 +18,10 @@ func TestRequestV1GoldenFixture(t *testing.T) {
 	if message.Type != "request" ||
 		message.RequestID != "req_fixture" ||
 		message.RelayHeaderStart != 2 ||
-		len(message.Headers) != 4 ||
+		len(message.Headers) != 8 ||
 		message.Headers[0][1] != "client-value" ||
-		message.Headers[2][1] != "v1" {
+		message.Headers[2][1] != "v1" ||
+		message.Headers[7][0] != "Forwarded" {
 		t.Fatalf("unexpected fixture: %#v", message)
 	}
 }

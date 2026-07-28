@@ -70,7 +70,7 @@ relayctl instance create --name home-coworker
 如果在生成的部署目录中执行，`relayctl` 会读取 `.env`，无需手动执行上述两个
 `export`。
 
-将输出的一次性配对码填入 Coworker 管理台的“远程访问”页面。配对码十分钟后过期且只能使用一次。配对完成后，把页面显示的 Base URL 和 Bearer Token 填入 Desktop。
+将输出的一次性配对码填入 Coworker 管理台的“远程访问”页面。配对码十分钟后过期且只能使用一次。配对完成后，把页面显示的 Base URL 和 Bearer Token 填入 Desktop。“测试远程连接”会携带当前通信 Token 请求公开实例的 `/status`，同时验证公网 HTTPS、Relay 前置认证、活动隧道和 Coworker 响应。
 
 ## 管理
 

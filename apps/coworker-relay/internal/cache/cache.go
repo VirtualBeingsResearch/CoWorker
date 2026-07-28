@@ -30,11 +30,26 @@ type Entry struct {
 	Path     string
 }
 
+type keyLock struct {
+	mutex sync.Mutex
+	refs  int
+}
+
+type verifiedFile struct {
+	size    int64
+	modTime time.Time
+	digest  string
+	checked time.Time
+}
+
+const validationInterval = 15 * time.Minute
+
 type Cache struct {
 	root      string
 	maxBytes  int64
 	locksMu   sync.Mutex
-	locks     map[string]*sync.Mutex
+	locks     map[string]*keyLock
+	verified  map[string]verifiedFile
 	healthMu  sync.Mutex
 	healthAt  time.Time
 	healthErr error
@@ -47,7 +62,10 @@ func New(root string, maxBytes int64) (*Cache, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	return &Cache{root: root, maxBytes: maxBytes, locks: make(map[string]*sync.Mutex)}, nil
+	return &Cache{
+		root: root, maxBytes: maxBytes,
+		locks: make(map[string]*keyLock), verified: make(map[string]verifiedFile),
+	}, nil
 }
 
 func Key(instanceID, target string) string {
@@ -57,14 +75,23 @@ func Key(instanceID, target string) string {
 
 func (c *Cache) Lock(key string) func() {
 	c.locksMu.Lock()
-	lock := c.locks[key]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		c.locks[key] = lock
+	entry := c.locks[key]
+	if entry == nil {
+		entry = &keyLock{}
+		c.locks[key] = entry
 	}
+	entry.refs++
 	c.locksMu.Unlock()
-	lock.Lock()
-	return lock.Unlock
+	entry.mutex.Lock()
+	return func() {
+		entry.mutex.Unlock()
+		c.locksMu.Lock()
+		entry.refs--
+		if entry.refs == 0 && c.locks[key] == entry {
+			delete(c.locks, key)
+		}
+		c.locksMu.Unlock()
+	}
 }
 
 func (c *Cache) Get(key string) (Entry, bool) {
@@ -72,24 +99,47 @@ func (c *Cache) Get(key string) (Entry, bool) {
 	metaPath, bodyPath := c.paths(key)
 	raw, err := os.ReadFile(metaPath)
 	if err != nil || json.Unmarshal(raw, &entry.Metadata) != nil {
+		c.removeEntry(key, metaPath, bodyPath)
 		return Entry{}, false
 	}
 	info, err := os.Stat(bodyPath)
 	if err != nil || info.Size() != entry.Metadata.Size {
-		_ = os.Remove(metaPath)
-		_ = os.Remove(bodyPath)
+		c.removeEntry(key, metaPath, bodyPath)
 		return Entry{}, false
 	}
-	digest, err := fileSHA256(bodyPath)
-	if err != nil || digest != entry.Metadata.SHA256 {
-		_ = os.Remove(metaPath)
-		_ = os.Remove(bodyPath)
-		return Entry{}, false
+	c.locksMu.Lock()
+	verified := c.verified[key]
+	unchanged := verified.size == info.Size() &&
+		verified.modTime.Equal(info.ModTime()) &&
+		verified.digest == entry.Metadata.SHA256 &&
+		time.Since(verified.checked) < validationInterval
+	c.locksMu.Unlock()
+	if !unchanged {
+		digest, err := fileSHA256(bodyPath)
+		if err != nil || digest != entry.Metadata.SHA256 {
+			c.removeEntry(key, metaPath, bodyPath)
+			return Entry{}, false
+		}
+		c.locksMu.Lock()
+		c.verified[key] = verifiedFile{
+			size: info.Size(), modTime: info.ModTime(), digest: digest,
+			checked: time.Now(),
+		}
+		c.locksMu.Unlock()
 	}
 	now := time.Now()
-	_ = os.Chtimes(bodyPath, now, now)
+	_ = os.Chtimes(metaPath, now, now)
 	entry.Path = bodyPath
 	return entry, true
+}
+
+func (c *Cache) removeEntry(key string, paths ...string) {
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
+	c.locksMu.Lock()
+	delete(c.verified, key)
+	c.locksMu.Unlock()
 }
 
 func fileSHA256(path string) (string, error) {
@@ -173,6 +223,14 @@ func (w *Writer) Commit() error {
 	if err := os.Rename(tempMeta, metaPath); err != nil {
 		return err
 	}
+	if info, err := os.Stat(bodyPath); err == nil {
+		w.cache.locksMu.Lock()
+		w.cache.verified[w.key] = verifiedFile{
+			size: info.Size(), modTime: info.ModTime(), digest: w.metadata.SHA256,
+			checked: time.Now(),
+		}
+		w.cache.locksMu.Unlock()
+	}
 	return w.cache.prune()
 }
 
@@ -190,6 +248,9 @@ func (c *Cache) Purge() error {
 			return err
 		}
 	}
+	c.locksMu.Lock()
+	clear(c.verified)
+	c.locksMu.Unlock()
 	return nil
 }
 
@@ -220,6 +281,9 @@ func (c *Cache) purgeMatching(match func(Metadata) bool) error {
 				return err
 			}
 		}
+		c.locksMu.Lock()
+		delete(c.verified, key)
+		c.locksMu.Unlock()
 	}
 	return nil
 }
@@ -290,11 +354,16 @@ func (c *Cache) prune() error {
 		if err != nil {
 			continue
 		}
+		used := info.ModTime()
+		key := entry.Name()[:len(entry.Name())-len(".body")]
+		if metadataInfo, metadataErr := os.Stat(filepath.Join(c.root, key+".json")); metadataErr == nil {
+			used = metadataInfo.ModTime()
+		}
 		total += info.Size()
 		items = append(items, item{
 			path: filepath.Join(c.root, entry.Name()),
-			key:  entry.Name()[:len(entry.Name())-len(".body")],
-			size: info.Size(), used: info.ModTime(),
+			key:  key,
+			size: info.Size(), used: used,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].used.Before(items[j].used) })
@@ -304,6 +373,9 @@ func (c *Cache) prune() error {
 		}
 		_ = os.Remove(entry.path)
 		_ = os.Remove(filepath.Join(c.root, entry.key+".json"))
+		c.locksMu.Lock()
+		delete(c.verified, entry.key)
+		c.locksMu.Unlock()
 		total -= entry.size
 	}
 	return nil

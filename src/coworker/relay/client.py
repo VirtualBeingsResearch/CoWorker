@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import random
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -36,6 +38,18 @@ from coworker.i18n import tr
 _PROTOCOL = 1
 _MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 _MAX_FRAME_BYTES = 48 * 1024 * 1024
+_MAX_HEADER_COUNT = 128
+_MAX_HEADER_BYTES = 64 * 1024
+_MAX_TARGET_BYTES = 16 * 1024
+_HTTP_TOKEN = re.compile(rb"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+_RELAY_HEADER_NAMES = (
+    b"x-coworker-relay",
+    b"x-coworker-relay-instance",
+    b"x-coworker-relay-request-id",
+    b"x-coworker-relay-original-url",
+    b"x-coworker-relay-original-target",
+    b"forwarded",
+)
 _PASSWORD_HASHER = PasswordHasher(
     time_cost=2,
     memory_cost=19 * 1024,
@@ -84,9 +98,7 @@ class RelayClient:
             "relay_url": relay.url,
             "instance_id": relay.instance_id,
             "public_base_url": (
-                f"{relay.url}/i/{relay.instance_id}"
-                if relay.url and relay.instance_id
-                else ""
+                f"{relay.url}/i/{relay.instance_id}" if relay.url and relay.instance_id else ""
             ),
             "connected_at": self._connected_at,
             "last_heartbeat": self._last_heartbeat,
@@ -194,9 +206,7 @@ class RelayClient:
                     },
                 )
         except httpx.HTTPError as error:
-            raise RelayConnectionError(
-                tr("api.relay.unreachable", error=str(error))
-            ) from error
+            raise RelayConnectionError(tr("api.relay.unreachable", error=str(error))) from error
         if response.status_code != 200:
             if response.status_code == 401:
                 raise RelayConnectionError(tr("api.relay.pairing_rejected"))
@@ -233,21 +243,47 @@ class RelayClient:
         self._status = "disabled"
 
     async def test(self) -> dict[str, object]:
-        relay_url = self._config.relay.url
-        if not relay_url:
+        relay = self._config.relay
+        if not (relay.url and relay.instance_id):
             raise RelayConnectionError(tr("api.relay.not_configured"))
+        if self._socket is None or self._status != "connected":
+            raise RelayConnectionError(tr("api.relay.tunnel_not_connected"))
+        if not self._verifier_is_synced():
+            raise RelayConnectionError(tr("api.relay.verifier_not_synced"))
+        token = effective_communication_token(self._config)
+        if not token:
+            raise RelayConnectionError(tr("api.relay.communication_token_missing"))
+        public_base_url = f"{relay.url}/i/{relay.instance_id}"
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-                response = await client.get(f"{relay_url}/_relay/v1/health")
-                response.raise_for_status()
+                response = await client.get(
+                    f"{public_base_url}/status",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
         except httpx.HTTPError as error:
             raise RelayConnectionError(
                 tr("api.relay.connectivity_failed", error=str(error))
             ) from error
+        if response.status_code != 200:
+            raise RelayConnectionError(
+                tr(
+                    "api.relay.connectivity_rejected",
+                    status=response.status_code,
+                )
+            )
+        request_id = response.headers.get("X-Coworker-Relay-Request-Id", "").strip()
+        try:
+            status_payload = response.json()
+        except ValueError as error:
+            raise RelayConnectionError(tr("api.relay.tunnel_test_incomplete")) from error
+        if not request_id or not isinstance(status_payload, dict) or not status_payload:
+            raise RelayConnectionError(tr("api.relay.tunnel_test_incomplete"))
         return {
             "ok": True,
             "latency_ms": round((time.monotonic() - started) * 1000, 1),
+            "public_base_url": public_base_url,
+            "request_id": request_id,
         }
 
     def _persist(self) -> None:
@@ -261,10 +297,7 @@ class RelayClient:
         while not self._stopping:
             relay = self._config.relay
             if not (
-                relay.enabled
-                and relay.url
-                and relay.instance_id
-                and relay.instance_credential
+                relay.enabled and relay.url and relay.instance_id and relay.instance_credential
             ):
                 self._status = "disabled"
                 self._wake.clear()
@@ -334,13 +367,9 @@ class RelayClient:
                     name=f"relay-request:{request_id}",
                 )
                 self._request_tasks[request_id] = request_task
-                request_task.add_done_callback(
-                    self._request_finished_callback(request_id)
-                )
+                request_task.add_done_callback(self._request_finished_callback(request_id))
             elif kind == "cancel":
-                cancelled_task = self._request_tasks.get(
-                    str(message.get("request_id", ""))
-                )
+                cancelled_task = self._request_tasks.get(str(message.get("request_id", "")))
                 if cancelled_task is not None:
                     cancelled_task.cancel()
             elif kind == "ping":
@@ -389,8 +418,7 @@ class RelayClient:
             return False
         return (
             not self._pending_verifier_fingerprint
-            and hashlib.sha256(token.encode()).hexdigest()
-            == self._last_token_fingerprint
+            and hashlib.sha256(token.encode()).hexdigest() == self._last_token_fingerprint
         )
 
     def _accept_verifier_ack(self, generation: str) -> None:
@@ -399,25 +427,48 @@ class RelayClient:
             self._pending_verifier_fingerprint = ""
 
     async def _handle_request(self, message: dict[str, Any]) -> None:
-        request_id = str(message["request_id"])
+        request_id = str(message.get("request_id", ""))
         try:
+            if not request_id or len(request_id) > 128:
+                raise ValueError("invalid_relay_request_id")
             body = base64.b64decode(str(message.get("body", "")), validate=True)
             if len(body) > _MAX_REQUEST_BODY_BYTES:
                 raise ValueError(tr("api.relay.request_body_too_large"))
             raw_headers = message.get("headers", [])
-            headers = [
-                (str(name).encode("latin-1"), str(value).encode("latin-1"))
-                for name, value in raw_headers
-            ]
-            path = str(message.get("path", "/"))
-            raw_path = str(message.get("raw_path", path)).encode("ascii", "surrogateescape")
-            query = str(message.get("query", "")).encode("ascii", "surrogateescape")
+            headers, relay_header_start = _validated_headers(
+                raw_headers,
+                message.get("relay_header_start"),
+                instance_id=self._config.relay.instance_id,
+                request_id=request_id,
+            )
+            method = message.get("method")
+            if method not in {"GET", "POST", "DELETE"}:
+                raise ValueError("invalid_relay_request_method")
+            path = message.get("path")
+            raw_path_value = message.get("raw_path", path)
+            query_value = message.get("query", "")
+            if (
+                not isinstance(path, str)
+                or not path.startswith("/")
+                or not isinstance(raw_path_value, str)
+                or not raw_path_value.startswith("/")
+                or not isinstance(query_value, str)
+            ):
+                raise ValueError("invalid_relay_request_target")
+            raw_path = raw_path_value.encode("ascii", "surrogateescape")
+            query = query_value.encode("ascii", "surrogateescape")
+            if len(path.encode("utf-8")) + len(raw_path) + len(query) > _MAX_TARGET_BYTES:
+                raise ValueError("relay_request_target_too_large")
             client_ip = str(message.get("client_ip", ""))
+            try:
+                ipaddress.ip_address(client_ip)
+            except ValueError as error:
+                raise ValueError("invalid_relay_client_ip") from error
             scope = {
                 "type": "http",
                 "asgi": {"version": "3.0", "spec_version": "2.3"},
                 "http_version": "1.1",
-                "method": str(message.get("method", "GET")),
+                "method": method,
                 "scheme": "https",
                 "path": path,
                 "raw_path": raw_path,
@@ -431,7 +482,7 @@ class RelayClient:
                         "authenticated_tunnel": True,
                         "instance_id": self._config.relay.instance_id,
                         "request_id": request_id,
-                        "relay_header_start": int(message.get("relay_header_start", len(headers))),
+                        "relay_header_start": relay_header_start,
                     }
                 },
             }
@@ -442,7 +493,6 @@ class RelayClient:
                 if not received:
                     received = True
                     return {"type": "http.request", "body": body, "more_body": False}
-                await asyncio.Future()
                 return {"type": "http.disconnect"}
 
             started = False
@@ -502,3 +552,53 @@ class RelayClient:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _validated_headers(
+    raw_headers: object,
+    raw_boundary: object,
+    *,
+    instance_id: str,
+    request_id: str,
+) -> tuple[list[tuple[bytes, bytes]], int]:
+    if not isinstance(raw_headers, list) or len(raw_headers) > _MAX_HEADER_COUNT:
+        raise ValueError("invalid_relay_request_headers")
+    headers: list[tuple[bytes, bytes]] = []
+    total = 0
+    for item in raw_headers:
+        if (
+            not isinstance(item, (list, tuple))
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+        ):
+            raise ValueError("invalid_relay_request_header")
+        try:
+            name = item[0].encode("ascii")
+            value = item[1].encode("latin-1")
+        except UnicodeEncodeError as error:
+            raise ValueError("invalid_relay_request_header_encoding") from error
+        if not _HTTP_TOKEN.fullmatch(name) or b"\x00" in value or b"\r" in value or b"\n" in value:
+            raise ValueError("invalid_relay_request_header")
+        total += len(name) + len(value)
+        if total > _MAX_HEADER_BYTES:
+            raise ValueError("relay_request_headers_too_large")
+        headers.append((name, value))
+    if (
+        isinstance(raw_boundary, bool)
+        or not isinstance(raw_boundary, int)
+        or raw_boundary < 0
+        or raw_boundary > len(headers)
+    ):
+        raise ValueError("invalid_relay_header_boundary")
+    relay_names = tuple(name.lower() for name, _ in headers[raw_boundary:])
+    if relay_names != _RELAY_HEADER_NAMES:
+        raise ValueError("invalid_relay_added_headers")
+    relay_values = tuple(value for _, value in headers[raw_boundary:])
+    if (
+        relay_values[0] != b"v1"
+        or relay_values[1] != instance_id.encode("ascii")
+        or relay_values[2] != request_id.encode("ascii")
+    ):
+        raise ValueError("invalid_relay_added_header_values")
+    return headers, raw_boundary

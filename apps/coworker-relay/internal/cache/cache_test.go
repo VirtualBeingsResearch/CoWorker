@@ -68,6 +68,52 @@ func TestCacheRejectsSameSizeCorruption(t *testing.T) {
 	}
 }
 
+func TestCacheReusesValidationUntilBodyChanges(t *testing.T) {
+	value, err := New(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := Key("cw_test", "/asset")
+	writer, err := value.Begin(key, "cw_test", 200, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Write([]byte("signed-update")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	before := value.verified[key]
+	if _, found := value.Get(key); !found {
+		t.Fatal("committed cache entry missing")
+	}
+	after := value.verified[key]
+	if before != after {
+		t.Fatal("unchanged cache body was unnecessarily revalidated")
+	}
+}
+
+func TestKeyLockIsSharedAndReleased(t *testing.T) {
+	value, err := New(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlockFirst := value.Lock("asset")
+	acquired := make(chan func(), 1)
+	go func() {
+		acquired <- value.Lock("asset")
+	}()
+	unlockFirst()
+	unlockSecond := <-acquired
+	unlockSecond()
+	value.locksMu.Lock()
+	defer value.locksMu.Unlock()
+	if len(value.locks) != 0 {
+		t.Fatalf("unused key locks were retained: %d", len(value.locks))
+	}
+}
+
 func TestPurgeInstanceLeavesOtherInstances(t *testing.T) {
 	value, err := New(t.TempDir(), 1024)
 	if err != nil {

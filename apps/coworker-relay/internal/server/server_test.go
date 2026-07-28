@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -210,6 +211,20 @@ func TestPerInstanceSourceRequestLimit(t *testing.T) {
 	}
 	if !service.allowRequest("cw_other", "203.0.113.4") {
 		t.Fatal("request limit leaked across instances")
+	}
+}
+
+func TestUpdateAssetCacheKeyIgnoresQueryParameters(t *testing.T) {
+	first, err := url.Parse("/api/desktop-updates/assets/update.tar.gz?cache_bust=one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := url.Parse("/api/desktop-updates/assets/update.tar.gz?cache_bust=two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updateAssetCacheKey("cw_test", first) != updateAssetCacheKey("cw_test", second) {
+		t.Fatal("query parameters created duplicate update cache entries")
 	}
 }
 

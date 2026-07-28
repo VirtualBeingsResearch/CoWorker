@@ -76,7 +76,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '轮换 Relay 实例凭据并立即重新连接？': 'Rotate the Relay instance credential and reconnect now?',
   'Relay 实例凭据已轮换': 'Relay instance credential rotated',
   '断开连接': 'Disconnect',
-  'Relay 连通性测试成功': 'Relay connectivity test succeeded',
+  'Relay 端到端连接测试成功': 'Relay end-to-end connection test succeeded',
   '已请求重新连接': 'Reconnect requested',
   'Relay 已断开': 'Relay disconnected',
   'Token verifier 尚未同步；Relay 会继续使用上一版本并自动重试。': 'The token verifier is not synchronized yet; Relay will keep using the previous version and retry automatically.',

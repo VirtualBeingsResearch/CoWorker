@@ -32,6 +32,10 @@ Go 的 `net/http` 会保留同名 Header 的多个值，但不会暴露 HTTP 报
 随后追加 Relay Header。任何认证、授权或来源 IP 判断都只能使用已认证隧道上下文和追加
 区域，不能信任客户端提交的同名 Header。
 
+Python Client会拒绝 Header数量、总大小、名称、编码或 `relay_header_start` 边界不合法
+的请求帧，并校验 v1 要求的 Relay追加 Header集合、实例和 Request ID；无效帧不会进入
+Coworker ASGI应用。
+
 ## 流、限制和背压
 
 - v1 将完整请求正文读入内存后，以 Base64 放入单个 `request` 帧；上限为 32 MiB。
@@ -48,8 +52,10 @@ v1 的更新路由仍由 Coworker现有只读更新端点产生响应。Relay只
 且状态为 `200` 的安装包响应，并在缓存命中时重新执行认证。客户端不能向 Relay提交
 任意上游 URL；Relay自身也不充当通用上游下载器。
 
-缓存以内容 SHA-256 校验，支持 ETag和 Range读取。Desktop继续独立验证 Tauri更新签名，
-Relay缓存校验不能替代发布签名。
+缓存键由实例和资产路径组成，无语义的查询参数不会生成重复副本；同一资产的并发填充锁会
+在最后一个使用者退出后回收。内容在写入、Relay重启后的首次读取、文件发生变化以及周期
+复核时使用 SHA-256校验，普通命中不重复读取整个安装包。缓存支持 ETag和 Range读取。
+Desktop继续独立验证 Tauri更新签名，Relay缓存校验不能替代发布签名。
 
 ## 兼容承诺
 

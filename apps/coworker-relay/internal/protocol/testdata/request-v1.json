@@ -9,7 +9,11 @@
     ["X-Coworker-Relay", "client-value"],
     ["Authorization", "Bearer fixture-token"],
     ["X-Coworker-Relay", "v1"],
-    ["X-Coworker-Relay-Instance", "cw_fixture"]
+    ["X-Coworker-Relay-Instance", "cw_fixture"],
+    ["X-Coworker-Relay-Request-Id", "req_fixture"],
+    ["X-Coworker-Relay-Original-URL", "https://relay.example.com/i/cw_fixture/messages?source=desktop"],
+    ["X-Coworker-Relay-Original-Target", "/i/cw_fixture/messages?source=desktop"],
+    ["Forwarded", "for=203.0.113.8;proto=https;host=relay.example.com"]
   ],
   "relay_header_start": 2,
   "body": "e30=",

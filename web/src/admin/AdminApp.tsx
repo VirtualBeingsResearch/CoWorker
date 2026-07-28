@@ -2317,7 +2317,7 @@ function RelayAccess() {
         {data.last_error && <div className="notice error" role="alert">{String(data.last_error)}</div>}
         {connected && data.verifier_synced === false && <div className="notice error" role="alert">{t('Token verifier 尚未同步；Relay 会继续使用上一版本并自动重试。')}</div>}
         <div className="panel-actions">
-          <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 连通性测试成功')}>{t('测试远程连接')}</button>
+          <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 端到端连接测试成功')}>{t('测试远程连接')}</button>
           <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/relay/reconnect', { method: 'POST' }), '已请求重新连接')}>{t('重新连接')}</button>
           <button className="ghost" disabled={Boolean(busy)} onClick={() => {
             if (window.confirm(t('轮换 Relay 实例凭据并立即重新连接？'))) {

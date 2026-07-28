@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from starlette.requests import Request
 
 from coworker.api.routes import is_authenticated_relay_request
 from coworker.core.config import AdminConfig, APIConfig, Config
-from coworker.relay import RelayClient
+from coworker.relay import RelayClient, RelayConnectionError
 
 
 def _config(tmp_path: Path) -> Config:
@@ -129,6 +130,7 @@ async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicat
     async def app(scope, receive, send):
         observed["scope"] = scope
         observed["request"] = await receive()
+        observed["disconnect"] = await receive()
         await send(
             {
                 "type": "http.response.start",
@@ -139,7 +141,9 @@ async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicat
         await send({"type": "http.response.body", "body": b"data: hello\n\n", "more_body": True})
         await send({"type": "http.response.body", "body": b"", "more_body": False})
 
-    client = RelayClient(app, _config(tmp_path))
+    config = _config(tmp_path)
+    config.relay.instance_id = "cw_abcdefgh"
+    client = RelayClient(app, config)
     sent: list[dict[str, object]] = []
 
     async def capture(message: dict[str, object]) -> None:
@@ -151,6 +155,10 @@ async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicat
         ["Authorization", "Bearer desktop-secret"],
         ["X-Coworker-Relay", "v1"],
         ["X-Coworker-Relay-Instance", "cw_abcdefgh"],
+        ["X-Coworker-Relay-Request-Id", "request-1"],
+        ["X-Coworker-Relay-Original-URL", "https://relay.example.com/i/cw_abcdefgh/sse/desktop"],
+        ["X-Coworker-Relay-Original-Target", "/i/cw_abcdefgh/sse/desktop"],
+        ["Forwarded", "for=203.0.113.8;proto=https;host=relay.example.com"],
     ]
     await client._handle_request(
         {
@@ -171,9 +179,10 @@ async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicat
     assert scope["path"] == "/sse/desktop"
     assert scope["headers"][0] == (b"X-Coworker-Relay", b"forged")
     assert scope["headers"][2] == (b"X-Coworker-Relay", b"v1")
+    assert observed["disconnect"] == {"type": "http.disconnect"}
     assert scope["state"]["coworker_relay"] == {
         "authenticated_tunnel": True,
-        "instance_id": "",
+        "instance_id": "cw_abcdefgh",
         "request_id": "request-1",
         "relay_header_start": 2,
     }
@@ -183,6 +192,129 @@ async def test_tunnel_request_uses_existing_asgi_pipeline_and_preserves_duplicat
         "response_body",
     ]
     assert base64.b64decode(str(sent[1]["body"])) == b"data: hello\n\n"
+
+
+@pytest.mark.asyncio
+async def test_tunnel_request_rejects_an_invalid_relay_header_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app_called = False
+
+    async def app(*_):
+        nonlocal app_called
+        app_called = True
+
+    client = RelayClient(app, _config(tmp_path))
+    sent: list[dict[str, object]] = []
+
+    async def capture(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    monkeypatch.setattr(client, "_send", capture)
+    await client._handle_request(
+        {
+            "type": "request",
+            "request_id": "request-1",
+            "method": "GET",
+            "path": "/status",
+            "raw_path": "/status",
+            "query": "",
+            "headers": [["X-Coworker-Relay", "v1"]],
+            "relay_header_start": 4,
+            "body": "",
+            "client_ip": "203.0.113.8",
+        }
+    )
+
+    assert app_called is False
+    assert len(sent) == 1
+    assert sent[0]["type"] == "response_error"
+    assert sent[0]["request_id"] == "request-1"
+
+
+@pytest.mark.asyncio
+async def test_remote_connection_test_traverses_the_public_instance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeResponse:
+        status_code = 200
+        headers = {"X-Coworker-Relay-Request-Id": "relay-request-id"}
+
+        def json(self):
+            return {"status": "ok"}
+
+    class FakeClient:
+        def __init__(self, **_: Any):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: Any):
+            return None
+
+        async def get(self, url: str, *, headers: dict[str, str]):
+            assert url == "https://relay.example.com/i/cw_abcdefgh/status"
+            assert headers == {"Authorization": "Bearer desktop-secret"}
+            return FakeResponse()
+
+    config = _config(tmp_path)
+    config.relay.url = "https://relay.example.com"
+    config.relay.instance_id = "cw_abcdefgh"
+    config.relay.enabled = True
+    client = RelayClient(lambda *_: None, config)
+    client._socket = object()  # type: ignore[assignment]
+    client._status = "connected"
+    fingerprint = hashlib.sha256(b"desktop-secret").hexdigest()
+    client._last_token_fingerprint = fingerprint
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    result = await client.test()
+
+    assert result["ok"] is True
+    assert result["public_base_url"] == "https://relay.example.com/i/cw_abcdefgh"
+    assert result["request_id"] == "relay-request-id"
+
+
+@pytest.mark.asyncio
+async def test_remote_connection_test_rejects_anonymous_empty_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeResponse:
+        status_code = 200
+        headers = {"X-Coworker-Relay-Request-Id": "relay-request-id"}
+
+        def json(self):
+            return {}
+
+    class FakeClient:
+        def __init__(self, **_: Any):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: Any):
+            return None
+
+        async def get(self, *_: Any, **__: Any):
+            return FakeResponse()
+
+    config = _config(tmp_path)
+    config.relay.url = "https://relay.example.com"
+    config.relay.instance_id = "cw_abcdefgh"
+    config.relay.enabled = True
+    client = RelayClient(lambda *_: None, config)
+    client._socket = object()  # type: ignore[assignment]
+    client._status = "connected"
+    client._last_token_fingerprint = hashlib.sha256(b"desktop-secret").hexdigest()
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    with pytest.raises(RelayConnectionError):
+        await client.test()
 
 
 @pytest.mark.asyncio

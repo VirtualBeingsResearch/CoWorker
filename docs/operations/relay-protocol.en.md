@@ -37,6 +37,11 @@ by name, preserves value order within each name, and appends Relay headers after
 Authentication, authorization, and source-IP decisions may use only the authenticated tunnel
 context and appended region, never client-supplied duplicates.
 
+The Python client rejects request frames with invalid header counts, aggregate size, names,
+encodings, or `relay_header_start` boundaries, and verifies the Relay-appended header set required
+by v1 together with its instance and Request ID. Invalid frames never enter Coworker's ASGI
+application.
+
 ## Streaming, limits, and backpressure
 
 - v1 buffers the complete request body and puts it in one Base64 `request` frame, with a 32 MiB
@@ -58,8 +63,12 @@ only allowlisted installer paths that return `200`, and authentication runs agai
 cache hit. A client cannot submit an arbitrary upstream URL, and Relay is not a general upstream
 downloader.
 
-Cached content is checked with SHA-256 and supports ETag and Range reads. Desktop independently
-verifies Tauri update signatures; cache integrity does not replace release signing.
+Cache keys use the instance and asset path, so semantically irrelevant query parameters do not
+create duplicate copies. A concurrent-fill lock is reclaimed after its last user exits. Content is
+checked with SHA-256 when written, on the first read after Relay restarts, after the file changes,
+and periodically; ordinary hits do not reread the entire installer. The cache supports ETag and
+Range reads. Desktop independently verifies Tauri update signatures; cache integrity does not
+replace release signing.
 
 ## Compatibility commitment
 

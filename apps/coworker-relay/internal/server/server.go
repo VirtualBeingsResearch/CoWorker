@@ -547,7 +547,7 @@ func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
 	cacheKey := ""
 	var unlock func()
 	if category == "update" && strings.HasPrefix(path, "/api/desktop-updates/assets/") && s.cache != nil {
-		cacheKey = relaycache.Key(instanceID, path+"?"+r.URL.RawQuery)
+		cacheKey = updateAssetCacheKey(instanceID, r.URL)
 		unlock = s.cache.Lock(cacheKey)
 		defer unlock()
 		if entry, found := s.cache.Get(cacheKey); found {
@@ -568,6 +568,10 @@ func (s *Server) facade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.forward(w, r, instanceID, path, ip, cacheKey, requestID)
+}
+
+func updateAssetCacheKey(instanceID string, target *url.URL) string {
+	return relaycache.Key(instanceID, target.Path)
 }
 
 func (s *Server) Drain() {

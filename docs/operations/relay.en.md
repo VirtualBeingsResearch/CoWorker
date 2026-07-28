@@ -74,7 +74,7 @@ relayctl instance create --name home-coworker
 When running from the generated deployment directory, the two exports are not
 needed because `relayctl` reads its `.env`.
 
-Enter the one-time code on Coworker's Remote access page. It expires after ten minutes and works once. After pairing, copy the displayed Base URL and Bearer Token into Desktop.
+Enter the one-time code on Coworker's Remote access page. It expires after ten minutes and works once. After pairing, copy the displayed Base URL and Bearer Token into Desktop. Test remote connection sends the current communication token to the public instance's `/status`, covering public HTTPS, Relay pre-authentication, the active tunnel, and the Coworker response.
 
 ## Administration
 
