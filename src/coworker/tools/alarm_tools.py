@@ -4,6 +4,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,15 @@ from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
+
+
+def _local_datetime(value: datetime) -> datetime:
+    """Return an aware datetime in the runtime's local timezone."""
+    return value.astimezone()
+
+
+def _local_now() -> datetime:
+    return datetime.now().astimezone()
 
 
 class AlarmManager:
@@ -32,9 +42,10 @@ class AlarmManager:
         repeat_seconds: int | None = None,
     ) -> None:
         self._cancel(alarm_id)
-        delay = max(0.0, (trigger_at - datetime.now()).total_seconds())
+        trigger_at = _local_datetime(trigger_at)
+        delay = max(0.0, (trigger_at - _local_now()).total_seconds())
         task = asyncio.create_task(
-            bind_locale(lambda: self._fire(alarm_id, delay, message, repeat_seconds))
+            bind_locale(partial(self._fire, alarm_id, delay, message, repeat_seconds))
         )
         self._alarms[alarm_id] = (task, trigger_at, message, repeat_seconds)
         self._save()
@@ -49,10 +60,10 @@ class AlarmManager:
             return 0
 
         count = 0
-        now = datetime.now()
+        now = _local_now()
         for entry in data:
             alarm_id = entry["alarm_id"]
-            next_trigger = datetime.fromisoformat(entry["next_trigger_at"])
+            next_trigger = _local_datetime(datetime.fromisoformat(entry["next_trigger_at"]))
             message = entry["message"]
             repeat_seconds = entry.get("repeat_seconds")
             delay = max(0.0, (next_trigger - now).total_seconds())
@@ -60,9 +71,11 @@ class AlarmManager:
             if next_trigger < now:
                 late = int((now - next_trigger).total_seconds())
                 overdue_note = tr("tool_result.alarm.overdue", seconds=late)
+            self._cancel(alarm_id)
             task = asyncio.create_task(
                 bind_locale(
-                    lambda: self._fire(
+                    partial(
+                        self._fire,
                         alarm_id,
                         delay,
                         message,
@@ -103,10 +116,11 @@ class AlarmManager:
             logger.info(f"Alarm fired: [{alarm_id}] {message}")
 
             if repeat_seconds and repeat_seconds > 0:
-                next_trigger = datetime.now() + timedelta(seconds=repeat_seconds)
+                next_trigger = _local_now() + timedelta(seconds=repeat_seconds)
                 new_task = asyncio.create_task(
                     bind_locale(
-                        lambda: self._fire(
+                        partial(
+                            self._fire,
                             alarm_id,
                             float(repeat_seconds),
                             message,
@@ -142,7 +156,7 @@ class AlarmManager:
             result.append(
                 {
                     "id": alarm_id,
-                    "trigger_at": trigger_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "trigger_at": trigger_at.isoformat(timespec="seconds"),
                     "message": message,
                     "repeat_seconds": repeat_seconds,
                     "done": task.done(),
@@ -158,15 +172,17 @@ class AlarmManager:
             records = [
                 {
                     "alarm_id": alarm_id,
-                    "next_trigger_at": trigger_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "next_trigger_at": trigger_at.isoformat(timespec="seconds"),
                     "message": message,
                     "repeat_seconds": repeat_seconds,
                 }
                 for alarm_id, (_, trigger_at, message, repeat_seconds) in self._alarms.items()
             ]
-            self._persist_path.write_text(
+            temp_path = self._persist_path.with_suffix(self._persist_path.suffix + ".tmp")
+            temp_path.write_text(
                 json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
             )
+            temp_path.replace(self._persist_path)
         except Exception as e:
             logger.warning(f"Failed to save alarm state: {e}")
 
@@ -224,7 +240,8 @@ class SetAlarmTool(Tool):
                 is_error=True,
             )
 
-        delay = (dt - datetime.now()).total_seconds()
+        dt = _local_datetime(dt)
+        delay = (dt - _local_now()).total_seconds()
         if delay < 0:
             return ToolResult(
                 tool_call_id="",
