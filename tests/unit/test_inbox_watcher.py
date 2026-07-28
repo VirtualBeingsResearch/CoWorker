@@ -95,9 +95,10 @@ class TestInboxWatcher:
             await asyncio.sleep(0.05)
             await watcher.push(_event())
 
-        asyncio.create_task(push_after_delay())
+        push_task = asyncio.create_task(push_after_delay())
         # Should complete quickly, not wait the full 5s
         await asyncio.wait_for(watcher.message_event.wait(), timeout=5.0)
+        await push_task
         assert watcher.message_event.is_set()
 
     @pytest.mark.parametrize("stem,expected_sender", [

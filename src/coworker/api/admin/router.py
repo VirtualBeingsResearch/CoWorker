@@ -78,6 +78,7 @@ _desktop_update_sync: SyncService | None = None
 _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
+_background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
@@ -1598,7 +1599,9 @@ async def backfill_memory(
             finally:
                 stm.backfill_progress["running"] = False
 
-    asyncio.create_task(run(), name="admin-memory-backfill")
+    task = asyncio.create_task(run(), name="admin-memory-backfill")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     _audit(request, "memory.backfill", "memory_tree", detail=f"max_leaves={max_leaves}")
     return {"started": True}
 

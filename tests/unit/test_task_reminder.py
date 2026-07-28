@@ -216,9 +216,10 @@ class TestTaskWatcher:
         async def stop_after_one_tick():
             await asyncio.sleep(0.05)
             loop._stop_event.set()
-        asyncio.create_task(stop_after_one_tick())
+        stop_task = asyncio.create_task(stop_after_one_tick())
 
         await asyncio.wait_for(loop._task_watcher(), timeout=1.0)
+        await stop_task
 
         loop._inbox.push.assert_not_called()
 
@@ -229,9 +230,10 @@ class TestTaskWatcher:
         async def stop_after_one_tick():
             await asyncio.sleep(0.05)
             loop._stop_event.set()
-        asyncio.create_task(stop_after_one_tick())
+        stop_task = asyncio.create_task(stop_after_one_tick())
 
         await asyncio.wait_for(loop._task_watcher(), timeout=1.0)
+        await stop_task
 
         loop._inbox.push.assert_not_called()
 

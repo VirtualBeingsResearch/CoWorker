@@ -272,7 +272,7 @@ async def switch_model(payload: SwitchModelPayload):
             "model_id": _brain.current_model,
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/model_config")
@@ -299,7 +299,7 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
         write_runtime_model_config(_model_config_path, runtime)
         return _model_config_response()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/backfill_tree")
@@ -498,7 +498,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(
             status_code=400, detail=tr("api.backup.read_failed", error=e)
-        )
+        ) from e
 
     restored = ShortTermMemory.parse_primary(data)
     if not restored:
@@ -515,7 +515,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=tr("api.backup.summary_failed", error=e)
-            )
+            ) from e
         summary_text = raw.content if isinstance(raw, SummaryResult) else raw
         try:
             summary = json.loads(summary_text).get("summary", summary_text)

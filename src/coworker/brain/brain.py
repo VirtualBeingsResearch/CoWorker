@@ -683,7 +683,7 @@ class Brain:
         )
         if response.content and response.content.startswith("```json"):
             # 兼容部分模型喜欢加 markdown 代码块的输出
-            content = response.content.strip("```json").strip("```").strip()
+            content = response.content.removeprefix("```json").removesuffix("```").strip()
         else:
             content = response.content
         result = SummaryResult(content=content, usage=dict(response.usage or {}))

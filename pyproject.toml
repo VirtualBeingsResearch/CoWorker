@@ -84,7 +84,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
-extend-select = ["B023"]
+extend-select = ["B005", "B023", "B904", "B905", "RUF006"]
 # Prompt text and user-facing Chinese prose are intentionally kept readable in source.
 ignore = ["E501"]
 
