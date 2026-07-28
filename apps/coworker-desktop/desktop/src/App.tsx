@@ -1278,7 +1278,10 @@ export function App() {
 
         <button
           className="onboardingEntry"
-          onClick={() => setOnboardingOpen(true)}
+          onClick={() => {
+            setOnboardingOpen(true);
+            setIsLifePanelCollapsed(true);
+          }}
           title={t("aria.openOnboarding")}
           aria-label={t("aria.openOnboarding")}
           type="button"
