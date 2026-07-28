@@ -2137,7 +2137,6 @@ function DesktopReleases() {
   const latest = releases.data?.latest_version;
   const stateLabel = (version: string, published: boolean) => version === latest ? t('当前 latest') : published ? t('曾发布') : t('草稿');
   const heroTitle = latest ? t('v{{version}} 正在投放', { version: latest }) : t('还没有桌面更新');
-  const heroNote = latestSummary?.notes || (latest ? t('当前版本已进入自动更新通道。') : t('创建版本并上传签名产物后，从这里开启第一次投放。'));
   const syncStatus = sync.data;
   const syncRunning = syncStatus?.outcome === 'running';
   const syncProgress = syncStatus?.bytes_total ? Math.min(100, Math.round(((syncStatus.bytes_downloaded || 0) / syncStatus.bytes_total) * 100)) : 0;
@@ -2147,7 +2146,7 @@ function DesktopReleases() {
   return <div className="release-page page-stack">
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
-      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2><p>{heroNote}</p></div>
+      <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2>{!latest && <p>{t('创建版本并上传签名产物后，从这里开启第一次投放。')}</p>}</div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
     </section>
     <DesktopVersionOverview statistics={versionStatistics.data} loading={versionStatistics.loading} error={versionStatistics.error} onRefresh={() => { void versionStatistics.reload(); }} />

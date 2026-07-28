@@ -868,7 +868,6 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '{{version}} 已发布。': '{{version}} has been published.',
   'v{{version}} 正在投放': 'v{{version}} is rolling out',
   '还没有桌面更新': 'No desktop updates yet',
-  '当前版本已进入自动更新通道。': 'The current version is in the automatic update channel.',
   '创建版本并上传签名产物后，从这里开启第一次投放。': 'Create a version and upload signed assets to begin the first rollout here.',
   '正在确认平台…': 'Checking platforms…',
   '尚未发布': 'Not published',

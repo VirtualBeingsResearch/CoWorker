@@ -3679,6 +3679,7 @@ textarea:hover:not(:disabled) {
 }
 
 .actorStatusPanel {
+  align-content: start;
   gap: 6px;
 }
 
