@@ -1528,6 +1528,20 @@ describe("Onboarding tutorial", () => {
     expect(screen.queryByRole("dialog", { name: "Setup wizard" })).not.toBeInTheDocument();
   });
 
+  it("collapses the navigation after opening the tutorial from its menu entry", async () => {
+    const user = await renderApp();
+    const shell = document.querySelector("main.shell");
+    expect(shell).toHaveAttribute("data-sidebar", "collapsed");
+
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Expand resident panel" }));
+    expect(shell).toHaveAttribute("data-sidebar", "expanded");
+
+    await user.click(screen.getByRole("button", { name: "Open setup" }));
+
+    expect(await screen.findByRole("dialog", { name: "Setup wizard" })).toBeInTheDocument();
+    expect(shell).toHaveAttribute("data-sidebar", "collapsed");
+  });
+
   it("saves and starts the bridge from the final step", async () => {
     const user = userEvent.setup();
     setDefaultMocks();
