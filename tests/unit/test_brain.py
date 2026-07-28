@@ -156,6 +156,22 @@ class TestBrain:
         assert result == "mock response"
 
     @pytest.mark.asyncio
+    async def test_summarize_removes_json_fence_without_stripping_content(self):
+        response = LLMResponse(
+            content="```json\njson```",
+            tool_calls=[],
+            stop_reason="end_turn",
+            model="mock-model",
+            usage={},
+        )
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(MockProvider(response))
+
+        result = await brain.summarize([Message(role="user", content="history")])
+
+        assert result == "json"
+
+    @pytest.mark.asyncio
     async def test_summarize_reports_usage_to_listener(self):
         brain = Brain("mock", "mock-model")
         brain.register_provider(MockProvider())

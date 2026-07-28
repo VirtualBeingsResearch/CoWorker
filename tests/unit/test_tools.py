@@ -1089,9 +1089,10 @@ class TestSleepTool:
             await asyncio.sleep(0.05)
             event.set()
 
-        asyncio.create_task(set_event_soon())
+        event_task = asyncio.create_task(set_event_soon())
         tool = SleepTool(inbox)
         result = await asyncio.wait_for(tool.execute(seconds=60), timeout=5.0)
+        await event_task
         assert not result.is_error
         assert "提前" in result.content
 
@@ -1125,9 +1126,10 @@ class TestSleepTool:
             await asyncio.sleep(0.05)
             event.set()
 
-        asyncio.create_task(set_event_soon())
+        event_task = asyncio.create_task(set_event_soon())
         tool = SleepTool(inbox, config=config)
         result = await asyncio.wait_for(tool.execute(seconds=0), timeout=5.0)
+        await event_task
         assert not result.is_error
         assert "提前" in result.content
 

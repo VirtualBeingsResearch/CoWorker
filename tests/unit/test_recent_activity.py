@@ -125,7 +125,7 @@ class _Collection:
         self.rows = {}
 
     def upsert(self, ids, documents, metadatas, embeddings):
-        for id_, doc, meta, emb in zip(ids, documents, metadatas, embeddings):
+        for id_, doc, meta, emb in zip(ids, documents, metadatas, embeddings, strict=True):
             self.rows[id_] = {"document": doc, "metadata": meta, "embedding": emb}
 
     def query(self, query_embeddings, n_results, include):

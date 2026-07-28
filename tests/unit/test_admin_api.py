@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -39,6 +39,7 @@ def _client(
     api: dict | None = None,
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
+    alarm_manager=None,
     wecom: dict | None = None,
     weixin: dict | None = None,
     channel_modules=None,
@@ -74,7 +75,7 @@ def _client(
         agent=agent,
         brain=brain,
         config=config,
-        alarm_manager=None,
+        alarm_manager=alarm_manager,
         skill_loader=None,
         palace_loader=None,
         mode_loader=None,
@@ -126,6 +127,26 @@ def test_relay_credential_rotation_uses_built_in_client(tmp_path):
     assert response.status_code == 200
     assert response.json()["instance_id"] == "cw_abcdefgh"
     relay.rotate_credential.assert_awaited_once()
+
+
+def test_admin_alarm_accepts_browser_utc_timestamp(tmp_path):
+    alarm_manager = SimpleNamespace(set=AsyncMock(), list=MagicMock(return_value=[]))
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+    trigger_at = datetime.now(UTC) + timedelta(minutes=5)
+
+    response = client.post(
+        "/api/admin/alarms",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "trigger_at": trigger_at.isoformat().replace("+00:00", "Z"),
+            "message": "browser alarm",
+        },
+    )
+
+    assert response.status_code == 200
+    alarm_manager.set.assert_awaited_once()
+    scheduled_at = alarm_manager.set.await_args.args[1]
+    assert scheduled_at.tzinfo is not None
 
 
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):

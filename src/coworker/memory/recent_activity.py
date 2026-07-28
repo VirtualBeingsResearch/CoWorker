@@ -468,7 +468,7 @@ class RecentActivityMemory:
         metas = (raw.get("metadatas") or [[]])[0]
         distances = (raw.get("distances") or [[]])[0]
         best_by_evidence: dict[str, dict[str, Any]] = {}
-        for doc, meta, distance in zip(docs, metas, distances):
+        for doc, meta, distance in zip(docs, metas, distances, strict=False):
             if not isinstance(meta, dict):
                 continue
             ts = str(meta.get("ts") or "")
@@ -520,7 +520,7 @@ class RecentActivityMemory:
         ids = raw.get("ids") or []
         metas = raw.get("metadatas") or []
         stale: list[str] = []
-        for id_, meta in zip(ids, metas):
+        for id_, meta in zip(ids, metas, strict=False):
             if not isinstance(meta, dict):
                 continue
             ts = self._parse_dt(str(meta.get("ts") or ""))
