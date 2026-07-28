@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 3 ]]; then
-  echo "用法: $0 <搭档地址> <通信token> <消息> [发送方ID]" >&2
+if [[ $# -lt 3 || $# -gt 4 ]]; then
+  echo "用法: $0 <搭档地址> <通信token> [发送方ID] <消息>" >&2
   exit 2
 fi
 
 coworker_url="${1%/}"
 communication_token="$2"
-message="$3"
-sender_id="${4:-jenkins}"
+
+if [[ $# -eq 3 ]]; then
+  sender_id="external:anonymous-notification"
+  message="$3"
+else
+  sender_id="${3:-external:anonymous-notification}"
+  message="$4"
+fi
 
 payload="$(
   jq -n \
