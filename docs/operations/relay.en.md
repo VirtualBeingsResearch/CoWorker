@@ -8,7 +8,7 @@ Coworker Relay lets a Coworker inside a private network open an encrypted outbou
 https://relay.example.com/i/{instance_id}
 ```
 
-Relay terminates public HTTPS and can see headers and bodies while processing a request. It is not end-to-end encryption, but it does not persist message bodies, attachments, or SSE events.
+Relay terminates public HTTPS and can see headers and bodies while processing a request, but it does not persist message bodies, attachments, or SSE events.
 
 ## Deployment
 
@@ -186,5 +186,5 @@ See [Relay v1 protocol](relay-protocol.en.md) for frame, header-order, and retry
   source-IP-rate-limited before credential verification.
 - Relay appends `X-Coworker-Relay-*` while preserving client-supplied duplicates. Coworker identifies Relay traffic through the authenticated tunnel, not headers.
 - Private Relay deployments must use a system-trusted private CA. TLS verification cannot be disabled.
-- v1 provides no E2EE, P2P, offline message storage, arbitrary upstream downloading, generic
+- v1 provides no P2P, offline message storage, arbitrary upstream downloading, generic
   reverse proxy, or multi-node high availability.

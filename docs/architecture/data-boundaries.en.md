@@ -38,7 +38,7 @@ at runtime. Deleting these volumes also deletes the corresponding history, state
 - When self-hosted Relay is enabled, request Bearers, headers, paths, source IPs, message bodies,
   attachments, and SSE events pass through Relay during forwarding. Relay does not persist those
   bodies, but its administrator controls the TLS termination point and is therefore inside the
-  full trust boundary. This is not E2EE.
+  full trust boundary.
 - Installing dependencies, Playwright browsers, or local embedding models connects to package registries, browser download servers, or model repositories.
 
 If data must not be shared with an external service, do not configure that service for Coworker and do not let the agent read the relevant files. A self-hosted model changes only the model boundary; it does not automatically restrict search, browser, or other integrations.

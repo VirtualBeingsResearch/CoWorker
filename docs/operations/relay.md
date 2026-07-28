@@ -8,7 +8,7 @@ Coworker Relay 让内网中的 Coworker 主动建立加密出站连接，并通�
 https://relay.example.com/i/{instance_id}
 ```
 
-Relay 会终止公网 HTTPS，并能在请求处理期间看到 Header 和正文。它不是端到端加密服务，但不会持久化消息正文、附件或 SSE 事件。
+Relay 会终止公网 HTTPS，并能在请求处理期间看到 Header 和正文，但不会持久化消息正文、附件或 SSE 事件。
 
 ## 部署
 
@@ -172,4 +172,4 @@ v1是单节点服务：bbolt位于本地卷中，隧道归属保存在进程内�
 - 配对、隧道认证、凭据轮换和管理员 API 在执行凭据校验前也有来源 IP 限速。
 - Relay 追加 `X-Coworker-Relay-*`，同时保留客户端原有同名 Header。Coworker 依靠已认证隧道而不是 Header 判断来源。
 - 私网 Relay 应使用系统信任的私有 CA；不能关闭证书校验。
-- v1 不提供 E2EE、P2P、离线消息存储、任意上游下载、通用反向代理或多节点高可用。
+- v1 不提供 P2P、离线消息存储、任意上游下载、通用反向代理或多节点高可用。
