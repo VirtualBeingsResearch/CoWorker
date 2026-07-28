@@ -215,11 +215,13 @@ func promptInitOptions(
 	output io.Writer,
 	options initOptions,
 ) (initOptions, error) {
-	reader := bufio.NewReader(input)
 	fmt.Fprintln(output, "Coworker Relay setup")
 	fmt.Fprintln(output, "Press Enter to accept a displayed default.")
+	reader, err := newInitLineReader(input, output)
+	if err != nil {
+		return initOptions{}, err
+	}
 
-	var err error
 	options.directory, err = prompt(reader, output, "Deployment directory", options.directory)
 	if err != nil {
 		return initOptions{}, err
@@ -241,6 +243,16 @@ func promptInitOptions(
 		}
 		fmt.Fprintln(output, "Enter a port between 1 and 65535.")
 	}
+	originExample := "https://relay.example.com"
+	if options.externalPort != 443 {
+		originExample = net.JoinHostPort("relay.example.com", strconv.Itoa(options.externalPort))
+		originExample = "https://" + originExample
+	}
+	fmt.Fprintln(
+		output,
+		"Public HTTPS origin is the externally reachable Relay address (no path).",
+	)
+	fmt.Fprintf(output, "Example: %s\n", originExample)
 	for {
 		options.publicURL, err = prompt(reader, output, "Public HTTPS origin", "")
 		if err != nil {
@@ -277,10 +289,10 @@ func promptInitOptions(
 			return initOptions{}, err
 		}
 	} else {
-		acmeDescription := "  1) Automatic ACME certificate (requires public TCP port 80)\n" +
+		acmeDescription := "  1) Automatic ACME certificate (requires Internet-facing TCP port 80 for validation)\n" +
 			"  2) Existing PEM certificate"
 		if ip != nil {
-			acmeDescription = "  1) Automatic public-IP certificate (requires public TCP port 80)\n" +
+			acmeDescription = "  1) Automatic public-IP certificate (requires Internet-facing TCP port 80 for validation)\n" +
 				"  2) Existing PEM certificate"
 		}
 		mode, modeErr := promptChoice(
@@ -366,20 +378,94 @@ func promptInitOptions(
 	return options, nil
 }
 
+type initLineReader interface {
+	ReadLine(prompt string) (string, error)
+}
+
+type bufferedInitLineReader struct {
+	reader *bufio.Reader
+	output io.Writer
+}
+
+func (r *bufferedInitLineReader) ReadLine(prompt string) (string, error) {
+	fmt.Fprint(r.output, prompt)
+	value, err := r.reader.ReadString('\n')
+	if err != nil && !(errors.Is(err, io.EOF) && value != "") {
+		return "", errors.New("interactive input ended")
+	}
+	return value, nil
+}
+
+type terminalInitLineReader struct {
+	terminal *term.Terminal
+	prepare  func() (func(), error)
+}
+
+func (r *terminalInitLineReader) ReadLine(prompt string) (string, error) {
+	restore := func() {}
+	if r.prepare != nil {
+		var err error
+		restore, err = r.prepare()
+		if err != nil {
+			return "", err
+		}
+	}
+	defer restore()
+	r.terminal.SetPrompt(prompt)
+	value, err := r.terminal.ReadLine()
+	if err != nil {
+		return "", errors.New("interactive input ended")
+	}
+	return value, nil
+}
+
+type splitReadWriter struct {
+	io.Reader
+	io.Writer
+}
+
+func newInitLineReader(
+	input io.Reader,
+	output io.Writer,
+) (initLineReader, error) {
+	file, terminalInput := input.(*os.File)
+	if !terminalInput || !isTerminal(file) {
+		return &bufferedInitLineReader{
+			reader: bufio.NewReader(input),
+			output: output,
+		}, nil
+	}
+	terminal := term.NewTerminal(splitReadWriter{Reader: input, Writer: output}, "")
+	prepare := func() (func(), error) {
+		state, err := term.MakeRaw(int(file.Fd()))
+		if err != nil {
+			return nil, fmt.Errorf("enable terminal line editing: %w", err)
+		}
+		return func() {
+			_ = term.Restore(int(file.Fd()), state)
+		}, nil
+	}
+	return &terminalInitLineReader{
+		terminal: terminal,
+		prepare:  prepare,
+	}, nil
+}
+
 func prompt(
-	reader *bufio.Reader,
+	reader initLineReader,
 	output io.Writer,
 	label string,
 	defaultValue string,
 ) (string, error) {
+	promptText := label + ": "
 	if defaultValue == "" {
-		fmt.Fprintf(output, "%s: ", label)
+		promptText = label + ": "
 	} else {
-		fmt.Fprintf(output, "%s [%s]: ", label, defaultValue)
+		promptText = fmt.Sprintf("%s [%s]: ", label, defaultValue)
 	}
-	value, err := reader.ReadString('\n')
-	if err != nil && !(errors.Is(err, io.EOF) && value != "") {
-		return "", errors.New("interactive input ended")
+	value, err := reader.ReadLine(promptText)
+	if err != nil {
+		return "", err
 	}
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -389,7 +475,7 @@ func prompt(
 }
 
 func requiredPrompt(
-	reader *bufio.Reader,
+	reader initLineReader,
 	output io.Writer,
 	label string,
 ) (string, error) {
@@ -406,7 +492,7 @@ func requiredPrompt(
 }
 
 func promptChoice(
-	reader *bufio.Reader,
+	reader initLineReader,
 	output io.Writer,
 	label string,
 	defaultValue string,
@@ -427,7 +513,7 @@ func promptChoice(
 }
 
 func promptConfirm(
-	reader *bufio.Reader,
+	reader initLineReader,
 	output io.Writer,
 	label string,
 	defaultValue bool,
@@ -437,10 +523,9 @@ func promptConfirm(
 		defaultLabel = "Y/n"
 	}
 	for {
-		fmt.Fprintf(output, "%s [%s]: ", label, defaultLabel)
-		value, readErr := reader.ReadString('\n')
-		if readErr != nil && !(errors.Is(readErr, io.EOF) && value != "") {
-			return false, errors.New("interactive input ended")
+		value, readErr := reader.ReadLine(fmt.Sprintf("%s [%s]: ", label, defaultLabel))
+		if readErr != nil {
+			return false, readErr
 		}
 		value = strings.ToLower(strings.TrimSpace(value))
 		if value == "" {

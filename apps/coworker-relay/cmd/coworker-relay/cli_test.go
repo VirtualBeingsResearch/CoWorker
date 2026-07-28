@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/term"
 )
 
 func TestLoadLocalEnvironmentUsesCurrentDirectoryAndPreservesEnvironment(t *testing.T) {
@@ -240,6 +242,12 @@ func TestPromptInitOptionsDefaultsPublicIPToAutomaticACME(t *testing.T) {
 	if !strings.Contains(output.String(), "Automatic public-IP certificate") {
 		t.Fatalf("public-IP automatic TLS choice was not shown:\n%s", output.String())
 	}
+	if !strings.Contains(
+		output.String(),
+		"Example: https://relay.example.com:8443",
+	) {
+		t.Fatalf("public origin example was not shown:\n%s", output.String())
+	}
 }
 
 func TestPromptConfirmHonorsDefaultOnEnter(t *testing.T) {
@@ -254,7 +262,10 @@ func TestPromptConfirmHonorsDefaultOnEnter(t *testing.T) {
 			reader := strings.NewReader("\n")
 			var output bytes.Buffer
 			actual, err := promptConfirm(
-				bufio.NewReader(reader),
+				&bufferedInitLineReader{
+					reader: bufio.NewReader(reader),
+					output: &output,
+				},
 				&output,
 				"Continue?",
 				test.fallback,
@@ -266,6 +277,24 @@ func TestPromptConfirmHonorsDefaultOnEnter(t *testing.T) {
 				t.Fatalf("confirmation = %t, want %t", actual, test.fallback)
 			}
 		})
+	}
+}
+
+func TestTerminalLineReaderSupportsCursorMovement(t *testing.T) {
+	input := strings.NewReader("abc\x1b[D\x1b[DZ\r")
+	var output bytes.Buffer
+	terminal := term.NewTerminal(
+		splitReadWriter{Reader: input, Writer: &output},
+		"",
+	)
+	reader := &terminalInitLineReader{terminal: terminal}
+
+	value, err := reader.ReadLine("Value: ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "aZbc" {
+		t.Fatalf("edited value = %q, want %q", value, "aZbc")
 	}
 }
 

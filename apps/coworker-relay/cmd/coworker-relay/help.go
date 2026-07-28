@@ -66,7 +66,7 @@ non-terminal input, pass --public-url and the desired options explicitly.
 
 Options:
   --dir <directory>          Deployment directory (default: coworker-relay-deploy)
-  --public-url <origin>      Public HTTPS origin
+  --public-url <origin>      Public HTTPS origin, e.g. https://relay.example.com:8443
   --external-port <port>     Published HTTPS port (default: 8443)
   --acme-domain <name>       ACME DNS name or public IP (defaults to URL host)
   --tls-cert <path>          Existing PEM certificate (requires --tls-key)
