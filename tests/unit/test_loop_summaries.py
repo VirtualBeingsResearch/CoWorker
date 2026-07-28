@@ -234,8 +234,9 @@ async def test_rest_passive_waits_for_event_without_timeout(monkeypatch):
         await asyncio.sleep(0.05)
         event.set()
 
-    asyncio.create_task(set_event_soon())
+    event_task = asyncio.create_task(set_event_soon())
     await asyncio.wait_for(loop._rest(), timeout=5.0)
+    await event_task
     assert loop.state.is_sleeping is False
     messages = [call.args[0] for call in log.info.call_args_list]
     assert messages == [

@@ -751,7 +751,7 @@ class LogStore:
         chunks: list[list[dict[str, Any]]] = []
         cur: list[dict[str, Any]] = []
         acc = 0
-        for e, sz in zip(conv, sizes):
+        for e, sz in zip(conv, sizes, strict=True):
             cur.append(e)
             acc += sz
             if acc >= target:

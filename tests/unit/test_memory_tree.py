@@ -698,7 +698,7 @@ class TestSerialize:
         assert restored.nodes[0].t_start == tree.nodes[0].t_start
         # 嵌套子树（含孙辈）逐层保真。
         assert self._child_sigs(restored.nodes) == self._child_sigs(tree.nodes)
-        for r, o in zip(restored.nodes, tree.nodes):
+        for r, o in zip(restored.nodes, tree.nodes, strict=True):
             assert self._child_sigs(r.children) == self._child_sigs(o.children)
 
     @pytest.mark.asyncio

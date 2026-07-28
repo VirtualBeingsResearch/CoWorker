@@ -255,7 +255,7 @@ class QueryMemoryTool(Tool):
         long_term: list[dict] = []
         focus: str = ""
         warnings: list[str] = []
-        for name, value in zip(task_names, raw_results):
+        for name, value in zip(task_names, raw_results, strict=True):
             if isinstance(value, BaseException):
                 warnings.append(tr("memory.query.query_failed", source=name, error=value))
                 continue

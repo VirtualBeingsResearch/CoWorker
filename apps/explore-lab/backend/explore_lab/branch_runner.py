@@ -604,8 +604,13 @@ def _conflict_response(err: ConflictError) -> HTTPException:
 def create_app(workdir: Path) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        asyncio.create_task(controller.start(workdir))
-        yield
+        start_task = asyncio.create_task(controller.start(workdir))
+        try:
+            yield
+        finally:
+            if not start_task.done():
+                start_task.cancel()
+            await asyncio.gather(start_task, return_exceptions=True)
 
     app = FastAPI(title="coworker-explore-lab branch_runner", lifespan=lifespan)
     # 只 bind 127.0.0.1，本身没有鉴权；放开 CORS 只是为了让同机浏览器里的前端能直接
