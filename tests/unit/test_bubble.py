@@ -15,6 +15,13 @@ from coworker.agent.bubble_loop import BubbleMiniLoop, _build_merge_message
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.channels.base import BaseChannel, ChannelCapabilities
 from coworker.channels.system import create_channel_system
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyScope,
+    AutonomyThresholds,
+)
 from coworker.core.types import (
     AttachmentData,
     IncomingEvent,
@@ -62,6 +69,7 @@ def mock_brain():
     brain.current_provider_name = "mock"
     brain.current_model = "mock-model"
     brain._providers = {"mock": provider}
+    brain.autonomy = None
     return brain
 
 
@@ -567,7 +575,7 @@ class TestBubbleMiniLoop:
         done_tc = ToolCall(id="c2", name="bubble_done", arguments={"result": "及时收尾"})
         call_count = 0
 
-        async def capture_think(messages, system_prompt, tools):
+        async def capture_think(messages, system_prompt, tools, **_):
             nonlocal call_count
             call_count += 1
             captured.append(list(messages))
@@ -613,6 +621,50 @@ class TestBubbleMiniLoop:
         merged = [call.args[0].content for call in mock_inbox.push.call_args_list]
         assert any("bubble_spawn" in content and "bubble_id=" in content for content in merged)
 
+    async def test_timeout_summary_waits_for_autonomy_before_retrying(
+        self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
+    ):
+        autonomy = AutonomyController(
+            AutonomyLevel.SILENT,
+            AutonomyThresholds(),
+        )
+        mock_brain.autonomy = autonomy
+        tc = ToolCall(id="c1", name="some_tool", arguments={})
+        mock_brain.think = AsyncMock(
+            return_value=_make_response(tool_calls=[tc], stop_reason="tool_use")
+        )
+        mock_brain.summarize = AsyncMock(
+            side_effect=[
+                AutonomyBlockedError(
+                    current=AutonomyLevel.SILENT,
+                    required=AutonomyLevel.REACTIVE,
+                    scope=AutonomyScope.SUMMARY,
+                ),
+                json.dumps({"summary": "恢复后的摘要", "memories": []}),
+            ]
+        )
+        mock_registry.execute = AsyncMock(
+            return_value=MagicMock(content="tool result", is_error=False)
+        )
+        b = store.create("goal", messages, max_cycles=1)
+        assert isinstance(b, Bubble)
+        loop = _make_mini_loop(b, mock_brain, mock_registry, mock_inbox, store, tmp_path)
+
+        task = asyncio.create_task(loop.run())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert not task.done()
+        assert not b.result
+
+        autonomy.update(level=AutonomyLevel.REACTIVE)
+        await asyncio.wait_for(task, timeout=1)
+
+        assert b.status == "timeout"
+        assert "恢复后的摘要" in b.result
+        assert "失败" not in b.result
+        assert mock_brain.summarize.await_count == 2
+
     async def test_resume_keeps_transcript_and_continues_cycle_budget(
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
     ):
@@ -626,7 +678,7 @@ class TestBubbleMiniLoop:
         ]
         captured: list[list] = []
 
-        async def capture_think(messages, system_prompt, tools):
+        async def capture_think(messages, system_prompt, tools, **_):
             captured.append(list(messages))
             return responses.pop(0)
 
@@ -1036,7 +1088,7 @@ class TestBubbleMiniLoop:
     async def test_inbox_message_injected_before_think(self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path):
         injected_messages = []
 
-        async def capture_think(messages, system_prompt, tools):
+        async def capture_think(messages, system_prompt, tools, **_):
             injected_messages.extend(messages)
             return _make_response(content="done")
 
@@ -1055,7 +1107,7 @@ class TestBubbleMiniLoop:
     ):
         injected_messages = []
 
-        async def capture_think(messages, system_prompt, tools):
+        async def capture_think(messages, system_prompt, tools, **_):
             injected_messages.extend(messages)
             return _make_response(content="done")
 
@@ -2595,7 +2647,7 @@ class TestToolForkBubbleScope:
 
         captured: list[list] = []
 
-        async def capture_think(messages, system_prompt, tools):
+        async def capture_think(messages, system_prompt, tools, **_):
             captured.append(list(messages))
             if len(captured) == 1:
                 return _make_response(

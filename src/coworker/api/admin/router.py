@@ -33,6 +33,7 @@ from coworker.agent.bubble_log_index import (
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.config import (
     Config,
     _deep_merge,
@@ -104,7 +105,7 @@ class BootstrapPayload(BaseModel):
     coworker_name: str = Field(default="", max_length=80)
     locale: Literal["zh-CN", "en"] | None = None
     max_tokens: int | None = Field(default=None, gt=0)
-    passive_mode: bool = False
+    autonomy_level: AutonomyLevel | None = None
     allow_unverified_model: bool = False
 
 
@@ -823,7 +824,7 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "defaults": {
             "locale": config.i18n.locale.value,
             "max_tokens": config.llm.max_tokens,
-            "passive_mode": config.agent.passive_mode,
+            "autonomy_level": config.agent.autonomy_level.value,
         },
     }
 
@@ -884,6 +885,7 @@ async def complete_bootstrap(
 
         locale = payload.locale or config.i18n.locale.value
         max_tokens = payload.max_tokens if payload.max_tokens is not None else config.llm.max_tokens
+        autonomy_level = payload.autonomy_level or config.agent.autonomy_level
         path = Path(config.admin.config_file)
         current_overrides = load_admin_overrides(path)
         changes: JsonObject = {
@@ -904,7 +906,7 @@ async def complete_bootstrap(
             },
             "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
             "i18n": {"locale": locale},
-            "agent": {"passive_mode": payload.passive_mode},
+            "agent": {"autonomy_level": autonomy_level.value},
         }
         next_overrides = config_service.merge_overrides(current_overrides, changes)
         try:
@@ -945,7 +947,8 @@ async def complete_bootstrap(
             _audit(
                 request,
                 "bootstrap.complete",
-                f"{provider_type}/{model} locale={locale} max_tokens={max_tokens} passive_mode={payload.passive_mode} custom_model={custom_model}",
+                f"{provider_type}/{model} locale={locale} max_tokens={max_tokens} "
+                f"autonomy_level={autonomy_level.value} custom_model={custom_model}",
             )
         except OSError as error:
             logger.warning(f"Failed to write bootstrap audit entry: {error}")
@@ -960,6 +963,8 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
     bubbles = agent._bubble_store.list_active() if agent._bubble_store else []
     memory_count = await agent._long_term.count()
     stm = agent._short_term
+    autonomy = getattr(agent, "_autonomy", None)
+    inbox = getattr(agent, "_inbox", None)
     return {
         "status": {
             "is_running": agent.state.is_running,
@@ -968,7 +973,18 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
             "started_at": _process_started_at.isoformat(),
-            "passive_mode": _require_config().agent.passive_mode,
+            "autonomy_level": _require_config().agent.autonomy_level.value,
+            "autonomy_state": (
+                "draining"
+                if autonomy is not None and autonomy.is_draining
+                else "waiting"
+                if agent.state.is_sleeping
+                else "active"
+            ),
+            "autonomy_thresholds": _require_config().agent.autonomy_thresholds.model_dump(
+                mode="json"
+            ),
+            "pending_events": int(getattr(inbox, "pending_count", 0)),
             "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
         },
         "counts": {

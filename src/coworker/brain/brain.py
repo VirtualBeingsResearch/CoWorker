@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
 from loguru import logger
 
 from coworker.brain.base import BaseLLMProvider
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyScope,
+)
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
@@ -60,6 +67,7 @@ class Brain:
         vision_provider: str = "",
         vision_model: str = "",
         vision_thinking: bool = True,
+        autonomy: AutonomyController | None = None,
     ) -> None:
         self._providers: dict[str, BaseLLMProvider] = {}
         self._active_provider_name = default_provider
@@ -73,6 +81,7 @@ class Brain:
         self._message_time_prefix = message_time_prefix
         self._max_tokens = max_tokens
         self._thinking = thinking
+        self._autonomy = autonomy
         self._lock = asyncio.Lock()
         # 降级链原始配置（"name" 或 "name/model"）；运行时按当前注册表解析，构造时不解析。
         self._fallbacks = list(fallbacks or [])
@@ -138,6 +147,22 @@ class Brain:
     def inherit_usage_listeners_from(self, other: Brain) -> None:
         self._summary_usage_listeners.extend(other._summary_usage_listeners)
         self._vision_usage_listeners.extend(other._vision_usage_listeners)
+
+    @property
+    def autonomy(self) -> AutonomyController | None:
+        return self._autonomy
+
+    @asynccontextmanager
+    async def _model_call(
+        self,
+        scope: AutonomyScope,
+        trigger: AutonomyLevel = AutonomyLevel.SILENT,
+    ) -> AsyncIterator[None]:
+        if self._autonomy is None:
+            yield
+            return
+        async with self._autonomy.model_call(scope, trigger=trigger):
+            yield
 
     def _notify_usage_listeners(
         self,
@@ -372,6 +397,8 @@ class Brain:
         max_tokens: int,
         tries: int,
         thinking: bool = True,
+        scope: AutonomyScope = AutonomyScope.MAIN,
+        trigger: AutonomyLevel = AutonomyLevel.SILENT,
     ) -> LLMResponse:
         """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
         last_err: Exception | None = None
@@ -381,10 +408,11 @@ class Brain:
                 if not provider:
                     raise ProviderNotFoundError(provider_name)
                 provider.set_model(model)
-                return await provider.complete(
-                    messages, system_prompt, tools, max_tokens, thinking=thinking
-                )
-            except (ProviderNotFoundError, ModelNotSupportedError):
+                async with self._model_call(scope, trigger):
+                    return await provider.complete(
+                        messages, system_prompt, tools, max_tokens, thinking=thinking
+                    )
+            except (ProviderNotFoundError, ModelNotSupportedError, AutonomyBlockedError):
                 raise
             except Exception as e:
                 last_err = e
@@ -405,6 +433,8 @@ class Brain:
         max_tokens: int | None = None,
         _persist_switch: bool = True,
         _thinking_override: bool | None = None,
+        _autonomy_scope: AutonomyScope = AutonomyScope.MAIN,
+        _autonomy_trigger: AutonomyLevel = AutonomyLevel.SILENT,
     ) -> LLMResponse:
 
         if self._message_time_prefix:
@@ -424,7 +454,11 @@ class Brain:
                     tokens,
                     tries,
                     thinking=self._thinking if _thinking_override is None else _thinking_override,
+                    scope=_autonomy_scope,
+                    trigger=_autonomy_trigger,
                 )
+            except AutonomyBlockedError:
+                raise
             except Exception as e:
                 last_err = e
                 logger.warning(f"Provider {name}/{model} exhausted ({tries} tries): {e}")
@@ -477,6 +511,7 @@ class Brain:
                 max_tokens=max_tokens,
                 _persist_switch=False,
                 _thinking_override=self._summary_thinking,
+                _autonomy_scope=AutonomyScope.SUMMARY,
             )
 
         provider_name, model = summary_target
@@ -491,6 +526,7 @@ class Brain:
             max_tokens if max_tokens is not None else self._max_tokens,
             tries=3,
             thinking=self._summary_thinking,
+            scope=AutonomyScope.SUMMARY,
         )
         response.provider = provider_name
         return response
@@ -531,13 +567,14 @@ class Brain:
                 )
             )
         provider.set_model(vision_model)
-        resp = await provider.complete(
-            messages,
-            system_prompt,
-            [],
-            max_tokens if max_tokens is not None else self._max_tokens,
-            thinking=self._vision_thinking,
-        )
+        async with self._model_call(AutonomyScope.VISION):
+            resp = await provider.complete(
+                messages,
+                system_prompt,
+                [],
+                max_tokens if max_tokens is not None else self._max_tokens,
+                thinking=self._vision_thinking,
+            )
         resp.provider = vision_provider
         self._notify_usage_listeners(
             self._vision_usage_listeners,

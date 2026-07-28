@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+from pathlib import Path
+
 from coworker.core.types import IncomingEvent
 from coworker.i18n import tr
 
@@ -57,6 +60,18 @@ def build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
         if event.content or event.attachments:
             blocks.append({"type": "text", "text": format_event_text(event)})
         for att in event.attachments:
+            if (
+                att.data is None
+                and att.saved_path
+                and (
+                    att.media_type.startswith("image/")
+                    or att.media_type == "application/pdf"
+                )
+            ):
+                try:
+                    att.data = base64.b64encode(Path(att.saved_path).read_bytes()).decode("ascii")
+                except OSError:
+                    pass
             if att.media_type.startswith("image/") and att.data is not None:
                 blocks.append(
                     {

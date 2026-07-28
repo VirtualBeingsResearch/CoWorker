@@ -394,13 +394,16 @@ html:has(.admin-login),
 .bootstrap-grid label > span { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
 .bootstrap-grid label > span em { margin-left: 5px; color: var(--admin-muted); font-size: 10px; font-style: normal; font-weight: 500; }
 .bootstrap-grid :is(input, select) { width: 100%; height: 46px; padding: 0 13px; border: 1px solid var(--admin-line); border-radius: 10px; outline: 0; color: var(--admin-ink); background: white; }
-.bootstrap-mode { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.bootstrap-mode > span { grid-column: 1 / -1; display: block; margin-bottom: -2px; font-size: 12px; font-weight: 650; }
-.bootstrap-mode button { min-height: 72px; padding: 13px 14px; border: 1px solid var(--admin-line); border-radius: 12px; text-align: left; color: var(--admin-muted); background: white; cursor: pointer; transition: border-color .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
-.bootstrap-mode button b { display: block; color: var(--admin-ink); font-size: 12px; }
-.bootstrap-mode button small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; }
-.bootstrap-mode button.active { border-color: color-mix(in oklch, var(--admin-vital) 46%, var(--admin-line)); color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-muted)); background: var(--admin-soft); box-shadow: 0 0 0 3px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
-.bootstrap-mode button.active b { color: var(--admin-vital); }
+.bootstrap-mode { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.bootstrap-mode legend { grid-column: 1 / -1; display: block; width: 100%; margin-bottom: 8px; padding: 0; font-size: 12px; font-weight: 650; }
+.bootstrap-mode > label { position: relative; display: block; min-height: 72px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 12px; text-align: left; color: var(--admin-muted); background: white; cursor: pointer; transition: border-color .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
+.bootstrap-mode > label > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.bootstrap-grid .bootstrap-mode > label > span { display: block; min-height: 72px; margin: 0; padding: 13px 14px; }
+.bootstrap-mode label b { display: block; color: var(--admin-ink); font-size: 12px; }
+.bootstrap-mode label small { display: block; margin-top: 5px; font-size: 11px; font-weight: 400; line-height: 1.45; }
+.bootstrap-mode label.active { border-color: color-mix(in oklch, var(--admin-vital) 46%, var(--admin-line)); color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-muted)); background: var(--admin-soft); box-shadow: 0 0 0 3px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
+.bootstrap-mode label.active b { color: var(--admin-vital); }
+.bootstrap-mode input:focus-visible + span { outline: 3px solid color-mix(in oklch, var(--admin-vital) 35%, transparent); outline-offset: -3px; border-radius: 11px; }
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
 .bootstrap-model-field { position: relative; min-width: 0; }
 .bootstrap-model-field.open { z-index: 20; }
@@ -766,6 +769,7 @@ html:has(.admin-login),
 .presence-readout strong { display: block; }
 .presence-readout span { margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; }
 .presence-readout strong { overflow: hidden; max-width: 260px; font: 610 12px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
+.presence-readout .wake-policy strong { line-height: 1.45; white-space: normal; }
 
 .pulse-organ {
   position: relative;
@@ -952,6 +956,7 @@ html:has(.admin-login),
 .config-override-strip button.pending { color: color-mix(in oklch, var(--admin-amber) 74%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-amber) 38%, var(--admin-line)); background: color-mix(in oklch, var(--admin-amber) 7%, var(--admin-surface)); }
 .config-override-strip button:focus-visible { outline: 3px solid color-mix(in oklch, var(--admin-vital) 25%, transparent); outline-offset: 1px; }
 .config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 17px; }
+.config-fields.autonomy-thresholds { grid-column: 1 / -1; margin-top: 0; }
 .config-switch { align-self: start; margin-top: calc(var(--admin-field-label-height) + var(--admin-field-gap)); }
 .config-fields .field:has(.code-area) { grid-column: 1 / -1; }
 .string-list-field,

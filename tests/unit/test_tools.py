@@ -10,6 +10,13 @@ import pytest
 
 from coworker.channels.base import BaseChannel, ChannelCapabilities
 from coworker.channels.system import create_channel_system
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyScope,
+    AutonomyThresholds,
+)
 from coworker.core.types import (
     AgentState,
     CommunicateRequest,
@@ -1053,29 +1060,29 @@ class TestSleepTool:
         assert slept == [5]
 
     @pytest.mark.asyncio
-    async def test_zero_seconds_rejected_when_not_passive(self):
-        """非 passive 模式下 sleep(0) 不进入无限等待，返回引导提示"""
+    async def test_zero_seconds_rejected_at_autonomous_level(self):
+        """L3 下 sleep(0) 不进入无限等待，返回引导提示。"""
         inbox = MagicMock()
         inbox.message_event = asyncio.Event()
         config = MagicMock()
-        config.agent.passive_mode = False
+        config.agent.autonomy_level = AutonomyLevel.AUTONOMOUS
         tool = SleepTool(inbox, config=config)
         result = await tool.execute(seconds=0)
         assert not result.is_error
         assert "sleep(N)" in result.content
         assert "不会进入等待" in result.content
 
-    def test_definition_passive_advertises_zero(self):
-        """passive 模式下工具介绍说明 sleep(0) 可无限等待"""
+    def test_definition_event_driven_advertises_zero(self):
+        """L2 下工具介绍说明 sleep(0) 可无限等待。"""
         config = MagicMock()
-        config.agent.passive_mode = True
+        config.agent.autonomy_level = AutonomyLevel.EVENT_DRIVEN
         tool = SleepTool(None, config=config)
         assert "传 0" in tool.definition.description
 
-    def test_definition_active_omits_zero(self):
-        """active 模式下工具介绍不提 sleep(0)"""
+    def test_definition_autonomous_omits_zero(self):
+        """L3 下工具介绍不提 sleep(0)。"""
         config = MagicMock()
-        config.agent.passive_mode = False
+        config.agent.autonomy_level = AutonomyLevel.AUTONOMOUS
         tool = SleepTool(None, config=config)
         assert "传 0" not in tool.definition.description
 
@@ -1114,13 +1121,13 @@ class TestSleepTool:
         assert "Slept for 10s" in result.content
 
     @pytest.mark.asyncio
-    async def test_zero_seconds_sleeps_until_event_when_passive(self):
-        """passive 模式下 sleep(0)：无超时，休眠直到外部信息唤醒"""
+    async def test_zero_seconds_sleeps_until_event_at_event_driven_level(self):
+        """L2 下 sleep(0)：无超时，休眠直到外部信息唤醒。"""
         event = asyncio.Event()
         inbox = MagicMock()
         inbox.message_event = event
         config = MagicMock()
-        config.agent.passive_mode = True
+        config.agent.autonomy_level = AutonomyLevel.EVENT_DRIVEN
 
         async def set_event_soon():
             await asyncio.sleep(0.05)
@@ -1134,26 +1141,26 @@ class TestSleepTool:
         assert "提前" in result.content
 
     @pytest.mark.asyncio
-    async def test_zero_seconds_passive_does_not_return_without_event(self):
-        """passive 模式下 sleep(0) 在无外部事件时不返回（验证无超时）"""
+    async def test_zero_seconds_event_driven_does_not_return_without_event(self):
+        """L2 下 sleep(0) 在无外部事件时不返回（验证无超时）。"""
         event = asyncio.Event()
         inbox = MagicMock()
         inbox.message_event = event
         config = MagicMock()
-        config.agent.passive_mode = True
+        config.agent.autonomy_level = AutonomyLevel.EVENT_DRIVEN
         tool = SleepTool(inbox, config=config)
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(tool.execute(seconds=0), timeout=0.2)
 
     @pytest.mark.asyncio
-    async def test_zero_seconds_passive_without_inbox_returns_immediately(self):
-        """passive 模式但无 inbox（兜底）：立即返回"""
+    async def test_zero_seconds_event_driven_without_inbox_returns_immediately(self):
+        """L2 但无 inbox（兜底）：立即返回。"""
         config = MagicMock()
-        config.agent.passive_mode = True
+        config.agent.autonomy_level = AutonomyLevel.EVENT_DRIVEN
         tool = SleepTool(None, config=config)
         result = await tool.execute(seconds=0)
         assert not result.is_error
-        assert "被动等待" in result.content
+        assert "持续等待" in result.content
 
 
 class TestSearchWebTool:
@@ -1641,6 +1648,7 @@ class TestVisualAnalysisTool:
         brain.query_with_vision = AsyncMock(return_value=response)
         brain.vision_provider_name = ""
         brain.vision_model = ""
+        brain.autonomy = None
         return brain
 
     def _make_inbox(self):
@@ -1694,6 +1702,40 @@ class TestVisualAnalysisTool:
         assert "vision result" in event.content
         assert "test.png" in event.content
         assert "describe it" in event.content
+
+    @pytest.mark.asyncio
+    async def test_background_analysis_waits_for_autonomy_before_retrying(self, tmp_path):
+        img = tmp_path / "test.png"
+        img.write_bytes(self._png_bytes())
+        autonomy = AutonomyController(
+            AutonomyLevel.SILENT,
+            AutonomyThresholds(),
+        )
+        brain = self._make_brain()
+        brain.autonomy = autonomy
+        brain.query_with_vision.side_effect = [
+            AutonomyBlockedError(
+                current=AutonomyLevel.SILENT,
+                required=AutonomyLevel.REACTIVE,
+                scope=AutonomyScope.VISION,
+            ),
+            "vision result",
+        ]
+        inbox = self._make_inbox()
+        tool = self._make_tool(brain=brain, inbox=inbox)
+
+        await tool.execute(media_path=str(img), question="describe it")
+        await asyncio.sleep(0)
+
+        inbox.push.assert_not_awaited()
+
+        autonomy.update(level=AutonomyLevel.REACTIVE)
+        await asyncio.sleep(0.05)
+
+        event = inbox.push.call_args[0][0]
+        assert "vision result" in event.content
+        assert "分析失败" not in event.content
+        assert brain.query_with_vision.await_count == 2
 
     @pytest.mark.asyncio
     async def test_execute_local_file_builds_correct_base64_block(self, tmp_path):

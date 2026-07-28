@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyController, AutonomyScope
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 from coworker.i18n import tr
 
@@ -40,6 +41,7 @@ class LongTermMemory:
         db_path: str,
         llm: LongTermLLMConfig | None = None,
         embedder_model: str = _DEFAULT_EMBEDDER,
+        autonomy: AutonomyController | None = None,
     ) -> None:
         self._db_path = Path(db_path)
         self._mem = None
@@ -48,6 +50,7 @@ class LongTermMemory:
         self._write_lock = asyncio.Lock()
         self._usage_listeners: list[_UsageListener] = []
         self._usage_hook_installed = False
+        self._autonomy = autonomy
 
     @property
     def embedder(self) -> Any | None:
@@ -297,11 +300,25 @@ class LongTermMemory:
             "source_timestamp": (source_timestamp or datetime.now()).isoformat(),
         }
         async with self._write_lock:
-            result = await self._mem.add(
-                messages=[{"role": "user", "content": content}],
-                user_id=_AGENT_USER_ID,
-                metadata=metadata,
-            )
+            if self._autonomy is None:
+                result = await self._mem.add(
+                    messages=[{"role": "user", "content": content}],
+                    user_id=_AGENT_USER_ID,
+                    metadata=metadata,
+                )
+            else:
+                async def add_memory() -> dict:
+                    async with self._autonomy.model_call(AutonomyScope.MEM0):
+                        return await self._mem.add(
+                            messages=[{"role": "user", "content": content}],
+                            user_id=_AGENT_USER_ID,
+                            metadata=metadata,
+                        )
+
+                result = await self._autonomy.retry_when_allowed(
+                    AutonomyScope.MEM0,
+                    add_memory,
+                )
         ids = [r["id"] for r in result.get("results", []) if "id" in r]
         memory_id = ids[0] if ids else ""
         logger.debug(f"Memory written [{category}]: {content[:60]}...")
@@ -351,7 +368,17 @@ class LongTermMemory:
         if not formatted:
             return
         async with self._write_lock:
-            await self._mem.add(messages=formatted, user_id=_AGENT_USER_ID)
+            if self._autonomy is None:
+                await self._mem.add(messages=formatted, user_id=_AGENT_USER_ID)
+            else:
+                async def add_batch() -> None:
+                    async with self._autonomy.model_call(AutonomyScope.MEM0):
+                        await self._mem.add(messages=formatted, user_id=_AGENT_USER_ID)
+
+                await self._autonomy.retry_when_allowed(
+                    AutonomyScope.MEM0,
+                    add_batch,
+                )
         logger.debug(f"Conversation batch ({len(formatted)} msgs) added to mem0")
 
     async def _read_memory(self, memory_id: str) -> dict | None:

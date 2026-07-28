@@ -2,16 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import json
+import os
 import secrets
 import shutil
+import sqlite3
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
+from coworker.i18n import tr
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _PDF_EXTS = {".pdf"}
@@ -54,16 +61,27 @@ def _guess_media_type(suffix: str) -> str:
 
 
 class InboxWatcher:
-    def __init__(self, inbox_dir: str, poll_interval: float = 2.0) -> None:
+    def __init__(
+        self,
+        inbox_dir: str,
+        poll_interval: float = 2.0,
+        pending_path: str | Path | None = None,
+    ) -> None:
         self._inbox = Path(inbox_dir)
         self._processed = self._inbox / "processed"
         self._attachments = self._inbox.parent / "attachments"
         self._poll_interval = poll_interval
-        self._queue: asyncio.Queue[IncomingEvent] = asyncio.Queue()
+        self._pending: list[IncomingEvent] = []
+        self._pending_ids: set[str] = set()
+        self._wake_counts: Counter[AutonomyLevel] = Counter()
         self._running = False
         self._message_event = asyncio.Event()
         self._stop_event = asyncio.Event()
         self._interceptors: list[Callable[[IncomingEvent], bool]] = []
+        self._pending_path = Path(pending_path) if pending_path is not None else None
+        self._pending_db: sqlite3.Connection | None = None
+        self._initialize_pending_store()
+        self._load_pending()
 
     def set_interceptor(self, interceptor: Callable[[IncomingEvent], bool] | None) -> None:
         """Replace all inbound interceptors (backwards-compatible single-hook API)."""
@@ -90,40 +108,205 @@ class InboxWatcher:
         self._poll_interval = value
 
     async def push(self, event: IncomingEvent) -> str:
-        event_id = secrets.token_hex(8)
+        event_id = event.event_id or secrets.token_hex(8)
         event.event_id = event_id
         for interceptor in self._interceptors:
             if interceptor(event):
                 return event_id
-        await self._queue.put(event)
+        if event_id in self._pending_ids:
+            return event_id
+        if not self._persist_event(event):
+            return event_id
+        self._pending.append(event)
+        self._pending_ids.add(event_id)
+        if event.wake_level is not None:
+            self._wake_counts[event.wake_level] += 1
         self._message_event.set()
         return event_id
 
     def cancel(self, event_id: str) -> None:
         """直接从队列中移除对应事件；事件不在队列中则静默忽略。"""
-        remaining: list[IncomingEvent] = []
-        while not self._queue.empty():
-            try:
-                e = self._queue.get_nowait()
-                if e.event_id != event_id:
-                    remaining.append(e)
-            except asyncio.QueueEmpty:
-                break
-        for e in remaining:
-            self._queue.put_nowait(e)
-        if self._queue.empty():
+        self._delete_events([event_id])
+        if not self._pending:
+            self._message_event.clear()
+
+    async def peek_pending(self, limit: int | None = None) -> list[IncomingEvent]:
+        events = self._pending if limit is None else self._pending[:limit]
+        return list(events)
+
+    async def acknowledge(self, event_ids: list[str]) -> None:
+        self._delete_events(event_ids)
+        if not self._pending:
             self._message_event.clear()
 
     async def get_pending(self) -> list[IncomingEvent]:
-        events: list[IncomingEvent] = []
-        while not self._queue.empty():
-            try:
-                events.append(self._queue.get_nowait())
-            except asyncio.QueueEmpty:
-                break
-        if self._queue.empty():
-            self._message_event.clear()
+        """Compatibility helper for consumers that intentionally drain the queue."""
+        events = await self.peek_pending()
+        await self.acknowledge(
+            [event.event_id for event in events if event.event_id is not None]
+        )
         return events
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
+
+    def pending_events(self) -> list[IncomingEvent]:
+        return list(self._pending)
+
+    def pending_wake_levels(self) -> set[AutonomyLevel]:
+        return {level for level, count in self._wake_counts.items() if count > 0}
+
+    def has_source(self, source: str) -> bool:
+        return any(event.source == source for event in self.pending_events())
+
+    def acknowledge_non_wakeable(self) -> None:
+        self._message_event.clear()
+
+    def _initialize_pending_store(self) -> None:
+        path = self._pending_path
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            descriptor = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
+            os.close(descriptor)
+        connection = sqlite3.connect(path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_events (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS invalid_pending_events (
+                sequence INTEGER,
+                event_id TEXT,
+                payload TEXT NOT NULL,
+                error TEXT NOT NULL,
+                quarantined_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+        self._pending_db = connection
+        self._secure_store_files()
+
+    def _load_pending(self) -> None:
+        connection = self._pending_db
+        if connection is None:
+            return
+        invalid: list[tuple[int, str, str, str]] = []
+        try:
+            rows = connection.execute(
+                "SELECT sequence, event_id, payload FROM pending_events ORDER BY sequence"
+            ).fetchall()
+            for sequence, event_id, payload in rows:
+                try:
+                    item = json.loads(payload)
+                    if not isinstance(item, dict):
+                        raise ValueError("pending event payload must be a JSON object")
+                    event = IncomingEvent.from_dict(item)
+                    event.event_id = str(event_id)
+                    self._pending.append(event)
+                    self._pending_ids.add(str(event_id))
+                    if event.wake_level is not None:
+                        self._wake_counts[event.wake_level] += 1
+                except Exception as error:
+                    invalid.append((int(sequence), str(event_id), str(payload), str(error)))
+            if invalid:
+                with connection:
+                    connection.executemany(
+                        """
+                        INSERT INTO invalid_pending_events
+                            (sequence, event_id, payload, error, quarantined_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (*item, datetime.now().isoformat())
+                            for item in invalid
+                        ],
+                    )
+                    connection.executemany(
+                        "DELETE FROM pending_events WHERE sequence = ?",
+                        [(item[0],) for item in invalid],
+                    )
+                logger.warning(
+                    tr(
+                        "pending_events.quarantined",
+                        count=len(invalid),
+                        path=self._pending_path,
+                    )
+                )
+            if self._pending:
+                self._message_event.set()
+        except Exception as error:
+            message = tr(
+                "pending_events.load_failed",
+                path=self._pending_path,
+                error=error,
+            )
+            logger.error(message)
+            raise RuntimeError(message) from error
+
+    def _persist_event(self, event: IncomingEvent) -> bool:
+        connection = self._pending_db
+        if connection is None:
+            return True
+        payload = json.dumps(
+            event.to_dict(include_attachment_data=False),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        with connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO pending_events (event_id, payload) VALUES (?, ?)",
+                (event.event_id, payload),
+            )
+        self._secure_store_files()
+        return cursor.rowcount > 0
+
+    def _delete_events(self, event_ids: list[str]) -> None:
+        if not event_ids:
+            return
+        targets = set(event_ids)
+        connection = self._pending_db
+        if connection is not None:
+            with connection:
+                connection.executemany(
+                    "DELETE FROM pending_events WHERE event_id = ?",
+                    [(event_id,) for event_id in targets],
+                )
+            self._secure_store_files()
+        for event in self._pending:
+            if event.event_id in targets and event.wake_level is not None:
+                self._wake_counts[event.wake_level] -= 1
+                if self._wake_counts[event.wake_level] <= 0:
+                    del self._wake_counts[event.wake_level]
+        self._pending = [
+            event for event in self._pending if event.event_id not in targets
+        ]
+        self._pending_ids.difference_update(targets)
+
+    def _secure_store_files(self) -> None:
+        path = self._pending_path
+        if path is None or os.name == "nt":
+            return
+        for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+            if candidate.exists():
+                candidate.chmod(0o600)
+
+    @staticmethod
+    def _file_event_id(path: Path) -> str:
+        stat = path.stat()
+        identity = f"{path.name}\0{stat.st_size}\0{stat.st_mtime_ns}".encode()
+        return f"file:{hashlib.sha256(identity).hexdigest()}"
 
     async def start(self) -> None:
         self._inbox.mkdir(parents=True, exist_ok=True)
@@ -171,6 +354,7 @@ class InboxWatcher:
             content=content,
             timestamp=datetime.now(),
             source="file",
+            event_id=self._file_event_id(path),
         )
         await self.push(event)
         dest = self._processed / path.name
@@ -181,12 +365,12 @@ class InboxWatcher:
         sender_id = self._extract_sender(path.stem)
         suffix = path.suffix.lower()
         media_type = _guess_media_type(suffix)
+        event_id = self._file_event_id(path)
         raw = path.read_bytes()
         data_b64 = base64.b64encode(raw).decode("ascii")
 
         dest = self._attachments / f"{new_compact_id()}_{path.name}"
         shutil.copy2(path, dest)
-        path.unlink(missing_ok=True)
 
         att = AttachmentData(
             filename=path.name,
@@ -200,19 +384,20 @@ class InboxWatcher:
             timestamp=datetime.now(),
             source="file",
             attachments=[att],
+            event_id=event_id,
         )
-        await self._queue.put(event)
-        self._message_event.set()
+        await self.push(event)
+        path.unlink(missing_ok=True)
         logger.debug(f"Inbox: received attachment {path.name} from {sender_id}")
 
     async def _process_other_attachment(self, path: Path) -> None:
         sender_id = self._extract_sender(path.stem)
         suffix = path.suffix.lower()
         media_type = _guess_media_type(suffix)
+        event_id = self._file_event_id(path)
 
         dest = self._attachments / f"{new_compact_id()}_{path.name}"
         shutil.copy2(path, dest)
-        path.unlink(missing_ok=True)
 
         att = AttachmentData(
             filename=path.name,
@@ -226,9 +411,10 @@ class InboxWatcher:
             timestamp=datetime.now(),
             source="file",
             attachments=[att],
+            event_id=event_id,
         )
-        await self._queue.put(event)
-        self._message_event.set()
+        await self.push(event)
+        path.unlink(missing_ok=True)
         logger.debug(f"Inbox: received file attachment {path.name} from {sender_id}")
 
     @staticmethod

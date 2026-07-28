@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
@@ -44,7 +45,7 @@ class SleepTool(Tool):
         label: str = "",
     ) -> None:
         self._inbox = inbox_watcher
-        # 主循环传入 config 以判断 passive_mode；fork（bubble 子任务）为 None。
+        # 主循环传入 config 以判断是否允许无限等待；fork（bubble 子任务）为 None。
         self._config = config
         self._label = label
 
@@ -53,10 +54,12 @@ class SleepTool(Tool):
 
     @property
     def definition(self) -> ToolDefinition:
-        # 介绍只说明「当前模式下」怎么用：passive 下才提到 sleep(0) 无限等待，
-        # active 下只讲 sleep(N)。两版都不出现 passive/active 字眼。
-        passive = self._config is not None and self._config.agent.passive_mode
-        if passive:
+        # L0-L2 没有空闲自唤醒，sleep(0) 可显式等待事件；L3 只提供定时 sleep。
+        indefinite_allowed = (
+            self._config is not None
+            and self._config.agent.autonomy_level is not AutonomyLevel.AUTONOMOUS
+        )
+        if indefinite_allowed:
             description = (
                 "进入低功耗模式休眠，保持 WebSocket 连接。传 seconds>0 时休眠指定秒数"
                 "（收到新消息会提前唤醒）；传 0 表示休眠直到下一次外部信息唤醒"
@@ -88,24 +91,25 @@ class SleepTool(Tool):
     async def execute(self, seconds: int = 30, **_) -> ToolResult:
         prefix = f"[{self._label}] " if self._label else ""
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # sleep(0) 的「无限等待外部事件」是 passive 模式专属能力；非 passive 下 0 即字面 0 秒。
         indefinite = seconds <= 0
-        passive = self._config is not None and self._config.agent.passive_mode
-        if indefinite and not passive:
-            logger.info(f"{prefix}sleep(0) ignored (not in passive mode)")
+        indefinite_allowed = (
+            self._config is not None
+            and self._config.agent.autonomy_level is not AutonomyLevel.AUTONOMOUS
+        )
+        if indefinite and not indefinite_allowed:
+            logger.info(tr("autonomy.sleep_zero_ignored", prefix=prefix))
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.system.sleep_zero", time=now_str),
             )
         woken_by_event = False
         if indefinite:
-            # 走到这里一定是 passive 模式；主循环下 inbox 存在
             if self._inbox is not None:
                 logger.info(f"{prefix}Sleeping until next external event")
                 await self._inbox.message_event.wait()
                 woken_by_event = True
             else:
-                logger.info(f"{prefix}sleep(0) with passive but no inbox; returning immediately")
+                logger.info(tr("autonomy.sleep_zero_no_inbox", prefix=prefix))
         elif self._inbox is not None:
             logger.info(f"{prefix}Entering sleep mode for {seconds}s")
             try:

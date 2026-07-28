@@ -12,6 +12,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from coworker.channels.inbound import InboundEnvelope
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
@@ -347,7 +348,12 @@ async def backfill_tree(payload: BackfillTreePayload):
                 stm.backfill_progress["running"] = False
             if _inbox is not None:
                 await _inbox.push(
-                    IncomingEvent(participant_id="system", content=msg, source="system")
+                    IncomingEvent(
+                        participant_id="system",
+                        content=msg,
+                        source="system",
+                        wake_level=AutonomyLevel.EVENT_DRIVEN,
+                    )
                 )
 
     task = asyncio.create_task(_run())
@@ -421,6 +427,7 @@ async def get_profile():
                     days=_PROFILE_README_INTERVAL.days,
                 ),
                 source="system",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
         )
         _profile_readme_last_reminded_at = now
@@ -532,6 +539,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
                         summary=summary,
                     ),
                     source="system",
+                    wake_level=AutonomyLevel.EVENT_DRIVEN,
                 )
             )
         return {
@@ -550,6 +558,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
                 participant_id="system",
                 content=tr("notification.backup_full", name=name, count=len(stm.primary)),
                 source="system",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
         )
     return {

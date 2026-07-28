@@ -40,6 +40,7 @@ from coworker.channels.weixin import (
     WeixinModule,
     create_weixin_module,
 )
+from coworker.core.autonomy import AutonomyController, AutonomyLevel
 from coworker.core.config import (
     Config,
     LLMConfig,
@@ -443,6 +444,10 @@ async def _main() -> bool:
     _setup_logging(config.agent.logs_dir)
     ensure_admin_token(config)
     logger.info("Starting coworker")
+    autonomy = AutonomyController(
+        config.agent.autonomy_level,
+        config.agent.autonomy_thresholds,
+    )
     brain = Brain(
         config.llm.default_provider,
         config.llm.default_model,
@@ -455,6 +460,7 @@ async def _main() -> bool:
         vision_provider=config.llm.vision_provider,
         vision_model=config.llm.vision_model,
         vision_thinking=config.llm.vision_thinking,
+        autonomy=autonomy,
     )
     _register_providers(brain, config)
     await _validate_model_runtime_config(brain, config)
@@ -476,6 +482,7 @@ async def _main() -> bool:
         db_path=config.memory.db_path,
         llm=_build_memory_llm_config(config),
         embedder_model=config.memory.mem0_embedder_model,
+        autonomy=autonomy,
     )
     if setup_required:
         Path(config.memory.db_path).mkdir(parents=True, exist_ok=True)
@@ -539,6 +546,7 @@ async def _main() -> bool:
 
     stm_kwargs = _build_stm_kwargs(config, log_store)
 
+    restart_continuation = False
     if is_restart:
         short_term = ShortTermMemory.load_from_file(snapshot_path, **stm_kwargs)
 
@@ -564,7 +572,7 @@ async def _main() -> bool:
                     )
                 ),
             )
-            _append_recovered_tool_result(
+            restart_continuation = _append_recovered_tool_result(
                 short_term,
                 interaction_log,
                 tool_name="restart_self",
@@ -572,14 +580,21 @@ async def _main() -> bool:
             )
 
         sleep_content = tr("startup.sleep_interrupted", time=now_str)
-        _append_recovered_tool_result(
-            short_term,
-            interaction_log,
-            tool_name="sleep",
-            content=sleep_content,
+        restart_continuation = (
+            _append_recovered_tool_result(
+                short_term,
+                interaction_log,
+                tool_name="sleep",
+                content=sleep_content,
+            )
+            or restart_continuation
         )
 
         removed = short_term.cleanup_incomplete_tool_calls()
+        if short_term.primary and short_term.primary[-1].role == "tool":
+            # A successfully persisted first tool round may already have
+            # acknowledged its inbox event. Resume the remaining chain at L2.
+            restart_continuation = True
         logger.info(
             f"Restored short-term memory: {len(short_term.primary)} messages"
             + (f" (cleaned {removed} dangling)" if removed else "")
@@ -607,9 +622,6 @@ async def _main() -> bool:
             logger.warning(
                 f"Could not restore previous model ({short_term.active_provider}/{short_term.active_model}): {e}"
             )
-
-    if is_restart:
-        short_term.schedule_tree_rebalance_if_needed(brain, snapshot_path=snapshot_path)
 
     identity = Identity(config.agent.identity_dir)
     identity.load()
@@ -669,7 +681,11 @@ async def _main() -> bool:
         )
     )
 
-    inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
+    inbox_watcher = InboxWatcher(
+        config.agent.inbox_dir,
+        config.agent.inbox_poll_interval,
+        pending_path=Path(config.memory.db_path) / "pending_events.sqlite3",
+    )
 
     channel_system = create_channel_system(
         config.agent.outbox_dir,
@@ -851,23 +867,7 @@ async def _main() -> bool:
         inbox_watcher.add_interceptor(BubbleMessageRouter(bubble_store))
     registry.register(ClearShortTermMemoryTool(short_term, brain, subconscious))
 
-    if not setup_required and is_restart:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        restart_msg = tr("startup.system_restarted", time=now_str)
-        if restored_alarms:
-            restart_msg += tr("startup.alarms_restored", count=restored_alarms)
-        if env_diff:
-            restart_msg += tr("startup.environment_fragment", changes=env_diff)
-        if locale_diff:
-            restart_msg += tr("startup.environment_fragment", changes=locale_diff)
-        await inbox_watcher.push(
-            IncomingEvent(
-                participant_id="system",
-                content=restart_msg,
-                source="system",
-            )
-        )
-    elif not setup_required and (env_diff or locale_diff):
+    if not setup_required and (env_diff or locale_diff):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         await inbox_watcher.push(
             IncomingEvent(
@@ -880,6 +880,7 @@ async def _main() -> bool:
                     ),
                 ),
                 source="system",
+                wake_level=None,
             )
         )
 
@@ -899,6 +900,11 @@ async def _main() -> bool:
         bubble_store=bubble_store,
         subconscious=subconscious,
         recent_activity=recent_activity,
+        autonomy=autonomy,
+        continuation_trigger=(
+            AutonomyLevel.EVENT_DRIVEN if restart_continuation else None
+        ),
+        rebalance_on_activation=is_restart,
     )
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)

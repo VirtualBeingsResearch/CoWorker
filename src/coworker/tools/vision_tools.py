@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from loguru import logger
 from PIL import Image
 
+from coworker.core.autonomy import AutonomyController, AutonomyLevel, AutonomyScope
 from coworker.core.tool_scope import ToolScope
 from coworker.core.types import IncomingEvent, Message, ToolResult
 from coworker.i18n import capture_locale, locale_context, tr
@@ -400,12 +401,23 @@ class VisualAnalysisTool(Tool):
                             content=[media_block, {"type": "text", "text": prompt}],
                         )
                     ]
-                    answer = await self._brain.query_with_vision(
-                        messages,
-                        vision_provider=vision_provider,
-                        vision_model=vision_model,
-                        usage_context={"label": filename},
-                        require_video=is_video,
+                    async def query_vision() -> str:
+                        return await self._brain.query_with_vision(
+                            messages,
+                            vision_provider=vision_provider,
+                            vision_model=vision_model,
+                            usage_context={"label": filename},
+                            require_video=is_video,
+                        )
+
+                    autonomy = self._brain.autonomy
+                    answer = (
+                        await autonomy.retry_when_allowed(
+                            AutonomyScope.VISION,
+                            query_vision,
+                        )
+                        if isinstance(autonomy, AutonomyController)
+                        else await query_vision()
                     )
                     content = tr(
                         "vision.analysis_result",
@@ -418,7 +430,12 @@ class VisualAnalysisTool(Tool):
                     logger.error(f"VisualAnalysisTool background task failed: {e}")
                     content = tr("vision.analysis_failed", kind=kind, path=media_path, error=e)
                 await inbox.push(
-                    IncomingEvent(participant_id="system", content=content, source="system")
+                    IncomingEvent(
+                        participant_id="system",
+                        content=content,
+                        source="system",
+                        wake_level=AutonomyLevel.EVENT_DRIVEN,
+                    )
                 )
 
         task = asyncio.create_task(_run())

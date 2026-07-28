@@ -59,7 +59,7 @@ regex_error = "正则表达式错误: {{error}}"
 [tool_result.system]
 sleep_zero = "sleep(0) 不会进入等待。请用 sleep(N) 指定休眠秒数。当前时间 {{time}}。"
 sleep_woken = "收到新消息，提前结束休眠。当前时间 {{time}}。"
-sleep_no_channel = "结束被动等待（无外部信道，立即返回）。当前时间 {{time}}。"
+sleep_no_channel = "结束持续等待（无外部信道，立即返回）。当前时间 {{time}}。"
 slept = "Slept for {{seconds}}s, resuming. 当前时间 {{time}}。"
 context = '''当前时间：{{time}}
 运行周期：{{cycles}}

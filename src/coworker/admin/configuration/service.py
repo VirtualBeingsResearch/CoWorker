@@ -47,7 +47,8 @@ SECRET_PATHS = {
 HOT_CONFIG_PATHS = {
     "llm.max_tokens",
     "agent.idle_sleep_seconds",
-    "agent.passive_mode",
+    "agent.autonomy_level",
+    "agent.autonomy_thresholds",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
     "memory.auto_recall_enabled",
@@ -435,10 +436,30 @@ class AdminConfigService:
         changed_paths: set[str],
         applied: list[str],
     ) -> None:
-        scalar_paths = changed_paths & HOT_CONFIG_PATHS - {"llm.max_tokens"}
+        autonomy_thresholds_changed = any(
+            path.startswith("agent.autonomy_thresholds.") for path in changed_paths
+        )
+        if autonomy_thresholds_changed:
+            current = self._dependencies.config
+            current.agent.autonomy_thresholds = desired.agent.autonomy_thresholds.model_copy(
+                deep=True
+            )
+            autonomy = getattr(self._dependencies.agent, "_autonomy", None)
+            if autonomy is not None:
+                autonomy.update(thresholds=desired.agent.autonomy_thresholds)
+            applied.append("agent.autonomy_thresholds")
+
+        scalar_paths = changed_paths & HOT_CONFIG_PATHS - {
+            "llm.max_tokens",
+            "agent.autonomy_thresholds",
+        }
         for path in sorted(scalar_paths):
             _assign_config_path(self._dependencies.config, path, desired)
             applied.append(path)
+            if path == "agent.autonomy_level":
+                autonomy = getattr(self._dependencies.agent, "_autonomy", None)
+                if autonomy is not None:
+                    autonomy.update(level=desired.agent.autonomy_level)
             if path == "agent.bubble_max_concurrent":
                 store = getattr(self._dependencies.agent, "_bubble_store", None)
                 if store is not None:
@@ -475,6 +496,7 @@ class AdminConfigService:
             path
             for path in changed_paths
             if path not in HOT_CONFIG_PATHS
+            and not path.startswith("agent.autonomy_thresholds.")
             and not _is_desktop_hot(path)
             and not path.startswith("llm.managed_providers")
             and not path.startswith(channel_prefixes)

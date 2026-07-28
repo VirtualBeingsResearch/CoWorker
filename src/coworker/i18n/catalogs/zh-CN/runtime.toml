@@ -18,6 +18,10 @@ video_attachment = "视频附件"
 attachment = "附件"
 saved_attachment = "[{{kind}}: {{filename}} — 已保存至 {{path}}，可使用工具读取]"
 
+[pending_events]
+quarantined = "已将 {{path}} 中 {{count}} 个无效待处理事件移入隔离区"
+load_failed = "待处理事件存储 {{path}} 加载失败：{{error}}"
+
 [brain.summary]
 image = "图片"
 file = "文件"
@@ -385,3 +389,12 @@ sleep_interrupted = "睡眠被系统重启中断。当前时间：{{time}}。"
 system_restarted = "系统已重启。当前时间：{{time}}。"
 alarms_restored = "已恢复 {{count}} 个待触发闹钟。"
 system_started = "系统启动。当前时间：{{time}}。{{environment}}。"
+
+[autonomy]
+blocked = "当前主动性等级 {{current}} 不允许 {{scope}} 模型调用；需要达到 {{required}}。"
+cycle_paused = "主动性策略已暂停本轮运行：{{error}}"
+waiting = "搭档正在等待符合主动性策略的事件"
+rest_ended = "事件到达或主动性策略变更，搭档结束休息"
+sleep_zero_ignored = "{{prefix}}当前主动性等级不允许 sleep(0)，已忽略"
+sleep_zero_no_inbox = "{{prefix}}sleep(0) 没有可等待的收件箱，立即返回"
+legacy_passive_invalid = "管理配置 agent.passive_mode 必须是有效布尔值"

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from coworker.agent.bubble_handoff import (
     BubbleHandoffMatcher,
 )
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.types import ToolResult
 from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -48,6 +49,7 @@ def _create_bubble_brain(
         vision_provider=parent_brain.vision_provider_name,
         vision_model=parent_brain.vision_model,
         vision_thinking=parent_brain.vision_thinking,
+        autonomy=parent_brain.autonomy,
     )
     for provider_obj in parent_brain._providers.values():
         bubble_brain.register_provider(provider_obj)
@@ -706,6 +708,7 @@ class BubbleSendTool(Tool):
                     participant_id="system",
                     content=tr("tool_result.bubble.from_main", message=message),
                     source="system",
+                    wake_level=AutonomyLevel.EVENT_DRIVEN,
                 )
             )
             return ToolResult(tool_call_id="", content=tr("tool_result.bubble.pushed_main"))

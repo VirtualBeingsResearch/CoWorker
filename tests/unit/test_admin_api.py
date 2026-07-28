@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +12,7 @@ from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
 from coworker.channels.module import ChannelModuleRegistry
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.config import (
     Config,
     apply_admin_config_file,
@@ -509,6 +510,44 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_config_patch_hot_applies_autonomy_level_and_thresholds(tmp_path):
+    client, config = _client(tmp_path)
+    autonomy = MagicMock()
+    admin._agent._autonomy = autonomy
+    headers = {"Authorization": "Bearer secret"}
+
+    level = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"agent": {"autonomy_level": "reactive"}}},
+    )
+    thresholds = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "agent": {
+                    "autonomy_thresholds": {
+                        **config.agent.autonomy_thresholds.model_dump(mode="json"),
+                        "bubble": "event_driven",
+                    }
+                }
+            }
+        },
+    )
+
+    assert level.status_code == 200
+    assert level.json()["applied_now"] == ["agent.autonomy_level"]
+    assert thresholds.status_code == 200
+    assert thresholds.json()["applied_now"] == ["agent.autonomy_thresholds"]
+    assert config.agent.autonomy_level is AutonomyLevel.REACTIVE
+    assert config.agent.autonomy_thresholds.bubble is AutonomyLevel.EVENT_DRIVEN
+    assert autonomy.update.call_args_list == [
+        call(level=AutonomyLevel.REACTIVE),
+        call(thresholds=config.agent.autonomy_thresholds),
+    ]
+
+
 def test_config_patch_persists_only_changed_fields(tmp_path):
     client, _ = _client(tmp_path)
 
@@ -611,7 +650,7 @@ def test_config_response_identifies_overridden_fields(tmp_path):
     )
 
     assert response.json()["overridden_fields"] == [
-        "agent.passive_mode",
+        "agent.autonomy_level",
         "api.port",
     ]
 
@@ -932,6 +971,48 @@ def test_startup_normalization_migrates_old_default_snapshot(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("passive_mode", "expected"),
+    [
+        (True, {"agent": {"autonomy_level": "event_driven"}}),
+        ("true", {"agent": {"autonomy_level": "event_driven"}}),
+        ("1", {"agent": {"autonomy_level": "event_driven"}}),
+        (False, {}),
+        ("false", {}),
+        ("0", {}),
+        ("off", {}),
+    ],
+)
+def test_startup_normalization_migrates_passive_mode(
+    tmp_path,
+    passive_mode,
+    expected,
+):
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"agent": {"passive_mode": passive_mode}}),
+        encoding="utf-8",
+    )
+    inherited = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    migrated = normalize_admin_overrides_file(inherited)
+
+    assert migrated is True
+    assert json.loads(path.read_text(encoding="utf-8")) == expected
+
+
+def test_startup_normalization_rejects_invalid_passive_mode(tmp_path):
+    path = tmp_path / "admin_config.json"
+    original = {"agent": {"passive_mode": "sometimes"}}
+    path.write_text(json.dumps(original), encoding="utf-8")
+    inherited = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    with pytest.raises(ValueError, match=r"agent\.passive_mode"):
+        normalize_admin_overrides_file(inherited)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == original
+
+
 def test_startup_normalization_preserves_explicit_empty_list(tmp_path):
     path = tmp_path / "admin_config.json"
     overrides = {
@@ -1045,7 +1126,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert status.json()["defaults"] == {
         "locale": "zh-CN",
         "max_tokens": 8192,
-        "passive_mode": False,
+        "autonomy_level": "autonomous",
     }
     assert {item["type"] for item in status.json()["providers"]} >= {"openai", "deepseek"}
 
@@ -1060,7 +1141,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
             "coworker_name": "Nova",
             "locale": "en",
             "max_tokens": 4096,
-            "passive_mode": True,
+            "autonomy_level": "event_driven",
         },
     )
 
@@ -1072,7 +1153,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["llm"]["managed_providers"][0]["api_key"] == "sk-first-run"
     assert saved["memory"]["mem0_llm_provider"] == "openai"
     assert saved["i18n"]["locale"] == "en"
-    assert saved["agent"]["passive_mode"] is True
+    assert saved["agent"]["autonomy_level"] == "event_driven"
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"
     intent = json.loads(
         (tmp_path / "memory" / "startup_intent.json").read_text(encoding="utf-8")
@@ -1222,7 +1303,7 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
 
 def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
-    config.agent.passive_mode = True
+    config.agent.autonomy_level = AutonomyLevel.EVENT_DRIVEN
     config.agent.idle_sleep_seconds = 0
     short_term = ShortTermMemory(max_tokens=12_345)
     agent = SimpleNamespace(
@@ -1247,7 +1328,10 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     response = client.get("/api/admin/overview", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 200
     assert response.json()["memory"]["max_tokens"] == 12_345
-    assert response.json()["status"]["passive_mode"] is True
+    assert response.json()["status"]["autonomy_level"] == "event_driven"
+    assert response.json()["status"]["autonomy_state"] == "active"
+    assert response.json()["status"]["autonomy_thresholds"]["main"] == "reactive"
+    assert response.json()["status"]["pending_events"] == 0
     assert response.json()["status"]["idle_sleep_seconds"] == 0
 
 

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
 
 from coworker.brain.brain import Brain
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyThresholds,
+)
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from tests.conftest import MockProvider
@@ -144,6 +151,30 @@ class TestBrain:
             assert call_count == 3
         finally:
             asyncio.sleep = original_sleep
+
+    @pytest.mark.asyncio
+    async def test_retry_observes_a_new_silent_level(self, monkeypatch):
+        controller = AutonomyController(
+            AutonomyLevel.AUTONOMOUS,
+            AutonomyThresholds(),
+        )
+        call_count = 0
+
+        class LoweringProvider(MockProvider):
+            async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
+                nonlocal call_count
+                call_count += 1
+                controller.update(level=AutonomyLevel.SILENT)
+                raise RuntimeError("transient error")
+
+        brain = Brain("mock", "mock-model", autonomy=controller)
+        brain.register_provider(LoweringProvider())
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+        with pytest.raises(AutonomyBlockedError):
+            await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert call_count == 1
 
     @pytest.mark.asyncio
     async def test_summarize_calls_think(self):

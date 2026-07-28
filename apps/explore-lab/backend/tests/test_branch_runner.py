@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from coworker.agent.loop import AgentLoop
 from coworker.channels.system import create_channel_system
+from coworker.core.autonomy import AutonomyController, AutonomyLevel, AutonomyThresholds
 from coworker.core.types import AgentState, LLMResponse, ToolCall
 from fastapi.testclient import TestClient
 
@@ -49,7 +50,8 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     )
 
     inbox = MagicMock()
-    inbox.get_pending = AsyncMock(return_value=[])
+    inbox.peek_pending = AsyncMock(return_value=[])
+    inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock(return_value="event-id")
     inbox.message_event = asyncio.Event()  # _rest() 需要真的可 await 的 Event，不能用 MagicMock
 
@@ -60,7 +62,8 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
 
     config = MagicMock()
     config.agent.idle_sleep_seconds = 0
-    config.agent.passive_mode = False
+    config.agent.autonomy_level = AutonomyLevel.AUTONOMOUS
+    config.agent.autonomy_thresholds = AutonomyThresholds()
     config.agent.inbox_batch_max = 10
     config.agent.subconscious_thinking = False
     config.agent.subconscious_max_cycles = 5
@@ -96,8 +99,7 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     loop._config = config
     loop._ilog = None
     loop._snapshot_path = None
-    loop._stop_event = MagicMock()
-    loop._stop_event.is_set = MagicMock(return_value=False)
+    loop._stop_event = asyncio.Event()
     loop.state = state
     loop._task_store = None
     loop._task_reminder_interval = 10
@@ -106,6 +108,11 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     loop._last_task_reminder_time = 0.0
     loop._bubble_store = None
     loop._subconscious = None
+    loop._autonomy = AutonomyController(
+        config.agent.autonomy_level,
+        config.agent.autonomy_thresholds,
+    )
+    loop._continuation_trigger = None
     loop._last_compress_generation = mem.compress_generation
 
     return Runtime(
@@ -468,4 +475,3 @@ class TestSubconsciousToggle:
             resp = client.post("/subconscious/trigger", json={"mode": "audit"})
 
         assert resp.status_code == 503
-

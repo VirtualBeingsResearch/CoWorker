@@ -6,15 +6,23 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import coworker.agent.loop as loop_module
+from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.loop import AgentLoop
+from coworker.core.autonomy import AutonomyController, AutonomyLevel, AutonomyThresholds
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
+from coworker.i18n import tr
 from coworker.memory.short_term import ShortTermMemory
 
 
 def _make_loop(brain, mem, events=None):
     """Build a minimal AgentLoop-like namespace for _cycle() testing."""
     inbox = MagicMock()
-    inbox.get_pending = AsyncMock(return_value=events or [])
+    inbox.peek_pending = AsyncMock(
+        side_effect=lambda limit=None: list(events or [])[:limit]
+        if limit is not None
+        else list(events or [])
+    )
+    inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock()
     inbox.message_event = AsyncMock()
 
@@ -52,8 +60,7 @@ def _make_loop(brain, mem, events=None):
     loop._config = config
     loop._ilog = None
     loop._snapshot_path = None
-    loop._stop_event = MagicMock()
-    loop._stop_event.is_set = MagicMock(return_value=False)
+    loop._stop_event = asyncio.Event()
     loop.state = state
     loop._task_store = None
     loop._task_reminder_interval = 10
@@ -63,6 +70,11 @@ def _make_loop(brain, mem, events=None):
     loop._bubble_store = None
     loop._subconscious = None
     loop._recent_activity = None
+    loop._autonomy = AutonomyController(
+        AutonomyLevel.AUTONOMOUS,
+        AutonomyThresholds(),
+    )
+    loop._continuation_trigger = None
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     return loop
 
@@ -78,7 +90,7 @@ async def test_setup_mode_waits_without_consuming_inbox_or_calling_model():
     await loop._cycle()
 
     loop._rest.assert_awaited_once()
-    loop._inbox.get_pending.assert_not_awaited()
+    loop._inbox.peek_pending.assert_not_awaited()
     brain.think.assert_not_awaited()
 
 
@@ -209,21 +221,32 @@ async def test_assistant_response_appended_to_primary():
     assert asst_msgs[0].content == "my reply"
 
 
-def _make_rest_loop(*, passive: bool, idle_sleep_seconds: int = 0) -> AgentLoop:
+def _make_rest_loop(
+    *,
+    level: AutonomyLevel,
+    idle_sleep_seconds: int = 0,
+) -> AgentLoop:
     """构造仅满足 _rest() 依赖的最小 AgentLoop。"""
     loop = AgentLoop.__new__(AgentLoop)
     loop.state = MagicMock()
     loop.state.is_sleeping = False
     loop._config = MagicMock()
-    loop._config.agent.passive_mode = passive
     loop._config.agent.idle_sleep_seconds = idle_sleep_seconds
+    loop._autonomy = AutonomyController(
+        level,
+        AutonomyThresholds(),
+    )
+    loop._stop_event = asyncio.Event()
     return loop
 
 
 @pytest.mark.asyncio
-async def test_rest_passive_waits_for_event_without_timeout(monkeypatch):
-    """passive 模式：_rest() 无超时，等到 message_event 才返回。"""
-    loop = _make_rest_loop(passive=True, idle_sleep_seconds=999)
+async def test_rest_event_driven_waits_for_event_without_timeout(monkeypatch):
+    """L2：_rest() 无超时，等到 message_event 才返回。"""
+    loop = _make_rest_loop(
+        level=AutonomyLevel.EVENT_DRIVEN,
+        idle_sleep_seconds=999,
+    )
     event = asyncio.Event()
     loop._inbox = MagicMock()
     loop._inbox.message_event = event
@@ -240,15 +263,18 @@ async def test_rest_passive_waits_for_event_without_timeout(monkeypatch):
     assert loop.state.is_sleeping is False
     messages = [call.args[0] for call in log.info.call_args_list]
     assert messages == [
-        "Agent entering passive rest; waiting for an external event",
-        "Agent woke from passive rest after an external event",
+        tr("autonomy.waiting"),
+        tr("autonomy.rest_ended"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_rest_passive_does_not_idle_timeout():
-    """passive 模式：event 未 set 时 _rest() 不会因 idle_sleep_seconds 超时而返回。"""
-    loop = _make_rest_loop(passive=True, idle_sleep_seconds=0)  # 若走超时路径会立即返回
+async def test_rest_event_driven_does_not_idle_timeout():
+    """L2：event 未 set 时 _rest() 不会因 idle_sleep_seconds 超时而返回。"""
+    loop = _make_rest_loop(
+        level=AutonomyLevel.EVENT_DRIVEN,
+        idle_sleep_seconds=0,
+    )
     event = asyncio.Event()
     loop._inbox = MagicMock()
     loop._inbox.message_event = event
@@ -258,9 +284,12 @@ async def test_rest_passive_does_not_idle_timeout():
 
 
 @pytest.mark.asyncio
-async def test_rest_active_uses_idle_sleep_timeout(monkeypatch):
-    """active 模式：_rest() 走 idle_sleep_seconds 超时路径，idle_sleep=0 立即返回不挂起。"""
-    loop = _make_rest_loop(passive=False, idle_sleep_seconds=0)
+async def test_rest_autonomous_uses_idle_sleep_timeout(monkeypatch):
+    """L3：_rest() 走 idle_sleep_seconds 超时路径，idle_sleep=0 立即返回不挂起。"""
+    loop = _make_rest_loop(
+        level=AutonomyLevel.AUTONOMOUS,
+        idle_sleep_seconds=0,
+    )
     event = asyncio.Event()  # 不 set
     loop._inbox = MagicMock()
     loop._inbox.message_event = event
@@ -274,6 +303,70 @@ async def test_rest_active_uses_idle_sleep_timeout(monkeypatch):
         "Agent entering rest for 0s",
         "Agent rest timed out after 0s",
     ]
+
+
+@pytest.mark.asyncio
+async def test_reactive_level_buffers_alarm_until_direct_message(tmp_path):
+    loop = _make_rest_loop(level=AutonomyLevel.REACTIVE)
+    loop._continuation_trigger = None
+    loop._inbox = InboxWatcher(
+        tmp_path / "inbox",
+        pending_path=tmp_path / "pending.json",
+    )
+    await loop._inbox.push(
+        IncomingEvent(
+            participant_id="alarm",
+            content="alarm",
+            source="alarm",
+            wake_level=AutonomyLevel.EVENT_DRIVEN,
+        )
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(loop._wait_for_activation(), timeout=0.1)
+
+    await loop._inbox.push(IncomingEvent(participant_id="alice", content="hello"))
+    await asyncio.wait_for(loop._wait_for_activation(), timeout=1)
+
+    assert loop._continuation_trigger is AutonomyLevel.REACTIVE
+    assert [event.content for event in loop._inbox.pending_events()] == ["alarm", "hello"]
+
+
+@pytest.mark.asyncio
+async def test_event_driven_startup_waits_without_an_event(tmp_path):
+    loop = _make_rest_loop(level=AutonomyLevel.EVENT_DRIVEN)
+    loop._continuation_trigger = None
+    loop._inbox = InboxWatcher(tmp_path / "inbox")
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(loop._wait_for_activation(), timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_autonomous_startup_activates_immediately(tmp_path):
+    loop = _make_rest_loop(level=AutonomyLevel.AUTONOMOUS)
+    loop._continuation_trigger = None
+    loop._inbox = InboxWatcher(tmp_path / "inbox")
+
+    await asyncio.wait_for(loop._wait_for_activation(), timeout=0.1)
+
+    assert loop._continuation_trigger is AutonomyLevel.AUTONOMOUS
+
+
+@pytest.mark.asyncio
+async def test_silent_startup_buffers_a_direct_message(tmp_path):
+    loop = _make_rest_loop(level=AutonomyLevel.SILENT)
+    loop._continuation_trigger = None
+    loop._inbox = InboxWatcher(
+        tmp_path / "inbox",
+        pending_path=tmp_path / "pending.json",
+    )
+    await loop._inbox.push(IncomingEvent(participant_id="alice", content="hello"))
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(loop._wait_for_activation(), timeout=0.1)
+
+    assert loop._inbox.pending_count == 1
 
 
 @pytest.mark.asyncio
@@ -328,14 +421,21 @@ async def test_compress_not_called_when_event_received():
 
 
 @pytest.mark.asyncio
-async def test_extra_events_pushed_back():
+async def test_inbox_batch_is_peeked_without_requeueing_extras():
     mem = ShortTermMemory()
     brain = _make_brain()
     ev1 = IncomingEvent(participant_id="alice", content="first")
     ev2 = IncomingEvent(participant_id="bob", content="second")
 
     inbox = MagicMock()
-    inbox.get_pending = AsyncMock(return_value=[ev1, ev2])
+    ev1.event_id = "event-1"
+    ev2.event_id = "event-2"
+    inbox.peek_pending = AsyncMock(
+        side_effect=lambda limit=None: [ev1, ev2][:limit]
+        if limit is not None
+        else [ev1, ev2]
+    )
+    inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock()
     inbox.message_event = AsyncMock()
 
@@ -346,11 +446,54 @@ async def test_extra_events_pushed_back():
 
     await loop._cycle()
 
-    loop._inbox.push.assert_awaited_once_with(ev2)
+    loop._inbox.peek_pending.assert_awaited_once_with(1)
+    loop._inbox.acknowledge.assert_awaited_once_with(["event-1"])
+    loop._inbox.push.assert_not_awaited()
     # only first event's message in primary
     user_msgs = [m for m in mem.primary if m.role == "user"]
     assert len(user_msgs) == 1
     assert "alice" in user_msgs[0].content
+
+
+@pytest.mark.asyncio
+async def test_pending_event_is_acked_only_after_success_and_not_reinjected(tmp_path):
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    brain.think = AsyncMock(
+        side_effect=[
+            RuntimeError("provider interrupted"),
+            LLMResponse(
+                content="recovered",
+                tool_calls=[],
+                stop_reason="end_turn",
+                model="mock-model",
+                usage={},
+            ),
+        ]
+    )
+    inbox = InboxWatcher(
+        tmp_path / "inbox",
+        pending_path=tmp_path / "pending_events.sqlite3",
+    )
+    await inbox.push(IncomingEvent(participant_id="alice", content="do not lose me"))
+    loop = _make_loop(brain, mem)
+    loop._inbox = inbox
+    loop._snapshot_path = tmp_path / "snapshot.json"
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="provider interrupted"):
+        await loop._cycle()
+
+    assert inbox.pending_count == 1
+    restored = ShortTermMemory.load_from_file(loop._snapshot_path)
+    assert len(restored.primary) == 1
+    assert restored.primary[0].inbound_event_ids
+
+    await loop._cycle()
+
+    inbound = [message for message in mem.primary if message.inbound_event_ids]
+    assert len(inbound) == 1
+    assert inbox.pending_count == 0
 
 
 @pytest.mark.asyncio
@@ -453,7 +596,8 @@ async def test_same_user_events_batched_into_one_message():
     ev2 = IncomingEvent(participant_id="alice", content="第二条")
 
     inbox = MagicMock()
-    inbox.get_pending = AsyncMock(return_value=[ev1, ev2])
+    inbox.peek_pending = AsyncMock(return_value=[ev1, ev2])
+    inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock()
     inbox.message_event = AsyncMock()
 
@@ -486,7 +630,8 @@ async def test_mixed_users_batched_together():
     ev_alice2 = IncomingEvent(participant_id="alice", content="alice 第二")
 
     inbox = MagicMock()
-    inbox.get_pending = AsyncMock(return_value=[ev_alice1, ev_bob, ev_alice2])
+    inbox.peek_pending = AsyncMock(return_value=[ev_alice1, ev_bob, ev_alice2])
+    inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock()
     inbox.message_event = AsyncMock()
 
@@ -546,7 +691,7 @@ async def test_auto_recall_injects_and_deduplicates():
     # 第二轮：相同 ID 已在 primary，不应再注入
     brain2 = _make_brain()
     event2 = IncomingEvent(participant_id="alice", content="Python 再说一遍")
-    loop._inbox.get_pending = AsyncMock(return_value=[event2])
+    loop._inbox.peek_pending = AsyncMock(return_value=[event2])
     loop._brain = brain2
     loop._long_term.query = AsyncMock(return_value=[fake_memory])
 
@@ -593,7 +738,9 @@ async def test_recent_activity_auto_recall_injects_and_deduplicates():
 
     brain2 = _make_brain()
     loop._brain = brain2
-    loop._inbox.get_pending = AsyncMock(return_value=[IncomingEvent(participant_id="alice", content="部署结果 again")])
+    loop._inbox.peek_pending = AsyncMock(
+        return_value=[IncomingEvent(participant_id="alice", content="部署结果 again")]
+    )
     recent.query = AsyncMock(return_value=[
         {
             "id": "recent:7",

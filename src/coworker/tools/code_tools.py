@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal
 
 import psutil
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.types import IncomingEvent, ToolResult
 from coworker.i18n import (
     SupportedLocale,
@@ -379,6 +380,7 @@ class ExecuteCodeTool(Tool):
                 content="\n".join(lines),
                 timestamp=datetime.now(),
                 source="code_job",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
             job.notification_event_id = await target.push(event)
 

@@ -153,6 +153,28 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-8', openai: 'gpt-5.5', deepseek: 'deepseek-v4-pro',
   qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3',
 };
+type AutonomyLevel = 'silent' | 'reactive' | 'event_driven' | 'autonomous';
+const AUTONOMY_OPTIONS: Array<{ value: AutonomyLevel; label: string; description: string }> = [
+  { value: 'silent', label: 'L0 · 静默', description: '不发起模型调用，收到的事件会安全排队。' },
+  { value: 'reactive', label: 'L1 · 响应式', description: '只有用户或外部参与者的直接消息可以唤醒。' },
+  { value: 'event_driven', label: 'L2 · 事件驱动', description: '消息、闹钟及已委托任务的结果可以唤醒。' },
+  { value: 'autonomous', label: 'L3 · 自主', description: '允许空闲自唤醒、潜意识及自主探索。' },
+];
+const AUTONOMY_THRESHOLD_OPTIONS = AUTONOMY_OPTIONS.filter(option => option.value !== 'silent');
+const AUTONOMY_RANK: Record<AutonomyLevel, number> = {
+  silent: 0,
+  reactive: 1,
+  event_driven: 2,
+  autonomous: 3,
+};
+const AUTONOMY_SCOPE_LABELS: Record<string, string> = {
+  main: '主搭档',
+  bubble: 'Bubble',
+  subconscious: '潜意识',
+  summary: '摘要与压缩',
+  vision: '视觉分析',
+  mem0: '长期记忆提炼',
+};
 
 function preferredModelFor(providerType: string, models: string[]) {
   const preferred = PROVIDER_DEFAULT_MODELS[providerType];
@@ -171,7 +193,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [name, setName] = useState('');
   const [locale, setLocale] = useState(data.defaults?.locale === 'en' ? 'en' : 'zh-CN');
   const [maxTokens, setMaxTokens] = useState(String(data.defaults?.max_tokens || 8192));
-  const [passiveMode, setPassiveMode] = useState(Boolean(data.defaults?.passive_mode));
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(
+    (data.defaults?.autonomy_level || 'autonomous') as AutonomyLevel,
+  );
   const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string | null>(null);
@@ -246,7 +270,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     setSubmitting(true);
     setError('');
     try {
-      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model: normalizedModel, api_key: apiKey, base_url: baseUrl, coworker_name: name, locale, max_tokens: parsedMaxTokens, passive_mode: passiveMode, allow_unverified_model: customModel && allowUnverifiedModel }) });
+      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model: normalizedModel, api_key: apiKey, base_url: baseUrl, coworker_name: name, locale, max_tokens: parsedMaxTokens, autonomy_level: autonomyLevel, allow_unverified_model: customModel && allowUnverifiedModel }) });
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
       const waitUntilReady = async () => {
@@ -298,18 +322,17 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               </div>
               <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
               <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
-              <div className="bootstrap-mode wide" role="radiogroup" aria-label={t('启动模式')}>
-                <span>{t('启动模式')}</span>
-                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><b>{t('主动模式')}</b><small>{t('空闲后会周期性自我唤醒并继续观察。')}</small></button>
-                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><b>{t('Passive 模式')}</b><small>{t('空闲后只等待外部消息、闹钟或任务事件唤醒。')}</small></button>
-              </div>
+              <fieldset className="bootstrap-mode wide">
+                <legend>{t('主动性等级')}</legend>
+                {AUTONOMY_OPTIONS.map(option => <label className={autonomyLevel === option.value ? 'active' : ''} key={option.value}><input type="radio" name="autonomy-level" value={option.value} checked={autonomyLevel === option.value} onChange={() => setAutonomyLevel(option.value)} /><span><b>{t(option.label)}</b><small>{t(option.description)}</small></span></label>)}
+              </fieldset>
               <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
               <label className="wide"><span>{t('给 Coworker 起个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('之后也可以在身份档案中修改')} /></label>
             </div>
             {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : autonomyLevel === 'silent' ? '保存并启动服务' : '保存并唤醒')} <ChevronRight size={16} /></button>
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -344,12 +367,26 @@ function Loading({ error }: { error?: string }) {
 
 function runtimePresenceLabel(status: Json) {
   if (!status.is_running) return t('未运行');
-  if (status.is_sleeping) return t(status.passive_mode ? '等待事件' : '休息中');
-  return t(status.passive_mode ? '处理事件' : '正在运行');
+  if (status.autonomy_state === 'draining') return t('安全排空中');
+  if (status.is_sleeping) return t(status.autonomy_level === 'silent' ? '静默中' : '等待事件');
+  return t('正在运行');
+}
+
+function autonomyOption(level: unknown) {
+  return AUTONOMY_OPTIONS.find(option => option.value === level);
 }
 
 function runtimeWakePolicy(status: Json) {
-  if (status.passive_mode) return t('仅由外部事件唤醒');
+  if (status.autonomy_level === 'silent') return t('所有事件排队，不唤醒模型');
+  const level = status.autonomy_level as AutonomyLevel;
+  const mainThreshold = status.autonomy_thresholds?.main as AutonomyLevel | undefined;
+  if (mainThreshold && AUTONOMY_RANK[level] < AUTONOMY_RANK[mainThreshold]) {
+    return t('当前等级低于主搭档门槛 {{threshold}}，事件只排队', {
+      threshold: t(autonomyOption(mainThreshold)?.label || mainThreshold),
+    });
+  }
+  if (status.autonomy_level === 'reactive') return t('仅由直接消息唤醒');
+  if (status.autonomy_level === 'event_driven') return t('由消息、闹钟或任务结果唤醒');
   if (Number(status.idle_sleep_seconds) === 0) return t('无间隔持续运行');
   return t('每 {{seconds}} 秒自唤醒', { seconds: status.idle_sleep_seconds });
 }
@@ -363,6 +400,7 @@ function Overview({ name }: { name: string }) {
   const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
+  const autonomyLabel = t(autonomyOption(status.autonomy_level)?.label || String(status.autonomy_level));
   const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return <div className="page-stack">
     <section className={`presence-hero ${presenceState}`}>
@@ -371,8 +409,8 @@ function Overview({ name }: { name: string }) {
         <h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1>
         <div className="presence-readout">
           <div><span>{t('主线模型')}</span><strong>{status.provider}/{status.model}</strong></div>
-          <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
-          <div><span>{t('唤醒方式')}</span><strong>{wakePolicy}</strong></div>
+          <div><span>{t('当前主动性等级')}</span><strong>{autonomyLabel}</strong></div>
+          <div className="wake-policy"><span>{t('唤醒方式')}</span><strong title={wakePolicy}>{wakePolicy}</strong></div>
           <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
         </div>
       </div>
@@ -391,6 +429,7 @@ function Overview({ name }: { name: string }) {
         [t('长期记忆'), counts.long_term_memories, t('可语义检索'), Database],
         [t('短期上下文'), counts.short_term_messages, t('{{count}} 个树节点', { count: data.memory.tree_nodes }), MessagesSquare],
         [t('待触发闹钟'), counts.alarms, t('后台守候中'), AlarmClock],
+        [t('待处理事件'), status.pending_events || 0, t(status.pending_events ? '等待符合策略的唤醒' : '当前无积压'), MessagesSquare],
       ].map(([label, value, note, Icon]: any) => <article className="vital" key={label}><Icon size={18} /><span>{t(label)}</span><strong>{Number(value).toLocaleString()}</strong><small>{t(note)}</small></article>)}
     </div>
     <div className="two-col">
@@ -735,8 +774,9 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
   'i18n.locale': '模型与运行时语言',
-  'agent.passive_mode': 'Passive 模式',
-  'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.autonomy_level': '当前主动性等级',
+  'agent.autonomy_thresholds': '场景最低等级',
+  'agent.idle_sleep_seconds': 'L3 自主唤醒间隔（秒）',
   'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
   'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
   'api.communication_token': '桌面通信令牌',
@@ -808,7 +848,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('主动性策略')}</b><small>{t('当前等级决定哪些事件和模型场景可以运行；修改后立即生效。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -831,6 +871,8 @@ function Settings() {
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+        if (path === 'agent.autonomy_level') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path]} hint="降低等级会安全排空在途调用，并在下一次模型调用前暂停"><select value={String(value)} onChange={e => change(key, e.target.value)}>{AUTONOMY_OPTIONS.map(option => <option value={option.value} key={option.value}>{t(option.label)}</option>)}</select></Field>;
+        if (path === 'agent.autonomy_thresholds' && value && typeof value === 'object' && !Array.isArray(value)) return <div className="config-fields autonomy-thresholds" key={key}><div className="config-section-heading"><div><b>{t('场景最低等级')}</b><small>{t('场景门槛高于当前等级时，不会启动对应的新模型调用。已有 L0 门槛按“任意非静默等级”兼容显示。')}</small></div></div>{Object.entries(value as Json).map(([scope, threshold]) => <Field key={scope} hot={isHot(path)} label={AUTONOMY_SCOPE_LABELS[scope] || scope}><select value={String(threshold)} onChange={e => change(key, { ...(value as Json), [scope]: e.target.value })}>{threshold === 'silent' && <option value="silent">{t('兼容值 · 任意非静默等级')}</option>}{AUTONOMY_THRESHOLD_OPTIONS.map(option => <option value={option.value} key={option.value}>{t(option.label)}</option>)}</select></Field>)}</div>;
         if (path === 'agent.bubble_handoff_transparency_participant_matches') return <Fragment key={key}>
           <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>
           <StringListEditor label={CONFIG_LABELS[path]} hint="支持完整 participant_id 和 glob（例如 weixin:*）。留空表示不按 participant 匹配。" value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} placeholder="weixin:*" />
@@ -852,9 +894,9 @@ function Settings() {
           const hint = path === 'llm.max_tokens'
             ? '模型单次响应允许生成的最大 token 数'
             : path === 'agent.idle_sleep_seconds'
-              ? draft.agent.passive_mode
-                ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
-                : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
+              ? draft.agent.autonomy_level !== 'autonomous'
+                ? 'L0–L2 忽略此间隔；只有 L3 会按间隔自主唤醒。'
+                : 'L3 自主等级空闲后多久自行唤醒；0 表示立即进入下一轮。'
               : undefined;
           const minimum = path === 'llm.max_tokens' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
           return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;

@@ -116,6 +116,8 @@ language-transition system notice when it detects a locale change.
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
 | `AGENT__TICK` | `true` | Whether autonomous ticks run when no external message is present |
+| `AGENT__AUTONOMY_LEVEL` | `autonomous` | Current autonomy level: `silent` blocks new model calls and buffers events; `reactive` wakes only for direct messages; `event_driven` also wakes for alarms and task results; `autonomous` enables autonomous ticks, subconscious work, and immediate startup thought. Hot-reloadable through the administration API |
+| `AGENT__AUTONOMY_THRESHOLDS` | See description | JSON object defining the minimum autonomy level for each model-call scope. Defaults are `reactive` for `main`, `bubble`, `summary`, `vision`, and `mem0`, and `autonomous` for `subconscious` |
 | `AGENT__CODE_HARD_TIMEOUT` | `300` | Hard timeout in seconds for the code execution tool |
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | Maximum image dimension in pixels before sending it to a model; larger images are scaled proportionally |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
@@ -127,6 +129,11 @@ language-transition system notice when it detects a locale change.
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | Whether to trigger subconscious summarization before compression |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | Maximum cycles for one subconscious task |
+
+On the first startup after upgrading to a release with autonomy levels, an old
+`agent.passive_mode=true/false` value in `admin_config.json` is migrated to
+`agent.autonomy_level=event_driven/autonomous`, and the old field is removed.
+The `AGENT__PASSIVE_MODE` environment variable is no longer read.
 
 ### API, administration, and communication
 

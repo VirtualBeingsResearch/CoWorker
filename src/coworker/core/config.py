@@ -9,19 +9,28 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
+from coworker.core.autonomy import AutonomyLevel, AutonomyThresholds
 from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES,
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
 )
-from coworker.i18n import SupportedLocale, normalize_locale
+from coworker.i18n import SupportedLocale, normalize_locale, tr
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
@@ -35,6 +44,7 @@ _PRE_WEIXIN_HANDOFF_DEFAULTS = (
     "wecom:*",
     "coworker-desktop:*:local:*",
 )
+_LEGACY_BOOL_ADAPTER = TypeAdapter(bool)
 
 
 class ProviderSpec(BaseModel):
@@ -373,9 +383,8 @@ class AgentConfig(_EnvSettings):
     inbox_poll_interval: float = 2.0
     inbox_batch_max: int = 10
     tick: bool = True
-    # passive 模式：_rest() 不设 idle 超时，模型 sleep 只等外部事件唤醒，
-    # 取消「无事件时周期性 tick 自驱」。运行时可通过管理 API 热切换。
-    passive_mode: bool = False
+    autonomy_level: AutonomyLevel = AutonomyLevel.AUTONOMOUS
+    autonomy_thresholds: AutonomyThresholds = Field(default_factory=AutonomyThresholds)
 
     code_hard_timeout: int = 300
     image_max_dimension: int = 960
@@ -397,7 +406,6 @@ class AgentConfig(_EnvSettings):
     subconscious_thinking: bool = True
     subconscious_summarize_before_compress: bool = True
     subconscious_max_cycles: int = 5
-
 
 class WeComConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="WECOM__", env_file=".env", extra="ignore")
@@ -438,7 +446,7 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
-def load_admin_overrides(path: str | Path) -> dict[str, Any]:
+def _read_admin_overrides(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
         return {}
@@ -448,21 +456,46 @@ def load_admin_overrides(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"读取管理配置 {source} 失败：{e}") from e
     if not isinstance(raw, dict):
         raise ValueError(f"管理配置 {source} 顶层必须是 JSON 对象")
-    return _evolve_admin_default_overrides(raw)
+    return raw
+
+
+def load_admin_overrides(path: str | Path) -> dict[str, Any]:
+    return _evolve_admin_default_overrides(_read_admin_overrides(path))
 
 
 def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
     agent = overrides.get("agent")
     if not isinstance(agent, dict):
         return overrides
-    matches = agent.get(_HANDOFF_MATCHES_KEY)
-    if not isinstance(matches, list) or tuple(matches) != _PRE_WEIXIN_HANDOFF_DEFAULTS:
-        return overrides
     evolved = dict(overrides)
     evolved_agent = dict(agent)
-    evolved_agent[_HANDOFF_MATCHES_KEY] = list(
-        DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES
-    )
+    changed = False
+
+    if "autonomy_level" not in evolved_agent and "passive_mode" in evolved_agent:
+        try:
+            passive_mode = _LEGACY_BOOL_ADAPTER.validate_python(evolved_agent["passive_mode"])
+        except ValidationError as error:
+            raise ValueError(tr("autonomy.legacy_passive_invalid")) from error
+        evolved_agent["autonomy_level"] = (
+            AutonomyLevel.EVENT_DRIVEN.value
+            if passive_mode
+            else AutonomyLevel.AUTONOMOUS.value
+        )
+        evolved_agent.pop("passive_mode", None)
+        changed = True
+    elif "passive_mode" in evolved_agent:
+        evolved_agent.pop("passive_mode", None)
+        changed = True
+
+    matches = agent.get(_HANDOFF_MATCHES_KEY)
+    if isinstance(matches, list) and tuple(matches) == _PRE_WEIXIN_HANDOFF_DEFAULTS:
+        evolved_agent[_HANDOFF_MATCHES_KEY] = list(
+            DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES
+        )
+        changed = True
+
+    if not changed:
+        return overrides
     evolved["agent"] = evolved_agent
     return evolved
 
@@ -505,9 +538,10 @@ def write_admin_overrides(path: str | Path, overrides: dict[str, Any]) -> None:
 
 def normalize_admin_overrides_file(inherited: Config) -> bool:
     path = Path(inherited.admin.config_file)
-    overrides = load_admin_overrides(path)
-    sparse = sparse_admin_overrides(overrides, inherited)
-    if sparse == overrides:
+    raw = _read_admin_overrides(path)
+    evolved = _evolve_admin_default_overrides(raw)
+    sparse = sparse_admin_overrides(evolved, inherited)
+    if sparse == raw:
         return False
     write_admin_overrides(path, sparse)
     return True

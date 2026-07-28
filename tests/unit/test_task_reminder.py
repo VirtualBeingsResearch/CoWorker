@@ -15,6 +15,7 @@ from coworker.tools.reasoning_tools import TaskStore
 def _make_loop(task_store, *, interval=10, seconds=300, is_sleeping=False, cooldown_exhausted=True):
     inbox = MagicMock()
     inbox.push = AsyncMock()
+    inbox.has_source.return_value = False
 
     state = AgentState()
     state.cycle_count = 0
@@ -193,6 +194,24 @@ class TestTaskWatcher:
         assert "创建于" in event.content
         assert "修改于" in event.content
         assert event.source == "task_reminder"
+        assert event.wake_level.value == "event_driven"
+
+    @pytest.mark.asyncio
+    async def test_does_not_duplicate_a_buffered_reminder(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        store.create("待完成任务")
+        loop = _make_loop(store, seconds=0.01, is_sleeping=True)
+        loop._inbox.has_source.return_value = True
+
+        async def stop_after_one_tick():
+            await asyncio.sleep(0.05)
+            loop._stop_event.set()
+
+        stop_task = asyncio.create_task(stop_after_one_tick())
+        await asyncio.wait_for(loop._task_watcher(), timeout=1.0)
+        await stop_task
+
+        loop._inbox.push.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_marks_details_without_pushing_content(self, tmp_path):

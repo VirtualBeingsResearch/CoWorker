@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 
 __all__ = ["estimate_content_tokens", "estimate_text_tokens"]
@@ -31,6 +32,7 @@ class Message:
     pin_id: str | None = None
     source: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
+    inbound_event_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"role": self.role, "content": self.content}
@@ -44,6 +46,8 @@ class Message:
             d["recalled_memory_ids"] = self.recalled_memory_ids
         if self.pin_id:
             d["pin_id"] = self.pin_id
+        if self.inbound_event_ids:
+            d["inbound_event_ids"] = self.inbound_event_ids
         return d
 
     def content_text(self) -> str:
@@ -198,6 +202,53 @@ class IncomingEvent:
     source: str = "file"
     attachments: list[AttachmentData] = field(default_factory=list)
     event_id: str | None = None
+    # None means "deliver with the next active batch, but never wake by itself".
+    wake_level: AutonomyLevel | None = AutonomyLevel.REACTIVE
+
+    def to_dict(self, *, include_attachment_data: bool = True) -> dict[str, Any]:
+        return {
+            "participant_id": self.participant_id,
+            "content": self.content,
+            "conversation_id": self.conversation_id,
+            "timestamp": self.timestamp.isoformat(),
+            "source": self.source,
+            "attachments": [
+                {
+                    "filename": attachment.filename,
+                    "media_type": attachment.media_type,
+                    "saved_path": attachment.saved_path,
+                    "data": attachment.data if include_attachment_data else None,
+                }
+                for attachment in self.attachments
+            ],
+            "event_id": self.event_id,
+            "wake_level": self.wake_level.value if self.wake_level is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> IncomingEvent:
+        raw_level = data.get("wake_level", AutonomyLevel.REACTIVE.value)
+        return cls(
+            participant_id=str(data.get("participant_id") or ""),
+            content=str(data.get("content") or ""),
+            conversation_id=(
+                str(data["conversation_id"]) if data.get("conversation_id") is not None else None
+            ),
+            timestamp=datetime.fromisoformat(str(data["timestamp"])),
+            source=str(data.get("source") or "file"),
+            attachments=[
+                AttachmentData(
+                    filename=str(item.get("filename") or ""),
+                    media_type=str(item.get("media_type") or "application/octet-stream"),
+                    saved_path=str(item.get("saved_path") or ""),
+                    data=str(item["data"]) if item.get("data") is not None else None,
+                )
+                for item in data.get("attachments", [])
+                if isinstance(item, dict)
+            ],
+            event_id=str(data["event_id"]) if data.get("event_id") is not None else None,
+            wake_level=AutonomyLevel(str(raw_level)) if raw_level is not None else None,
+        )
 
 
 @dataclass
@@ -300,4 +351,3 @@ class AgentState:
                 text = text.replace(wid, name)
         text = text.replace("wecom:single:", "").replace("wecom:group:", "")
         return text
-

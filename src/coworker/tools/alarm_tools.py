@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.types import IncomingEvent, ToolResult
 from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -111,6 +112,7 @@ class AlarmManager:
                 content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
                 timestamp=datetime.now(),
                 source="alarm",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
             await self._inbox.push(event)
             logger.info(f"Alarm fired: [{alarm_id}] {message}")

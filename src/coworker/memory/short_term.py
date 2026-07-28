@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyScope
 from coworker.core.types import (
     ConversationThread,
     Message,
@@ -692,7 +693,9 @@ class ShortTermMemory:
         snapshot_path: Path | None = None,
         agent_system_prompt: str = "",
     ) -> None:
-        if self._compressing:
+        if self._compressing or (
+            self._compress_task is not None and not self._compress_task.done()
+        ):
             return
         threshold = int(self._max_tokens * self._compress_threshold)
         token_count = await brain.count_tokens(self.primary)
@@ -711,7 +714,21 @@ class ShortTermMemory:
         snapshot_path: Path | None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
-        result = await self._do_compress(brain, agent_system_prompt=agent_system_prompt)
+        async def compress() -> tuple[int, int]:
+            return await self._do_compress(
+                brain,
+                agent_system_prompt=agent_system_prompt,
+            )
+
+        autonomy = brain.autonomy
+        result = (
+            await autonomy.retry_when_allowed(
+                AutonomyScope.SUMMARY,
+                compress,
+            )
+            if autonomy is not None
+            else await compress()
+        )
         if snapshot_path:
             self.save_to_file(snapshot_path)
             logger.debug("Snapshot saved after background compression")
@@ -750,7 +767,18 @@ class ShortTermMemory:
         snapshot_path: Path | None,
         agent_system_prompt: str = "",
     ) -> bool:
-        changed = await self.rebalance_tree_if_needed(brain, agent_system_prompt)
+        async def rebalance() -> bool:
+            return await self.rebalance_tree_if_needed(brain, agent_system_prompt)
+
+        autonomy = brain.autonomy
+        changed = (
+            await autonomy.retry_when_allowed(
+                AutonomyScope.SUMMARY,
+                rebalance,
+            )
+            if autonomy is not None
+            else await rebalance()
+        )
         if changed and snapshot_path:
             self.save_to_file(snapshot_path)
             logger.debug("Snapshot saved after background memory-tree rebalance")
@@ -1031,6 +1059,7 @@ class ShortTermMemory:
                 pin_id=m.get("pin_id"),
                 source=m.get("source"),
                 usage=m.get("usage", {}),
+                inbound_event_ids=m.get("inbound_event_ids", []),
             )
             if "timestamp" in m:
                 msg.timestamp = datetime.fromisoformat(m["timestamp"])

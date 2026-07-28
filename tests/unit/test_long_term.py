@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from mem0.configs.base import MemoryConfig
 
+from coworker.core.autonomy import AutonomyController, AutonomyLevel, AutonomyThresholds
 from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
 
 
@@ -165,6 +167,29 @@ def _lt_with_mem(get_return) -> tuple[LongTermMemory, MagicMock]:
     mem.update = AsyncMock()
     lt._mem = mem
     return lt, mem
+
+
+@pytest.mark.asyncio
+async def test_write_waits_for_autonomy_instead_of_failing():
+    autonomy = AutonomyController(
+        AutonomyLevel.SILENT,
+        AutonomyThresholds(),
+    )
+    lt = LongTermMemory(db_path="data/_unused", autonomy=autonomy)
+    mem = MagicMock()
+    mem.add = AsyncMock(return_value={"results": [{"id": "m1"}]})
+    lt._mem = mem
+
+    task = asyncio.create_task(lt.write("remember this"))
+    await asyncio.sleep(0)
+
+    assert not task.done()
+    mem.add.assert_not_awaited()
+
+    autonomy.update(level=AutonomyLevel.REACTIVE)
+
+    assert await asyncio.wait_for(task, timeout=1) == "m1"
+    mem.add.assert_awaited_once()
 
 
 def _get_item(memory: str, category: str, tags: list[str], ts: str | None = "2026-06-01T00:00:00") -> dict:

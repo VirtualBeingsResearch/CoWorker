@@ -7,6 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyScope,
+    AutonomyThresholds,
+)
 from coworker.core.types import Message
 from coworker.memory.short_term import ShortTermMemory
 
@@ -141,6 +148,36 @@ class TestShortTermMemory:
         assert mem.compress_generation == 1
         # compressor no longer writes long-term memory (owned by the subconscious)
         mock_long_term.write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_background_compression_waits_for_autonomy_before_retrying(self):
+        autonomy = AutonomyController(
+            AutonomyLevel.SILENT,
+            AutonomyThresholds(),
+        )
+        brain = MagicMock()
+        brain.autonomy = autonomy
+        mem = ShortTermMemory()
+        mem._do_compress = AsyncMock(
+            side_effect=[
+                AutonomyBlockedError(
+                    current=AutonomyLevel.SILENT,
+                    required=AutonomyLevel.REACTIVE,
+                    scope=AutonomyScope.SUMMARY,
+                ),
+                (1, 0),
+            ]
+        )
+
+        task = asyncio.create_task(mem._do_compress_and_snapshot(brain, None))
+        await asyncio.sleep(0)
+
+        assert not task.done()
+
+        autonomy.update(level=AutonomyLevel.REACTIVE)
+
+        assert await asyncio.wait_for(task, timeout=1) == (1, 0)
+        assert mem._do_compress.await_count == 2
 
     def test_compress_preview_empty_when_too_small(self):
         mem = ShortTermMemory(max_tokens=10_000)
@@ -336,6 +373,7 @@ class TestShortTermMemory:
 
         brain = MagicMock()
         brain.summarize = AsyncMock(side_effect=slow_summarize)
+        brain.autonomy = None
         snapshot_path = tmp_path / "short_term_snapshot.json"
 
         scheduled = restored.schedule_tree_rebalance_if_needed(brain, snapshot_path=snapshot_path)

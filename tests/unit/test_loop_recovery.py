@@ -20,6 +20,8 @@ def _make_recovery_loop(memory: ShortTermMemory, snapshot_path) -> AgentLoop:
     loop._task_store = None
     loop._bubble_store = None
     loop.state = AgentState()
+    loop._wait_for_activation = AsyncMock()
+    loop._rebalance_on_activation = False
     loop._cycle = AsyncMock(side_effect=RuntimeError("provider unavailable"))
     return loop
 

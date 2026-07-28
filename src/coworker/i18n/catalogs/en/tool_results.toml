@@ -59,7 +59,7 @@ regex_error = "Invalid regular expression: {{error}}"
 [tool_result.system]
 sleep_zero = "sleep(0) will not wait here. Use sleep(N) to specify a duration. Current time: {{time}}."
 sleep_woken = "A new message arrived, ending sleep early. Current time: {{time}}."
-sleep_no_channel = "Passive waiting ended immediately because no external channel is available. Current time: {{time}}."
+sleep_no_channel = "Continuous waiting ended immediately because no external channel is available. Current time: {{time}}."
 slept = "Slept for {{seconds}} seconds; resuming. Current time: {{time}}."
 context = '''Current time: {{time}}
 Runtime cycles: {{cycles}}

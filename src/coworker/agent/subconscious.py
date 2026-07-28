@@ -12,6 +12,7 @@ from loguru import logger
 
 from coworker.agent.bubble_loop import BubbleMiniLoop, _bubble_base_intercepts
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+from coworker.core.autonomy import AutonomyScope
 from coworker.i18n import bind_locale, tr
 
 if TYPE_CHECKING:
@@ -211,6 +212,9 @@ class SubconsciousScheduler:
         short_term_snapshot: list[Message],
         tool_calls_this_cycle: int = 0,
     ) -> None:
+        autonomy = self._brain.autonomy
+        if autonomy is not None and not autonomy.allows(AutonomyScope.SUBCONSCIOUS):
+            return
         now = time.monotonic()
         self._total_tool_calls += tool_calls_this_cycle
         self._maybe_reload_modes(now)
@@ -225,6 +229,9 @@ class SubconsciousScheduler:
 
     async def notify_pre_compress(self, short_term_snapshot: list[Message]) -> None:
         if not self._cfg.agent.subconscious_summarize_before_compress:
+            return
+        autonomy = self._brain.autonomy
+        if autonomy is not None and not autonomy.allows(AutonomyScope.SUBCONSCIOUS):
             return
         if self._has_active_mode("summarize"):
             logger.debug("Subconscious pre-compress summarize skipped: already running")
@@ -376,6 +383,7 @@ class SubconsciousScheduler:
             usage_stats=self._usage_stats,
             usage_logs_root=self._logs_dir,
             task_store=self._task_store if mode.grants_task_store else None,
+            autonomy_scope=AutonomyScope.SUBCONSCIOUS,
         )
         task = asyncio.create_task(
             bind_locale(mini_loop.run),
@@ -753,6 +761,7 @@ class SubconsciousScheduler:
             vision_provider=self._brain.vision_provider_name,
             vision_model=self._brain.vision_model,
             vision_thinking=self._brain.vision_thinking,
+            autonomy=self._brain.autonomy,
         )
         for provider in self._brain._providers.values():
             new_brain.register_provider(provider)

@@ -106,6 +106,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
 | `AGENT__TICK` | `true` | 是否启用无外部消息时的自主 tick |
+| `AGENT__AUTONOMY_LEVEL` | `autonomous` | 当前主动性等级：`silent` 禁止新模型调用并缓存事件；`reactive` 只允许直接消息唤醒；`event_driven` 还允许闹钟和任务结果唤醒；`autonomous` 允许自主 tick、潜意识及启动后立即思考。运行时可通过管理 API 热切换 |
+| `AGENT__AUTONOMY_THRESHOLDS` | 见下文 | 各模型调用场景的最低主动性等级 JSON 对象；默认 `main`、`bubble`、`summary`、`vision`、`mem0` 为 `reactive`，`subconscious` 为 `autonomous` |
 | `AGENT__CODE_HARD_TIMEOUT` | `300` | 代码执行工具硬超时秒数 |
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | 图片发送给模型前的最大长边像素，超出则等比缩放 |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
@@ -117,6 +119,11 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | 压缩前是否触发潜意识总结 |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | 单次潜意识任务最大 cycle 数 |
+
+首次使用包含主动性分级的版本启动时，旧 `admin_config.json` 中的
+`agent.passive_mode=true/false` 会分别迁移为
+`agent.autonomy_level=event_driven/autonomous`，并删除旧字段。环境变量
+`AGENT__PASSIVE_MODE` 不再读取。
 
 ### API、管理端与通信
 

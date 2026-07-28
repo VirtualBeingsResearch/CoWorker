@@ -18,6 +18,10 @@ video_attachment = "video attachment"
 attachment = "attachment"
 saved_attachment = "[{{kind}}: {{filename}} — saved to {{path}}; use a tool to read it]"
 
+[pending_events]
+quarantined = "Quarantined {{count}} invalid pending event(s) in {{path}}"
+load_failed = "Failed to load pending event store {{path}}: {{error}}"
+
 [brain.summary]
 image = "image"
 file = "file"
@@ -385,3 +389,12 @@ sleep_interrupted = "Sleep was interrupted by a system restart. Current time: {{
 system_restarted = "The system restarted. Current time: {{time}}."
 alarms_restored = "Restored {{count}} pending alarms."
 system_started = "The system started. Current time: {{time}}. {{environment}}."
+
+[autonomy]
+blocked = "Autonomy level {{current}} does not allow {{scope}} model calls; {{required}} is required."
+cycle_paused = "Agent cycle paused by autonomy policy: {{error}}"
+waiting = "Agent is waiting for an autonomy-eligible event"
+rest_ended = "Agent rest ended after an event or autonomy change"
+sleep_zero_ignored = "{{prefix}}sleep(0) was ignored at the current autonomy level"
+sleep_zero_no_inbox = "{{prefix}}sleep(0) has no inbox and is returning immediately"
+legacy_passive_invalid = "The admin configuration value agent.passive_mode must be a valid boolean"

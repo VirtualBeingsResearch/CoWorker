@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from coworker.agent.inbox_watcher import InboxWatcher
-from coworker.core.types import IncomingEvent
+from coworker.agent.incoming_content import build_content_blocks
+from coworker.core.types import AttachmentData, IncomingEvent
 
 
 def _event(participant_id: str = "alice", content: str = "hello") -> IncomingEvent:
@@ -76,16 +78,108 @@ class TestInboxWatcher:
         assert not watcher.message_event.is_set()
 
     @pytest.mark.asyncio
-    async def test_get_pending_keeps_event_set_if_queue_not_empty(self, tmp_path):
+    async def test_get_pending_clears_event_after_multiple_items(self, tmp_path):
         watcher = InboxWatcher(str(tmp_path / "inbox"))
         await watcher.push(_event("alice"))
         await watcher.push(_event("bob"))
-        # Manually drain only one item to leave one in queue
-        watcher._queue.get_nowait()
         await watcher.get_pending()
-        # Queue still had one item, event should still be set after get_pending drains it...
-        # Actually get_pending drains all, so event should be cleared.
         assert not watcher.message_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_persistent_queue_peeks_until_explicit_ack(self, tmp_path):
+        path = tmp_path / "pending_events.sqlite3"
+        watcher = InboxWatcher(str(tmp_path / "inbox"), pending_path=path)
+        event = _event()
+        event.event_id = "stable-event"
+        await watcher.push(event)
+
+        [claimed] = await watcher.peek_pending(1)
+
+        assert claimed.event_id == "stable-event"
+        assert watcher.pending_count == 1
+        restored = InboxWatcher(str(tmp_path / "inbox"), pending_path=path)
+        assert restored.pending_count == 1
+
+        await watcher.acknowledge(["stable-event"])
+
+        assert watcher.pending_count == 0
+        assert InboxWatcher(str(tmp_path / "inbox"), pending_path=path).pending_count == 0
+
+    @pytest.mark.asyncio
+    async def test_persistent_queue_deduplicates_stable_event_ids(self, tmp_path):
+        watcher = InboxWatcher(
+            str(tmp_path / "inbox"),
+            pending_path=tmp_path / "pending_events.sqlite3",
+        )
+        first = _event(content="original")
+        first.event_id = "same-event"
+        duplicate = _event(content="duplicate")
+        duplicate.event_id = "same-event"
+
+        await watcher.push(first)
+        await watcher.push(duplicate)
+
+        assert watcher.pending_count == 1
+        [event] = await watcher.peek_pending()
+        assert event.content == "original"
+
+    @pytest.mark.asyncio
+    async def test_persistent_queue_reloads_attachment_data_from_saved_file(self, tmp_path):
+        image_path = tmp_path / "saved.png"
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        pending_path = tmp_path / "pending_events.sqlite3"
+        watcher = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
+        await watcher.push(
+            IncomingEvent(
+                participant_id="alice",
+                content="image",
+                attachments=[
+                    AttachmentData(
+                        filename="saved.png",
+                        media_type="image/png",
+                        saved_path=str(image_path),
+                        data="iVBORw0KGgo=",
+                    )
+                ],
+            )
+        )
+
+        restored = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
+        [event] = await restored.peek_pending()
+
+        assert event.attachments[0].data is None
+        blocks = build_content_blocks([event])
+        assert isinstance(blocks, list)
+        assert any(block.get("type") == "image" for block in blocks)
+
+    def test_persistent_queue_quarantines_invalid_rows(self, tmp_path):
+        pending_path = tmp_path / "pending_events.sqlite3"
+        watcher = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
+        assert watcher._pending_db is not None
+        watcher._pending_db.execute(
+            "INSERT INTO pending_events (event_id, payload) VALUES (?, ?)",
+            ("broken", "[]"),
+        )
+        watcher._pending_db.commit()
+
+        restored = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
+
+        assert restored.pending_count == 0
+        assert restored._pending_db is not None
+        [(event_id,)] = restored._pending_db.execute(
+            "SELECT event_id FROM invalid_pending_events"
+        ).fetchall()
+        assert event_id == "broken"
+
+    def test_persistent_queue_rejects_incompatible_schema(self, tmp_path):
+        pending_path = tmp_path / "pending_events.sqlite3"
+        connection = sqlite3.connect(pending_path)
+        connection.execute("CREATE TABLE pending_events (unexpected TEXT)")
+        connection.commit()
+        connection.close()
+
+        with pytest.raises(RuntimeError):
+            InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
 
     @pytest.mark.asyncio
     async def test_message_event_wakes_up_waiter(self, tmp_path):

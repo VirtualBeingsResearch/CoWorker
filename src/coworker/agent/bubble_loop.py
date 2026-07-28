@@ -15,6 +15,7 @@ from coworker.agent.bubble_log_index import (
     upsert_completed_bubble_index,
 )
 from coworker.agent.incoming_content import build_content_blocks
+from coworker.core.autonomy import AutonomyBlockedError, AutonomyLevel, AutonomyScope
 from coworker.core.types import IncomingEvent, Message, SummaryResult
 from coworker.i18n import tr
 
@@ -62,6 +63,7 @@ class BubbleMiniLoop:
         task_store: TaskStore | None = None,
         long_term: LongTermMemory | None = None,
         communicate: CommunicateTool | None = None,
+        autonomy_scope: AutonomyScope = AutonomyScope.BUBBLE,
     ) -> None:
         self._bubble = bubble
         self._brain = brain
@@ -77,6 +79,7 @@ class BubbleMiniLoop:
         )
         self._long_term = long_term
         self._communicate = communicate
+        self._autonomy_scope = autonomy_scope
         self._handoff_notifier = BubbleHandoffNotifier(communicate)
         self._bubble_communicate_tool = (
             BubbleCommunicateTool.from_tool(communicate, bubble, self._handoff_notifier)
@@ -273,11 +276,20 @@ class BubbleMiniLoop:
 
             if self._ilog:
                 self._ilog.log_thinking_start(cycle, thinking=bool(self._brain.thinking))
-            response = await self._brain.think(
-                messages=self._stm.build_context(),
-                system_prompt=self._system_prompt,
-                tools=tool_schemas,
-            )
+            try:
+                response = await self._brain.think(
+                    messages=self._stm.build_context(),
+                    system_prompt=self._system_prompt,
+                    tools=tool_schemas,
+                    _autonomy_scope=self._autonomy_scope,
+                )
+            except AutonomyBlockedError:
+                bubble.cycles_used = cycle
+                autonomy = self._brain.autonomy
+                if autonomy is None:
+                    raise
+                await autonomy.wait_until_allowed(self._autonomy_scope)
+                continue
 
             if self._ilog:
                 self._ilog.log_llm_response(
@@ -475,6 +487,7 @@ class BubbleMiniLoop:
                     participant_id=sender_id,
                     content=message_text,
                     source="bubble",
+                    wake_level=AutonomyLevel.EVENT_DRIVEN,
                 )
             )
             return tr("bubble.sent_main")
@@ -493,9 +506,20 @@ class BubbleMiniLoop:
         fork_plus_identity = len(bubble.forked_context) + 1
         inner_msgs = self._short_term.primary[fork_plus_identity:]
         try:
-            raw = await self._brain.summarize(
-                inner_msgs,
-                context_hint=tr("bubble.summary_hint", goal=bubble.goal),
+            async def summarize() -> str | SummaryResult:
+                return await self._brain.summarize(
+                    inner_msgs,
+                    context_hint=tr("bubble.summary_hint", goal=bubble.goal),
+                )
+
+            autonomy = self._brain.autonomy
+            raw = (
+                await autonomy.retry_when_allowed(
+                    AutonomyScope.SUMMARY,
+                    summarize,
+                )
+                if autonomy is not None
+                else await summarize()
             )
             summary = raw.content if isinstance(raw, SummaryResult) else raw
             try:
@@ -594,6 +618,7 @@ class BubbleMiniLoop:
                 participant_id=bubble.id,
                 content=merge_msg,
                 source="bubble",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
         )
         # A participant can send a follow-up while the bubble is in its final

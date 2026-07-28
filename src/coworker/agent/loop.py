@@ -10,6 +10,12 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from coworker.agent.incoming_content import build_content_blocks
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyScope,
+)
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
@@ -58,6 +64,9 @@ class AgentLoop:
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
         recent_activity: RecentActivityMemory | None = None,
+        autonomy: AutonomyController | None = None,
+        continuation_trigger: AutonomyLevel | None = None,
+        rebalance_on_activation: bool = False,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -79,6 +88,12 @@ class AgentLoop:
         self._bubble_store = bubble_store
         self._subconscious = subconscious
         self._recent_activity = recent_activity
+        self._autonomy = autonomy or AutonomyController(
+            config.agent.autonomy_level,
+            config.agent.autonomy_thresholds,
+        )
+        self._continuation_trigger = continuation_trigger
+        self._rebalance_on_activation = rebalance_on_activation
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -101,6 +116,15 @@ class AgentLoop:
 
         while not self._stop_event.is_set():
             try:
+                await self._wait_for_activation()
+                if self._stop_event.is_set():
+                    break
+                if self._rebalance_on_activation:
+                    self._rebalance_on_activation = False
+                    self._short_term.schedule_tree_rebalance_if_needed(
+                        self._brain,
+                        snapshot_path=self._snapshot_path,
+                    )
                 await self._cycle()
                 self._consecutive_errors = 0  # 成功周期，重置错误计数
                 if self._snapshot_path and not self.state.restart_requested:
@@ -110,6 +134,8 @@ class AgentLoop:
             except RestartRequestedException:
                 self.state.restart_requested = True
                 break
+            except AutonomyBlockedError as error:
+                logger.info(tr("autonomy.cycle_paused", error=error))
             except Exception as e:
                 self._consecutive_errors += 1
                 logger.exception(
@@ -229,31 +255,43 @@ class AgentLoop:
                     for item in reinjected_pins
                 ]
             )
-        events = await self._inbox.get_pending()
+        max_batch = self._config.agent.inbox_batch_max
+        events = await self._inbox.peek_pending(max_batch)
+        known_event_ids = {
+            event_id
+            for message in self._short_term.primary
+            for event_id in message.inbound_event_ids
+        }
+        new_events = [
+            event
+            for event in events
+            if event.event_id is None or event.event_id not in known_event_ids
+        ]
 
-        if events:
-            max_batch = self._config.agent.inbox_batch_max
-            batch = events[:max_batch]
-            for extra in events[max_batch:]:
-                await self._inbox.push(extra)
-            content = self._build_content_blocks(batch)
+        if new_events:
+            content = self._build_content_blocks(new_events)
             self._short_term.primary.append(
                 Message(
                     role="user",
                     content=content,
-                    source=" + ".join(sorted({event.source for event in batch})),
+                    source=" + ".join(sorted({event.source for event in new_events})),
+                    inbound_event_ids=[
+                        event.event_id
+                        for event in new_events
+                        if event.event_id is not None
+                    ],
                 )
             )
-            participants = {e.participant_id for e in batch}
-            if len(batch) > 1:
+            participants = {event.participant_id for event in new_events}
+            if len(new_events) > 1:
                 logger.info(
-                    f"Processing {len(batch)} batched messages from "
+                    f"Processing {len(new_events)} batched messages from "
                     f"{len(participants)} participant(s): {participants}"
                 )
             else:
-                logger.info(f"Processing message from {batch[0].participant_id}")
+                logger.info(f"Processing message from {new_events[0].participant_id}")
             if self._ilog:
-                for e in batch:
+                for e in new_events:
                     self._ilog.log_message_in(
                         e.participant_id,
                         e.content,
@@ -261,11 +299,16 @@ class AgentLoop:
                         e.attachments or None,
                         conversation_id=e.conversation_id,
                     )
-            combined_text = " ".join(e.content for e in batch if e.content)
+            if self._snapshot_path:
+                # The durable inbox remains unacknowledged until a model response
+                # succeeds. Persist event IDs with the user message first so a
+                # restart can retry without injecting the same content twice.
+                self._short_term.save_to_file(self._snapshot_path)
+            combined_text = " ".join(e.content for e in new_events if e.content)
             self.state.last_active = datetime.now()
             await self._auto_recall(combined_text)
             await self._task_reminder()
-        else:
+        elif not events:
             if self._subconscious is not None and self._short_term.should_compress():
                 # 只把「即将被压缩掉的那段」交给潜意识，避免它反复提炼仍驻留的尾部内容。
                 await self._subconscious.notify_pre_compress(self._short_term.compress_preview())
@@ -351,6 +394,7 @@ class AgentLoop:
             messages,
             system_prompt,
             self._tools.get_schemas(model_has_vision=self._brain.current_model_has_vision),
+            _autonomy_trigger=self._continuation_trigger or AutonomyLevel.AUTONOMOUS,
         )
         try:
             input_tokens = max(0, int(response.usage.get("input_tokens", 0) or 0))
@@ -410,7 +454,17 @@ class AgentLoop:
             await self._auto_recall(recall_query)
             await self._task_reminder()
         elif not events:
+            self._continuation_trigger = None
             await self._rest()
+        else:
+            self._continuation_trigger = None
+
+        if events:
+            if self._snapshot_path and not self.state.restart_requested:
+                self._short_term.save_to_file(self._snapshot_path)
+            await self._inbox.acknowledge(
+                [event.event_id for event in events if event.event_id is not None]
+            )
 
         self.state.cycle_count += 1
         self.state.current_provider = self._brain.current_provider_name
@@ -598,6 +652,8 @@ class AgentLoop:
                 pass
             if not self.state.is_sleeping:
                 continue
+            if self._inbox.has_source("task_reminder"):
+                continue
             active = [t for t in task_store.list() if t.status in ("pending", "in_progress")]
             if not active:
                 continue
@@ -613,6 +669,7 @@ class AgentLoop:
                     content="\n".join(lines),
                     source="task_reminder",
                     timestamp=datetime.now(),
+                    wake_level=AutonomyLevel.EVENT_DRIVEN,
                 )
             )
             if self._ilog:
@@ -635,25 +692,92 @@ class AgentLoop:
     async def _rest(self) -> None:
         self.state.is_sleeping = True
         try:
-            if self._config.agent.passive_mode:
-                # passive 模式：睡到下一次外部干扰进入，不设 idle 超时，
-                # 取消「无事件时周期性自我唤醒」。仍可被 message_event
-                # （外部消息/闹钟/代码任务完成/任务提醒）唤醒。
-                # 与模型主动调用 sleep(0) 的语义一致。
-                logger.info("Agent entering passive rest; waiting for an external event")
-                await self._inbox.message_event.wait()
-                logger.info("Agent woke from passive rest after an external event")
+            autonomy_event = self._autonomy.change_event
+            level = self._autonomy.level
+            if level is not AutonomyLevel.AUTONOMOUS:
+                logger.info(tr("autonomy.waiting"))
+                await self._wait_for_runtime_signal(
+                    timeout=None,
+                    autonomy_event=autonomy_event,
+                )
+                logger.info(tr("autonomy.rest_ended"))
             else:
                 timeout = self._config.agent.idle_sleep_seconds
                 logger.info(f"Agent entering rest for {timeout}s")
                 try:
-                    await asyncio.wait_for(
-                        self._inbox.message_event.wait(),
+                    await self._wait_for_runtime_signal(
                         timeout=timeout,
+                        autonomy_event=autonomy_event,
                     )
                 except TimeoutError:
                     logger.info(f"Agent rest timed out after {timeout}s")
                 else:
-                    logger.info("Agent woke from rest after an external event")
+                    logger.info(tr("autonomy.rest_ended"))
         finally:
             self.state.is_sleeping = False
+
+    def _wakeable_trigger(self) -> AutonomyLevel | None:
+        candidates = [
+            wake_level
+            for wake_level in self._inbox.pending_wake_levels()
+            if self._autonomy.allows(AutonomyScope.MAIN, trigger=wake_level)
+        ]
+        return min(candidates, key=lambda level: level.rank) if candidates else None
+
+    async def _wait_for_activation(self) -> None:
+        while not self._stop_event.is_set():
+            self._inbox.acknowledge_non_wakeable()
+            autonomy_event = self._autonomy.change_event
+            if (
+                self._continuation_trigger is not None
+                and self._autonomy.allows(
+                    AutonomyScope.MAIN,
+                    trigger=self._continuation_trigger,
+                )
+            ):
+                return
+            wake_trigger = self._wakeable_trigger()
+            if wake_trigger is not None:
+                self._continuation_trigger = wake_trigger
+                return
+            if self._autonomy.allows(
+                AutonomyScope.MAIN,
+                trigger=AutonomyLevel.AUTONOMOUS,
+            ):
+                self._continuation_trigger = AutonomyLevel.AUTONOMOUS
+                return
+            self.state.is_sleeping = True
+            try:
+                await self._wait_for_runtime_signal(
+                    timeout=None,
+                    autonomy_event=autonomy_event,
+                )
+            finally:
+                self.state.is_sleeping = False
+
+    async def _wait_for_runtime_signal(
+        self,
+        timeout: float | None,
+        *,
+        autonomy_event: asyncio.Event | None = None,
+    ) -> None:
+        waiters = {
+            asyncio.create_task(self._inbox.message_event.wait()),
+            asyncio.create_task((autonomy_event or self._autonomy.change_event).wait()),
+            asyncio.create_task(self._stop_event.wait()),
+        }
+        try:
+            done, pending = await asyncio.wait(
+                waiters,
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise TimeoutError
+            for task in done:
+                task.result()
+        finally:
+            for task in waiters:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*waiters, return_exceptions=True)
