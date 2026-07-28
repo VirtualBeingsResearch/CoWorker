@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -732,6 +733,28 @@ class TestGetStatus:
         resp = client.get("/status")
         assert resp.status_code == 200
         assert resp.json()["status"] == "not_started"
+
+    @pytest.mark.asyncio
+    async def test_relay_status_requires_existing_communication_authentication(self):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._communication_token = "secret"
+        request = Request(
+            {
+                "type": "http",
+                "state": {
+                    "coworker_relay": {
+                        "authenticated_tunnel": True,
+                        "e2ee": True,
+                    }
+                },
+            }
+        )
+        with pytest.raises(HTTPException) as rejected:
+            await routes_mod.get_status(request, None)
+        assert rejected.value.status_code == 401
+        result = await routes_mod.get_status(request, "Bearer secret")
+        assert result["status"] == "not_started"
 
     def test_returns_agent_state(self, client):
         mock_agent = MagicMock()

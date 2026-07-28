@@ -2281,7 +2281,7 @@ function RelayAccess() {
   const configured = Boolean(data.instance_id);
   const connected = data.status === 'connected';
   return <div className="page-stack relay-access">
-    <Panel title="自托管 Relay" note="Coworker 主动建立加密出站隧道，不需要开放内网端口。">
+    <Panel title="自托管 Relay" note="Desktop 与 Coworker 建立端到端加密连接；公网 Relay 只能转发密文。">
       <section className={`relay-hero ${connected ? 'connected' : configured ? 'waiting' : 'idle'}`}>
         <div className="relay-signal"><CloudUpload size={26} /><i /></div>
         <div><span>{t('远程访问状态')}</span><h3>{t(connected ? '已安全连接' : configured ? '正在等待连接' : '尚未配对')}</h3>
@@ -2296,8 +2296,16 @@ function RelayAccess() {
           body: JSON.stringify({ relay_url: relayUrl, pairing_code: pairingCode }),
         }), 'Relay 配对成功');
       }}>
-        <label><span>{t('Relay 地址')}</span><input type="url" required placeholder="https://relay.example.com" value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label>
+        <label><span>{t('Relay 地址')}</span><input type="url" required placeholder="http://203.0.113.10:8443" value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label>
         <label><span>{t('一次性配对码')}</span><input required autoComplete="one-time-code" value={pairingCode} onChange={event => setPairingCode(event.target.value)} /></label>
+        {data.communication_token_compatible === false && <div className="notice error" role="alert">
+          <span>{t('当前通信 Token 不符合 Relay 的高熵格式。轮换后，现有直连 Desktop 也必须更新 Token。')}</span>
+          <button type="button" className="ghost" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('轮换通信 Token？现有 Desktop 必须改用新 Token 后才能重新连接。'))) {
+              void action('rotate-token', () => api('/api/admin/relay/rotate-token', { method: 'POST' }), '通信 Token 已轮换，请更新 Desktop 配置');
+            }
+          }}>{t('轮换为 Relay 通信 Token')}</button>
+        </div>}
         <button className="primary" disabled={Boolean(busy)}><CloudUpload size={15} />{t(busy === 'connect' ? '正在连接…' : '连接 Relay')}</button>
       </form> : <>
         <div className="relay-config-grid">
@@ -2311,20 +2319,22 @@ function RelayAccess() {
             void (communicationToken ? Promise.resolve(communicationToken) : loadToken()).then(token => copy(token, 'Bearer Token')).catch(error => setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') })).finally(() => setBusy(''));
           }}>{t('复制到剪贴板')}</button></div></article>
           <article><span>{t('实例 ID')}</span><code>{String(data.instance_id || '')}</code></article>
+          <article><span>{t('端到端协议')}</span><b>{data.e2ee ? `E2EE v${String(data.protocol_version || 1)}` : t('未启用')}</b><small>{t('认证 epoch {{epoch}}', { epoch: Number(data.auth_epoch || 0) })}</small></article>
+          <article><span>{t('活动会话')}</span><b>{Number(data.active_sessions || 0)}</b></article>
           <article><span>{t('最后心跳')}</span><b>{data.last_heartbeat ? new Date(String(data.last_heartbeat)).toLocaleString() : t('尚无')}</b><small>{data.latency_ms == null ? '' : `${data.latency_ms} ms`}</small></article>
         </div>
         {data.last_error && <div className="notice error" role="alert">{String(data.last_error)}</div>}
-        {connected && data.verifier_synced === false && <div className="notice error" role="alert">{t('Token verifier 尚未同步；Relay 会继续使用上一版本并自动重试。')}</div>}
+        {connected && data.auth_key_synced === false && <div className="notice error" role="alert">{t('入口认证公钥尚未同步；Relay 不会降级为无认证连接。')}</div>}
         <div className="panel-actions">
           <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 端到端连接测试成功')}>{t('测试远程连接')}</button>
           <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/relay/reconnect', { method: 'POST' }), '已请求重新连接')}>{t('重新连接')}</button>
           <button className="ghost" disabled={Boolean(busy)} onClick={() => {
-            if (window.confirm(t('轮换 Relay 实例凭据并立即重新连接？'))) {
-              void action('rotate-credential', () => api('/api/admin/relay/rotate-credential', { method: 'POST' }), 'Relay 实例凭据已轮换');
+            if (window.confirm(t('轮换通信 Token？现有 Desktop 必须改用新 Token 后才能重新连接。'))) {
+              void action('rotate-token', () => api('/api/admin/relay/rotate-token', { method: 'POST' }), '通信 Token 已轮换，请更新 Desktop 配置');
             }
-          }}>{t('轮换实例凭据')}</button>
+          }}>{t('轮换通信 Token')}</button>
           <button className="danger" disabled={Boolean(busy)} onClick={() => {
-            if (window.confirm(t('断开 Relay 并删除本地实例凭据？Relay 上的实例仍需使用 coworker-relay 撤销。'))) {
+            if (window.confirm(t('断开 Relay 并删除本地实例密钥？Relay 上的实例仍需使用 coworker-relay 撤销。'))) {
               void action('disconnect', () => api('/api/admin/relay', { method: 'DELETE' }), 'Relay 已断开');
             }
           }}>{t('断开连接')}</button>

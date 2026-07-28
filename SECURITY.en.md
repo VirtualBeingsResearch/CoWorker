@@ -41,10 +41,11 @@ For the current v0.x releases:
   deliberately local HTTP setup; never enable it on a shared or public listener.
 - Do not expose port 8000 directly to the public internet or an untrusted network. The admin token
   protects the management API, but it is not a complete authorization boundary for every route.
-- Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. Relay terminates
-  TLS and sees tokens and messages while forwarding, so its host and administrators are inside the
-  trust boundary. Use the non-root container, pinned image versions, a strong administrator token,
-  trusted certificates, backups, and a minimal `RELAY_TRUSTED_PROXY_CIDRS`.
+- Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. New Desktop and
+  Coworker establish public-key-pinned TLS 1.3 inside Relay's byte stream, so Relay observes
+  connection metadata but cannot decrypt or forge business requests. Still use a non-root
+  container, pinned image versions, a strong local administrator token, backups, and a minimal
+  `RELAY_TRUSTED_PROXY_CIDRS`.
 - Relay v1 is single-node. Do not share its bbolt volume among replicas or load-balance one
   instance's tunnel and requests across different replicas.
 - Keep `.env`, `providers.json`, runtime data, logs, exported configuration, and desktop credentials

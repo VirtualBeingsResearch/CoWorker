@@ -22,6 +22,7 @@ use coworker_desktop_core::{
     conversation_store::{ApprovalRequest, ConversationStore, ResolveApprovalResult},
     desktop_protocol::ActorId,
     logging::{error_chain, init_logging, log_file_path, subscribe_log_events},
+    relay_transport,
     runtime::{BridgeRuntime, BridgeRuntimeStatus},
 };
 use http::header::{AUTHORIZATION, HeaderMap, HeaderValue};
@@ -40,6 +41,8 @@ use tokio::{sync::oneshot, task::JoinHandle};
 use tracing::{error, info, warn};
 use url::Url;
 
+mod relay_update;
+
 const WINDOW_STATE_FILE: &str = "window-state.json";
 const CLOSE_TO_TRAY_CHOICE_FILE: &str = "close-to-tray-choice-made";
 const TRAY_ID: &str = "coworker-desktop-tray";
@@ -53,6 +56,7 @@ struct AppState {
     runtime: BridgeRuntime,
     log_stream: tokio::sync::Mutex<Option<RunningLogStream>>,
     pending_update: std::sync::Mutex<Option<Update>>,
+    relay_update_adapter: std::sync::Mutex<Option<relay_update::RelayUpdateAdapter>>,
     quitting: AtomicBool,
     close_to_tray: AtomicBool,
     close_to_tray_choice_made: AtomicBool,
@@ -636,7 +640,8 @@ async fn run_diagnostics(
         name: "Desktop transport security".into(),
         ok: desktop.security.development_mode
             || config.coworkers.iter().all(|coworker| {
-                coworker.base_url.starts_with("https://")
+                (coworker.base_url.starts_with("https://")
+                    || relay_transport::relay_endpoint(&coworker.base_url).is_some())
                     && desktop
                         .security
                         .bearer_tokens
@@ -661,7 +666,18 @@ async fn run_diagnostics(
         message: "built-in stdio sidecar is available with one-time token validation".into(),
     });
     for coworker in &config.coworkers {
-        results.push(check_coworker(&coworker.display_name, &coworker.base_url).await);
+        results.push(
+            check_coworker(
+                &coworker.display_name,
+                &coworker.base_url,
+                desktop
+                    .security
+                    .bearer_tokens
+                    .get(&coworker.coworker_id)
+                    .map(String::as_str),
+            )
+            .await,
+        );
     }
     for result in results.iter().filter(|result| !result.ok) {
         warn!(
@@ -678,6 +694,28 @@ async fn list_communicate_registrations(
     base_url: String,
     bearer_token: Option<String>,
 ) -> Result<Vec<CommunicateRegistration>, String> {
+    if relay_transport::relay_endpoint(&base_url).is_some() {
+        let token = bearer_token
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Relay connection requires a communication token".to_owned())?;
+        let response = relay_transport::request(
+            &base_url,
+            token,
+            "GET",
+            "/api/communicate/register",
+            vec![("accept".into(), "application/json".into())],
+            vec![],
+        )
+        .await
+        .map_err(to_message)?;
+        if !(200..300).contains(&response.status) {
+            return Err(format!("Relay returned HTTP {}", response.status));
+        }
+        return serde_json::from_slice::<CommunicateRegistrationsResponse>(&response.body)
+            .map(|value| value.registrations)
+            .map_err(to_message);
+    }
     let url = format!(
         "{}/api/communicate/register",
         base_url.trim_end_matches('/')
@@ -706,6 +744,28 @@ async fn delete_communicate_registration(
     registration_id: String,
     bearer_token: Option<String>,
 ) -> Result<CommunicateRegistration, String> {
+    if relay_transport::relay_endpoint(&base_url).is_some() {
+        let token = bearer_token
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Relay connection requires a communication token".to_owned())?;
+        let response = relay_transport::request(
+            &base_url,
+            token,
+            "DELETE",
+            &format!("/api/communicate/register/{registration_id}"),
+            vec![("accept".into(), "application/json".into())],
+            vec![],
+        )
+        .await
+        .map_err(to_message)?;
+        if !(200..300).contains(&response.status) {
+            return Err(format!("Relay returned HTTP {}", response.status));
+        }
+        return serde_json::from_slice::<DeleteCommunicateRegistrationResponse>(&response.body)
+            .map(|value| value.deleted)
+            .map_err(to_message);
+    }
     let url = format!(
         "{}/api/communicate/register/{}",
         base_url.trim_end_matches('/'),
@@ -751,7 +811,7 @@ async fn check_desktop_update(
         "CoWorker Desktop update check started endpoint_source={endpoint_source} endpoint={endpoint_for_log}"
     ));
 
-    let endpoint = match Url::parse(&endpoint_for_log) {
+    let original_endpoint = match Url::parse(&endpoint_for_log) {
         Ok(endpoint) => endpoint,
         Err(error) => {
             desktop_log_warn(format!(
@@ -760,8 +820,29 @@ async fn check_desktop_update(
             return Err(to_message(error));
         }
     };
+    let relay_base = desktop_update_base_url_from_endpoint(&endpoint_for_log)
+        .filter(|base| relay_transport::relay_endpoint(base).is_some());
+    let endpoint = if let Some(relay_base) = relay_base {
+        let desktop = load_desktop_config_or_default(&app, None).map_err(to_message)?;
+        let token = desktop_update_bearer_token_for_config(&desktop, &original_endpoint)
+            .ok_or_else(|| "Relay update requires the selected Coworker token".to_owned())?;
+        let adapter = relay_update::RelayUpdateAdapter::start(relay_base, token).await?;
+        let endpoint = Url::parse(adapter.endpoint()).map_err(to_message)?;
+        *state.relay_update_adapter.lock().map_err(to_message)? = Some(adapter);
+        endpoint
+    } else {
+        *state.relay_update_adapter.lock().map_err(to_message)? = None;
+        original_endpoint.clone()
+    };
     let mut update_headers = HeaderMap::new();
-    if let Some(token) = desktop_update_bearer_token(&app, &endpoint) {
+    if relay_transport::relay_endpoint(
+        desktop_update_base_url_from_endpoint(&endpoint_for_log)
+            .as_deref()
+            .unwrap_or(""),
+    )
+    .is_none()
+        && let Some(token) = desktop_update_bearer_token(&app, &original_endpoint)
+    {
         let mut authorization =
             HeaderValue::from_str(&format!("Bearer {token}")).map_err(to_message)?;
         authorization.set_sensitive(true);
@@ -793,6 +874,7 @@ async fn check_desktop_update(
     let update = match updater.check().await {
         Ok(update) => update,
         Err(error) => {
+            *state.relay_update_adapter.lock().map_err(to_message)? = None;
             desktop_log_warn(format!(
                 "CoWorker Desktop update check failed endpoint_source={endpoint_source} endpoint={endpoint_for_log} error={error}"
             ));
@@ -809,6 +891,7 @@ async fn check_desktop_update(
             metadata.version, metadata.current_version
         ));
     } else {
+        *state.relay_update_adapter.lock().map_err(to_message)? = None;
         desktop_log_info(format!(
             "CoWorker Desktop update check finished endpoint_source={endpoint_source} result=up-to-date"
         ));
@@ -913,11 +996,13 @@ async fn install_desktop_update(
         )
         .await;
     if let Err(error) = result {
+        *state.relay_update_adapter.lock().map_err(to_message)? = None;
         desktop_log_warn(format!(
             "CoWorker Desktop update install failed version={update_version} error={error}"
         ));
         return Err(to_message(error));
     }
+    *state.relay_update_adapter.lock().map_err(to_message)? = None;
     desktop_log_info("CoWorker Desktop update installed; restarting app");
     app_for_restart.restart()
 }
@@ -946,6 +1031,7 @@ pub fn run() {
             runtime: BridgeRuntime::new(),
             log_stream: tokio::sync::Mutex::new(None),
             pending_update: std::sync::Mutex::new(None),
+            relay_update_adapter: std::sync::Mutex::new(None),
             quitting: AtomicBool::new(false),
             close_to_tray: AtomicBool::new(true),
             close_to_tray_choice_made: AtomicBool::new(false),
@@ -1754,7 +1840,46 @@ async fn check_app_server_command(command: &str, args: &[String]) -> DiagnosticR
     }
 }
 
-async fn check_coworker(name: &str, base_url: &str) -> DiagnosticResult {
+async fn check_coworker(
+    name: &str,
+    base_url: &str,
+    bearer_token: Option<&str>,
+) -> DiagnosticResult {
+    if relay_transport::relay_endpoint(base_url).is_some() {
+        let Some(token) = bearer_token.filter(|value| !value.trim().is_empty()) else {
+            return DiagnosticResult {
+                name: format!("Coworker {name}"),
+                ok: false,
+                message: "Relay connection requires a communication token".into(),
+            };
+        };
+        return match relay_transport::request(
+            base_url,
+            token,
+            "GET",
+            "/status",
+            vec![("accept".into(), "application/json".into())],
+            vec![],
+        )
+        .await
+        {
+            Ok(response) if (200..300).contains(&response.status) => DiagnosticResult {
+                name: format!("Coworker {name}"),
+                ok: true,
+                message: format!("E2EE Relay returned HTTP {}", response.status),
+            },
+            Ok(response) => DiagnosticResult {
+                name: format!("Coworker {name}"),
+                ok: false,
+                message: format!("E2EE Relay returned HTTP {}", response.status),
+            },
+            Err(error) => DiagnosticResult {
+                name: format!("Coworker {name}"),
+                ok: false,
+                message: error.to_string(),
+            },
+        };
+    }
     let url = format!("{}/status", base_url.trim_end_matches('/'));
     let result = reqwest::Client::new()
         .get(&url)

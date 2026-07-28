@@ -334,7 +334,7 @@ data, cleanup scope, and deployment boundaries.
 | [Data and trust boundaries](docs/architecture/data-boundaries.en.md) | Local storage, external services, permissions, and cleanup |
 | [API and communication channels](docs/channels/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |
 | [Coworker Desktop](docs/channels/desktop.en.md) | Desktop workspace connecting local users, Codex, and Claude Code, plus CLI, configuration, and build guidance |
-| [Self-hosted Relay](docs/operations/relay.en.md) | Securely expose Desktop communication from a private network; deployment, pairing, backup, and operations |
+| [Self-hosted Relay](docs/operations/relay.en.md) | End-to-end encrypted Desktop access from a private network; deployment, pairing, backup, and operations |
 | [Core concepts and capabilities](docs/architecture/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
 | [Development guide](docs/development/development.en.md) | Local checks and Explore Lab |
 

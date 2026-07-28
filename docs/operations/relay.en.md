@@ -1,21 +1,29 @@
 # Self-hosted Relay
 
-[中文](relay.md) · English
+English · [中文](relay.md)
 
-Coworker Relay lets a Coworker inside a private network open an encrypted outbound connection and expose Desktop status, registration, messaging, SSE, and update endpoints through one path:
+Coworker Relay lets a Coworker on a private network establish an outbound connection and lets a
+new Desktop reach status, registration, messaging, SSE, and desktop updates through one public
+endpoint:
 
 ```text
-https://relay.example.com/i/{instance_id}
+http://relay.example.com:8443/i/{instance_id}
 ```
 
-Relay terminates public HTTPS and can see headers and bodies while processing a request, but it does not persist message bodies, attachments, or SSE events.
+The outer endpoint may use plain HTTP/WebSocket because Desktop and Coworker establish a
+public-key-pinned TLS 1.3 connection inside the relayed byte stream. Relay can observe source IP,
+instance, connection times, sizes, and timing, but cannot read or forge tokens, paths, headers,
+messages, attachments, SSE events, or update artifacts. Availability still depends on Relay,
+which can drop, delay, or rate-limit traffic.
 
-## Deployment
+Older Desktop versions do not support this protocol and must continue connecting directly to
+Coworker. Relay has no legacy HTTP proxy facade; ordinary paths such as
+`/i/{instance_id}/status` return `404`.
 
-The `coworker-relay` executable under `apps/coworker-relay/` provides the Relay
-service and administration commands. Download the Relay
-archive for the current system from the Coworker release, place its executable
-on `PATH`, then run:
+## Initialization and deployment
+
+`apps/coworker-relay/` provides one `coworker-relay` service and administration tool. Releases
+include a Relay image and platform binaries. For a first deployment:
 
 ```bash
 coworker-relay init
@@ -23,191 +31,114 @@ cd coworker-relay-deploy
 docker compose up -d
 ```
 
-`coworker-relay init` starts an interactive wizard in a terminal. Automated deployments
-can continue to use `coworker-relay init --public-url https://relay.example.com:8443`.
-Run `coworker-relay --help`, `coworker-relay init --help`, or `--help` on any subcommand for
-complete usage. Help never loads configuration or contacts Relay.
-
-Each Coworker release publishes a multi-platform `linux/amd64` and `linux/arm64` Relay image on
-GHCR, plus Linux, macOS, and Windows archives containing `coworker-relay`,
-SHA-256 checksums, and build provenance. Pin a version tag in production. For source development,
-continue to use `docker build -t coworker-relay .` and `go build ./cmd/...` under
-`apps/coworker-relay/`.
-
-`coworker-relay init` creates a deployment `.env` (mode `0600`), `compose.yaml`, and
-.gitignore`; persistent state uses a dedicated Docker volume. It generates a random administrator
-token and writes it only to `.env`, without printing it to the terminal.
-The external port defaults to 8443. Existing generated files are not replaced;
-the interactive wizard requests confirmation, while non-interactive use
-requires an explicit `--force`. Public DNS names and public IP addresses use
-automatic ACME issuance, installation, and renewal by default. Use
-`--tls-cert <path> --tls-key <path>` for private IPs, private CAs, or existing
-certificates. Both service and administration commands automatically read
-`.env` in the working directory; `RELAY_CONFIG` selects another file and
-explicit process environment values take precedence. The container defaults
-to `coworker-relay serve`. For a private CA,
-set `RELAY_CA_CERT` to its PEM bundle. This extends normal trust validation;
-there is no insecure skip-verification mode.
-
-The generated container runs without root privileges. In ACME mode Compose maps
-public host TCP port 80 to container port 8080 and stores the ACME account, keys,
-certificates, and renewal state in the Relay data volume. Public-IP certificates
-use the `shortlived` profile. Relay starts renewal around two thirds into the
-certificate lifetime, continues serving an unexpired cached certificate after a
-renewal failure, and retries hourly. A first-issuance failure or an expired cache
-keeps HTTPS unready while Relay retries with jittered exponential backoff; Relay
-never falls back to plaintext or a self-signed certificate.
-
-Minimum configuration:
-
-```text
-RELAY_PUBLIC_URL=https://relay.example.com
-RELAY_ADMIN_TOKEN=<random administrator token with at least 24 characters>
-RELAY_DATABASE=/var/lib/coworker-relay/relay.db
-RELAY_LISTEN=:8443
-```
-
-For container secrets, use `RELAY_ADMIN_TOKEN_FILE=/run/secrets/relay-admin-token` instead of
-putting `RELAY_ADMIN_TOKEN` directly in the environment. The two settings are mutually exclusive.
-
-The example Compose file publishes container port `8443` as host port `8443`.
-Set `RELAY_PUBLIC_URL=https://relay.example.com:8443` when connecting to it
-directly. If a reverse proxy publishes standard port 443, set the public URL to
-`https://relay.example.com` and forward that proxy to the container's port 8443.
-
-Choose external PEM files (`RELAY_TLS_CERT`, `RELAY_TLS_KEY`), DNS-name ACME
-(`RELAY_ACME_DOMAIN`), or public-IP ACME (`RELAY_ACME_IP`); ACME also accepts an
-optional `RELAY_ACME_EMAIL`. The certificate identifier must match the
-`RELAY_PUBLIC_URL` host. Public IPs always use the `shortlived` profile. ACME
-requires public TCP port 80 to reach `RELAY_ACME_HTTP_LISTEN`, which defaults to
-`:80`; issuance fails if the port is occupied, NAT does not forward it, or the
-address does not belong to the host. Private IPs and private CAs use external
-PEM files.
-
-When another reverse proxy is in front, set `RELAY_TRUSTED_PROXY_CIDRS`. Forwarded addresses from other peers are not used as ban identities.
-
-## Pairing
+The wizard shows a public-origin example and defaults to `http://<host>:8443`. It does not require
+a domain, certificate, ACME, or public port 80. Non-interactive initialization is also supported:
 
 ```bash
-export RELAY_URL=https://relay.example.com
-export RELAY_ADMIN_TOKEN='<administrator token>'
+coworker-relay init --public-url http://203.0.113.10:8443
+```
+
+`coworker-relay --help` and each subcommand's `--help` are self-contained. Initialization writes
+a mode-`0600` `.env` containing a random administrator token. The service and CLI read `.env`
+from the current directory by default; `--config` and `RELAY_CONFIG` select another file.
+Existing files are never silently overwritten.
+
+Compose publishes public port `8443` and binds the administration port only on the host loopback:
+
+```text
+0.0.0.0:8443 -> relay:8443
+127.0.0.1:8444 -> relay:8444
+```
+
+Never expose the administration port publicly. Operators should SSH to the Relay host and run the
+CLI there. The minimum configuration is:
+
+```text
+RELAY_PUBLIC_URL=http://relay.example.com:8443
+RELAY_LISTEN=:8443
+RELAY_ADMIN_LISTEN=:8444
+RELAY_DATABASE=/var/lib/coworker-relay/relay.db
+RELAY_SIGNING_KEY=/var/lib/coworker-relay/relay-signing.key
+RELAY_ADMIN_TOKEN=<random value of at least 24 characters>
+```
+
+An HTTPS/WSS reverse proxy may be placed in front. In that case, set `RELAY_PUBLIC_URL` to the
+public HTTPS origin and enable WebSocket forwarding. Inner end-to-end encryption remains enabled.
+Only proxies in `RELAY_TRUSTED_PROXY_CIDRS` may supply the source IP.
+
+## Pairing and Desktop
+
+From the deployment directory, create a single-use pairing code valid for ten minutes:
+
+```bash
 coworker-relay instance create --name home-coworker
 ```
 
-When running from the generated deployment directory, the two exports are not
-needed because `coworker-relay` reads its `.env`.
+Enter the Relay URL and pairing code on Coworker's Remote Access page. Pairing uses a
+challenge-HMAC, so the pairing code is never sent in plaintext. Coworker generates an instance
+key and pins Relay's signing key. Then copy the displayed Base URL and current communication
+token to a new Desktop:
 
-Enter the one-time code on Coworker's Remote access page. It expires after ten minutes and works once. After pairing, copy the displayed Base URL and Bearer Token into Desktop. Test remote connection sends the current communication token to the public instance's `/status`, covering public HTTPS, Relay pre-authentication, the active tunnel, and the Coworker response.
+```text
+Base URL: http://relay.example.com:8443/i/cw_xxx
+Bearer Token: cwct_v1_...
+```
 
-## Administration
+Desktop needs no transport, certificate, or public-key fields. It recognizes the exact instance
+path, displays “Relay / End-to-end encrypted,” and never falls back to plaintext HTTP after
+connection, identity, or protocol failures.
+
+Relay requires communication tokens in `cwct_v1_<32-byte-base64url>` format. Enabling Relay
+generates and securely persists one when no token exists. An existing weak-format token requires
+an explicit rotation so direct Desktop configurations are not silently broken. Every Desktop
+must be updated after rotation.
+
+“Test connection” authenticates a real pairing or control connection; it does not request a public
+`/status`.
+
+## Administration, bans, and backup
 
 ```bash
 coworker-relay health
 coworker-relay version
 coworker-relay instance list
-coworker-relay instance update-auth cw_xxx optional
-coworker-relay instance update-auth cw_xxx required
-coworker-relay instance update-stats cw_xxx
+coworker-relay instance revoke cw_xxx
 coworker-relay bans list --instance cw_xxx
 coworker-relay bans remove --instance cw_xxx --ip 203.0.113.8 --reason "false positive"
-coworker-relay cache inspect
 coworker-relay metrics
 coworker-relay gc
-coworker-relay instance revoke cw_xxx
+coworker-relay backup --output relay-backup.db
 ```
 
-“Rotate instance credential” first stages only the new credential digest at Relay. The old
-credential remains valid until Coworker persists the new credential and successfully authenticates
-a WSS connection with it, at which point Relay promotes it atomically. A lost response or
-mid-rotation disconnect cannot lock out the instance.
-`coworker-relay instance rotate-credential cw_xxx` is available for emergency
-administration, but its returned credential must be written to that Coworker or the tunnel remains
-offline. The administrator token is one shared privileged credential; v1 has no multi-admin RBAC.
-Distribute it through a secret manager and restrict CLI hosts.
+Relay counts invalid entry signatures by `instance_id + source IP`. Five failures in ten minutes
+produce a persistent one-hour ban. Removing a ban requires an audit reason. Connection-rate,
+frame-size, and global signature-verification limits run before expensive verification. Relay
+only forwards bounded binary chunks and cannot interpret inner requests or routes.
 
-To rotate the administrator token, generate at least 32 random bytes, update
-`RELAY_ADMIN_TOKEN` in the deployment `.env`, and run
-`docker compose up -d --force-recreate relay`. The old token becomes invalid when the new process
-starts. Back up the database first and update CLI configuration through a secure channel.
+Back up the database, `.env`, and Relay signing key before upgrading. When the database schema is
+not E2EE Relay v1, startup stops with backup, removal, and reinitialization instructions instead of
+guessing a migration.
 
-Desktop updates start in `optional` mode so older builds can update anonymously. New builds attach the Coworker Bearer to update checks and package downloads. Switch to `required` after older clients have migrated.
+Relay v1 is single-node. Do not share one bbolt volume among replicas or randomly load-balance an
+instance across replicas. SIGTERM stops new connections, closes tunnels, and performs a bounded
+shutdown.
 
-## Backup, upgrade, and restore
+## Data and security boundary
 
-Create a consistent online bbolt snapshot before upgrading:
+- Public endpoints are limited to `GET /healthz`, pairing WebSocket, Coworker control WebSocket,
+  and the per-instance Desktop WebSocket.
+- Relay persists instance public keys, authentication epochs, pairing state, source-IP bans,
+  audit events, and aggregate traffic counters. It does not cache updates or business content.
+- Raw tokens, Authorization, request paths, headers, bodies, messages, attachments, and update
+  content must not appear in Relay logs, databases, metrics, errors, or crash output.
+- After decryption, Coworker exposes only Desktop communication and read-only update routes.
+  Administration, models, logs, backups, release management, and arbitrary HTTP/TCP proxying stay
+  inaccessible.
+- The original Bearer remains inside the encrypted request and is still authenticated by
+  Coworker's existing endpoint authentication.
+- Update checks and artifacts also use end-to-end encryption; Tauri updater still verifies the
+  release signature.
+- v1 does not provide P2P, WebRTC, WireGuard, offline messaging, per-device authorization, or
+  multi-node high availability.
 
-```bash
-coworker-relay backup --output relay-before-upgrade.db
-docker compose pull
-docker compose up -d
-coworker-relay health
-```
-
-Restore only while Relay is stopped. `--force` preserves the previous database under a timestamped
-`before-restore` name instead of deleting it:
-
-```bash
-docker compose stop relay
-coworker-relay restore \
-  --from relay-before-upgrade.db \
-  --database /path/to/mounted/relay.db \
-  --force
-docker compose start relay
-```
-
-The database has an explicit schema version. Relay refuses a newer or unsupported schema instead
-of guessing a downgrade. Treat database backups, `.env`, ACME state, and Coworker's local instance
-credential as secrets; encrypt them and test restoration. `coworker-relay gc` immediately removes
-expired pairing, failure, and ban records, and Relay also performs hourly collection. Revoking an
-instance cascades through its security state, statistics, and cache.
-
-On SIGTERM, Relay stops accepting work, closes tunnels, and gives HTTP requests up to 30 seconds
-to drain. Compose grants a 35-second stop grace period.
-
-## Health, metrics, and logs
-
-- `/_relay/v1/livez` reports process liveness.
-- `/_relay/v1/readyz` and the compatible `/_relay/v1/health` check draining state, database and
-  cache availability, and report build and protocol versions.
-- `coworker-relay metrics` returns administrator-Bearer-protected Prometheus text for requests,
-  authentication failures, bans, latency, Argon2 concurrency, tunnel connections, online tunnels,
-  and cache capacity/hits.
-
-Relay writes structured JSON logs to stdout. Security logs contain a full source IP, instance,
-route category, authentication result, and Request ID, but no token, cookie, body, attachment, or
-complete original URL. Configure rotation and retention in the container runtime and treat source
-IPs as personal data. Alert on readiness failures, authentication spikes, reconnect storms, cache
-quota pressure, and certificate expiry.
-
-## Capacity and topology boundary
-
-v1 is single-node: bbolt uses a local volume and tunnel ownership lives in process memory. Never
-mount one data volume into multiple Relay replicas. Cold-backup recovery is supported;
-active-active and zero-downtime rolling upgrades are not.
-
-Public requests default to 600 requests per minute per instance and source IP, while anonymous
-requests default to 60. Argon2 verification has a global concurrency bound. Tune policy with
-`RELAY_REQUESTS_PER_MINUTE`, `RELAY_ANONYMOUS_PER_MINUTE`,
-`RELAY_VERIFIER_CONCURRENCY`, `RELAY_BAN_FAILURE_LIMIT`, `RELAY_BAN_FAILURE_WINDOW`, and
-`RELAY_BAN_DURATION`. Headers are limited to 32 KiB, request bodies to 32 MiB, and tunnel frames
-to 48 MiB. Operators may lower, but not raise, the protocol caps with
-`RELAY_MAX_REQUEST_BODY_BYTES` and
-`RELAY_MAX_TUNNEL_FRAME_BYTES`. Load-test the expected SSE count,
-update size, and instance count, then provision file descriptors, memory, and cache storage.
-A reverse proxy must allow WebSocket upgrades, disable SSE response buffering, and use an idle
-timeout above Relay's 90 seconds. Only proxies in `RELAY_TRUSTED_PROXY_CIDRS` may supply source IPs.
-
-See [Relay v1 protocol](relay-protocol.en.md) for frame, header-order, and retry boundaries.
-
-## Security boundary
-
-- Relay exposes only Desktop communication and read-only update routes; it is not a general HTTP/TCP proxy.
-- Relay authenticates with a derived Argon2id verifier. Coworker's existing endpoint authentication verifies the original Bearer again.
-- Five invalid Bearers for one instance and source IP within ten minutes trigger a one-hour ban.
-- A missing Bearer does not count as a password failure, but anonymous traffic is rate-limited.
-- Enrollment, tunnel authentication, credential rotation, and administrator APIs are also
-  source-IP-rate-limited before credential verification.
-- Relay appends `X-Coworker-Relay-*` while preserving client-supplied duplicates. Coworker identifies Relay traffic through the authenticated tunnel, not headers.
-- Private Relay deployments must use a system-trusted private CA. TLS verification cannot be disabled.
-- v1 provides no P2P, offline message storage, arbitrary upstream downloading, generic
-  reverse proxy, or multi-node high availability.
+See [Relay v1 protocol](relay-protocol.en.md) for byte formats, key domains, and compatibility.

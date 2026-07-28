@@ -17,8 +17,8 @@ The following paths are relative to Coworker's working directory unless configur
 | `data/` | Identity, memory stores, tasks, inboxes and outboxes, attachments, screenshots, runtime state, and logs |
 | `.coworker/` | Skills, memory palaces, subconscious modes, and user changes to them |
 | Desktop application data directory | Desktop settings, credentials, bridge state, and logs; the operating system determines the exact location |
-| `relay` fields in Coworker administration configuration | Self-hosted Relay URL, instance ID, and long-lived instance credential |
-| Relay's separate data volume | Instance verifiers, credential digests, pairing state, source-IP bans/failures, update statistics, ACME state, and installer cache |
+| `relay` fields in Coworker administration configuration | Self-hosted Relay URL, instance ID, instance private key, and pinned Relay public key |
+| Relay's separate data volume | Instance public keys, authentication epochs, pairing state, source-IP bans/failures, audit events, and aggregate traffic statistics |
 
 These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you. Protect them with operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and must be handled as credential files.
 
@@ -35,10 +35,10 @@ at runtime. Deleting these volumes also deletes the corresponding history, state
 - `visual_analyze` sends selected images or videos to the configured vision model service.
 - Search tools send queries. Browser tools visit target websites and are subject to those sites' logging, cookie, and session policies.
 - WeCom, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.
-- When self-hosted Relay is enabled, request Bearers, headers, paths, source IPs, message bodies,
-  attachments, and SSE events pass through Relay during forwarding. Relay does not persist those
-  bodies, but its administrator controls the TLS termination point and is therefore inside the
-  full trust boundary.
+- With self-hosted Relay enabled, Relay can observe source IP, instance, connection times, sizes,
+  and timing. Bearers, headers, paths, message bodies, attachments, SSE events, and update artifacts
+  remain inside inner TLS 1.3 between Desktop and Coworker, so Relay cannot decrypt them or create a
+  valid client request. Relay can still interrupt, delay, or rate-limit connections.
 - Installing dependencies, Playwright browsers, or local embedding models connects to package registries, browser download servers, or model repositories.
 
 If data must not be shared with an external service, do not configure that service for Coworker and do not let the agent read the relevant files. A self-hosted model changes only the model boundary; it does not automatically restrict search, browser, or other integrations.
@@ -69,8 +69,8 @@ uv run python scripts/cleanup.py backup-delete
 `cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container.
 
 Relay data is outside `cleanup.py`'s scope. Run `coworker-relay backup` before deletion. Use
-`coworker-relay instance revoke` for one instance; it cascades through that instance's verifier,
-failure/ban state, statistics, and cache. Full decommissioning also requires removing `.env`,
-backup files, and the Relay deployment's separate Docker volume.
+`coworker-relay instance revoke` for one instance; it cascades through its public key,
+authentication epoch, pairing state, and failure/ban state. Full decommissioning also requires
+removing `.env`, the signing key, backups, and the Relay deployment's separate Docker volume.
 
 [← Back to project home](../../README.en.md)

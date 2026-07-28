@@ -33,7 +33,7 @@ type JsonObject = dict[str, JsonValue]
 SECRET_PATHS = {
     "admin.token",
     "api.communication_token",
-    "relay.instance_credential",
+    "relay.instance_private_key",
     "desktop_updates.admin_token",
     "desktop_updates.feed_token",
     "llm.anthropic_api_key",

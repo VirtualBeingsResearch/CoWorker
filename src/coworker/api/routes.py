@@ -121,6 +121,13 @@ def verify_communication_authorization(authorization: str | None) -> None:
         )
 
 
+def update_communication_token(token: str) -> None:
+    """Atomically replace the communication token used by existing ASGI routes."""
+
+    global _communication_token
+    _communication_token = token.strip()
+
+
 def is_authenticated_relay_request(request: Request) -> bool:
     relay = request.scope.get("state", {}).get("coworker_relay")
     return isinstance(relay, dict) and relay.get("authenticated_tunnel") is True
@@ -234,7 +241,12 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
 
 
 @router.get("/status")
-async def get_status():
+async def get_status(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    if is_authenticated_relay_request(request):
+        verify_communication_authorization(authorization)
     if _agent is None:
         return {"status": "not_started"}
     s = _agent.state

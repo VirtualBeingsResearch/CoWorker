@@ -28,10 +28,10 @@ Coworker 是自主 Agent，不是安全沙箱。它的工具可以用运行进�
 - API 默认绑定 `127.0.0.1`，并要求 Desktop 通信 Bearer token。通过反向代理暴露服务时，应在代理层终止 TLS，显式设置 `API__HOST`，将 `API__CORS_ORIGINS` 配置为可信浏览器来源，并设置强 `API__COMMUNICATION_TOKEN`。
 - `API__DEVELOPMENT_MODE=true` 会关闭 Desktop Bearer 和 HTTPS 检查。它只适用于刻意配置的本机 HTTP 环境，绝不能在共享或公开监听地址上启用。
 - 不要把 8000 端口直接暴露到公网或不可信网络。管理员令牌会保护管理 API，但它并不是每个路由的完整授权边界。
-- 公网 Desktop访问应使用[自托管 Relay](docs/operations/relay.md)。Relay会终止 TLS并在
-  转发期间看到 Token和消息，因此 Relay主机及管理员属于信任边界。使用非 root容器、
-  固定版本镜像、强管理员 Token、受信任证书、备份和最小化的
-  `RELAY_TRUSTED_PROXY_CIDRS`。
+- 公网 Desktop访问应使用[自托管中继（Relay）](docs/operations/relay.md)。新版 Desktop
+  与 Coworker在 Relay字节流内建立固定公钥的 TLS 1.3；Relay只能观察连接元数据，不能
+  解密或伪造业务请求。仍应使用非 root容器、固定版本镜像、强本地管理员 Token、备份和
+  最小化的 `RELAY_TRUSTED_PROXY_CIDRS`。
 - Relay v1 只支持单节点。不要让多个副本共享 bbolt数据卷；不要通过负载均衡器把同一
   实例的隧道和请求分配到不同副本。
 - 不要把 `.env`、`providers.json`、运行时数据、日志、导出的配置和桌面端凭据提交到仓库或附在漏洞报告中。

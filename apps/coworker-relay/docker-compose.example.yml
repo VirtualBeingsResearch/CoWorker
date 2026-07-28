@@ -4,26 +4,25 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      RELAY_PUBLIC_URL: https://relay.example.com:8443
+      RELAY_PUBLIC_URL: ${RELAY_PUBLIC_URL:-http://relay.example.com:8443}
       RELAY_LISTEN: :8443
+      RELAY_ADMIN_LISTEN: :8444
+      RELAY_ADMIN_URL: http://127.0.0.1:8444
       RELAY_DATABASE: /var/lib/coworker-relay/relay.db
-      RELAY_CACHE_DIR: /var/lib/coworker-relay/cache
-      RELAY_CACHE_MAX_BYTES: "4294967296"
-      RELAY_REQUESTS_PER_MINUTE: "600"
-      RELAY_ANONYMOUS_PER_MINUTE: "60"
+      RELAY_SIGNING_KEY: /var/lib/coworker-relay/relay-signing.key
+      RELAY_CONNECTIONS_PER_MINUTE: "60"
+      RELAY_FRAMES_PER_MINUTE: "2400"
+      RELAY_AUTH_CONCURRENCY: "32"
       RELAY_BAN_FAILURE_LIMIT: "5"
       RELAY_BAN_FAILURE_WINDOW: 10m
       RELAY_BAN_DURATION: 1h
-      RELAY_MAX_REQUEST_BODY_BYTES: "33554432"
-      RELAY_MAX_TUNNEL_FRAME_BYTES: "50331648"
+      RELAY_MAX_FRAME_BYTES: "262144"
       RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?set RELAY_ADMIN_TOKEN}
-      RELAY_TLS_CERT: /run/tls/fullchain.pem
-      RELAY_TLS_KEY: /run/tls/privkey.pem
     ports:
       - "8443:8443"
+      - "127.0.0.1:8444:8444"
     volumes:
       - relay-data:/var/lib/coworker-relay
-      - ./tls:/run/tls:ro
     read_only: true
     pids_limit: 256
     ulimits:

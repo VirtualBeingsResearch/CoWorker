@@ -308,7 +308,7 @@ jobs:
         run: |
           go run ./cmd/coworker-relay init \
             --dir "$RUNNER_TEMP/relay-deployment" \
-            --public-url https://relay.example.com \
+            --public-url http://relay.example.com:8443 \
             --external-port 8443
           docker compose \
             --env-file "$RUNNER_TEMP/relay-deployment/.env" \

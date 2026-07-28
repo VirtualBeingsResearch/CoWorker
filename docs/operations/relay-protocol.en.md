@@ -1,81 +1,84 @@
-# Relay v1 Protocol and Compatibility Boundary
+# Relay v1 protocol and compatibility boundary
 
-[中文](relay-protocol.md) · English
+English · [中文](relay-protocol.md)
 
 [← Back to Relay operations](relay.en.md)
 
-This document is the v1 contract between Go Relay and Coworker's built-in Python Relay Client.
-Both sides must send protocol version `1`. Relay returns `426 protocol_incompatible` for a
-mismatch and does not silently downgrade.
+Go Relay, Python Coworker, and Rust Desktop use protocol version `1`. A version, identity, or
+signature mismatch fails closed and never falls back to plaintext HTTP.
 
-## Connection and frames
+## Public endpoints and pairing
 
-Coworker opens `wss://<relay>/_relay/v1/connect` with its long-lived instance credential. The
-tunnel uses UTF-8 JSON text frames:
+```text
+GET /healthz
+WS  /_relay/v1/pair
+WS  /_relay/v1/coworker
+WS  /i/{instance_id}/_relay/v1/connect
+```
 
-- `ping`, `pong`: connection liveness.
-- `verifier`, `verifier_ack`: atomic synchronization of the communication token's Argon2id
-  verifier.
-- `request`: an HTTP request that passed Relay's edge authentication.
-- `response_start`, `response_body`, `response_error`: streaming responses.
-- `cancel`: cancellation when the public request disconnects, times out, or exceeds backpressure.
+A pairing code contains 32 random bytes, expires after ten minutes, and can be atomically consumed
+only once. Coworker computes an HMAC over a fixed byte encoding of Relay's nonce, pairing ID,
+and instance public key. Relay returns its static signing public key, `instance_id`, and a
+binding signature. Later control connections use the instance Ed25519 signature, a random nonce,
+connection ID, and monotonic authentication epoch to reject replay, reordering, and cross-instance
+frames.
 
-`request_id` correlates a request and response within one tunnel connection. Relay does not replay
-ordinary business requests after a disconnect and provides no offline outbox. This avoids
-duplicating a message when the original result is unknown. Existing Desktop and Coworker protocols
-retain their own ACK and deduplication semantics.
+## Token derivation
 
-## Headers and source context
+The communication token must be `cwct_v1_` plus 32 unpadded base64url bytes. HKDF-SHA256 uses the
+`coworker-relay-e2ee-v1` domain, an instance-bound salt, and separate purposes:
 
-The request frame represents `headers` as an array of `[name, value]` pairs.
-`relay_header_start` identifies the first Relay-appended header, allowing Coworker to distinguish
-client values from trusted Relay additions.
+- `relay-entry-auth` for Relay entry-challenge signatures;
+- `inner-tls-server` for Coworker's inner TLS identity;
+- `inner-client-proof` for Desktop's inner client proof.
 
-Go's `net/http` preserves multiple values for one header name but does not expose the original
-global wire order across different names. Relay therefore sorts client headers deterministically
-by name, preserves value order within each name, and appends Relay headers afterwards.
-Authentication, authorization, and source-IP decisions may use only the authenticated tunnel
-context and appended region, never client-supplied duplicates.
+Coworker synchronizes only the entry public key and authentication epoch. Relay receives neither
+the token nor either inner private key. Entry challenges bind version, instance, epoch, connection
+ID, random nonce, and expiration.
 
-The Python client rejects request frames with invalid header counts, aggregate size, names,
-encodings, or `relay_header_start` boundaries, and verifies the Relay-appended header set required
-by v1 together with its instance and Request ID. Invalid frames never enter Coworker's ASGI
-application.
+## Byte relay and inner TLS
 
-## Streaming, limits, and backpressure
+After entry authentication, Relay assigns a 16-byte session ID and sends a signed session-open on
+Coworker's control channel. Every binary Desktop WebSocket message is an opaque TLS byte chunk.
+Control-channel data adds only the session ID prefix. Relay limits outer frame size, count, queues,
+and connection time but cannot observe inner stream counts or routes.
 
-- v1 buffers the complete request body and puts it in one Base64 `request` frame, with a 32 MiB
-  limit.
-- Tunnel text frames are limited to 48 MiB to allow Base64 and protocol overhead.
-- Response bodies use multiple `response_body` frames, including SSE and update downloads.
-- Each response stream has a bounded buffer. Relay cancels a slow stream instead of consuming
-  unbounded memory.
-- Relay sends `cancel` when a client disconnects, but cancellation is best effort and is not a
-  transaction rollback.
+Desktop and Coworker establish TLS 1.3 inside that byte stream. Desktop accepts only the
+token-derived Coworker Ed25519 certificate public key. After the handshake, Coworker sends a
+one-time challenge signed by Desktop's independent `inner-client-proof` key. Virtual requests are
+accepted only after both steps, so Relay cannot reuse entry authentication to impersonate Desktop.
+Signatures cover fixed-order raw bytes and never depend on JSON reserialization.
 
-Truly streaming request uploads, resumable request delivery, and generic file tunnels are outside
-v1.
+## Virtual HTTP
 
-## Update cache
+The inner protocol has a fixed ten-byte header:
 
-In v1, Coworker's existing read-only update endpoints still produce update responses. Relay caches
-only allowlisted installer paths that return `200`, and authentication runs again before every
-cache hit. A client cannot submit an arbitrary upstream URL, and Relay is not a general upstream
-downloader.
+```text
+version:u8 | type:u8 | stream_id:u32be | payload_length:u32be
+```
 
-Cache keys use the instance and asset path, so semantically irrelevant query parameters do not
-create duplicate copies. A concurrent-fill lock is reclaimed after its last user exits. Content is
-checked with SHA-256 when written, on the first read after Relay restarts, after the file changes,
-and periodically; ordinary hits do not reread the entire installer. The cache supports ETag and
-Range reads. Desktop independently verifies Tauri update signatures; cache integrity does not
-replace release signing.
+Frames cover client proof, request start/body/end, response start/body/end, cancellation, errors,
+and ping. Headers are ordered `[name, value]` arrays that retain duplicate order. Bodies and SSE
+events stream in chunks. Stream IDs permit concurrency; receivers enforce bounded queues,
+backpressure, frame-size, and header limits.
+
+After decryption, Coworker applies one Relay exposure policy covering status, Desktop registration,
+messages, SSE, and published desktop updates. Existing ASGI authentication still verifies the
+original Bearer.
+
+## Source context
+
+Relay signs source IP, public origin, instance, and session in session-open. From this trusted
+context and the decrypted original target, Coworker appends `X-Coworker-Relay-*`, `Forwarded`,
+Original URL/Target, and Request ID. Client-provided duplicates remain first, and the trusted
+boundary is stored in `scope.state.coworker_relay`. Authentication, authorization, and source
+decisions must use trusted context rather than similarly named client headers.
 
 ## Compatibility commitment
 
-- Protocol `1` may add response JSON fields that receivers ignore, but existing field meanings
-  cannot change.
-- New frame types, chunked request uploads, or authentication-semantic changes require a new
-  protocol version or capability negotiation.
-- Upgrade Relay and Coworker together. `coworker-relay health` reports Relay's build and protocol
-  versions.
-- v1 is single-node. An instance has one active tunnel; a new connection supersedes the old one.
+- v1 may add control fields that receivers explicitly ignore, but cannot change signature input,
+  key purposes, or frame semantics.
+- New frame types, authentication semantics, or key derivation require a new version or explicit
+  capability negotiation.
+- Relay databases carry an explicit schema; non-E2EE-v1 schemas stop startup and require reinitialization.
+- Relay and Coworker should be upgraded together. Only new Desktop versions support this protocol.

@@ -107,10 +107,10 @@ def test_relay_status_does_not_return_token_until_explicitly_requested(tmp_path)
     assert token.json() == {"communication_token": "desktop-secret"}
 
 
-def test_relay_credential_rotation_uses_built_in_client(tmp_path):
+def test_relay_token_rotation_uses_built_in_client(tmp_path):
     class FakeRelayClient:
         def __init__(self):
-            self.rotate_credential = AsyncMock(
+            self.rotate_token = AsyncMock(
                 return_value={"status": "connecting", "instance_id": "cw_abcdefgh"}
             )
 
@@ -120,13 +120,13 @@ def test_relay_credential_rotation_uses_built_in_client(tmp_path):
     relay = FakeRelayClient()
     client, _ = _client(tmp_path, relay_client=relay)
     response = client.post(
-        "/api/admin/relay/rotate-credential",
+        "/api/admin/relay/rotate-token",
         headers={"Authorization": "Bearer secret"},
     )
 
     assert response.status_code == 200
     assert response.json()["instance_id"] == "cw_abcdefgh"
-    relay.rotate_credential.assert_awaited_once()
+    relay.rotate_token.assert_awaited_once()
 
 
 def test_admin_alarm_accepts_browser_utc_timestamp(tmp_path):

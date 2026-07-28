@@ -19,8 +19,8 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 | `data/` | 身份、记忆库、任务、收发件箱、附件、截图、运行状态和日志 |
 | `.coworker/` | 技能、记忆宫殿、潜意识模式及其用户修改 |
 | 桌面应用的数据目录 | Desktop 的设置、凭据、桥接状态和日志；具体位置由操作系统决定 |
-| Coworker 管理配置中的 `relay` 字段 | 自托管 Relay 地址、实例 ID 和实例长期凭据 |
-| Relay 的独立数据卷 | 实例 verifier、凭据摘要、配对状态、来源 IP 封禁/失败记录、更新统计、ACME 状态和安装包缓存 |
+| Coworker 管理配置中的 `relay` 字段 | 自托管中继（Relay）地址、实例 ID、实例私钥和固定的 Relay 公钥 |
+| Relay 的独立数据卷 | 实例公钥、认证 epoch、配对状态、来源 IP 封禁/失败记录、审计和聚合流量统计 |
 
 这些文件可能包含对话、提示词、工具参数与结果、网页内容、文件内容和个人信息。
 `.env`、`providers.json` 与管理配置是普通本地文件，Coworker 核心不会替你加密它们；
@@ -42,9 +42,9 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 - 搜索工具会发送查询词；浏览器工具会访问目标网站，并受到该网站的日志、Cookie 和会话
   策略约束。
 - 企业微信、Desktop 桥接及其他通信或 MCP 集成会向对应服务传输消息、附件和协议元数据。
-- 启用自托管 Relay 后，请求的 Bearer、Header、路径、来源 IP、消息正文、附件和 SSE
-  事件会在转发期间经过 Relay。Relay不持久化这些正文，但 Relay管理员控制 TLS终止点，
-  因而属于完整信任边界。
+- 启用自托管中继后，来源 IP、实例、连接时间、流量大小和时序对 Relay 可见。Bearer、
+  Header、路径、消息正文、附件、SSE 和更新制品位于 Desktop 与 Coworker 的内层 TLS 1.3
+  信道中，Relay 无法解密或生成有效客户端请求；Relay 仍可中断、延迟或限速连接。
 - 安装依赖、Playwright 浏览器或本地嵌入模型时，会连接软件源、浏览器下载源或模型仓库。
 
 若数据不能交给某个外部服务，不要为 Coworker 配置该服务，也不要让 Agent 读取相关文件。
@@ -58,7 +58,7 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 - API 默认绑定 `127.0.0.1`。管理员令牌保护管理 API，但当前 v0.x 并非每个路由都具备完整的
   多租户授权边界。不要直接暴露 8000 端口；远程部署要求 TLS、可信 CORS 来源、强通信令牌
   和额外的网络访问控制。详见 [安全策略](../../SECURITY.md)。
-- 需要从公网访问 Desktop 时，应使用[自托管 Relay](../operations/relay.md)，不要直接公开
+- 需要从公网访问 Desktop 时，应使用[自托管中继（Relay）](../operations/relay.md)，不要直接公开
   Coworker 的 8000 端口。Relay v1 是单节点公网安全边界，不是多租户隔离平台或通用代理。
 
 ## 查看、备份与清理
@@ -82,7 +82,7 @@ uv run python scripts/cleanup.py backup-delete
 容器。
 
 Relay数据不在 `cleanup.py` 范围内。删除前先用 `coworker-relay backup` 创建一致快照；撤销单个
-实例使用 `coworker-relay instance revoke`，它会级联清理该实例的 verifier、失败/封禁状态、
-统计和缓存。完整退役还需移除 Relay部署目录中的 `.env`、备份文件和独立 Docker卷。
+实例使用 `coworker-relay instance revoke`，它会级联清理实例公钥、认证 epoch、配对和
+失败/封禁状态。完整退役还需移除 Relay部署目录中的 `.env`、签名密钥、备份文件和独立 Docker卷。
 
 [← 返回项目首页](../../README.md)

@@ -20,7 +20,7 @@ COPY --from=build /out/coworker-relay /usr/local/bin/coworker-relay
 RUN mkdir -p /var/lib/coworker-relay && chown relay:relay /var/lib/coworker-relay
 USER relay
 VOLUME ["/var/lib/coworker-relay"]
-EXPOSE 8080 8443
+EXPOSE 8443 8444
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["coworker-relay", "health"]
 ENTRYPOINT ["coworker-relay"]
 CMD ["serve"]

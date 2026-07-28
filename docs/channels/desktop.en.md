@@ -38,7 +38,18 @@ The desktop application does not bundle the Coworker Python service, Codex CLI, 
 cargo run --bin coworker-desktop
 ```
 
-If the current directory has no `coworker_desktop.json`, the CLI launches the first-run setup wizard. Production mode is the default and requires HTTPS plus a Bearer token for every Coworker. Authentication-free HTTP is allowed only for local debugging after explicitly setting `security.development_mode=true`.
+If the current directory has no `coworker_desktop.json`, the CLI launches the first-run setup
+wizard. Production mode requires HTTPS and a Bearer token for direct Coworker connections. An
+exact `http(s)://<relay>/i/{instance_id}` URL uses Relay end-to-end encryption. Other
+authentication-free HTTP is allowed only for local debugging after explicitly setting
+`security.development_mode=true`.
+
+A new Desktop still configures Relay with only Base URL and Bearer token; there are no transport,
+certificate, or public-key fields. The UI displays “Relay / End-to-end encrypted” for an instance
+path. Status, diagnostics, registration, messages, SSE, outbox, MCP sidecar, and updates all use
+the same transport abstraction. The outer Relay may use plain HTTP/WS, but the inner connection is
+always TLS 1.3 with Coworker's pinned key and a separate client proof. Identity or protocol
+failures never downgrade to plaintext direct access. Older Desktop versions do not support Relay.
 
 You can also copy the example configuration manually or select another file with `--config`:
 
@@ -264,6 +275,13 @@ The synchronizer can import a Release containing only a subset of the canonical 
 The Desktop Release section in `examples/api_test.html` can also create a release manually, upload one platform asset at a time, publish, or roll back.
 
 At startup, the desktop application requests `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`. A response of `204` means no update is available. When an update exists, the endpoint returns the `version`, `url`, and `signature` required by the Tauri updater.
+
+When the update endpoint follows a Relay Base URL, Desktop starts a temporary adapter on a random
+`127.0.0.1` port with a random capability path. It permits only the current instance's fixed
+manifest and artifact paths, carries every upstream byte through Relay end-to-end encryption, and
+rewrites same-instance artifact URLs to the temporary loopback endpoint. It rejects cross-instance
+paths, arbitrary URLs, and redirects, then closes after installation, cancellation, expiration,
+or application exit. Tauri updater still independently verifies the artifact signature.
 
 An administrator can use the same Bearer token as the desktop release endpoints to request
 `GET /api/desktop-updates/statistics`. The response groups registered desktops by version and

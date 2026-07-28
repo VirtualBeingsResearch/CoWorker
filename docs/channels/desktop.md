@@ -38,7 +38,16 @@ Coworker Desktop 有两种分发/运行方式：
 cargo run --bin coworker-desktop
 ```
 
-如果当前目录没有 `coworker_desktop.json`，CLI 会启动首次配置向导。默认是生产模式，要求每个 Coworker 使用 HTTPS 和 Bearer token；只有为本机调试显式设置 `security.development_mode=true` 才允许免鉴权 HTTP。
+如果当前目录没有 `coworker_desktop.json`，CLI 会启动首次配置向导。默认是生产模式，要求
+直连 Coworker 使用 HTTPS 和 Bearer token；精确匹配
+`http(s)://<relay>/i/{instance_id}` 的地址使用 Relay 端到端加密传输。其他免鉴权 HTTP
+只在本机调试显式设置 `security.development_mode=true` 后允许。
+
+新版 Desktop 的 Relay 配置仍只有 Base URL 和 Bearer token，不新增 transport、证书或
+公钥字段。识别到实例路径时界面显示“Relay / 端到端加密”。状态、诊断、注册、消息、
+SSE、outbox、MCP sidecar 和更新都走同一传输抽象；外层 Relay 可以使用普通 HTTP/WS，
+但内部始终是固定 Coworker 公钥并带客户端证明的 TLS 1.3。身份或协议失败时不会降级到
+明文直连。旧版 Desktop 不支持 Relay。
 
 也可以手动复制示例配置，或用 `--config` 指定自定义路径：
 
@@ -271,6 +280,11 @@ API Base URL 可以指向 GitHub Enterprise（例如 `https://github.company/api
 
 也可以用 `examples/api_test.html` 的 Desktop Release 区域手工创建 release、上传单个平台 asset、publish 或 rollback。
 桌面端启动后会请求 `GET /api/desktop-updates/{{target}}/{{arch}}/{{current_version}}`；无更新返回 `204`，有更新返回 Tauri updater 需要的 `version/url/signature`。
+
+当更新地址跟随 Relay Base URL 时，Desktop 会创建仅监听 `127.0.0.1` 随机端口、带随机
+能力路径的临时适配器。它只允许当前实例的固定清单和制品路径，所有上游字节都经过 Relay
+端到端加密，并把同实例制品 URL 改写到临时回环地址。适配器拒绝跨实例、任意 URL 和
+重定向，在安装、取消、失效或应用退出后关闭；Tauri updater 仍独立验证制品签名。
 
 管理员可以携带与桌面发布接口相同的 Bearer Token 请求
 `GET /api/desktop-updates/statistics`，查看按版本聚合的已注册桌面数量、当前在线数量、

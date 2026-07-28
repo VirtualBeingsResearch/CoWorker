@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import type { DictKey } from "../i18n/en";
 import {
   approvalsReviewerValues,
+  isRelayBaseUrl,
   normalizeTimeoutSeconds,
   permissionsModeValues,
   type ApprovalConfigView,
@@ -438,6 +439,9 @@ export function ConfigView({
               value={selectedCoworker.base_url}
               onChange={(event) => updateCoworker("base_url", event.target.value)}
             />
+            {isRelayBaseUrl(selectedCoworker.base_url) && (
+              <small className="fieldHint">{t("config.relayE2eeDetected")}</small>
+            )}
           </Field>
           <Field label={t("config.fieldBearerToken")} inputId="coworker-token">
             <input

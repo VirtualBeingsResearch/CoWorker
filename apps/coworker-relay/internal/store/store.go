@@ -2,14 +2,13 @@ package store
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base32"
-	"encoding/hex"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,32 +16,32 @@ import (
 )
 
 var (
-	instancesBucket   = []byte("instances")
-	pairingsBucket    = []byte("pairings")
-	failuresBucket    = []byte("failures")
-	bansBucket        = []byte("bans")
-	updateStatsBucket = []byte("update_stats")
-	metaBucket        = []byte("meta")
-	schemaVersionKey  = []byte("schema_version")
+	instancesBucket  = []byte("instances")
+	pairingsBucket   = []byte("pairings")
+	failuresBucket   = []byte("failures")
+	bansBucket       = []byte("bans")
+	auditsBucket     = []byte("audits")
+	trafficBucket    = []byte("traffic")
+	metaBucket       = []byte("meta")
+	schemaVersionKey = []byte("schema_version")
 )
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 type Instance struct {
-	ID                    string    `json:"id"`
-	Name                  string    `json:"name"`
-	CredentialHash        string    `json:"credential_hash"`
-	PendingCredentialHash string    `json:"pending_credential_hash,omitempty"`
-	Verifier              string    `json:"verifier"`
-	VerifierGeneration    string    `json:"verifier_generation"`
-	UpdateAuthMode        string    `json:"update_auth_mode"`
-	CreatedAt             time.Time `json:"created_at"`
-	LastConnectedAt       time.Time `json:"last_connected_at,omitempty"`
-	LastAnonymousUpdate   time.Time `json:"last_anonymous_update,omitempty"`
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	InstancePublicKey string    `json:"instance_public_key,omitempty"`
+	AuthPublicKey     string    `json:"auth_public_key,omitempty"`
+	AuthEpoch         uint64    `json:"auth_epoch"`
+	CreatedAt         time.Time `json:"created_at"`
+	LastConnectedAt   time.Time `json:"last_connected_at,omitempty"`
 }
 
 type Pairing struct {
+	ID         string    `json:"id"`
 	InstanceID string    `json:"instance_id"`
+	Secret     string    `json:"secret"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	Used       bool      `json:"used"`
 }
@@ -55,21 +54,27 @@ type Ban struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type AuditEvent struct {
+	At         time.Time `json:"at"`
+	Action     string    `json:"action"`
+	InstanceID string    `json:"instance_id,omitempty"`
+	SourceIP   string    `json:"source_ip,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
+type Traffic struct {
+	InstanceID  string    `json:"instance_id"`
+	Connections uint64    `json:"connections"`
+	Frames      uint64    `json:"frames"`
+	Bytes       uint64    `json:"bytes"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type Store struct {
 	db            *bolt.DB
 	failureWindow time.Duration
 	failureLimit  int
 	banDuration   time.Duration
-}
-
-type UpdateDay struct {
-	Authenticated uint64            `json:"authenticated"`
-	Anonymous     uint64            `json:"anonymous"`
-	Versions      map[string]uint64 `json:"versions"`
-}
-
-type UpdateStats struct {
-	Days map[string]UpdateDay `json:"days"`
 }
 
 func Open(path string) (*Store, error) {
@@ -78,27 +83,27 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
+		meta, err := tx.CreateBucketIfNotExists(metaBucket)
+		if err != nil {
+			return err
+		}
+		rawVersion := meta.Get(schemaVersionKey)
+		if rawVersion != nil && string(rawVersion) != "2" {
+			return fmt.Errorf(
+				"relay database schema %s is incompatible with E2EE Relay v1; "+
+					"back it up, remove it, and run coworker-relay init again",
+				string(rawVersion),
+			)
+		}
 		for _, name := range [][]byte{
-			instancesBucket, pairingsBucket, failuresBucket, bansBucket, updateStatsBucket,
-			metaBucket,
+			instancesBucket, pairingsBucket, failuresBucket, bansBucket,
+			auditsBucket, trafficBucket,
 		} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}
 		}
-		meta := tx.Bucket(metaBucket)
-		rawVersion := meta.Get(schemaVersionKey)
-		if rawVersion == nil {
-			return meta.Put(schemaVersionKey, []byte("1"))
-		}
-		if string(rawVersion) != "1" {
-			return fmt.Errorf(
-				"relay database schema %s is unsupported by this build (supports %d)",
-				string(rawVersion),
-				currentSchemaVersion,
-			)
-		}
-		return nil
+		return meta.Put(schemaVersionKey, []byte("2"))
 	})
 	if err != nil {
 		_ = db.Close()
@@ -118,8 +123,8 @@ func Validate(path string) error {
 	defer db.Close()
 	return db.View(func(tx *bolt.Tx) error {
 		meta := tx.Bucket(metaBucket)
-		if meta == nil || string(meta.Get(schemaVersionKey)) != "1" {
-			return errors.New("backup has an unsupported or missing relay database schema")
+		if meta == nil || string(meta.Get(schemaVersionKey)) != "2" {
+			return errors.New("backup has an unsupported or missing E2EE Relay schema")
 		}
 		if tx.Bucket(instancesBucket) == nil {
 			return errors.New("backup is missing the instances bucket")
@@ -160,17 +165,12 @@ func (s *Store) SetAuthPolicy(
 	return nil
 }
 
-func randomToken(bytes int) (string, error) {
-	raw := make([]byte, bytes)
+func randomToken(size int) (string, error) {
+	raw := make([]byte, size)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
-	return strings.TrimRight(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw), "="), nil
-}
-
-func digest(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func putJSON(bucket *bolt.Bucket, key string, value any) error {
@@ -192,58 +192,73 @@ func getJSON[T any](bucket *bolt.Bucket, key string) (T, error) {
 }
 
 func (s *Store) CreateInstance(name string) (Instance, string, error) {
-	idToken, err := randomToken(10)
+	idToken, err := randomToken(16)
 	if err != nil {
 		return Instance{}, "", err
 	}
-	pairingCode, err := randomToken(12)
+	pairingID, err := randomToken(12)
+	if err != nil {
+		return Instance{}, "", err
+	}
+	secret, err := randomToken(32)
 	if err != nil {
 		return Instance{}, "", err
 	}
 	instance := Instance{
-		ID:             "cw_" + strings.ToLower(idToken),
-		Name:           strings.TrimSpace(name),
-		UpdateAuthMode: "optional",
-		CreatedAt:      time.Now().UTC(),
+		ID:        "cw_" + strings.ToLower(idToken),
+		Name:      strings.TrimSpace(name),
+		CreatedAt: time.Now().UTC(),
 	}
 	pairing := Pairing{
-		InstanceID: instance.ID,
-		ExpiresAt:  time.Now().UTC().Add(10 * time.Minute),
+		ID: pairingID, InstanceID: instance.ID, Secret: secret,
+		ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
 	}
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		if err := putJSON(tx.Bucket(instancesBucket), instance.ID, instance); err != nil {
 			return err
 		}
-		return putJSON(tx.Bucket(pairingsBucket), digest(pairingCode), pairing)
+		return putJSON(tx.Bucket(pairingsBucket), pairing.ID, pairing)
 	})
-	return instance, pairingCode, err
+	return instance, "pair_" + pairingID + "." + secret, err
 }
 
-func (s *Store) Enroll(pairingCode, verifier string) (Instance, string, error) {
+func (s *Store) GetPairing(id string) (Pairing, error) {
+	var pairing Pairing
+	err := s.db.View(func(tx *bolt.Tx) error {
+		var err error
+		pairing, err = getJSON[Pairing](tx.Bucket(pairingsBucket), id)
+		if err != nil || pairing.Used || !pairing.ExpiresAt.After(time.Now().UTC()) {
+			return errors.New("pairing code is invalid, expired, or already used")
+		}
+		return nil
+	})
+	return pairing, err
+}
+
+func (s *Store) CompletePairing(pairingID, instancePublicKey string) (Instance, error) {
 	var instance Instance
-	credential, err := randomToken(32)
-	if err != nil {
-		return instance, "", err
-	}
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx *bolt.Tx) error {
 		pairings := tx.Bucket(pairingsBucket)
-		pairing, err := getJSON[Pairing](pairings, digest(strings.TrimSpace(pairingCode)))
-		if err != nil || pairing.Used || time.Now().UTC().After(pairing.ExpiresAt) {
+		pairing, err := getJSON[Pairing](pairings, pairingID)
+		if err != nil || pairing.Used || !pairing.ExpiresAt.After(time.Now().UTC()) {
 			return errors.New("pairing code is invalid, expired, or already used")
 		}
 		instance, err = getJSON[Instance](tx.Bucket(instancesBucket), pairing.InstanceID)
 		if err != nil {
 			return err
 		}
-		instance.CredentialHash = digest(credential)
-		instance.Verifier = verifier
+		if instance.InstancePublicKey != "" {
+			return errors.New("instance is already paired")
+		}
+		instance.InstancePublicKey = instancePublicKey
 		pairing.Used = true
+		pairing.Secret = ""
 		if err := putJSON(tx.Bucket(instancesBucket), instance.ID, instance); err != nil {
 			return err
 		}
-		return putJSON(pairings, digest(strings.TrimSpace(pairingCode)), pairing)
+		return putJSON(pairings, pairing.ID, pairing)
 	})
-	return instance, credential, err
+	return instance, err
 }
 
 func (s *Store) GetInstance(id string) (Instance, error) {
@@ -256,74 +271,35 @@ func (s *Store) GetInstance(id string) (Instance, error) {
 	return instance, err
 }
 
-func (s *Store) AuthenticateInstance(id, credential string) (Instance, error) {
-	var instance Instance
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(instancesBucket)
-		var err error
-		instance, err = getJSON[Instance](bucket, id)
-		if err != nil {
-			return errors.New("invalid instance credential")
+func (s *Store) UpdateAuthKey(id, publicKey string, epoch uint64) error {
+	return s.updateInstance(id, func(instance *Instance) error {
+		if epoch <= instance.AuthEpoch {
+			return errors.New("authentication epoch must increase")
 		}
-		candidate := digest(credential)
-		if instance.CredentialHash != "" &&
-			subtle.ConstantTimeCompare(
-				[]byte(candidate),
-				[]byte(instance.CredentialHash),
-			) == 1 {
-			return nil
-		}
-		if instance.PendingCredentialHash != "" &&
-			subtle.ConstantTimeCompare(
-				[]byte(candidate),
-				[]byte(instance.PendingCredentialHash),
-			) == 1 {
-			instance.CredentialHash = instance.PendingCredentialHash
-			instance.PendingCredentialHash = ""
-			return putJSON(bucket, id, instance)
-		}
-		return errors.New("invalid instance credential")
-	})
-	if err != nil {
-		return Instance{}, errors.New("invalid instance credential")
-	}
-	return instance, nil
-}
-
-func (s *Store) UpdateVerifier(id, verifier, generation string) error {
-	return s.updateInstance(id, func(instance *Instance) {
-		instance.Verifier = verifier
-		instance.VerifierGeneration = generation
+		instance.AuthPublicKey = publicKey
+		instance.AuthEpoch = epoch
 		instance.LastConnectedAt = time.Now().UTC()
+		return nil
 	})
 }
 
-func (s *Store) PrepareCredential(id string) (string, error) {
-	credential, err := randomToken(32)
-	if err != nil {
-		return "", err
-	}
-	err = s.updateInstance(id, func(instance *Instance) {
-		instance.PendingCredentialHash = digest(credential)
+func (s *Store) TouchInstance(id string) error {
+	return s.updateInstance(id, func(instance *Instance) error {
+		instance.LastConnectedAt = time.Now().UTC()
+		return nil
 	})
-	return credential, err
 }
 
-func (s *Store) SetUpdateAuthMode(id, mode string) error {
-	if mode != "optional" && mode != "required" {
-		return errors.New("update auth mode must be optional or required")
-	}
-	return s.updateInstance(id, func(instance *Instance) { instance.UpdateAuthMode = mode })
-}
-
-func (s *Store) updateInstance(id string, mutate func(*Instance)) error {
+func (s *Store) updateInstance(id string, mutate func(*Instance) error) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(instancesBucket)
 		instance, err := getJSON[Instance](bucket, id)
 		if err != nil {
 			return err
 		}
-		mutate(&instance)
+		if err := mutate(&instance); err != nil {
+			return err
+		}
 		return putJSON(bucket, id, instance)
 	})
 }
@@ -331,9 +307,6 @@ func (s *Store) updateInstance(id string, mutate func(*Instance)) error {
 func (s *Store) DeleteInstance(id string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.Bucket(instancesBucket).Delete([]byte(id)); err != nil {
-			return err
-		}
-		if err := tx.Bucket(updateStatsBucket).Delete([]byte(id)); err != nil {
 			return err
 		}
 		pairings := tx.Bucket(pairingsBucket)
@@ -354,10 +327,11 @@ func (s *Store) DeleteInstance(id string) error {
 		}
 		for _, bucketName := range [][]byte{failuresBucket, bansBucket} {
 			bucket := tx.Bucket(bucketName)
-			var keys [][]byte
 			prefix := []byte(id + "\x00")
+			var keys [][]byte
 			cursor := bucket.Cursor()
-			for key, _ := cursor.Seek(prefix); key != nil && strings.HasPrefix(string(key), string(prefix)); key, _ = cursor.Next() {
+			for key, _ := cursor.Seek(prefix); key != nil &&
+				strings.HasPrefix(string(key), string(prefix)); key, _ = cursor.Next() {
 				keys = append(keys, append([]byte(nil), key...))
 			}
 			for _, key := range keys {
@@ -366,55 +340,110 @@ func (s *Store) DeleteInstance(id string) error {
 				}
 			}
 		}
+		if err := tx.Bucket(trafficBucket).Delete([]byte(id)); err != nil {
+			return err
+		}
 		return nil
 	})
+}
+
+func (s *Store) RecordAudit(event AuditEvent) error {
+	if event.At.IsZero() {
+		event.At = time.Now().UTC()
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return putAudit(tx, event)
+	})
+}
+
+func putAudit(tx *bolt.Tx, event AuditEvent) error {
+	bucket := tx.Bucket(auditsBucket)
+	sequence, err := bucket.NextSequence()
+	if err != nil {
+		return err
+	}
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, sequence)
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	return bucket.Put(key, raw)
+}
+
+func (s *Store) AddTraffic(instanceID string, connections, frames, bytes uint64) error {
+	if instanceID == "" || (connections == 0 && frames == 0 && bytes == 0) {
+		return nil
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(trafficBucket)
+		value := Traffic{InstanceID: instanceID}
+		if raw := bucket.Get([]byte(instanceID)); raw != nil {
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return err
+			}
+		}
+		value.Connections += connections
+		value.Frames += frames
+		value.Bytes += bytes
+		value.UpdatedAt = time.Now().UTC()
+		return putJSON(bucket, instanceID, value)
+	})
+}
+
+func (s *Store) TrafficTotals() (Traffic, error) {
+	var total Traffic
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(trafficBucket).ForEach(func(_, raw []byte) error {
+			var value Traffic
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return err
+			}
+			total.Connections += value.Connections
+			total.Frames += value.Frames
+			total.Bytes += value.Bytes
+			if value.UpdatedAt.After(total.UpdatedAt) {
+				total.UpdatedAt = value.UpdatedAt
+			}
+			return nil
+		})
+	})
+	return total, err
 }
 
 func (s *Store) GarbageCollect(now time.Time) (map[string]int, error) {
 	removed := map[string]int{"pairings": 0, "failures": 0, "bans": 0}
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		type target struct {
-			name    string
-			bucket  []byte
-			expired func([]byte) bool
-		}
-		targets := []target{
-			{
-				name: "pairings", bucket: pairingsBucket,
-				expired: func(raw []byte) bool {
-					var value Pairing
-					return json.Unmarshal(raw, &value) != nil || value.Used || !value.ExpiresAt.After(now)
-				},
-			},
-			{
-				name: "failures", bucket: failuresBucket,
-				expired: func(raw []byte) bool {
-					var values []time.Time
-					if json.Unmarshal(raw, &values) != nil {
-						return true
-					}
-					cutoff := now.Add(-s.failureWindow)
-					for _, value := range values {
-						if value.After(cutoff) {
-							return false
-						}
-					}
-					return true
-				},
-			},
-			{
-				name: "bans", bucket: bansBucket,
-				expired: func(raw []byte) bool {
-					var value Ban
-					return json.Unmarshal(raw, &value) != nil || !value.Until.After(now)
-				},
-			},
-		}
-		for _, item := range targets {
-			bucket := tx.Bucket(item.bucket)
+		for name, bucketName := range map[string][]byte{
+			"pairings": pairingsBucket, "failures": failuresBucket, "bans": bansBucket,
+		} {
+			bucket := tx.Bucket(bucketName)
 			var keys [][]byte
 			if err := bucket.ForEach(func(key, raw []byte) error {
-				if item.expired(raw) {
+				expired := false
+				switch name {
+				case "pairings":
+					var value Pairing
+					expired = json.Unmarshal(raw, &value) != nil ||
+						value.Used || !value.ExpiresAt.After(now)
+				case "failures":
+					var values []time.Time
+					expired = json.Unmarshal(raw, &values) != nil
+					if !expired {
+						expired = true
+						cutoff := now.Add(-s.failureWindow)
+						for _, value := range values {
+							if value.After(cutoff) {
+								expired = false
+								break
+							}
+						}
+					}
+				case "bans":
+					var value Ban
+					expired = json.Unmarshal(raw, &value) != nil || !value.Until.After(now)
+				}
+				if expired {
 					keys = append(keys, append([]byte(nil), key...))
 				}
 				return nil
@@ -425,7 +454,7 @@ func (s *Store) GarbageCollect(now time.Time) (map[string]int, error) {
 				if err := bucket.Delete(key); err != nil {
 					return err
 				}
-				removed[item.name]++
+				removed[name]++
 			}
 		}
 		return nil
@@ -434,178 +463,115 @@ func (s *Store) GarbageCollect(now time.Time) (map[string]int, error) {
 }
 
 func (s *Store) ListInstances() ([]Instance, error) {
-	var values []Instance
+	var result []Instance
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(instancesBucket).ForEach(func(_, raw []byte) error {
-			var item Instance
-			if err := json.Unmarshal(raw, &item); err != nil {
+			var instance Instance
+			if err := json.Unmarshal(raw, &instance); err != nil {
 				return err
 			}
-			values = append(values, item)
+			result = append(result, instance)
 			return nil
 		})
 	})
-	return values, err
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, err
 }
 
-func failureKey(instanceID, ip string) string { return instanceID + "\x00" + ip }
+func authKey(instanceID, ip string) string { return instanceID + "\x00" + ip }
 
 func (s *Store) RecordFailure(instanceID, ip string, now time.Time) (bool, time.Time, error) {
-	key := failureKey(instanceID, ip)
-	var bannedUntil time.Time
+	var banned bool
+	var until time.Time
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		failures := tx.Bucket(failuresBucket)
-		var times []time.Time
-		if raw := failures.Get([]byte(key)); raw != nil {
-			_ = json.Unmarshal(raw, &times)
+		key := authKey(instanceID, ip)
+		bucket := tx.Bucket(failuresBucket)
+		var values []time.Time
+		if raw := bucket.Get([]byte(key)); raw != nil {
+			_ = json.Unmarshal(raw, &values)
 		}
 		cutoff := now.Add(-s.failureWindow)
-		filtered := times[:0]
-		for _, value := range times {
+		filtered := values[:0]
+		for _, value := range values {
 			if value.After(cutoff) {
 				filtered = append(filtered, value)
 			}
 		}
 		filtered = append(filtered, now)
 		if len(filtered) >= s.failureLimit {
-			bannedUntil = now.Add(s.banDuration)
-			ban := Ban{InstanceID: instanceID, IP: ip, Until: bannedUntil, Reason: "authentication failures", CreatedAt: now}
+			until = now.Add(s.banDuration)
+			ban := Ban{
+				InstanceID: instanceID, IP: ip, Until: until,
+				Reason: "authentication failures", CreatedAt: now,
+			}
 			if err := putJSON(tx.Bucket(bansBucket), key, ban); err != nil {
 				return err
 			}
-			return failures.Delete([]byte(key))
+			banned = true
+			return bucket.Delete([]byte(key))
 		}
-		return putJSON(failures, key, filtered)
+		return putJSON(bucket, key, filtered)
 	})
-	return !bannedUntil.IsZero(), bannedUntil, err
+	return banned, until, err
 }
 
 func (s *Store) ActiveBan(instanceID, ip string, now time.Time) (Ban, bool, error) {
-	key := failureKey(instanceID, ip)
 	var ban Ban
-	var active bool
+	key := authKey(instanceID, ip)
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		bans := tx.Bucket(bansBucket)
-		value, err := getJSON[Ban](bans, key)
-		if err != nil {
+		bucket := tx.Bucket(bansBucket)
+		raw := bucket.Get([]byte(key))
+		if raw == nil {
 			return nil
 		}
-		if !value.Until.After(now) {
-			return bans.Delete([]byte(key))
+		if err := json.Unmarshal(raw, &ban); err != nil {
+			return bucket.Delete([]byte(key))
 		}
-		ban, active = value, true
+		if !ban.Until.After(now) {
+			ban = Ban{}
+			return bucket.Delete([]byte(key))
+		}
 		return nil
 	})
-	return ban, active, err
+	return ban, !ban.Until.IsZero(), err
 }
 
 func (s *Store) ListBans(instanceID string) ([]Ban, error) {
-	var values []Ban
-	now := time.Now().UTC()
+	var result []Ban
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(bansBucket).ForEach(func(_, raw []byte) error {
-			var item Ban
-			if err := json.Unmarshal(raw, &item); err != nil {
+			var ban Ban
+			if err := json.Unmarshal(raw, &ban); err != nil {
 				return err
 			}
-			if item.Until.After(now) && (instanceID == "" || item.InstanceID == instanceID) {
-				values = append(values, item)
+			if instanceID == "" || ban.InstanceID == instanceID {
+				result = append(result, ban)
 			}
 			return nil
 		})
 	})
-	return values, err
+	sort.Slice(result, func(i, j int) bool { return result[i].Until.Before(result[j].Until) })
+	return result, err
 }
 
 func (s *Store) RemoveBan(instanceID, ip string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(bansBucket).Delete([]byte(failureKey(instanceID, ip)))
+		return tx.Bucket(bansBucket).Delete([]byte(authKey(instanceID, ip)))
 	})
 }
 
-func (s *Store) RecordUpdateCheck(
-	instanceID, version string,
-	authenticated bool,
-	now time.Time,
-) error {
+func (s *Store) RemoveBanWithAudit(instanceID, ip, reason string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(updateStatsBucket)
-		stats := UpdateStats{Days: make(map[string]UpdateDay)}
-		if raw := bucket.Get([]byte(instanceID)); raw != nil {
-			if err := json.Unmarshal(raw, &stats); err != nil {
-				return err
-			}
+		key := []byte(authKey(instanceID, ip))
+		if err := tx.Bucket(bansBucket).Delete(key); err != nil {
+			return err
 		}
-		dayKey := now.UTC().Format("2006-01-02")
-		day := stats.Days[dayKey]
-		if day.Versions == nil {
-			day.Versions = make(map[string]uint64)
+		if err := tx.Bucket(failuresBucket).Delete(key); err != nil {
+			return err
 		}
-		if authenticated {
-			day.Authenticated++
-		} else {
-			day.Anonymous++
-			instances := tx.Bucket(instancesBucket)
-			instance, err := getJSON[Instance](instances, instanceID)
-			if err == nil {
-				instance.LastAnonymousUpdate = now.UTC()
-				if err := putJSON(instances, instanceID, instance); err != nil {
-					return err
-				}
-			}
-		}
-		if version != "" {
-			day.Versions[version]++
-		}
-		stats.Days[dayKey] = day
-		cutoff := now.UTC().AddDate(0, 0, -31)
-		for key := range stats.Days {
-			parsed, err := time.Parse("2006-01-02", key)
-			if err != nil || parsed.Before(cutoff) {
-				delete(stats.Days, key)
-			}
-		}
-		return putJSON(bucket, instanceID, stats)
+		return putAudit(tx, AuditEvent{
+			At: time.Now().UTC(), Action: "ban.remove",
+			InstanceID: instanceID, SourceIP: ip, Reason: reason,
+		})
 	})
-}
-
-func (s *Store) UpdateStatistics(instanceID string, now time.Time) (map[string]any, error) {
-	stats := UpdateStats{Days: make(map[string]UpdateDay)}
-	err := s.db.View(func(tx *bolt.Tx) error {
-		raw := tx.Bucket(updateStatsBucket).Get([]byte(instanceID))
-		if raw == nil {
-			return nil
-		}
-		return json.Unmarshal(raw, &stats)
-	})
-	if err != nil {
-		return nil, err
-	}
-	aggregate := func(days int) map[string]any {
-		cutoff := now.UTC().AddDate(0, 0, -(days - 1))
-		var authenticated, anonymous uint64
-		versions := make(map[string]uint64)
-		for key, day := range stats.Days {
-			parsed, err := time.Parse("2006-01-02", key)
-			if err != nil || parsed.Before(cutoff) {
-				continue
-			}
-			authenticated += day.Authenticated
-			anonymous += day.Anonymous
-			for version, count := range day.Versions {
-				versions[version] += count
-			}
-		}
-		return map[string]any{
-			"authenticated": authenticated,
-			"anonymous":     anonymous,
-			"versions":      versions,
-		}
-	}
-	instance, _ := s.GetInstance(instanceID)
-	return map[string]any{
-		"last_7_days":           aggregate(7),
-		"last_30_days":          aggregate(30),
-		"last_anonymous_update": instance.LastAnonymousUpdate,
-	}, nil
 }

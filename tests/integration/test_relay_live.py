@@ -1,12 +1,11 @@
 """Opt-in live contract test for the Go Relay and Python built-in client.
 
 Set COWORKER_RELAY_TEST_URL and COWORKER_RELAY_PAIRING_CODE to run it. Normal
-unit/CI runs skip the test because it needs a separately running TLS Relay.
+unit/CI runs skip the test because it needs a separately running Relay.
 """
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import pytest
 
 from coworker.core.config import AdminConfig, APIConfig, Config
 from coworker.relay import RelayClient
+from coworker.relay.crypto import generate_communication_token
 
 
 @pytest.mark.asyncio
@@ -24,31 +24,11 @@ async def test_live_go_relay_python_client_contract(tmp_path: Path):
     if not relay_url or not pairing_code:
         pytest.skip("live Relay variables are not configured")
 
-    observed: dict[str, object] = {}
-
     async def app(scope, receive, send):
-        observed["scope"] = scope
-        await receive()
-        body = json.dumps(
-            {
-                "ok": True,
-                "via_relay": scope["state"]["coworker_relay"]["authenticated_tunnel"],
-            }
-        ).encode()
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode()),
-                ],
-            }
-        )
-        await send({"type": "http.response.body", "body": body, "more_body": False})
+        raise AssertionError("the plaintext public facade must never reach ASGI")
 
     config = Config(
-        api=APIConfig(communication_token="desktop-e2e-secret"),
+        api=APIConfig(communication_token=generate_communication_token()),
         admin=AdminConfig(config_file=str(tmp_path / "admin.json")),
     )
     client = RelayClient(app, config)
@@ -56,39 +36,27 @@ async def test_live_go_relay_python_client_contract(tmp_path: Path):
         enrollment = await client.enroll(relay_url, pairing_code)
         for _ in range(100):
             snapshot = client.snapshot()
-            if snapshot["status"] == "connected" and snapshot["verifier_synced"]:
+            if snapshot["status"] == "connected" and snapshot["auth_key_synced"]:
                 break
             await __import__("asyncio").sleep(0.05)
         assert client.snapshot()["status"] == "connected"
-        assert client.snapshot()["verifier_synced"] is True
+        assert client.snapshot()["auth_key_synced"] is True
         async with httpx.AsyncClient(timeout=10) as http:
-            response = await http.get(
-                f"{enrollment['public_base_url']}/status",
-                headers={
-                    "Authorization": "Bearer desktop-e2e-secret",
-                    "X-Coworker-Relay": "forged",
-                },
-            )
-        assert response.status_code == 200
-        assert response.json() == {"ok": True, "via_relay": True}
-        headers = observed["scope"]["headers"]
-        normalized = [(name.lower(), value) for name, value in headers]
-        boundary = observed["scope"]["state"]["coworker_relay"]["relay_header_start"]
-        assert (b"x-coworker-relay", b"forged") in normalized[:boundary]
-        assert (b"x-coworker-relay", b"v1") in normalized[boundary:]
+            response = await http.get(f"{enrollment['public_base_url']}/status")
+        assert response.status_code == 404
 
-        await client.rotate_credential()
+        previous_token = config.api.communication_token
+        result = await client.rotate_token()
+        assert result["desktop_reconfiguration_required"] is True
+        assert config.api.communication_token != previous_token
         for _ in range(100):
-            if client.snapshot()["status"] == "connected":
+            if (
+                client.snapshot()["status"] == "connected"
+                and client.snapshot()["auth_key_synced"]
+            ):
                 break
             await __import__("asyncio").sleep(0.05)
         assert client.snapshot()["status"] == "connected"
-        async with httpx.AsyncClient(timeout=10) as http:
-            rotated_response = await http.get(
-                f"{enrollment['public_base_url']}/status",
-                headers={"Authorization": "Bearer desktop-e2e-secret"},
-            )
-        assert rotated_response.status_code == 200
-        assert rotated_response.json() == {"ok": True, "via_relay": True}
+        assert client.snapshot()["auth_key_synced"] is True
     finally:
         await client.stop()

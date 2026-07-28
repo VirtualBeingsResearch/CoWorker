@@ -2,22 +2,11 @@ package server
 
 import "testing"
 
-func FuzzSplitInstancePath(f *testing.F) {
-	for _, seed := range []string{
-		"/i/cw_abcdefgh/status",
-		"/i/cw_abcdefgh/messages",
-		"/i/cw_abcdefgh/../api/admin/config",
-		"/i//status",
-		"/unknown",
-	} {
-		f.Add(seed)
-	}
-	f.Fuzz(func(t *testing.T, value string) {
-		instance, path, ok := splitInstancePath(value)
-		if ok {
-			if instance == "" || path == "" || path[0] != '/' {
-				t.Fatalf("accepted invalid split: %q %q from %q", instance, path, value)
-			}
-		}
+func FuzzValidatePublicURL(f *testing.F) {
+	f.Add("http://127.0.0.1:8443")
+	f.Add("https://relay.example.com")
+	f.Add("http://user:secret@relay.example.com")
+	f.Fuzz(func(_ *testing.T, value string) {
+		_, _ = ValidatePublicURL(value)
 	})
 }

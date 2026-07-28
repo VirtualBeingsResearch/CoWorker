@@ -227,7 +227,9 @@ class RelayConfig(_EnvSettings):
     enabled: bool = False
     url: str = ""
     instance_id: str = ""
-    instance_credential: str = Field(default="", repr=False)
+    instance_private_key: str = Field(default="", repr=False)
+    relay_public_key: str = ""
+    auth_epoch: int = Field(default=0, ge=0)
 
     @field_validator("url")
     @classmethod
@@ -236,8 +238,8 @@ class RelayConfig(_EnvSettings):
         if not value:
             return ""
         parsed = urlsplit(value)
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise ValueError("relay url must be an absolute HTTPS URL")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("relay url must be an absolute HTTP(S) URL")
         if (
             parsed.username
             or parsed.password
