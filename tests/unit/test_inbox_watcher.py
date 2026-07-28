@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
+import stat
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +11,7 @@ import pytest
 
 from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.incoming_content import build_content_blocks
+from coworker.core.autonomy import AutonomyLevel
 from coworker.core.types import AttachmentData, IncomingEvent
 
 
@@ -129,20 +132,21 @@ class TestInboxWatcher:
         image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
         pending_path = tmp_path / "pending_events.sqlite3"
         watcher = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
-        await watcher.push(
-            IncomingEvent(
-                participant_id="alice",
-                content="image",
-                attachments=[
-                    AttachmentData(
-                        filename="saved.png",
-                        media_type="image/png",
-                        saved_path=str(image_path),
-                        data="iVBORw0KGgo=",
-                    )
-                ],
-            )
+        queued = IncomingEvent(
+            participant_id="alice",
+            content="image",
+            attachments=[
+                AttachmentData(
+                    filename="saved.png",
+                    media_type="image/png",
+                    saved_path=str(image_path),
+                    data="iVBORw0KGgo=",
+                )
+            ],
         )
+        await watcher.push(queued)
+
+        assert queued.attachments[0].data is None
 
         restored = InboxWatcher(str(tmp_path / "inbox"), pending_path=pending_path)
         [event] = await restored.peek_pending()
@@ -287,8 +291,14 @@ class TestInboxWatcher:
         att = event.attachments[0]
         assert att.filename == "20240101_120000_alice.png"
         assert att.media_type == "image/png"
-        assert att.data is not None
+        assert att.data is None
         assert Path(att.saved_path).name == f"{compact_id_with_separator}_{att.filename}"
+        blocks = build_content_blocks([event])
+        assert isinstance(blocks, list)
+        assert any(block.get("type") == "image" for block in blocks)
+        if os.name != "nt":
+            mode = stat.S_IMODE(Path(att.saved_path).stat().st_mode)
+            assert mode == 0o600
         assert not img_file.exists()
 
     @pytest.mark.asyncio
@@ -315,3 +325,55 @@ class TestInboxWatcher:
         assert att.data is None
         assert att.saved_path != ""
         assert not zip_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_claimable_batch_skips_blocked_fifo_head(self, tmp_path):
+        watcher = InboxWatcher(tmp_path / "inbox")
+        await watcher.push(
+            IncomingEvent(
+                participant_id="alarm",
+                content="blocked alarm",
+                source="alarm",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
+            )
+        )
+        await watcher.push(
+            IncomingEvent(
+                participant_id="alice",
+                content="direct",
+                source="api",
+                wake_level=AutonomyLevel.REACTIVE,
+            )
+        )
+
+        selected = await watcher.peek_claimable(
+            lambda event: event.wake_level in (None, AutonomyLevel.REACTIVE),
+            limit=10,
+        )
+
+        assert [event.content for event in selected] == ["direct"]
+
+    @pytest.mark.asyncio
+    async def test_claimable_batch_reserves_wakeable_slot(self, tmp_path):
+        watcher = InboxWatcher(tmp_path / "inbox")
+        for index in range(3):
+            await watcher.push(
+                IncomingEvent(
+                    participant_id="system",
+                    content=f"notice-{index}",
+                    source="system",
+                    wake_level=None,
+                )
+            )
+        await watcher.push(
+            IncomingEvent(
+                participant_id="alice",
+                content="direct",
+                source="api",
+                wake_level=AutonomyLevel.REACTIVE,
+            )
+        )
+
+        selected = await watcher.peek_claimable(lambda _: True, limit=2)
+
+        assert [event.content for event in selected] == ["notice-0", "direct"]

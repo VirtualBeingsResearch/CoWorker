@@ -15,7 +15,13 @@ from coworker.agent.bubble_log_index import (
     upsert_completed_bubble_index,
 )
 from coworker.agent.incoming_content import build_content_blocks
-from coworker.core.autonomy import AutonomyBlockedError, AutonomyLevel, AutonomyScope
+from coworker.core.autonomy import (
+    AutonomyBlockedError,
+    AutonomyLevel,
+    AutonomyScope,
+    current_autonomy_trigger,
+    replace_autonomy_trigger,
+)
 from coworker.core.types import IncomingEvent, Message, SummaryResult
 from coworker.i18n import tr
 
@@ -267,7 +273,13 @@ class BubbleMiniLoop:
             if bubble.is_terminal():
                 break
 
-            await self._drain_inbox()
+            inbox_trigger = await self._drain_inbox()
+            if inbox_trigger is not None:
+                bubble.origin_trigger = max(
+                    (bubble.origin_trigger, inbox_trigger),
+                    key=lambda level: level.rank,
+                )
+            replace_autonomy_trigger(bubble.origin_trigger)
             self._warn_if_bursting(cycle, max_cycles)
             self._stm.reinject_missing_pins()
             tool_schemas = scoped_tools.get_schemas(
@@ -288,7 +300,7 @@ class BubbleMiniLoop:
                 autonomy = self._brain.autonomy
                 if autonomy is None:
                     raise
-                await autonomy.wait_until_allowed(self._autonomy_scope)
+                await self._wait_for_scope_or_inbox()
                 continue
 
             if self._ilog:
@@ -344,12 +356,15 @@ class BubbleMiniLoop:
         if not bubble.is_terminal() and cycle >= max_cycles:
             await self._auto_summarize()
 
-    async def _drain_inbox(self) -> None:
+    async def _drain_inbox(self) -> AutonomyLevel | None:
         bubble = self._bubble
+        bubble.inbox_event.clear()
+        triggers: list[AutonomyLevel] = []
         while not bubble.inbox.empty():
             try:
                 item = bubble.inbox.get_nowait()
                 if isinstance(item, IncomingEvent):
+                    triggers.append(item.wake_level or AutonomyLevel.REACTIVE)
                     await self._announce_handoff_started()
                     self._short_term.primary.append(
                         Message(
@@ -367,7 +382,12 @@ class BubbleMiniLoop:
                             conversation_id=item.conversation_id,
                         )
                 else:
-                    sender_id, message_text = item
+                    if len(item) == 3:
+                        sender_id, message_text, trigger = item
+                        triggers.append(trigger)
+                    else:
+                        sender_id, message_text = item
+                        triggers.append(current_autonomy_trigger())
                     content = tr("bubble.from_bubble", sender=sender_id, message=message_text)
                     self._short_term.primary.append(Message(role="user", content=content))
                     if self._ilog:
@@ -378,6 +398,36 @@ class BubbleMiniLoop:
                         )
             except asyncio.QueueEmpty:
                 break
+        return max(triggers, key=lambda level: level.rank) if triggers else None
+
+    async def _wait_for_scope_or_inbox(self) -> None:
+        autonomy = self._brain.autonomy
+        if autonomy is None:
+            return
+        bubble = self._bubble
+        while not autonomy.allows(
+            self._autonomy_scope,
+            trigger=bubble.origin_trigger,
+        ):
+            if bubble.inbox_event.is_set():
+                return
+            autonomy_event = autonomy.change_event
+            waiters = {
+                asyncio.create_task(autonomy_event.wait()),
+                asyncio.create_task(bubble.inbox_event.wait()),
+            }
+            try:
+                done, _ = await asyncio.wait(
+                    waiters,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    task.result()
+            finally:
+                for task in waiters:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
 
     async def _announce_handoff_started(self) -> None:
         await self._handoff_notifier.announce_started(
@@ -497,7 +547,13 @@ class BubbleMiniLoop:
             return tr("bubble.target_missing", target=target)
         if target_bubble.is_terminal():
             return tr("bubble.target_terminal", target=target)
-        await target_bubble.inbox.put((sender_id, message_text))
+        target_bubble.origin_trigger = max(
+            (target_bubble.origin_trigger, current_autonomy_trigger()),
+            key=lambda level: level.rank,
+        )
+        await target_bubble.enqueue(
+            (sender_id, message_text)
+        )
         return tr("bubble.sent_bubble", target=target)
 
     async def _auto_summarize(self) -> None:

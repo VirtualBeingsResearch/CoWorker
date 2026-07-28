@@ -51,6 +51,7 @@ class TestAlarmManager:
         assert "a1" in event.content
         assert "hello" in event.content
         assert event.source == "alarm"
+        assert event.event_id.startswith("alarm:a1:")
         assert "a1" not in manager._alarms
 
     async def test_set_and_fire_recurring(self, manager, mock_inbox):
@@ -156,6 +157,10 @@ class TestPersistence:
         event = mock_inbox.push.call_args[0][0]
         assert "overdue task" in event.content
         assert "迟到" in event.content
+        occurrence = past.replace(microsecond=0).astimezone().isoformat(
+            timespec="microseconds"
+        )
+        assert event.event_id == f"alarm:missed:{occurrence}"
 
     async def test_restore_missed_recurring_fires_once_then_continues(self, mock_inbox, tmp_path):
         past = datetime.now() - timedelta(seconds=30)

@@ -665,6 +665,47 @@ class TestBubbleMiniLoop:
         assert "失败" not in b.result
         assert mock_brain.summarize.await_count == 2
 
+    async def test_l1_direct_message_does_not_lower_l3_bubble_origin(
+        self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
+    ):
+        autonomy = AutonomyController(
+            AutonomyLevel.REACTIVE,
+            AutonomyThresholds(),
+        )
+        mock_brain.autonomy = autonomy
+        done_tc = ToolCall(id="done", name="bubble_done", arguments={"result": "done"})
+
+        async def gated_think(*_args, **kwargs):
+            async with autonomy.model_call(kwargs["_autonomy_scope"]):
+                return _make_response(tool_calls=[done_tc], stop_reason="tool_use")
+
+        mock_brain.think = AsyncMock(side_effect=gated_think)
+        b = store.create("goal", messages, max_cycles=1)
+        assert isinstance(b, Bubble)
+        b.origin_trigger = AutonomyLevel.AUTONOMOUS
+        loop = _make_mini_loop(b, mock_brain, mock_registry, mock_inbox, store, tmp_path)
+
+        task = asyncio.create_task(loop.run())
+        await asyncio.sleep(0)
+        assert not task.done()
+
+        await b.enqueue(
+            IncomingEvent(
+                participant_id="alice",
+                content="continue",
+                wake_level=AutonomyLevel.REACTIVE,
+            )
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert b.origin_trigger is AutonomyLevel.AUTONOMOUS
+        assert not task.done()
+
+        autonomy.update(level=AutonomyLevel.AUTONOMOUS)
+        await asyncio.wait_for(task, timeout=1)
+        assert b.status == "done"
+
     async def test_resume_keeps_transcript_and_continues_cycle_budget(
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
     ):

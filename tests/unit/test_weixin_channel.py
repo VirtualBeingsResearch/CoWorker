@@ -137,6 +137,7 @@ async def test_runner_uses_bot_instance_as_participant_and_state_key(
     )
 
     assert events[0].participant_id == "weixin:bot-1"
+    assert events[0].event_id == "weixin:bot-1:message-1"
     assert runner.participant_ids() == ["weixin:bot-1"]
     assert runner.resolve_participant("personal") == "weixin:bot-1"
 

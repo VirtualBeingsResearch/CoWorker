@@ -328,13 +328,18 @@ class WeixinRunner:
         if self._inbound_handler is None:
             logger.warning(tr("channel.weixin.inbound_unhandled"))
             return
+        message_id = str(message.get("message_id") or "").strip()
         await self._inbound_handler(
             IncomingEvent(
                 participant_id=participant_id,
                 content=_message_text(message),
                 conversation_id=str(message.get("session_id") or "") or None,
                 source="weixin",
-                event_id=str(message.get("message_id") or "") or None,
+                event_id=(
+                    f"weixin:{bot_instance_id}:{message_id}"
+                    if message_id
+                    else None
+                ),
             )
         )
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -132,6 +134,7 @@ def test_frame_to_event_text_single():
     assert event.participant_id == "wecom:single:U123"
     assert event.conversation_id is None
     assert event.source == "wecom"
+    assert event.event_id == "wecom:AIBOTID:r1"
     assert event.content == "你好"
     assert format_event_text(event) == "[来自企业微信][wecom:single:U123]的消息:\n你好"
 
@@ -145,6 +148,7 @@ def test_frame_to_event_group_includes_chatid_and_userid():
     event = adapter.frame_to_event(_text_group(), attachments=[])
     assert event.participant_id == "wecom:group:CHATX"
     assert event.conversation_id == "r2"
+    assert event.event_id == "wecom:AIBOTID:r2"
     assert event.content == "[发送者 userid=Ualice]\n@robot 帮忙"
     assert format_event_text(event) == (
         "[来自企业微信][wecom:group:CHATX][conversation:r2]的消息:\n"
@@ -171,6 +175,9 @@ async def test_collect_attachments_image(tmp_path, monkeypatch):
     assert Path(atts[0].saved_path).name == f"{compact_id_with_separator}_{atts[0].filename}"
     # small image inlined as base64
     assert atts[0].data is not None
+    if os.name != "nt":
+        mode = stat.S_IMODE(Path(atts[0].saved_path).stat().st_mode)
+        assert mode == 0o600
     client.download_file.assert_awaited_once_with("https://x/y", "AESKEY")
 
 

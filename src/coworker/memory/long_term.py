@@ -299,15 +299,16 @@ class LongTermMemory:
             "tags": json.dumps(tags or []),
             "source_timestamp": (source_timestamp or datetime.now()).isoformat(),
         }
-        async with self._write_lock:
-            if self._autonomy is None:
+        if self._autonomy is None:
+            async with self._write_lock:
                 result = await self._mem.add(
                     messages=[{"role": "user", "content": content}],
                     user_id=_AGENT_USER_ID,
                     metadata=metadata,
                 )
-            else:
-                async def add_memory() -> dict:
+        else:
+            async def add_memory() -> dict:
+                async with self._write_lock:
                     async with self._autonomy.model_call(AutonomyScope.MEM0):
                         return await self._mem.add(
                             messages=[{"role": "user", "content": content}],
@@ -315,10 +316,10 @@ class LongTermMemory:
                             metadata=metadata,
                         )
 
-                result = await self._autonomy.retry_when_allowed(
-                    AutonomyScope.MEM0,
-                    add_memory,
-                )
+            result = await self._autonomy.retry_when_allowed(
+                AutonomyScope.MEM0,
+                add_memory,
+            )
         ids = [r["id"] for r in result.get("results", []) if "id" in r]
         memory_id = ids[0] if ids else ""
         logger.debug(f"Memory written [{category}]: {content[:60]}...")
@@ -367,18 +368,19 @@ class LongTermMemory:
                 )
         if not formatted:
             return
-        async with self._write_lock:
-            if self._autonomy is None:
+        if self._autonomy is None:
+            async with self._write_lock:
                 await self._mem.add(messages=formatted, user_id=_AGENT_USER_ID)
-            else:
-                async def add_batch() -> None:
+        else:
+            async def add_batch() -> None:
+                async with self._write_lock:
                     async with self._autonomy.model_call(AutonomyScope.MEM0):
                         await self._mem.add(messages=formatted, user_id=_AGENT_USER_ID)
 
-                await self._autonomy.retry_when_allowed(
-                    AutonomyScope.MEM0,
-                    add_batch,
-                )
+            await self._autonomy.retry_when_allowed(
+                AutonomyScope.MEM0,
+                add_batch,
+            )
         logger.debug(f"Conversation batch ({len(formatted)} msgs) added to mem0")
 
     async def _read_memory(self, memory_id: str) -> dict | None:

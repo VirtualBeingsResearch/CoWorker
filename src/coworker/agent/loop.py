@@ -15,6 +15,7 @@ from coworker.core.autonomy import (
     AutonomyController,
     AutonomyLevel,
     AutonomyScope,
+    replace_autonomy_trigger,
 )
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
@@ -119,6 +120,10 @@ class AgentLoop:
                 await self._wait_for_activation()
                 if self._stop_event.is_set():
                     break
+                replace_autonomy_trigger(
+                    getattr(self, "_continuation_trigger", None)
+                    or AutonomyLevel.AUTONOMOUS
+                )
                 if self._rebalance_on_activation:
                     self._rebalance_on_activation = False
                     self._short_term.schedule_tree_rebalance_if_needed(
@@ -256,12 +261,36 @@ class AgentLoop:
                 ]
             )
         max_batch = self._config.agent.inbox_batch_max
-        events = await self._inbox.peek_pending(max_batch)
         known_event_ids = {
             event_id
             for message in self._short_term.primary
             for event_id in message.inbound_event_ids
         }
+        events = await self._inbox.peek_claimable(
+            lambda event: (
+                event.event_id in known_event_ids
+                or self._event_is_claimable(event)
+            ),
+            max_batch,
+        )
+        pending_known_triggers = [
+            event.wake_level
+            for event in self._inbox.pending_events()
+            if event.event_id in known_event_ids and event.wake_level is not None
+        ]
+        event_triggers = [
+            event.wake_level for event in events if event.wake_level is not None
+        ] + pending_known_triggers
+        if event_triggers:
+            cycle_trigger = max(
+                (
+                    self._continuation_trigger or AutonomyLevel.SILENT,
+                    *event_triggers,
+                ),
+                key=lambda level: level.rank,
+            )
+            self._continuation_trigger = cycle_trigger
+            replace_autonomy_trigger(cycle_trigger)
         new_events = [
             event
             for event in events
@@ -460,7 +489,12 @@ class AgentLoop:
             self._continuation_trigger = None
 
         if events:
-            if self._snapshot_path and not self.state.restart_requested:
+            # An external admin restart may be requested while this cycle is in
+            # flight.  Persist the completed assistant/tool chain before
+            # acknowledging its durable events even in that case.  The
+            # restart_self tool raises before reaching this block, so its
+            # interrupted event remains unacknowledged for recovery.
+            if self._snapshot_path:
                 self._short_term.save_to_file(self._snapshot_path)
             await self._inbox.acknowledge(
                 [event.event_id for event in events if event.event_id is not None]
@@ -716,13 +750,26 @@ class AgentLoop:
         finally:
             self.state.is_sleeping = False
 
-    def _wakeable_trigger(self) -> AutonomyLevel | None:
-        candidates = [
-            wake_level
+    def _event_is_claimable(self, event: IncomingEvent) -> bool:
+        return event.wake_level is None or self._autonomy.allows(
+            AutonomyScope.MAIN,
+            trigger=event.wake_level,
+        )
+
+    async def _wakeable_trigger(self) -> AutonomyLevel | None:
+        if not any(
+            self._autonomy.allows(AutonomyScope.MAIN, trigger=wake_level)
             for wake_level in self._inbox.pending_wake_levels()
-            if self._autonomy.allows(AutonomyScope.MAIN, trigger=wake_level)
+        ):
+            return None
+        events = await self._inbox.peek_claimable(
+            self._event_is_claimable,
+            self._config.agent.inbox_batch_max,
+        )
+        candidates = [
+            event.wake_level for event in events if event.wake_level is not None
         ]
-        return min(candidates, key=lambda level: level.rank) if candidates else None
+        return max(candidates, key=lambda level: level.rank) if candidates else None
 
     async def _wait_for_activation(self) -> None:
         while not self._stop_event.is_set():
@@ -736,7 +783,7 @@ class AgentLoop:
                 )
             ):
                 return
-            wake_trigger = self._wakeable_trigger()
+            wake_trigger = await self._wakeable_trigger()
             if wake_trigger is not None:
                 self._continuation_trigger = wake_trigger
                 return

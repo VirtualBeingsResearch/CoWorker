@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from coworker.core.autonomy import AutonomyLevel
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -55,7 +56,11 @@ class Bubble:
     last_resumed_at: datetime | None = None
     # 泡泡自己的 pinned context；超时后续跑时需要一并恢复，不能只保留消息列表。
     pinned_items: list[PinnedItem] = field(default_factory=list, repr=False)
+    # Minimum activation level inherited from the request that created or most
+    # recently resumed/continued this Bubble.
+    origin_trigger: AutonomyLevel = field(default=AutonomyLevel.SILENT, repr=False)
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue, repr=False)
+    inbox_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     task: asyncio.Task | None = field(default=None, repr=False)
     brain: Brain | None = field(default=None, repr=False)
 
@@ -70,6 +75,14 @@ class Bubble:
         if self.finished_at:
             return (self.finished_at - self.created_at).total_seconds()
         return (datetime.now() - self.created_at).total_seconds()
+
+    async def enqueue(self, item: Any) -> None:
+        await self.inbox.put(item)
+        self.inbox_event.set()
+
+    def enqueue_nowait(self, item: Any) -> None:
+        self.inbox.put_nowait(item)
+        self.inbox_event.set()
 
 
 class BubbleStore:

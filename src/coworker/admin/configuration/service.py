@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
+from loguru import logger
 from pydantic import ValidationError
 
 from coworker.core.config import (
@@ -187,22 +188,50 @@ class AdminConfigService:
             current_overrides,
             next_overrides,
         )
+        running_config = config.model_copy(deep=True)
         changed_paths = _changed_paths(
             before_config.model_dump(mode="json"),
             desired_config.model_dump(mode="json"),
         )
+        try:
+            self.write_sparse_overrides(override_path, next_overrides)
+        except Exception as error:
+            raise ConfigUpdateError(
+                500,
+                tr("api.admin.config_persist_failed", error=error),
+            ) from error
+
         try:
             applied_now, restart_reasons = await self._apply_hot_config(
                 desired_config,
                 changed_paths,
             )
         except Exception as error:
+            rollback_errors = await self._rollback_patch(
+                override_path=override_path,
+                current_overrides=current_overrides,
+                running_config=running_config,
+                changed_paths=changed_paths,
+            )
+            if rollback_errors:
+                rollback_detail = "; ".join(str(item) for item in rollback_errors)
+                logger.error(
+                    "Admin configuration rollback was incomplete after apply failure: {}",
+                    rollback_detail,
+                )
+                raise ConfigUpdateError(
+                    500,
+                    tr(
+                        "api.admin.config_rollback_failed",
+                        error=error,
+                        rollback_error=rollback_detail,
+                    ),
+                ) from error
             raise ConfigUpdateError(
                 400,
                 tr("api.admin.runtime_apply_failed", error=error),
             ) from error
 
-        self.write_sparse_overrides(override_path, next_overrides)
         requires_restart = self._refresh_pending_restart(
             desired_config,
             changed_paths,
@@ -214,6 +243,33 @@ class AdminConfigService:
             override_path=override_path,
             pending_restart=self.pending_restart,
         )
+
+    async def _rollback_patch(
+        self,
+        *,
+        override_path: Path,
+        current_overrides: JsonObject,
+        running_config: Config,
+        changed_paths: set[str],
+    ) -> list[Exception]:
+        errors: list[Exception] = []
+        try:
+            await self._apply_hot_config(running_config, changed_paths)
+        except Exception as error:
+            errors.append(error)
+            self._restore_running_config(running_config)
+
+        try:
+            self.write_sparse_overrides(override_path, current_overrides)
+        except Exception as error:
+            errors.append(error)
+        return errors
+
+    def _restore_running_config(self, snapshot: Config) -> None:
+        restored = snapshot.model_copy(deep=True)
+        current = self._dependencies.config
+        for field_name in Config.model_fields:
+            setattr(current, field_name, getattr(restored, field_name))
 
     def _prepare_overrides(
         self,

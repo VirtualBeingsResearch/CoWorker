@@ -136,7 +136,10 @@ export function useSettingsDraft({
           clearOverridePaths,
         )),
       });
-      const savedMessage = configSavedMessage(result);
+      const savedMessage = configSavedMessage(
+        result,
+        group === 'agent' ? String(afterGroup.autonomy_level || '') : '',
+      );
       setSecretInputs(current => omitGroupEntries(current, group));
       setClearOverridePaths(current => omitGroupPaths(current, group));
       setMessage({
@@ -265,22 +268,34 @@ function buildConfigPatch(
   };
 }
 
-function configSavedMessage(result: Json) {
+function configSavedMessage(result: Json, autonomyLevel = '') {
   const hotCount = result.applied_now?.length || 0;
   const restartCount = result.requires_restart?.length || 0;
+  let message: string;
   if (hotCount && restartCount) {
-    return t('已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。', {
+    message = t('已保存：{{hot}} 项已生效，{{restart}} 项等待重启。', {
       hot: hotCount,
       restart: restartCount,
     });
-  }
-  if (hotCount) return t('已保存，{{count}} 项修改已立即生效。', { count: hotCount });
-  if (restartCount) {
-    return t('已保存，{{count}} 项修改将在安全重启后生效。', {
+  } else if (hotCount) {
+    message = t('已保存，{{count}} 项修改已生效。', { count: hotCount });
+  } else if (restartCount) {
+    message = t('已保存，{{count}} 项修改将在安全重启后生效。', {
       count: restartCount,
     });
+  } else {
+    message = t('配置没有变化。');
   }
-  return t('配置没有变化。');
+  if (!autonomyLevel) return message;
+  const labels: Record<string, string> = {
+    silent: 'L0 · 静默',
+    reactive: 'L1 · 响应式',
+    event_driven: 'L2 · 事件驱动',
+    autonomous: 'L3 · 自主',
+  };
+  return `${message} ${t('当前主动性等级：{{level}}。', {
+    level: t(labels[autonomyLevel] || autonomyLevel),
+  })}`;
 }
 
 function changedConfigFields(before: Json, after: Json): Json {

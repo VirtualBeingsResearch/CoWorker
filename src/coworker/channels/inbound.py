@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,19 @@ from typing import Any
 
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData
+
+
+def _write_private_bytes(path: Path, content: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as destination:
+            descriptor = -1
+            destination.write(content)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        path.unlink(missing_ok=True)
+        raise
 
 
 @dataclass(frozen=True)
@@ -36,9 +50,11 @@ class AttachmentStore:
         decoded = base64.b64decode(data)
         leaf = re.split(r"[\\/]+", filename)[-1].strip(" .")
         safe_name = self._UNSAFE_CHARS_RE.sub("-", leaf).strip(" .-") or "attachment"
-        self._root.mkdir(parents=True, exist_ok=True)
+        self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            self._root.chmod(0o700)
         destination = self._root / f"{new_compact_id()}_{safe_name}"
-        destination.write_bytes(decoded)
+        _write_private_bytes(destination, decoded)
         keep_data = keep_inline_data and (
             media_type in self._IMAGE_MEDIA_TYPES or media_type in self._PDF_MEDIA_TYPES
         )

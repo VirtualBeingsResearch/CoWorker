@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from coworker.agent.bubble_handoff import (
     BubbleHandoffMatcher,
 )
-from coworker.core.autonomy import AutonomyLevel
+from coworker.core.autonomy import AutonomyLevel, current_autonomy_trigger
 from coworker.core.types import ToolResult
 from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -413,7 +413,12 @@ class BubbleSpawnTool(Tool):
         bubble = result
 
         if continuation.strip():
-            await bubble.inbox.put((tr("tool_result.bubble.sender_main"), continuation.strip()))
+            await bubble.enqueue(
+                (
+                    tr("tool_result.bubble.sender_main"),
+                    continuation.strip(),
+                )
+            )
         try:
             bubble.handoff_transparency = (
                 bubble.handoff_transparency
@@ -450,6 +455,10 @@ class BubbleSpawnTool(Tool):
 
         if bubble.brain is None:
             raise RuntimeError(tr("tool_result.bubble.brain_missing", id=bubble.id))
+        bubble.origin_trigger = max(
+            (bubble.origin_trigger, current_autonomy_trigger()),
+            key=lambda level: level.rank,
+        )
         mini_loop = BubbleMiniLoop(
             bubble=bubble,
             brain=bubble.brain,
@@ -726,7 +735,13 @@ class BubbleSendTool(Tool):
                 content=tr("tool_result.bubble.terminal", id=target, status=bubble.status),
                 is_error=True,
             )
-        await bubble.inbox.put((tr("tool_result.bubble.sender_main"), message))
+        bubble.origin_trigger = max(
+            (bubble.origin_trigger, current_autonomy_trigger()),
+            key=lambda level: level.rank,
+        )
+        await bubble.enqueue(
+            (tr("tool_result.bubble.sender_main"), message)
+        )
         return ToolResult(tool_call_id="", content=tr("tool_result.bubble.sent", id=target))
 
 

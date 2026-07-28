@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -100,6 +101,24 @@ class TestShortTermMemory:
 
         loaded = ShortTermMemory.load_from_file(state_file)
         assert loaded.primary[0].content == "persisted"
+        if os.name != "nt":
+            assert state_file.stat().st_mode & 0o777 == 0o600
+
+    def test_save_file_failure_preserves_previous_snapshot(self, tmp_path, monkeypatch):
+        mem = ShortTermMemory()
+        state_file = tmp_path / "state.json"
+        state_file.write_text('{"previous": true}', encoding="utf-8")
+
+        def fail_replace(source, destination):
+            raise OSError("replace failed")
+
+        monkeypatch.setattr("coworker.core.atomic_file.os.replace", fail_replace)
+
+        with pytest.raises(OSError, match="replace failed"):
+            mem.save_to_file(state_file)
+
+        assert state_file.read_text(encoding="utf-8") == '{"previous": true}'
+        assert list(tmp_path.glob(".state.json.*.tmp")) == []
 
     @pytest.mark.asyncio
     async def test_compress_if_needed_below_threshold(self, mock_provider):

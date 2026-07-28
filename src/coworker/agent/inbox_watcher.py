@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import os
 import secrets
-import shutil
 import sqlite3
 from collections import Counter
 from collections.abc import Callable
@@ -60,6 +58,21 @@ def _guess_media_type(suffix: str) -> str:
     return _MEDIA_TYPES.get(suffix.lower(), "application/octet-stream")
 
 
+def _copy_private_file(source: Path, destination: Path) -> None:
+    """Copy an attachment without ever exposing a broad-permission destination."""
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with source.open("rb") as source_file, os.fdopen(descriptor, "wb") as destination_file:
+            descriptor = -1
+            while chunk := source_file.read(1024 * 1024):
+                destination_file.write(chunk)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        destination.unlink(missing_ok=True)
+        raise
+
+
 class InboxWatcher:
     def __init__(
         self,
@@ -110,6 +123,12 @@ class InboxWatcher:
     async def push(self, event: IncomingEvent) -> str:
         event_id = event.event_id or secrets.token_hex(8)
         event.event_id = event_id
+        # Attachments are already persisted by every channel boundary. Keeping a
+        # second base64 copy in a paused L0/L1 queue can exhaust RAM; content
+        # blocks reload it lazily from saved_path when the event is processed.
+        for attachment in event.attachments:
+            if attachment.saved_path and Path(attachment.saved_path).is_file():
+                attachment.data = None
         for interceptor in self._interceptors:
             if interceptor(event):
                 return event_id
@@ -133,6 +152,31 @@ class InboxWatcher:
     async def peek_pending(self, limit: int | None = None) -> list[IncomingEvent]:
         events = self._pending if limit is None else self._pending[:limit]
         return list(events)
+
+    async def peek_claimable(
+        self,
+        predicate: Callable[[IncomingEvent], bool],
+        limit: int,
+    ) -> list[IncomingEvent]:
+        """Select a policy-eligible batch without letting blocked FIFO heads starve it.
+
+        Selection preserves queue order among eligible events.  If buffered,
+        non-wakeable notices fill the front of a small batch, one slot is
+        reserved for the oldest eligible wakeable event so the activation that
+        caused this cycle is always actually consumed.
+        """
+
+        if limit <= 0:
+            return []
+        eligible = [event for event in self._pending if predicate(event)]
+        selected = eligible[:limit]
+        oldest_wakeable = next(
+            (event for event in eligible if event.wake_level is not None),
+            None,
+        )
+        if oldest_wakeable is not None and oldest_wakeable not in selected:
+            selected[-1] = oldest_wakeable
+        return list(selected)
 
     async def acknowledge(self, event_ids: list[str]) -> None:
         self._delete_events(event_ids)
@@ -311,7 +355,9 @@ class InboxWatcher:
     async def start(self) -> None:
         self._inbox.mkdir(parents=True, exist_ok=True)
         self._processed.mkdir(parents=True, exist_ok=True)
-        self._attachments.mkdir(parents=True, exist_ok=True)
+        self._attachments.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            self._attachments.chmod(0o700)
         self._running = True
         self._stop_event.clear()
         logger.info(f"InboxWatcher started, polling {self._inbox}")
@@ -366,17 +412,15 @@ class InboxWatcher:
         suffix = path.suffix.lower()
         media_type = _guess_media_type(suffix)
         event_id = self._file_event_id(path)
-        raw = path.read_bytes()
-        data_b64 = base64.b64encode(raw).decode("ascii")
 
         dest = self._attachments / f"{new_compact_id()}_{path.name}"
-        shutil.copy2(path, dest)
+        _copy_private_file(path, dest)
 
         att = AttachmentData(
             filename=path.name,
             media_type=media_type,
             saved_path=str(dest),
-            data=data_b64,
+            data=None,
         )
         event = IncomingEvent(
             participant_id=sender_id,
@@ -397,7 +441,7 @@ class InboxWatcher:
         event_id = self._file_event_id(path)
 
         dest = self._attachments / f"{new_compact_id()}_{path.name}"
-        shutil.copy2(path, dest)
+        _copy_private_file(path, dest)
 
         att = AttachmentData(
             filename=path.name,

@@ -12,7 +12,7 @@ from loguru import logger
 
 from coworker.agent.bubble_loop import BubbleMiniLoop, _bubble_base_intercepts
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
-from coworker.core.autonomy import AutonomyScope
+from coworker.core.autonomy import AutonomyLevel, AutonomyScope
 from coworker.i18n import bind_locale, tr
 
 if TYPE_CHECKING:
@@ -364,6 +364,7 @@ class SubconsciousScheduler:
             logger.debug(f"Subconscious {mode.name} skipped: {result}")
             return
         bubble = result
+        bubble.origin_trigger = AutonomyLevel.AUTONOMOUS
 
         bubble_brain = self._create_brain()
         bubble.brain = bubble_brain

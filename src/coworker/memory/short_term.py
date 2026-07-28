@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
 
+from coworker.core.atomic_file import atomic_write_text
 from coworker.core.autonomy import AutonomyScope
 from coworker.core.types import (
     ConversationThread,
@@ -1085,8 +1086,8 @@ class ShortTermMemory:
         return mem
 
     def save_to_file(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        atomic_write_text(
+            path,
             json.dumps(self.serialize(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
 

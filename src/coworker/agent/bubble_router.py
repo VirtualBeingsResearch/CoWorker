@@ -49,7 +49,7 @@ class BubbleMessageRouter:
 
         # put_nowait is intentional: InboxWatcher interceptors are synchronous,
         # and an asyncio.Queue without a maxsize cannot block here.
-        bubble.inbox.put_nowait(event)
+        bubble.enqueue_nowait(event)
         logger.info(
             "Routed inbound message from {}{} directly to bubble {}",
             event.participant_id,

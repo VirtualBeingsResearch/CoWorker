@@ -11,6 +11,7 @@ from coworker.core.autonomy import (
     AutonomyLevel,
     AutonomyScope,
     AutonomyThresholds,
+    replace_autonomy_trigger,
 )
 from coworker.core.config import AgentConfig
 from coworker.core.types import IncomingEvent
@@ -146,6 +147,36 @@ async def test_nested_operation_waits_and_retries_after_policy_change():
 
     assert await asyncio.wait_for(task, timeout=1) == "done"
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scope",
+    [
+        AutonomyScope.BUBBLE,
+        AutonomyScope.SUMMARY,
+        AutonomyScope.VISION,
+        AutonomyScope.MEM0,
+    ],
+)
+async def test_child_model_work_inherits_origin_trigger(scope):
+    controller = AutonomyController(
+        AutonomyLevel.REACTIVE,
+        AutonomyThresholds(),
+    )
+    replace_autonomy_trigger(AutonomyLevel.AUTONOMOUS)
+
+    async def child_call() -> None:
+        async with controller.model_call(scope):
+            pass
+
+    try:
+        task = asyncio.create_task(child_call())
+        with pytest.raises(AutonomyBlockedError) as caught:
+            await task
+        assert caught.value.required is AutonomyLevel.AUTONOMOUS
+    finally:
+        replace_autonomy_trigger(AutonomyLevel.SILENT)
 
 
 @pytest.mark.asyncio

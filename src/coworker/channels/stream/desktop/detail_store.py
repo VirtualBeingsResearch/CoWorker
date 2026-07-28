@@ -44,11 +44,14 @@ class DetailStore:
         temporary = destination.with_suffix(".tmp")
         temporary.write_text(text, encoding="utf-8")
         temporary.replace(destination)
-        self.prune()
+        # Some filesystems expose timestamps at a resolution too coarse to
+        # distinguish a burst of writes. Never let count pruning delete the
+        # detail that was just accepted merely because all mtimes tie.
+        self.prune(protected=destination)
         # Absolute path so the coworker's `read_file` resolves regardless of CWD.
         return destination.resolve()
 
-    def prune(self) -> None:
+    def prune(self, *, protected: Path | None = None) -> None:
         directory = self._dir / _DETAIL_SUBDIR
         if not directory.is_dir():
             return
@@ -66,7 +69,13 @@ class DetailStore:
         excess = len(survivors) - _DETAIL_MAX_FILES
         if excess <= 0:
             return
-        survivors.sort(key=self._mtime)
+        survivors.sort(
+            key=lambda path: (
+                path == protected,
+                self._mtime(path),
+                path.name,
+            )
+        )
         for path in survivors[:excess]:
             self._unlink(path)
 

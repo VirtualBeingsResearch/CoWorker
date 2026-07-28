@@ -9,6 +9,7 @@ import coworker.agent.loop as loop_module
 from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.loop import AgentLoop
 from coworker.core.autonomy import AutonomyController, AutonomyLevel, AutonomyThresholds
+from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.i18n import tr
 from coworker.memory.short_term import ShortTermMemory
@@ -17,11 +18,18 @@ from coworker.memory.short_term import ShortTermMemory
 def _make_loop(brain, mem, events=None):
     """Build a minimal AgentLoop-like namespace for _cycle() testing."""
     inbox = MagicMock()
+    queued_events = list(events or [])
     inbox.peek_pending = AsyncMock(
-        side_effect=lambda limit=None: list(events or [])[:limit]
+        side_effect=lambda limit=None: queued_events[:limit]
         if limit is not None
-        else list(events or [])
+        else list(queued_events)
     )
+    inbox.peek_claimable = AsyncMock(
+        side_effect=lambda predicate, limit: [
+            event for event in queued_events if predicate(event)
+        ][:limit]
+    )
+    inbox.pending_events = MagicMock(return_value=list(queued_events))
     inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock()
     inbox.message_event = AsyncMock()
@@ -90,7 +98,7 @@ async def test_setup_mode_waits_without_consuming_inbox_or_calling_model():
     await loop._cycle()
 
     loop._rest.assert_awaited_once()
-    loop._inbox.peek_pending.assert_not_awaited()
+    loop._inbox.peek_claimable.assert_not_awaited()
     brain.think.assert_not_awaited()
 
 
@@ -232,6 +240,7 @@ def _make_rest_loop(
     loop.state.is_sleeping = False
     loop._config = MagicMock()
     loop._config.agent.idle_sleep_seconds = idle_sleep_seconds
+    loop._config.agent.inbox_batch_max = 10
     loop._autonomy = AutonomyController(
         level,
         AutonomyThresholds(),
@@ -333,6 +342,68 @@ async def test_reactive_level_buffers_alarm_until_direct_message(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reactive_cycle_claims_direct_message_without_processing_l2_alarm():
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    alarm = IncomingEvent(
+        participant_id="alarm",
+        content="alarm",
+        source="alarm",
+        wake_level=AutonomyLevel.EVENT_DRIVEN,
+        event_id="alarm-1",
+    )
+    direct = IncomingEvent(
+        participant_id="alice",
+        content="direct",
+        wake_level=AutonomyLevel.REACTIVE,
+        event_id="direct-1",
+    )
+    loop = _make_loop(brain, mem, events=[alarm, direct])
+    loop._autonomy.update(level=AutonomyLevel.REACTIVE)
+    loop._continuation_trigger = AutonomyLevel.REACTIVE
+
+    await loop._cycle()
+
+    assert "direct" in mem.primary[0].content_text()
+    assert "alarm" not in mem.primary[0].content_text()
+    loop._inbox.acknowledge.assert_awaited_once_with(["direct-1"])
+    assert (
+        brain.think.await_args.kwargs["_autonomy_trigger"]
+        is AutonomyLevel.REACTIVE
+    )
+
+
+@pytest.mark.asyncio
+async def test_mixed_allowed_batch_uses_highest_origin_trigger():
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    events = [
+        IncomingEvent(
+            participant_id="alice",
+            content="direct",
+            wake_level=AutonomyLevel.REACTIVE,
+            event_id="direct-1",
+        ),
+        IncomingEvent(
+            participant_id="alarm",
+            content="alarm",
+            source="alarm",
+            wake_level=AutonomyLevel.EVENT_DRIVEN,
+            event_id="alarm-1",
+        ),
+    ]
+    loop = _make_loop(brain, mem, events=events)
+    loop._continuation_trigger = AutonomyLevel.REACTIVE
+
+    await loop._cycle()
+
+    assert (
+        brain.think.await_args.kwargs["_autonomy_trigger"]
+        is AutonomyLevel.EVENT_DRIVEN
+    )
+
+
+@pytest.mark.asyncio
 async def test_event_driven_startup_waits_without_an_event(tmp_path):
     loop = _make_rest_loop(level=AutonomyLevel.EVENT_DRIVEN)
     loop._continuation_trigger = None
@@ -396,6 +467,62 @@ async def test_tool_results_appended_to_primary():
 
 
 @pytest.mark.asyncio
+async def test_admin_restart_during_cycle_snapshots_result_before_ack(tmp_path):
+    mem = ShortTermMemory()
+    tc = ToolCall(id="t1", name="some_tool", arguments={})
+    brain = _make_brain(tool_calls=[tc], stop_reason="tool_use")
+    response = brain.think.return_value
+    event = IncomingEvent(
+        participant_id="alice",
+        content="do work",
+        event_id="event-1",
+    )
+    loop = _make_loop(brain, mem, events=[event])
+    loop._snapshot_path = tmp_path / "snapshot.json"
+    loop._inbox.message_event = asyncio.Event()
+    result = MagicMock(
+        content="tool complete",
+        content_blocks=None,
+        is_error=False,
+        recalled_memory_ids=[],
+    )
+    loop._tools.execute = AsyncMock(return_value=result)
+
+    async def complete_after_restart(*_args, **_kwargs):
+        loop.request_restart(reason="admin")
+        return response
+
+    brain.think = AsyncMock(side_effect=complete_after_restart)
+
+    await loop._cycle()
+
+    restored = ShortTermMemory.load_from_file(loop._snapshot_path)
+    assert restored.primary[-1].role == "tool"
+    assert restored.primary[-1].content == "tool complete"
+    loop._inbox.acknowledge.assert_awaited_once_with(["event-1"])
+
+
+@pytest.mark.asyncio
+async def test_restart_self_exception_does_not_ack_event(tmp_path):
+    mem = ShortTermMemory()
+    tc = ToolCall(id="t1", name="restart_self", arguments={})
+    brain = _make_brain(tool_calls=[tc], stop_reason="tool_use")
+    event = IncomingEvent(
+        participant_id="alice",
+        content="restart",
+        event_id="event-1",
+    )
+    loop = _make_loop(brain, mem, events=[event])
+    loop._snapshot_path = tmp_path / "snapshot.json"
+    loop._tools.execute = AsyncMock(side_effect=RestartRequestedException())
+
+    with pytest.raises(RestartRequestedException):
+        await loop._cycle()
+
+    loop._inbox.acknowledge.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_compress_called_when_idle():
     mem = ShortTermMemory()
     brain = _make_brain()
@@ -427,26 +554,15 @@ async def test_inbox_batch_is_peeked_without_requeueing_extras():
     ev1 = IncomingEvent(participant_id="alice", content="first")
     ev2 = IncomingEvent(participant_id="bob", content="second")
 
-    inbox = MagicMock()
     ev1.event_id = "event-1"
     ev2.event_id = "event-2"
-    inbox.peek_pending = AsyncMock(
-        side_effect=lambda limit=None: [ev1, ev2][:limit]
-        if limit is not None
-        else [ev1, ev2]
-    )
-    inbox.acknowledge = AsyncMock()
-    inbox.push = AsyncMock()
-    inbox.message_event = AsyncMock()
-
-    loop = _make_loop(brain, mem)
-    loop._inbox = inbox
+    loop = _make_loop(brain, mem, events=[ev1, ev2])
     loop._config.agent.inbox_batch_max = 1  # 只处理第一条，其余入队
     loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
-    loop._inbox.peek_pending.assert_awaited_once_with(1)
+    loop._inbox.peek_claimable.assert_awaited_once()
     loop._inbox.acknowledge.assert_awaited_once_with(["event-1"])
     loop._inbox.push.assert_not_awaited()
     # only first event's message in primary
@@ -595,14 +711,8 @@ async def test_same_user_events_batched_into_one_message():
     ev1 = IncomingEvent(participant_id="alice", content="第一条")
     ev2 = IncomingEvent(participant_id="alice", content="第二条")
 
-    inbox = MagicMock()
-    inbox.peek_pending = AsyncMock(return_value=[ev1, ev2])
-    inbox.acknowledge = AsyncMock()
-    inbox.push = AsyncMock()
-    inbox.message_event = AsyncMock()
-
-    loop = _make_loop(brain, mem)
-    loop._inbox = inbox
+    loop = _make_loop(brain, mem, events=[ev1, ev2])
+    inbox = loop._inbox
     loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
@@ -629,14 +739,8 @@ async def test_mixed_users_batched_together():
     ev_bob = IncomingEvent(participant_id="bob", content="bob 消息")
     ev_alice2 = IncomingEvent(participant_id="alice", content="alice 第二")
 
-    inbox = MagicMock()
-    inbox.peek_pending = AsyncMock(return_value=[ev_alice1, ev_bob, ev_alice2])
-    inbox.acknowledge = AsyncMock()
-    inbox.push = AsyncMock()
-    inbox.message_event = AsyncMock()
-
-    loop = _make_loop(brain, mem)
-    loop._inbox = inbox
+    loop = _make_loop(brain, mem, events=[ev_alice1, ev_bob, ev_alice2])
+    inbox = loop._inbox
     loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
@@ -691,7 +795,8 @@ async def test_auto_recall_injects_and_deduplicates():
     # 第二轮：相同 ID 已在 primary，不应再注入
     brain2 = _make_brain()
     event2 = IncomingEvent(participant_id="alice", content="Python 再说一遍")
-    loop._inbox.peek_pending = AsyncMock(return_value=[event2])
+    loop._inbox.peek_claimable = AsyncMock(return_value=[event2])
+    loop._inbox.pending_events = MagicMock(return_value=[event2])
     loop._brain = brain2
     loop._long_term.query = AsyncMock(return_value=[fake_memory])
 
@@ -738,9 +843,10 @@ async def test_recent_activity_auto_recall_injects_and_deduplicates():
 
     brain2 = _make_brain()
     loop._brain = brain2
-    loop._inbox.peek_pending = AsyncMock(
+    loop._inbox.peek_claimable = AsyncMock(
         return_value=[IncomingEvent(participant_id="alice", content="部署结果 again")]
     )
+    loop._inbox.pending_events = MagicMock(return_value=[])
     recent.query = AsyncMock(return_value=[
         {
             "id": "recent:7",

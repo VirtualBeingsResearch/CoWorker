@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -93,9 +94,20 @@ async def _save_buffer(
     media_type: str,
     attachments_dir: Path,
 ) -> AttachmentData:
-    attachments_dir.mkdir(parents=True, exist_ok=True)
+    attachments_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        attachments_dir.chmod(0o700)
     dest = attachments_dir / f"{new_compact_id()}_{filename}"
-    dest.write_bytes(buffer)
+    descriptor = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as destination:
+            descriptor = -1
+            destination.write(buffer)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        dest.unlink(missing_ok=True)
+        raise
     inline = len(buffer) <= _INLINE_BASE64_LIMIT and media_type.startswith("image/")
     return AttachmentData(
         filename=filename,
@@ -285,6 +297,15 @@ def frame_to_event(
     pid = participant_id_for(frame)
     raw = _content_for(frame)
     content = _sender_prefix(frame) + raw
+    body = frame.get("body", {})
+    headers = frame.get("headers", {})
+    raw_event_id = headers.get("req_id") or body.get("msgid")
+    bot_id = str(body.get("aibotid") or "default")
+    event_id = (
+        f"wecom:{bot_id}:{str(raw_event_id).strip()}"
+        if raw_event_id is not None and str(raw_event_id).strip()
+        else None
+    )
     return IncomingEvent(
         participant_id=pid,
         content=content,
@@ -292,4 +313,5 @@ def frame_to_event(
         timestamp=datetime.now(),
         source="wecom",
         attachments=attachments,
+        event_id=event_id,
     )

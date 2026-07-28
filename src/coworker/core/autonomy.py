@@ -6,6 +6,7 @@ import asyncio
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from enum import StrEnum
 from typing import TypeVar
 
@@ -33,6 +34,12 @@ class AutonomyLevel(StrEnum):
 
     def allows(self, required: AutonomyLevel) -> bool:
         return self.rank >= required.rank
+
+
+_origin_trigger: ContextVar[AutonomyLevel | None] = ContextVar(
+    "coworker_autonomy_origin_trigger",
+    default=None,
+)
 
 
 class AutonomyScope(StrEnum):
@@ -75,6 +82,23 @@ class AutonomyBlockedError(RuntimeError):
                 scope=scope.value,
             )
         )
+
+
+def current_autonomy_trigger() -> AutonomyLevel:
+    """Return the activation floor inherited by the current async task."""
+
+    return _origin_trigger.get() or AutonomyLevel.SILENT
+
+
+def replace_autonomy_trigger(trigger: AutonomyLevel) -> None:
+    """Replace the origin floor for a long-lived actor task.
+
+    Agent and Bubble loops reuse one asyncio task across cycles.  Replacing the
+    task-local value lets a newly delivered direct message become the new
+    activation origin while child tasks created during that cycle inherit it.
+    """
+
+    _origin_trigger.set(trigger)
 
 
 class AutonomyController:
@@ -196,13 +220,17 @@ class AutonomyController:
         pause without turning a policy transition into a user-visible failure.
         """
 
+        resolved_trigger = max(
+            (trigger, current_autonomy_trigger()),
+            key=lambda level: level.rank,
+        )
         while True:
             try:
                 return await operation()
             except AutonomyBlockedError as error:
                 if error.scope is not scope:
                     raise
-                await self.wait_until_allowed(scope, trigger=trigger)
+                await self.wait_until_allowed(scope, trigger=resolved_trigger)
 
     @asynccontextmanager
     async def model_call(
@@ -211,8 +239,12 @@ class AutonomyController:
         *,
         trigger: AutonomyLevel = AutonomyLevel.SILENT,
     ) -> AsyncIterator[None]:
-        self.ensure_allowed(scope, trigger=trigger)
-        key = (scope, trigger)
+        resolved_trigger = max(
+            (trigger, current_autonomy_trigger()),
+            key=lambda level: level.rank,
+        )
+        self.ensure_allowed(scope, trigger=resolved_trigger)
+        key = (scope, resolved_trigger)
         self._in_flight[key] += 1
         try:
             yield

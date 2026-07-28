@@ -184,6 +184,7 @@ async def test_write_waits_for_autonomy_instead_of_failing():
     await asyncio.sleep(0)
 
     assert not task.done()
+    assert not lt._write_lock.locked()
     mem.add.assert_not_awaited()
 
     autonomy.update(level=AutonomyLevel.REACTIVE)

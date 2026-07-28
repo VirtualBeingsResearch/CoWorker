@@ -51,6 +51,8 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
 
     inbox = MagicMock()
     inbox.peek_pending = AsyncMock(return_value=[])
+    inbox.peek_claimable = AsyncMock(return_value=[])
+    inbox.pending_events = MagicMock(return_value=[])
     inbox.acknowledge = AsyncMock()
     inbox.push = AsyncMock(return_value="event-id")
     inbox.message_event = asyncio.Event()  # _rest() 需要真的可 await 的 Event，不能用 MagicMock

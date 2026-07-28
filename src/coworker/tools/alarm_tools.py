@@ -46,7 +46,16 @@ class AlarmManager:
         trigger_at = _local_datetime(trigger_at)
         delay = max(0.0, (trigger_at - _local_now()).total_seconds())
         task = asyncio.create_task(
-            bind_locale(partial(self._fire, alarm_id, delay, message, repeat_seconds))
+            bind_locale(
+                partial(
+                    self._fire,
+                    alarm_id,
+                    delay,
+                    trigger_at,
+                    message,
+                    repeat_seconds,
+                )
+            )
         )
         self._alarms[alarm_id] = (task, trigger_at, message, repeat_seconds)
         self._save()
@@ -79,6 +88,7 @@ class AlarmManager:
                         self._fire,
                         alarm_id,
                         delay,
+                        next_trigger,
                         message,
                         repeat_seconds,
                         overdue_note=overdue_note,
@@ -96,6 +106,7 @@ class AlarmManager:
         self,
         alarm_id: str,
         delay: float,
+        occurrence_at: datetime,
         message: str,
         repeat_seconds: int | None,
         overdue_note: str | None = None,
@@ -112,6 +123,10 @@ class AlarmManager:
                 content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
                 timestamp=datetime.now(),
                 source="alarm",
+                event_id=(
+                    f"alarm:{alarm_id}:"
+                    f"{occurrence_at.isoformat(timespec='microseconds')}"
+                ),
                 wake_level=AutonomyLevel.EVENT_DRIVEN,
             )
             await self._inbox.push(event)
@@ -125,6 +140,7 @@ class AlarmManager:
                             self._fire,
                             alarm_id,
                             float(repeat_seconds),
+                            next_trigger,
                             message,
                             repeat_seconds,
                         )

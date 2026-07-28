@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ from coworker.core.config import (
     effective_communication_token,
     ensure_admin_token,
     normalize_admin_overrides_file,
+    write_admin_overrides,
 )
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
@@ -548,6 +550,56 @@ def test_config_patch_hot_applies_autonomy_level_and_thresholds(tmp_path):
     ]
 
 
+def test_config_patch_write_failure_does_not_apply_autonomy(
+    tmp_path,
+    monkeypatch,
+):
+    client, config = _client(tmp_path)
+    autonomy = MagicMock()
+    admin._agent._autonomy = autonomy
+    service = admin._require_admin_config_service()
+
+    def fail_write(path, overrides):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(service, "write_sparse_overrides", fail_write)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"agent": {"autonomy_level": "reactive"}}},
+    )
+
+    assert response.status_code == 500
+    assert "disk full" in response.json()["detail"]
+    assert config.agent.autonomy_level is AutonomyLevel.AUTONOMOUS
+    autonomy.update.assert_not_called()
+    assert not (tmp_path / "admin_config.json").exists()
+
+
+def test_config_patch_runtime_failure_restores_autonomy_and_overrides(tmp_path):
+    client, config = _client(tmp_path)
+    autonomy = MagicMock()
+    autonomy.update.side_effect = [RuntimeError("controller failed"), None]
+    admin._agent._autonomy = autonomy
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"agent": {"autonomy_level": "reactive"}}},
+    )
+
+    assert response.status_code == 400
+    assert "controller failed" in response.json()["detail"]
+    assert config.agent.autonomy_level is AutonomyLevel.AUTONOMOUS
+    assert autonomy.update.call_args_list == [
+        call(level=AutonomyLevel.REACTIVE),
+        call(level=AutonomyLevel.AUTONOMOUS),
+    ]
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved == {}
+
+
 def test_config_patch_persists_only_changed_fields(tmp_path):
     client, _ = _client(tmp_path)
 
@@ -560,6 +612,41 @@ def test_config_patch_persists_only_changed_fields(tmp_path):
     assert response.status_code == 200
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved == {"agent": {"idle_sleep_seconds": 12}}
+
+
+def test_admin_overrides_are_atomically_written_with_private_permissions(
+    tmp_path,
+):
+    path = tmp_path / "admin_config.json"
+    path.write_text('{"old": true}', encoding="utf-8")
+
+    write_admin_overrides(path, {"admin": {"token": "secret"}})
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "admin": {"token": "secret"}
+    }
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+    assert list(tmp_path.glob(".admin_config.json.*.tmp")) == []
+
+
+def test_admin_override_replace_failure_preserves_previous_file(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "admin_config.json"
+    path.write_text('{"old": true}', encoding="utf-8")
+
+    def fail_replace(source, destination):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("coworker.core.atomic_file.os.replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        write_admin_overrides(path, {"admin": {"token": "secret"}})
+
+    assert path.read_text(encoding="utf-8") == '{"old": true}'
+    assert list(tmp_path.glob(".admin_config.json.*.tmp")) == []
 
 
 def test_config_patch_removes_historical_default_snapshot(tmp_path):

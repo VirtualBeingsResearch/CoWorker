@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import secrets
 from pathlib import Path
@@ -24,6 +23,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from coworker.core.atomic_file import atomic_write_text
 from coworker.core.autonomy import AutonomyLevel, AutonomyThresholds
 from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES,
@@ -525,15 +525,10 @@ def sparse_admin_overrides(
 
 def write_admin_overrides(path: str | Path, overrides: dict[str, Any]) -> None:
     destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(destination.suffix + ".tmp")
-    temporary.write_text(
+    atomic_write_text(
+        destination,
         json.dumps(overrides, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
-    temporary.replace(destination)
-    if os.name != "nt":
-        destination.chmod(0o600)
 
 
 def normalize_admin_overrides_file(inherited: Config) -> bool:
