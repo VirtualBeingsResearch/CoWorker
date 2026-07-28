@@ -12,8 +12,8 @@ Relay 会终止公网 HTTPS，并能在请求处理期间看到 Header 和正文
 
 ## 部署
 
-Go 服务和管理命令已经合并为 `apps/coworker-relay/` 下的单一
-`coworker-relay` 可执行文件。先从 Coworker Release 下载适合当前系统的 Relay
+`apps/coworker-relay/` 下的 `coworker-relay` 提供 Relay 服务和管理命令。
+先从 Coworker Release 下载适合当前系统的 Relay
 压缩包，将其中的可执行文件放入 `PATH`，然后运行：
 
 ```bash

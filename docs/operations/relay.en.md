@@ -12,8 +12,8 @@ Relay terminates public HTTPS and can see headers and bodies while processing a 
 
 ## Deployment
 
-The Go service and administration commands are combined into one
-`coworker-relay` executable under `apps/coworker-relay/`. Download the Relay
+The `coworker-relay` executable under `apps/coworker-relay/` provides the Relay
+service and administration commands. Download the Relay
 archive for the current system from the Coworker release, place its executable
 on `PATH`, then run:
 

@@ -14,9 +14,6 @@
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
-  "containerEnv": {
-    "API__HOST": "0.0.0.0"
-  },
   "postCreateCommand": "uv sync --frozen --dev",
   "forwardPorts": [
     8000,
