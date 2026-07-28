@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -182,6 +182,58 @@ class TestPersistence:
         assert "rec" in new_manager._alarms
         new_manager.cancel("rec")
 
+    async def test_restore_multiple_alarms_preserves_each_entry(self, mock_inbox, tmp_path):
+        past = datetime.now() - timedelta(seconds=30)
+        persist_file = tmp_path / "alarms.json"
+        persist_file.write_text(
+            json.dumps([
+                {
+                    "alarm_id": "first",
+                    "next_trigger_at": past.strftime("%Y-%m-%d %H:%M:%S"),
+                    "message": "first message",
+                    "repeat_seconds": None,
+                },
+                {
+                    "alarm_id": "second",
+                    "next_trigger_at": past.strftime("%Y-%m-%d %H:%M:%S"),
+                    "message": "second message",
+                    "repeat_seconds": None,
+                },
+            ]),
+            encoding="utf-8",
+        )
+
+        new_manager = AlarmManager(mock_inbox, persist_path=persist_file)
+        await new_manager.restore()
+        await asyncio.sleep(0.05)
+
+        assert mock_inbox.push.await_count == 2
+        contents = [call.args[0].content for call in mock_inbox.push.await_args_list]
+        assert sum("first message" in content for content in contents) == 1
+        assert sum("second message" in content for content in contents) == 1
+        assert new_manager.list() == []
+        assert json.loads(persist_file.read_text(encoding="utf-8")) == []
+
+    async def test_restore_is_idempotent_for_pending_alarm(self, mock_inbox, tmp_path):
+        future = datetime.now() + timedelta(milliseconds=100)
+        persist_file = tmp_path / "alarms.json"
+        persist_file.write_text(
+            json.dumps([{
+                "alarm_id": "once",
+                "next_trigger_at": future.isoformat(),
+                "message": "only once",
+                "repeat_seconds": None,
+            }]),
+            encoding="utf-8",
+        )
+
+        new_manager = AlarmManager(mock_inbox, persist_path=persist_file)
+        await new_manager.restore()
+        await new_manager.restore()
+        await asyncio.sleep(0.2)
+
+        mock_inbox.push.assert_awaited_once()
+
     async def test_no_persist_path_no_file(self, manager, tmp_path):
         future = datetime.now() + timedelta(seconds=60)
         await manager.set("np", future, "no persist")
@@ -205,7 +257,7 @@ class TestPersistence:
         assert len(records) == 1
         # next_trigger_at should have been updated to ~now+600s
         next_t = datetime.fromisoformat(records[0]["next_trigger_at"])
-        assert next_t > datetime.now()
+        assert next_t > datetime.now().astimezone()
         manager.cancel("rec2")
 
 
@@ -238,6 +290,20 @@ class TestSetAlarmTool:
         past = (datetime.now() - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
         result = await tool.execute(trigger_at=past, message="too late")
         assert result.is_error
+
+    async def test_timezone_aware_datetime_is_supported(self, manager):
+        tool = SetAlarmTool(manager)
+        future = datetime.now(UTC) + timedelta(seconds=60)
+
+        result = await tool.execute(
+            trigger_at=future.isoformat().replace("+00:00", "Z"),
+            message="aware",
+        )
+
+        assert not result.is_error
+        alarm = manager.list()[0]
+        assert datetime.fromisoformat(alarm["trigger_at"]).tzinfo is not None
+        manager.cancel(alarm["id"])
 
     async def test_recurring_label_in_result(self, manager):
         tool = SetAlarmTool(manager)
