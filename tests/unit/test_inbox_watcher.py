@@ -45,6 +45,17 @@ class TestInboxWatcher:
         assert watcher.message_event.is_set()
 
     @pytest.mark.asyncio
+    async def test_push_can_queue_without_waking_waiter(self, tmp_path):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
+
+        await watcher.push(_event(), wake=False)
+
+        assert not watcher.message_event.is_set()
+        events = await watcher.get_pending()
+        assert len(events) == 1
+        assert events[0].content == "hello"
+
+    @pytest.mark.asyncio
     async def test_interceptors_run_in_registration_order(self, tmp_path):
         watcher = InboxWatcher(str(tmp_path / "inbox"))
         seen: list[str] = []

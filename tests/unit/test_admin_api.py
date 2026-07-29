@@ -59,6 +59,7 @@ def _client(
     agent = SimpleNamespace(
         _identity=_Identity(),
         request_restart=lambda reason="normal": None,
+        resume_from_rest=MagicMock(return_value=True),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
         refresh_system_prompt=MagicMock(),
     )
@@ -157,6 +158,20 @@ def test_admin_session_provides_stable_unnamed_confirmation(tmp_path):
     )
     assert rejected.status_code == 400
     assert accepted.status_code == 202
+
+
+def test_admin_resume_wakes_rest_without_confirmation(tmp_path):
+    client, _ = _client(tmp_path)
+
+    assert client.post("/api/admin/resume").status_code == 401
+    response = client.post(
+        "/api/admin/resume",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"resumed": True}
+    admin._agent.resume_from_rest.assert_called_once_with()
 
 
 def test_admin_error_detail_follows_runtime_locale(tmp_path):

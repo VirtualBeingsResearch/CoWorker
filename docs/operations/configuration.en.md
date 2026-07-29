@@ -116,6 +116,7 @@ language-transition system notice when it detects a locale change.
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
 | `AGENT__TICK` | `true` | Whether autonomous ticks run when no external message is present |
+| `AGENT__PASSIVE_MODE` | `false` | Enable Passive mode. On first startup and restart, the main loop remains at rest and retains startup notices silently until the next real wakeup; idle timeouts do not wake it |
 | `AGENT__CODE_HARD_TIMEOUT` | `300` | Hard timeout in seconds for the code execution tool |
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | Maximum image dimension in pixels before sending it to a model; larger images are scaled proportionally |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
@@ -153,6 +154,13 @@ language-transition system notice when it detects a locale change.
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
+
+When the main loop is resting, the Overview page in the administration console shows **Continue**.
+The action itself sends only an internal wake signal and creates no new inbox message. The model
+continues from its existing context, while any startup notice or other event already queued
+silently is still processed in normal order. The corresponding administrator API is
+`POST /api/admin/resume`; its `resumed` field reports whether the request actually woke a resting
+main loop.
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
 

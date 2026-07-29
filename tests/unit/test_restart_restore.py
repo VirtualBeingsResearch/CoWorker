@@ -4,9 +4,14 @@ import json
 
 import pytest
 
+from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.interaction_log import InteractionLogger
-from coworker.application import _append_recovered_tool_result, _diff_runtime_locale
-from coworker.core.types import Message
+from coworker.application import (
+    _append_recovered_tool_result,
+    _diff_runtime_locale,
+    _enqueue_startup_event,
+)
+from coworker.core.types import IncomingEvent, Message
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 
@@ -96,3 +101,23 @@ def test_runtime_locale_change_notice_is_emitted_only_for_an_actual_change():
     assert notice is not None
     assert "runtime language changed from zh-CN to en" in notice
     assert "existing user content and memories remain" in notice
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("passive_mode", [True, False])
+async def test_startup_event_only_wakes_active_mode(tmp_path, passive_mode):
+    watcher = InboxWatcher(str(tmp_path / "inbox"))
+    event = IncomingEvent(
+        participant_id="system",
+        content="restart complete",
+        source="system",
+    )
+
+    await _enqueue_startup_event(
+        watcher,
+        event,
+        passive_mode=passive_mode,
+    )
+
+    assert watcher.message_event.is_set() is not passive_mode
+    assert await watcher.get_pending() == [event]
