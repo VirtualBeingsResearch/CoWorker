@@ -310,6 +310,7 @@ export const zh: Dict = {
   "config.fieldCoworkerId": "Coworker ID",
   "config.fieldCoworkerName": "Coworker 名称",
   "config.fieldCoworkerBaseUrl": "Coworker Base URL",
+  "config.relayE2eeDetected": "已识别中继（Relay）连接；与 Coworker 之间的流量使用端到端加密。",
   "config.fieldBearerToken": "Bearer 令牌",
   "config.fieldDevelopmentMode": "开发模式",
   "config.developmentModeHint": "允许未鉴权 HTTP 连接（不安全，仅限本地开发）",

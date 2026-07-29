@@ -64,15 +64,18 @@ jobs:
           fi
 
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          relay_image="${image}-relay"
           runtime_tags=("$image:$version")
           embedder_tags=("$image:${version}-with-embedder")
           offline_tags=("$image:${version}-offline")
+          relay_tags=("$relay_image:$version")
 
           # Prereleases never replace the moving stable aliases.
           if [[ "$version" != *-* ]]; then
             runtime_tags+=("$image:latest")
             embedder_tags+=("$image:with-embedder")
             offline_tags+=("$image:offline")
+            relay_tags+=("$relay_image:latest")
           fi
 
           write_tags() {
@@ -88,9 +91,12 @@ jobs:
           write_tags runtime_tags "${runtime_tags[@]}"
           write_tags embedder_tags "${embedder_tags[@]}"
           write_tags offline_tags "${offline_tags[@]}"
+          write_tags relay_tags "${relay_tags[@]}"
           {
             echo "image=$image"
             echo "version=$version"
+            echo "relay_image=$relay_image"
+            echo "build_date=$(date -u +%FT%TZ)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -146,6 +152,25 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.release.outputs.offline_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+
+      - name: Build and push Relay image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/coworker-relay
+          file: ./apps/coworker-relay/Dockerfile
+          build-args: |
+            RELAY_VERSION=${{ steps.release.outputs.version }}
+            RELAY_COMMIT=${{ github.sha }}
+            RELAY_BUILD_DATE=${{ steps.release.outputs.build_date }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.relay_tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

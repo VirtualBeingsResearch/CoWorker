@@ -15,6 +15,7 @@ use crate::{
         DesktopEnvelopeV1, REQUIRED_COWORKER_SKILL, desktop_client_id,
     },
     error::{BridgeError, Result},
+    relay_transport,
 };
 
 const DUPLICATE_SSE_REJECTION_HEADER: &str = "duplicate-participant";
@@ -58,6 +59,37 @@ impl CoworkerHttpClient {
         development_mode: bool,
     ) -> Result<CoworkerRegistration> {
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
+        if relay_transport::relay_endpoint(&coworker.base_url).is_some() {
+            let token = required_relay_token(bearer_token)?;
+            let body = json!({
+                "kind": DESKTOP_REGISTRATION_KIND,
+                "client_id": desktop_client_id(desktop_id, actor_id, &coworker.coworker_id),
+                "display_name": display_name,
+                "metadata": {
+                    "desktop_id": desktop_id,
+                    "actor_id": actor_id,
+                    "coworker_id": coworker.coworker_id,
+                    "protocol_versions": [DESKTOP_PROTOCOL_VERSION],
+                    "capabilities": ["conversations", "modes", "approvals", "attachments", "reliable_delivery", "desktop_update_push"],
+                    "desktop_version": env!("CARGO_PKG_VERSION"),
+                    "skill_version": "1.0.0",
+                    "required_skill": REQUIRED_COWORKER_SKILL,
+                    "available": true,
+                },
+            });
+            let response = relay_transport::request(
+                &coworker.base_url,
+                token,
+                "POST",
+                "/api/communicate/register",
+                vec![("content-type".into(), "application/json".into())],
+                serde_json::to_vec(&body)?,
+            )
+            .await?;
+            let response = relay_response_for_status(response)?;
+            let response: Value = serde_json::from_slice(&response.body)?;
+            return registration_from_response(&response);
+        }
         let url = format!("{}/api/communicate/register", coworker.base_url);
         let request = self
             .client
@@ -94,6 +126,19 @@ impl CoworkerHttpClient {
         development_mode: bool,
     ) -> Result<()> {
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
+        if relay_transport::relay_endpoint(&coworker.base_url).is_some() {
+            let response = relay_transport::request(
+                &coworker.base_url,
+                required_relay_token(bearer_token)?,
+                "DELETE",
+                &format!("/api/communicate/register/{registration_id}"),
+                vec![],
+                vec![],
+            )
+            .await?;
+            relay_response_for_status(response)?;
+            return Ok(());
+        }
         let url = format!(
             "{}/api/communicate/register/{registration_id}",
             coworker.base_url
@@ -120,6 +165,20 @@ impl CoworkerHttpClient {
     ) -> Result<DeliveryAck> {
         envelope.validate()?;
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
+        if relay_transport::relay_endpoint(&coworker.base_url).is_some() {
+            let body = desktop_message_body(participant_id, envelope)?;
+            let response = relay_transport::request(
+                &coworker.base_url,
+                required_relay_token(bearer_token)?,
+                "POST",
+                "/messages",
+                vec![("content-type".into(), "application/json".into())],
+                serde_json::to_vec(&body)?,
+            )
+            .await?;
+            let response = relay_response_for_status(response)?;
+            return Ok(serde_json::from_slice(&response.body)?);
+        }
         let url = format!("{}/messages", coworker.base_url);
         let body = desktop_message_body(participant_id, envelope)?;
         let response = with_bearer(
@@ -142,6 +201,20 @@ impl CoworkerHttpClient {
         development_mode: bool,
     ) -> Result<Vec<CoworkerRegistration>> {
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
+        if relay_transport::relay_endpoint(&coworker.base_url).is_some() {
+            let response = relay_transport::request(
+                &coworker.base_url,
+                required_relay_token(bearer_token)?,
+                "GET",
+                "/api/communicate/register",
+                vec![("accept".into(), "application/json".into())],
+                vec![],
+            )
+            .await?;
+            let response = relay_response_for_status(response)?;
+            let response: Value = serde_json::from_slice(&response.body)?;
+            return registrations_from_response(&response);
+        }
         self.list_registrations_with_bearer(coworker, bearer_token)
             .await
     }
@@ -161,14 +234,7 @@ impl CoworkerHttpClient {
         .send()
         .await?;
         let response: Value = response_for_status(response).await?.json().await?;
-        let registrations = response
-            .get("registrations")
-            .and_then(Value::as_array)
-            .ok_or_else(|| BridgeError::message("communicate register list missing registrations"))?
-            .iter()
-            .map(|item| serde_json::from_value(item.clone()).map_err(BridgeError::from))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(registrations)
+        registrations_from_response(&response)
     }
 
     pub async fn consume_desktop_sse_once(
@@ -181,6 +247,16 @@ impl CoworkerHttpClient {
         connected: oneshot::Sender<()>,
     ) -> Result<()> {
         validate_desktop_transport(&coworker.base_url, bearer_token, development_mode)?;
+        if relay_transport::relay_endpoint(&coworker.base_url).is_some() {
+            return relay_transport::consume_sse(
+                &coworker.base_url,
+                required_relay_token(bearer_token)?,
+                &format!("/sse/{participant_id}"),
+                messages,
+                connected,
+            )
+            .await;
+        }
         let url = format!("{}/sse/{}", coworker.base_url, participant_id);
         let response = timeout(
             SSE_CONNECT_RESPONSE_TIMEOUT,
@@ -291,6 +367,38 @@ fn registration_from_response(response: &Value) -> Result<CoworkerRegistration> 
     })
 }
 
+fn registrations_from_response(response: &Value) -> Result<Vec<CoworkerRegistration>> {
+    response
+        .get("registrations")
+        .and_then(Value::as_array)
+        .ok_or_else(|| BridgeError::message("communicate register list missing registrations"))?
+        .iter()
+        .map(|item| serde_json::from_value(item.clone()).map_err(BridgeError::from))
+        .collect::<Result<Vec<_>>>()
+}
+
+fn required_relay_token(token: Option<&str>) -> Result<&str> {
+    token
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            BridgeError::Config("Relay connection requires a communication token".into())
+        })
+}
+
+fn relay_response_for_status(
+    response: relay_transport::RelayResponse,
+) -> Result<relay_transport::RelayResponse> {
+    if (200..300).contains(&response.status) {
+        return Ok(response);
+    }
+    let body = String::from_utf8_lossy(&response.body);
+    Err(BridgeError::HttpStatus {
+        status: response.status,
+        reason: "Relay response".into(),
+        detail: response_error_detail(&body),
+    })
+}
+
 fn with_bearer(
     request: reqwest::RequestBuilder,
     bearer_token: Option<&str>,
@@ -307,6 +415,10 @@ pub fn validate_desktop_transport(
     development_mode: bool,
 ) -> Result<()> {
     if development_mode {
+        return Ok(());
+    }
+    if relay_transport::relay_endpoint(base_url).is_some() {
+        required_relay_token(bearer_token)?;
         return Ok(());
     }
     if !base_url.trim().to_ascii_lowercase().starts_with("https://") {
@@ -415,6 +527,14 @@ mod tests {
         );
         assert!(validate_desktop_transport("https://example.test", None, false).is_err());
         assert!(validate_desktop_transport("https://example.test", Some("secret"), false).is_ok());
+        assert!(
+            validate_desktop_transport(
+                "http://relay.test:8443/i/cw_abcdefgh",
+                Some("cwct_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+                false
+            )
+            .is_ok()
+        );
         assert!(validate_desktop_transport("http://localhost:8000", None, true).is_ok());
     }
 

@@ -245,3 +245,21 @@ jobs:
             --field version="$VERSION"
 
           echo "Started container publishing for $RELEASE_TAG."
+
+      - name: Start Relay binary release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          gh workflow run relay-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            --field ref="$RELEASE_TAG" \
+            --field tag="$RELEASE_TAG" \
+            --field version="$VERSION"
+
+          echo "Started Relay binary publishing for $RELEASE_TAG."

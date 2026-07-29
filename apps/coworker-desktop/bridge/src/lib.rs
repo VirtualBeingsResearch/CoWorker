@@ -14,6 +14,7 @@ pub mod ids;
 pub mod lock;
 pub mod logging;
 pub mod mcp_sidecar;
+pub mod relay_transport;
 pub mod runtime;
 
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;

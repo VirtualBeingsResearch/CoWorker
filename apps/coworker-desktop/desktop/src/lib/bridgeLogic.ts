@@ -88,6 +88,22 @@ export type ApprovalConfigView = {
 };
 
 export const logLevelValues: LogLevelFilter[] = ["all", "error", "warn", "info", "debug", "trace", "raw"];
+
+export function isRelayBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      /^\/i\/cw_[A-Za-z0-9_-]{8,80}$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
 export const logLevels: LogLevel[] = ["error", "warn", "info", "debug", "trace", "raw"];
 export const permissionsModeValues: PermissionsMode[] = ["read-only", "workspace-write", "danger-full-access"];
 export const approvalsReviewerValues: ApprovalsReviewer[] = ["none", "coworker"];

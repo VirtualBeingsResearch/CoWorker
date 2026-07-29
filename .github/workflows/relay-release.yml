@@ -1,0 +1,126 @@
+name: Publish Relay Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build"
+        required: true
+        type: string
+      tag:
+        description: "Existing release tag to receive Relay assets"
+        required: true
+        type: string
+      version:
+        description: "Version without the v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: relay-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Relay ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar
+          - goos: linux
+            goarch: arm64
+            archive: tar
+          - goos: darwin
+            goarch: amd64
+            archive: tar
+          - goos: darwin
+            goarch: arm64
+            archive: tar
+          - goos: windows
+            goarch: amd64
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/coworker-relay/go.mod
+          cache-dependency-path: apps/coworker-relay/go.sum
+      - name: Validate release version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "v$RELEASE_VERSION"
+          test "$(tr -d '\r\n' < VERSION)" = "$RELEASE_VERSION"
+      - name: Build and package
+        id: package
+        working-directory: apps/coworker-relay
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          ARCHIVE_FORMAT: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/relay-assets"
+          package="coworker-relay-${RELEASE_VERSION}-${GOOS}-${GOARCH}"
+          directory="$RUNNER_TEMP/$package"
+          mkdir -p "$output" "$directory"
+          suffix=""
+          if [[ "$GOOS" == windows ]]; then suffix=".exe"; fi
+          ldflags="-s -w \
+            -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Version=$RELEASE_VERSION \
+            -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Commit=$GITHUB_SHA \
+            -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Date=$(date -u +%FT%TZ)"
+          CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o "$directory/coworker-relay$suffix" ./cmd/coworker-relay
+          cp ../../LICENSE "$directory/LICENSE"
+          go list -m all > "$directory/go-modules.txt"
+          if [[ "$ARCHIVE_FORMAT" == zip ]]; then
+            (cd "$RUNNER_TEMP" && zip -q -r "$output/$package.zip" "$package")
+            asset="$output/$package.zip"
+          else
+            tar -C "$RUNNER_TEMP" -czf "$output/$package.tar.gz" "$package"
+            asset="$output/$package.tar.gz"
+          fi
+          (cd "$output" && sha256sum "$(basename "$asset")" > "$(basename "$asset").sha256")
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+      - name: Attest Relay archive
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.package.outputs.asset }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: relay-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/relay-assets/*
+          if-no-files-found: error
+
+  publish:
+    name: Attach Relay binaries
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: relay-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/relay-assets
+      - name: Upload immutable Relay assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" "${RUNNER_TEMP}/relay-assets/"* --repo "$GITHUB_REPOSITORY" --clobber

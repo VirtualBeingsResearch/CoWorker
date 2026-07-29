@@ -9,6 +9,7 @@ import {
   fileName,
   formatSessionTime,
   groupToolMessages,
+  isRelayBaseUrl,
   maxLogTextChars,
   mergeMessages,
   nextCoworker,
@@ -312,5 +313,13 @@ describe("bridgeLogic session helpers", () => {
     expect(formatSessionTime("2026-07-06T10:00:00Z")).not.toBe("unknown");
     expect(fileName("C:\\Users\\fine\\report.md")).toBe("report.md");
     expect(fileName("/tmp/archive.zip")).toBe("archive.zip");
+  });
+
+  it("recognizes only exact Relay instance base URLs", () => {
+    expect(isRelayBaseUrl("http://relay.example.com:8443/i/cw_abcdefgh")).toBe(true);
+    expect(isRelayBaseUrl("https://relay.example.com/i/cw_abcdefgh")).toBe(true);
+    expect(isRelayBaseUrl("http://relay.example.com/i/cw_abcdefgh/status")).toBe(false);
+    expect(isRelayBaseUrl("http://relay.example.com/i/not-an-instance")).toBe(false);
+    expect(isRelayBaseUrl("ftp://relay.example.com/i/cw_abcdefgh")).toBe(false);
   });
 });

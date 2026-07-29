@@ -5,6 +5,7 @@ import { useI18n } from "../i18n";
 import type { DictKey } from "../i18n/en";
 import {
   approvalsReviewerValues,
+  isRelayBaseUrl,
   permissionsModeValues,
   type ApprovalConfigView,
   type ValidationIssue,
@@ -268,6 +269,9 @@ export function OnboardingWizard({
                   value={selectedCoworker.base_url}
                   onChange={(event) => handleBaseUrlChange(event.target.value)}
                 />
+                {isRelayBaseUrl(selectedCoworker.base_url) && (
+                  <small className="fieldHint">{t("config.relayE2eeDetected")}</small>
+                )}
               </Field>
               <Field
                 label={t("config.fieldUpdateSubscriptionUrl")}

@@ -340,6 +340,7 @@ remote 和分支后执行 `git push`。
 | [数据与信任边界](docs/architecture/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
 | [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
 | [Coworker Desktop](docs/channels/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
+| [自托管中继（Relay）](docs/operations/relay.md) | 通过端到端加密从内网提供 Desktop通信、部署、配对、备份与运维 |
 | [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
 | [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |
 

@@ -506,6 +506,7 @@ dependencies = [
     { name = "torch", version = "2.11.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
     { name = "wecom-aibot-sdk" },
 ]
 
@@ -544,6 +545,7 @@ requires-dist = [
     { name = "spacy", specifier = "==3.8.13" },
     { name = "torch", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
+    { name = "websockets", specifier = ">=14.0" },
     { name = "wecom-aibot-sdk", specifier = "==1.0.7" },
 ]
 

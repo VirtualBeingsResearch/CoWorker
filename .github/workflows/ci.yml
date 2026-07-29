@@ -269,6 +269,52 @@ jobs:
             pkg-config
       - run: cargo test --workspace --locked
 
+  go_relay:
+    name: Go Relay
+    needs: web_bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/coworker-relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/coworker-relay/go.mod
+          cache-dependency-path: apps/coworker-relay/go.sum
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test Relay
+        run: go test -race ./...
+      - name: Vet Relay
+        run: go vet ./...
+      - name: Scan Relay Go dependencies
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Build Relay binary
+        run: go build ./cmd/coworker-relay
+      - name: Build Relay container
+        working-directory: ${{ github.workspace }}
+        run: docker build --tag coworker-relay:ci --file apps/coworker-relay/Dockerfile apps/coworker-relay
+      - name: Scan Relay container
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: coworker-relay:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Validate initialized Compose deployment
+        run: |
+          go run ./cmd/coworker-relay init \
+            --dir "$RUNNER_TEMP/relay-deployment" \
+            --public-url http://relay.example.com:8443 \
+            --external-port 8443
+          docker compose \
+            --env-file "$RUNNER_TEMP/relay-deployment/.env" \
+            --file "$RUNNER_TEMP/relay-deployment/compose.yaml" \
+            config --quiet
+
   frontend:
     name: Frontend (${{ matrix.name }})
     needs: web_bundle
