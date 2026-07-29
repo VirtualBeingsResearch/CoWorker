@@ -99,6 +99,12 @@ class AgentLoop:
         if self._task_store is not None:
             watcher = asyncio.create_task(self._task_watcher(), name="task-watcher")
 
+        # Passive mode starts asleep. A queued startup notice may be retained for
+        # the next interaction, but only a real wake signal should start the
+        # first model cycle.
+        if self._config.agent.passive_mode:
+            await self._rest()
+
         while not self._stop_event.is_set():
             try:
                 await self._cycle()
@@ -195,6 +201,17 @@ class AgentLoop:
         self._stop_event.set()
         # 唤醒 _rest() 中等待的消息事件，避免等满 idle_sleep_seconds 才退出
         self._inbox.message_event.set()
+
+    def resume_from_rest(self) -> bool:
+        """Wake a resting loop without adding a message to its context."""
+        if (
+            not self.state.is_running
+            or not self.state.is_sleeping
+            or self._stop_event.is_set()
+        ):
+            return False
+        self._inbox.message_event.set()
+        return True
 
     async def wait_until_stopped(self) -> None:
         """Wait for an external shutdown/restart request without starting the loop."""

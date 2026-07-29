@@ -19,6 +19,7 @@ services:
         required: false
     environment:
       - API__HOST=0.0.0.0
+      - COWORKER_WORKSPACE_PATH=/app
       - COWORKER_REPOSITORY_URL=${COWORKER_REPOSITORY_URL-}
       - COWORKER_REPOSITORY_REF=${COWORKER_REPOSITORY_REF:-}
       - HF_HOME=/opt/huggingface
@@ -30,9 +31,9 @@ services:
       start_period: 2m
       retries: 3
     volumes:
-      - type: volume
-        source: coworker-workspace
-        target: /workspace
+      # Keep the named volume for normal deployments. Developers can bind the
+      # current checkout with COWORKER_WORKSPACE_SOURCE=.
+      - "${COWORKER_WORKSPACE_SOURCE:-coworker-workspace}:/app"
       - type: volume
         source: coworker-state
         target: /var/lib/coworker

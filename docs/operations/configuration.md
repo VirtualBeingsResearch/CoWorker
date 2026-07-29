@@ -106,6 +106,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
 | `AGENT__TICK` | `true` | 是否启用无外部消息时的自主 tick |
+| `AGENT__PASSIVE_MODE` | `false` | 是否启用 Passive 模式；启用后首次启动和重启都保持休息，启动通知静默保留到下一次真实唤醒，不再按空闲超时自唤醒 |
 | `AGENT__CODE_HARD_TIMEOUT` | `300` | 代码执行工具硬超时秒数 |
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | 图片发送给模型前的最大长边像素，超出则等比缩放 |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
@@ -144,6 +145,11 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 
+主循环处于休息状态时，管理端「生命总览」会显示「继续运行」。该操作本身只发送内部
+唤醒信号，不创建新的 inbox 消息；模型从现有上下文继续，之前已静默排队的启动通知或
+其他事件仍会按正常顺序处理。对应的管理员 API 是 `POST /api/admin/resume`，返回的
+`resumed` 表示本次请求是否确实唤醒了休息中的主循环。
+
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
 
 微信 Claw 模块会同时注册 transport、管理接口和热设置应用器。扫码成功会把连接保存到
@@ -156,11 +162,19 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 |---|---|---|
 | `COWORKER_BUNDLE_REPOSITORY_URL` | 官方 Coworker 仓库 | 构建镜像时转换为 Git bundle 的兼容仓库 |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
+| `COWORKER_WORKSPACE_PATH` | `/app` | 容器内实际运行源码与 Agent 共用的 Git 工作区 |
+| `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose 挂载源；设为 `.` 可用当前 checkout 代替默认命名卷 |
+| `COWORKER_STATE_PATH` | `/var/lib/coworker` | 持久运行数据目录；工作区中的 `/app/data` 指向这里 |
 | `COWORKER_REPOSITORY_URL` | 空 | 非严格离线镜像首次启动时改为在线克隆的仓库地址 |
 | `COWORKER_REPOSITORY_REF` | bundle 固定提交或远端默认分支 | 首次初始化后检出的分支、tag 或 commit |
 | `COWORKER_REPOSITORY_BUNDLE` | 镜像内 bundle | 显式挂载的自定义 bundle 路径 |
 
-仓库相关变量只在 workspace 卷为空时生效。严格离线镜像拒绝从
+默认命名卷首次创建时，镜像中的 `/app` 会被复制进去并从 bundle 补齐 Git 元数据；
+入口脚本同时把 `/app/data` 链接到独立的 `coworker-state` 卷。
+设置 `COWORKER_WORKSPACE_SOURCE=.` 后，现有本地 Git checkout 会直接挂载到 `/app`，仓库
+初始化变量不会覆盖它。更新镜像时，入口脚本只自动快进干净、未分叉且仍位于镜像默认分支
+的托管工作区；本地修改、提交、其他分支和分叉历史保持不变。其他仓库相关变量只在工作区
+尚未初始化时生效。严格离线镜像拒绝从
 `COWORKER_REPOSITORY_URL` 访问网络；自定义私有仓库应在受控构建环境生成 bundle，
 不要把凭据写进 URL 或镜像构建参数。
 

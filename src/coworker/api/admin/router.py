@@ -1320,6 +1320,18 @@ async def restart(
     return {"accepted": True}
 
 
+@router.post("/resume")
+async def resume(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    resumed = _require_agent().resume_from_rest()
+    _audit(request, "runtime.resume", "coworker", detail=f"resumed={resumed}")
+    if resumed:
+        await asyncio.sleep(0)
+    return {"resumed": resumed}
+
+
 @router.get("/tasks")
 async def list_tasks(_: None = Depends(require_admin)) -> ApiResponse:
     return {"tasks": [_task_dict(task) for task in _require_task_store().list()]}

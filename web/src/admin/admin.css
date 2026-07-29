@@ -796,6 +796,7 @@ html:has(.admin-login),
 .presence-hero.resting .pulse-organ > i { animation-duration: 4s; }
 .presence-hero.quiet .pulse-organ > i { animation: none; opacity: .42; transform: scaleY(.35); }
 .pulse-organ small { position: absolute; right: 20px; bottom: 17px; color: color-mix(in oklch, var(--presence-color) 55%, var(--admin-muted)); font: 650 9px var(--admin-data); letter-spacing: .12em; }
+.presence-resume { margin-left: 2px; }
 .presence-hero > .icon-btn { position: absolute; z-index: 3; right: 14px; top: 14px; }
 
 @keyframes vital-beat {

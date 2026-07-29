@@ -2,7 +2,7 @@ import { FormEvent, Fragment, KeyboardEvent, ReactNode, useCallback, useEffect, 
 import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
-  MessagesSquare, Orbit, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
+  MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw,
 } from 'lucide-react';
 import './admin.css';
@@ -357,6 +357,20 @@ function runtimeWakePolicy(status: Json) {
 
 function Overview({ name }: { name: string }) {
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/overview'), []);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState('');
+  const resume = async () => {
+    setResuming(true);
+    setResumeError('');
+    try {
+      await api('/api/admin/resume', { method: 'POST' });
+      await reload();
+    } catch (error) {
+      setResumeError(error instanceof Error ? error.message : t('继续运行失败'));
+    } finally {
+      setResuming(false);
+    }
+  };
   if (loading || !data) return <Loading error={error} />;
   const status = data.status; const counts = data.counts;
   const running = status.is_running;
@@ -369,7 +383,7 @@ function Overview({ name }: { name: string }) {
     <section className={`presence-hero ${presenceState}`}>
       <div className="presence-copy">
         <p className="eyebrow">{t('状态采样')}</p>
-        <h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1>
+        <h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span>{resting && <button type="button" className="primary mini presence-resume" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}</h1>
         <div className="presence-readout">
           <div><span>{t('主线模型')}</span><strong>{status.provider}/{status.model}</strong></div>
           <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
@@ -384,6 +398,7 @@ function Overview({ name }: { name: string }) {
       </div>
       <button className="icon-btn" onClick={() => void reload()} title={t('刷新生命迹象')} aria-label={t('刷新生命迹象')}><RefreshCw size={16} /></button>
     </section>
+    {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
     <div className="vital-grid">
       {[

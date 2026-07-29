@@ -89,14 +89,16 @@ class InboxWatcher:
     def poll_interval(self, value: float) -> None:
         self._poll_interval = value
 
-    async def push(self, event: IncomingEvent) -> str:
+    async def push(self, event: IncomingEvent, *, wake: bool = True) -> str:
+        """Queue an event, optionally leaving a sleeping agent undisturbed."""
         event_id = secrets.token_hex(8)
         event.event_id = event_id
         for interceptor in self._interceptors:
             if interceptor(event):
                 return event_id
         await self._queue.put(event)
-        self._message_event.set()
+        if wake:
+            self._message_event.set()
         return event_id
 
     def cancel(self, event_id: str) -> None:

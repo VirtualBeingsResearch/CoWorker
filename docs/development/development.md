@@ -59,6 +59,22 @@ Dev Container 是 Linux 环境，适合 Python、Web 和 Explore Lab 开发，�
 验证 macOS 专属的 Tauri `.app`/`.dmg`、签名和公证；这些步骤仍需在 macOS 本机或
 对应的 CI runner 上完成。
 
+### 使用 offline 镜像开发
+
+如果只需要运行和调试 Coworker 服务，可以复用已发布的严格离线镜像，将当前 checkout
+直接挂载到容器的 `/app`：
+
+```bash
+COWORKER_WORKSPACE_SOURCE=. \
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline \
+docker compose up --pull always --no-build
+```
+
+`/app` 同时是 Python 实际加载的源码目录和 Agent 工作区，因此本机、Agent 与运行进程
+看到的是同一份 Git checkout。镜像提供 Linux Python 环境、Chromium、FFmpeg 和预置
+embedding 模型；源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，
+使用 `COWORKER_WORKSPACE_SOURCE=. docker compose up --build` 重新构建依赖环境。
+
 ### Explore Lab
 
 Explore Lab 的后端可以直接托管前端构建产物，日常使用只需要启动后端。分支运行时使用模拟通信对象（默认 `explore_lab`）：`communicate` 只把出站消息记录到分支状态，不会投递到外部；`list_connections` 会将这些模拟对象显示为活跃连接。

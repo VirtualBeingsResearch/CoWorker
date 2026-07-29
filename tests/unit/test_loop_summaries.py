@@ -106,6 +106,92 @@ async def test_setup_restart_wakes_waiter_without_saving_snapshot(tmp_path):
     assert not loop._snapshot_path.exists()
 
 
+def test_resume_from_rest_wakes_without_inbox_message():
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._stop_event = asyncio.Event()
+    loop._inbox.message_event = asyncio.Event()
+    loop.state.is_running = True
+    loop.state.is_sleeping = True
+
+    resumed = loop.resume_from_rest()
+
+    assert resumed is True
+    assert loop._inbox.message_event.is_set()
+    loop._inbox.push.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("is_running", "is_sleeping", "stopping"),
+    [
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_resume_from_rest_ignores_non_resting_loop(is_running, is_sleeping, stopping):
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._stop_event = asyncio.Event()
+    loop._inbox.message_event = asyncio.Event()
+    loop.state.is_running = is_running
+    loop.state.is_sleeping = is_sleeping
+    if stopping:
+        loop._stop_event.set()
+
+    resumed = loop.resume_from_rest()
+
+    assert resumed is False
+    assert not loop._inbox.message_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_passive_waits_before_first_cycle():
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._config.agent.passive_mode = True
+    loop._stop_event = asyncio.Event()
+    loop._consecutive_errors = 0
+    resting = asyncio.Event()
+    wake = asyncio.Event()
+
+    async def initial_rest() -> None:
+        resting.set()
+        await wake.wait()
+
+    async def stop_after_cycle() -> None:
+        loop._stop_event.set()
+
+    loop._rest = AsyncMock(side_effect=initial_rest)
+    loop._cycle = AsyncMock(side_effect=stop_after_cycle)
+
+    run_task = asyncio.create_task(loop.run())
+    await asyncio.wait_for(resting.wait(), timeout=1)
+    loop._cycle.assert_not_awaited()
+
+    wake.set()
+    await asyncio.wait_for(run_task, timeout=1)
+
+    loop._rest.assert_awaited_once()
+    loop._cycle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_active_starts_first_cycle_immediately():
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._config.agent.passive_mode = False
+    loop._stop_event = asyncio.Event()
+    loop._consecutive_errors = 0
+
+    async def stop_after_cycle() -> None:
+        loop._stop_event.set()
+
+    loop._rest = AsyncMock()
+    loop._cycle = AsyncMock(side_effect=stop_after_cycle)
+
+    await loop.run()
+
+    loop._rest.assert_not_awaited()
+    loop._cycle.assert_awaited_once()
+
+
 def _make_brain(content="ok", tool_calls=None, stop_reason="end_turn", usage=None):
     response = LLMResponse(
         content=content,
