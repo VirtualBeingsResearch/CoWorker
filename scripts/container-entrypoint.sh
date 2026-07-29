@@ -7,12 +7,26 @@ default_bundled_repository="${COWORKER_BUNDLED_REPOSITORY_PATH:-/opt/coworker/re
 bundled_repository="${COWORKER_REPOSITORY_BUNDLE:-$default_bundled_repository}"
 repository_url="${COWORKER_REPOSITORY_URL-}"
 repository_ref="${COWORKER_REPOSITORY_REF-}"
+bundled_repository_url="${COWORKER_BUNDLED_REPOSITORY_URL-}"
+bundled_repository_ref="${COWORKER_BUNDLED_REPOSITORY_REF-}"
 repository_branch=""
 workspace_parent="$(dirname "$workspace_path")"
 image_workspace_marker="$workspace_path/.coworker-image-workspace"
 image_revision_file="${COWORKER_IMAGE_REVISION_FILE:-/opt/coworker/repository.revision}"
 image_branch_file="${COWORKER_IMAGE_BRANCH_FILE:-/opt/coworker/repository.branch}"
 managed_workspace=false
+replace_image_workspace=false
+
+if [ -n "${COWORKER_REPOSITORY_BUNDLE-}" ] \
+    || [ -n "$repository_url" ] \
+    || [ -n "$repository_ref" ] \
+    || [ -n "$bundled_repository_ref" ]; then
+    replace_image_workspace=true
+fi
+case "$bundled_repository_url" in
+    ""|https://github.com/VirtualBeingsResearch/CoWorker.git) ;;
+    *) replace_image_workspace=true ;;
+esac
 
 mkdir -p "$workspace_parent" "$state_path"
 
@@ -45,12 +59,12 @@ if [ ! -e "$workspace_path/.git" ]; then
         echo "Creating Git workspace from embedded repository bundle"
         git clone "$bundled_repository" "$temporary_workspace/repository"
         if [ -z "$repository_ref" ]; then
-            repository_ref="$(cat /opt/coworker/repository.revision)"
-            repository_branch="$(cat /opt/coworker/repository.branch)"
+            repository_ref="$(cat "$image_revision_file")"
+            repository_branch="$(cat "$image_branch_file")"
         fi
-        if [ -n "${COWORKER_BUNDLED_REPOSITORY_URL-}" ]; then
+        if [ -n "$bundled_repository_url" ]; then
             git -C "$temporary_workspace/repository" remote set-url \
-                origin "$COWORKER_BUNDLED_REPOSITORY_URL"
+                origin "$bundled_repository_url"
         fi
     else
         if [ "${COWORKER_REPOSITORY_OFFLINE:-0}" = "1" ]; then
@@ -76,11 +90,17 @@ if [ ! -e "$workspace_path/.git" ]; then
 
     if [ "$image_workspace" = true ]; then
         # Docker copies the image's /app tree into a new named volume. Attach
-        # the clean bundle's Git metadata to that exact tree so the running
-        # source and the Agent's editable workspace remain the same files.
+        # the bundle's Git metadata to that exact tree so the running source
+        # and the Agent's editable workspace remain the same files. Preserve
+        # the image source for the default bundle because a local image build
+        # may differ from the configured upstream revision.
         mv "$temporary_workspace/repository/.git" "$workspace_path/.git"
-        git -C "$workspace_path" reset --hard
-        git -C "$workspace_path" clean -dffx
+        if [ "$replace_image_workspace" = true ]; then
+            git -C "$workspace_path" reset --hard
+            git -C "$workspace_path" clean -dffx
+        else
+            rm -f "$image_workspace_marker"
+        fi
     else
         mv "$temporary_workspace/repository" "$workspace_path"
     fi

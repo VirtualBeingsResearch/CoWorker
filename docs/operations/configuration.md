@@ -158,11 +158,13 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
 | `COWORKER_WORKSPACE_PATH` | `/app` | 容器内实际运行源码与 Agent 共用的 Git 工作区 |
 | `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose 挂载源；设为 `.` 可用当前 checkout 代替默认命名卷 |
+| `COWORKER_STATE_PATH` | `/var/lib/coworker` | 持久运行数据目录；工作区中的 `/app/data` 指向这里 |
 | `COWORKER_REPOSITORY_URL` | 空 | 非严格离线镜像首次启动时改为在线克隆的仓库地址 |
 | `COWORKER_REPOSITORY_REF` | bundle 固定提交或远端默认分支 | 首次初始化后检出的分支、tag 或 commit |
 | `COWORKER_REPOSITORY_BUNDLE` | 镜像内 bundle | 显式挂载的自定义 bundle 路径 |
 
-默认命名卷首次创建时，镜像中的 `/app` 会被复制进去并从 bundle 补齐 Git 元数据。
+默认命名卷首次创建时，镜像中的 `/app` 会被复制进去并从 bundle 补齐 Git 元数据；
+入口脚本同时把 `/app/data` 链接到独立的 `coworker-state` 卷。
 设置 `COWORKER_WORKSPACE_SOURCE=.` 后，现有本地 Git checkout 会直接挂载到 `/app`，仓库
 初始化变量不会覆盖它。更新镜像时，入口脚本只自动快进干净、未分叉且仍位于镜像默认分支
 的托管工作区；本地修改、提交、其他分支和分叉历史保持不变。其他仓库相关变量只在工作区

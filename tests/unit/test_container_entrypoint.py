@@ -26,7 +26,8 @@ def _create_repository(tmp_path: Path) -> tuple[Path, Path]:
     _git(repository, "config", "user.name", "Container Test")
     _git(repository, "config", "user.email", "container-test@example.com")
     (repository / "app.txt").write_text("bundled source\n", encoding="utf-8")
-    _git(repository, "add", "app.txt")
+    (repository / ".gitignore").write_text("/data\n", encoding="utf-8")
+    _git(repository, "add", "app.txt", ".gitignore")
     _git(repository, "commit", "-m", "initial")
 
     bundle = tmp_path / "repository.bundle"
@@ -42,6 +43,7 @@ def _run_entrypoint(
     image_revision_file: Path | None = None,
     image_branch_file: Path | None = None,
     embedded_bundle: bool = False,
+    bundled_repository_ref: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
@@ -57,6 +59,8 @@ def _run_entrypoint(
         env["COWORKER_IMAGE_REVISION_FILE"] = str(image_revision_file)
     if image_branch_file is not None:
         env["COWORKER_IMAGE_BRANCH_FILE"] = str(image_branch_file)
+    if bundled_repository_ref is not None:
+        env["COWORKER_BUNDLED_REPOSITORY_REF"] = bundled_repository_ref
     return subprocess.run(
         [
             str(ENTRYPOINT),
@@ -73,13 +77,17 @@ def _run_entrypoint(
 def test_image_workspace_is_reset_to_bundled_source(
     tmp_path: Path,
 ) -> None:
-    _, bundle = _create_repository(tmp_path)
+    repository, bundle = _create_repository(tmp_path)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     image_revision_file = tmp_path / "repository.revision"
     image_revision_file.write_text("trusted-image-revision\n", encoding="utf-8")
     (workspace / ".coworker-image-workspace").write_text(
         image_revision_file.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (workspace / ".gitignore").write_text(
+        (repository / ".gitignore").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     (workspace / "app.txt").write_text("image source\n", encoding="utf-8")
@@ -108,6 +116,124 @@ def test_image_workspace_is_reset_to_bundled_source(
     assert output.read_text(encoding="utf-8") == str(workspace)
 
 
+def test_image_workspace_keeps_built_source_with_default_bundle(
+    tmp_path: Path,
+) -> None:
+    repository, bundle = _create_repository(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_revision_file = tmp_path / "repository.revision"
+    image_revision_file.write_text(
+        f"{_git(repository, 'rev-parse', 'HEAD')}\n",
+        encoding="utf-8",
+    )
+    image_branch_file = tmp_path / "repository.branch"
+    image_branch_file.write_text("main\n", encoding="utf-8")
+    (workspace / ".coworker-image-workspace").write_text(
+        image_revision_file.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (workspace / "app.txt").write_text("image source\n", encoding="utf-8")
+    (workspace / "local-build.txt").write_text(
+        "local build source\n",
+        encoding="utf-8",
+    )
+
+    result = _run_entrypoint(
+        workspace,
+        tmp_path / "state",
+        bundle,
+        tmp_path / "cwd.txt",
+        image_revision_file=image_revision_file,
+        image_branch_file=image_branch_file,
+        embedded_bundle=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (workspace / ".coworker-image-workspace").exists()
+    assert (workspace / "app.txt").read_text(encoding="utf-8") == "image source\n"
+    assert (workspace / "local-build.txt").read_text(encoding="utf-8") == (
+        "local build source\n"
+    )
+    assert _git(workspace, "status", "--short", "--", "app.txt") == "M app.txt"
+    assert _git(workspace, "status", "--short", "--", "local-build.txt") == (
+        "?? local-build.txt"
+    )
+    assert _git(workspace, "config", "--bool", "--get", "coworker.containerManaged") == "true"
+
+
+def test_matching_image_workspace_is_clean_after_default_initialization(
+    tmp_path: Path,
+) -> None:
+    repository, bundle = _create_repository(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_revision_file = tmp_path / "repository.revision"
+    image_revision_file.write_text(
+        f"{_git(repository, 'rev-parse', 'HEAD')}\n",
+        encoding="utf-8",
+    )
+    image_branch_file = tmp_path / "repository.branch"
+    image_branch_file.write_text("main\n", encoding="utf-8")
+    (workspace / ".coworker-image-workspace").write_text(
+        image_revision_file.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    for name in (".gitignore", "app.txt"):
+        (workspace / name).write_text(
+            (repository / name).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+    result = _run_entrypoint(
+        workspace,
+        tmp_path / "state",
+        bundle,
+        tmp_path / "cwd.txt",
+        image_revision_file=image_revision_file,
+        image_branch_file=image_branch_file,
+        embedded_bundle=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (workspace / ".coworker-image-workspace").exists()
+    assert (workspace / "data").is_symlink()
+    assert _git(workspace, "status", "--short") == ""
+
+
+def test_custom_bundled_ref_replaces_image_source(tmp_path: Path) -> None:
+    repository, bundle = _create_repository(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_revision_file = tmp_path / "repository.revision"
+    image_revision_file.write_text(
+        f"{_git(repository, 'rev-parse', 'HEAD')}\n",
+        encoding="utf-8",
+    )
+    image_branch_file = tmp_path / "repository.branch"
+    image_branch_file.write_text("main\n", encoding="utf-8")
+    (workspace / ".coworker-image-workspace").write_text(
+        image_revision_file.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (workspace / "app.txt").write_text("image source\n", encoding="utf-8")
+
+    result = _run_entrypoint(
+        workspace,
+        tmp_path / "state",
+        bundle,
+        tmp_path / "cwd.txt",
+        image_revision_file=image_revision_file,
+        image_branch_file=image_branch_file,
+        embedded_bundle=True,
+        bundled_repository_ref="main",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (workspace / "app.txt").read_text(encoding="utf-8") == "bundled source\n"
+    assert _git(workspace, "status", "--short") == ""
+
+
 def test_existing_bind_mounted_repository_is_used_in_place(tmp_path: Path) -> None:
     repository, bundle = _create_repository(tmp_path)
     workspace = tmp_path / "workspace"
@@ -121,6 +247,7 @@ def test_existing_bind_mounted_repository_is_used_in_place(tmp_path: Path) -> No
     assert "Using existing Git workspace" in result.stdout
     assert output.read_text(encoding="utf-8") == str(workspace)
     assert (workspace / "data").resolve() == state.resolve()
+    assert _git(workspace, "status", "--short") == ""
 
 
 def test_clean_managed_workspace_fast_forwards_to_new_image_revision(

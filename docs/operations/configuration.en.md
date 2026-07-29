@@ -170,12 +170,14 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 | `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
 | `COWORKER_WORKSPACE_PATH` | `/app` | In-container Git workspace shared by the running source and the Agent |
 | `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose mount source; set it to `.` to replace the named volume with the current checkout |
+| `COWORKER_STATE_PATH` | `/var/lib/coworker` | Persistent runtime data; `/app/data` in the workspace points here |
 | `COWORKER_REPOSITORY_URL` | Empty | Repository cloned on first startup by a non-strict-offline image |
 | `COWORKER_REPOSITORY_REF` | Bundled commit or remote default branch | Branch, tag, or commit checked out during initialization |
 | `COWORKER_REPOSITORY_BUNDLE` | Bundle embedded in the image | Path to an explicitly mounted custom bundle |
 
-When the default named volume is first created, Docker copies the image's `/app` tree into it and
-the entrypoint restores the Git metadata from the bundle. With `COWORKER_WORKSPACE_SOURCE=.`, the
+When the default named volume is first created, Docker copies the image's `/app` tree into it,
+the entrypoint attaches the Git metadata from the bundle, and `/app/data` is linked to the separate
+`coworker-state` volume. With `COWORKER_WORKSPACE_SOURCE=.`, the
 existing local Git checkout is mounted directly at `/app`, and repository initialization never
 overwrites it.
 After an image update, the entrypoint automatically fast-forwards only a clean, non-divergent

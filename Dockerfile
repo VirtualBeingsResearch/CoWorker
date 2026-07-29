@@ -28,6 +28,7 @@ RUN git clone --bare "$COWORKER_BUNDLE_REPOSITORY_URL" /repository.git \
 FROM python:3.14-bookworm AS base
 
 ARG COWORKER_BUNDLE_REPOSITORY_URL
+ARG COWORKER_BUNDLE_REPOSITORY_REF
 
 # Install system deps + Node.js 24 via NodeSource
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,6 +50,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     HF_HOME=/opt/huggingface \
     COWORKER_BUNDLED_REPOSITORY_URL=${COWORKER_BUNDLE_REPOSITORY_URL} \
+    COWORKER_BUNDLED_REPOSITORY_REF=${COWORKER_BUNDLE_REPOSITORY_REF} \
     COWORKER_WORKSPACE_PATH=/app \
     COWORKER_STATE_PATH=/var/lib/coworker
 

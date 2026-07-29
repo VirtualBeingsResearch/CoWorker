@@ -182,7 +182,7 @@ Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
 
 从仓库直接构建并启动。Compose 默认构建并使用预置 embedding 模型的严格离线镜像
 `ghcr.io/virtualbeingsresearch/coworker:offline`；首次构建会下载全部依赖和模型，
-并把构建仓库转换为 Git bundle 放入镜像；运行时不会访问 Hugging Face 或 Git
+并把配置的仓库转换为 Git bundle 放入镜像；运行时不会访问 Hugging Face 或 Git
 远端：
 
 ```bash
@@ -195,11 +195,12 @@ docker compose up --build
 docker compose build
 ```
 
-首次启动会把镜像内 `/app` 复制到 `coworker-workspace` 卷，再从 bundle 恢复
+首次启动会把镜像内 `/app` 复制到 `coworker-workspace` 卷，再从 bundle 补齐
 Git 历史、分支和 tag。`/app` 同时是 Coworker 实际运行的源码和 Agent 可编辑的
 工作区；运行数据保存到独立的 `coworker-state` 卷。最终镜像不会包含构建环境原始的
 `.git` 目录。更新镜像后，入口脚本只会把干净、未分叉的托管分支快进到镜像提交；
-本地修改、提交、其他分支和分叉历史都会保留。可在构建时嵌入兼容的自定义仓库：
+本地修改、提交、其他分支和分叉历史都会保留。本地构建源码与默认 bundle 不同时，
+首次初始化会保留镜像中的源码并将差异显示为工作区修改。可在构建时嵌入兼容的自定义仓库：
 
 ```bash
 COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
@@ -219,7 +220,8 @@ FFmpeg 和预置 embedding 模型。修改 Python 源码后重启容器即可；
 非严格离线的 `runtime` 或 `with-embedder` 镜像还可在首次启动时通过
 `COWORKER_REPOSITORY_URL` 从其他仓库克隆。严格离线镜像会拒绝这种运行时网络访问；
 需要自定义仓库时应在构建阶段生成对应 bundle，或将自定义 bundle 挂载到容器并设置
-`COWORKER_REPOSITORY_BUNDLE`。已有 workspace 卷不会被重新克隆或覆盖。
+`COWORKER_REPOSITORY_BUNDLE`。已有 workspace 卷不会被重新克隆；只会按上述安全条件
+自动快进。
 
 如需使用标准运行时镜像（长期记忆首次启用时才下载本地 embedding 模型），可显式覆盖
 构建目标和镜像标签；缓存仍会保存在 `coworker-models` Docker 卷中。这个模型不是对话
