@@ -142,6 +142,9 @@ flowchart LR
 当前只支持从源码运行，不提供 PyPI / wheel 安装路径。准备好
 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)，克隆本仓库并进入项目目录后：
 
+> 希望从安装、初始化向导一路完成到第一次消息，请使用
+> [完整首次运行指南](docs/getting-started/README.md)。
+
 ```bash
 # 1. 克隆仓库并进入项目目录
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
@@ -336,10 +339,13 @@ remote 和分支后执行 `git push`。
 | 文档 | 内容 |
 |---|---|
 | [文档索引](docs/README.md) | 全部使用、设计与协作文档 |
+| [首次运行](docs/getting-started/README.md) | 安装运行时、初始化模型、验证实例并选择客户端 |
+| [Web 管理后台](docs/guides/README.md) | 状态、记忆、任务、模型、身份、扩展与诊断 |
 | [配置与模型](docs/operations/configuration.md) | 环境变量、Provider、模型与多实例配置 |
 | [数据与信任边界](docs/architecture/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
 | [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
-| [Coworker Desktop](docs/channels/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
+| [Coworker Desktop](docs/channels/desktop.md) | 安装、首次连接、会话、权限、托盘与更新 |
+| [故障排查](docs/operations/troubleshooting.md) | 服务、模型、记忆、Desktop、Relay 与容器的检查顺序 |
 | [自托管中继（Relay）](docs/operations/relay.md) | 通过端到端加密从内网提供 Desktop通信、部署、配对、备份与运维 |
 | [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
 | [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |

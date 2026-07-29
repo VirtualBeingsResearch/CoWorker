@@ -10,14 +10,24 @@
 
 | 你想完成的事 | 从这里进入 |
 |---|---|
-| 第一次启动 Coworker | [项目首页：让她跑起来](../README.md#让她跑起来) |
+| 第一次启动 Coworker | [首次运行](getting-started/README.md) |
+| 使用 Web 管理后台 | [Web 管理后台](guides/README.md) |
 | 配置模型与 Provider | [配置与模型](operations/configuration.md) |
 | 通过 HTTP、WebSocket 或文件接入 | [API 与通信入口](channels/api-and-channels.md) |
 | 连接本机用户、Codex 与 Claude Code | [Coworker Desktop](channels/desktop.md) |
+| 排查启动、模型或连接问题 | [故障排查](operations/troubleshooting.md) |
 | 了解数据保存在哪里、什么可能外发 | [数据与信任边界](architecture/data-boundaries.md) |
 | 理解身份、记忆、工具与生命循环 | [核心概念与能力](architecture/concepts.md) |
 
 ## 功能域
+
+### [首次运行](getting-started/README.md)
+
+从选择运行方式、完成管理端初始化，到验证实例并选择 Desktop、API 或通信入口。
+
+### [Web 管理后台](guides/README.md)
+
+使用生命总览、记忆、运行、模型、身份、能力内容、远程访问与诊断功能。
 
 ### [架构与核心概念](architecture/README.md)
 
@@ -32,18 +42,23 @@ REST、SSE、WebSocket、文件、企业微信和 Coworker Desktop 等外部入�
 
 - [API 与通信入口](channels/api-and-channels.md)
 - [Coworker Desktop](channels/desktop.md)
+- [微信 Claw](channels/weixin-claw.md)
 
 ### [配置与运维](operations/README.md)
 
 运行配置、模型 Provider、多实例配置和生产运行注意事项。
 
 - [配置与模型](operations/configuration.md)
+- [故障排查](operations/troubleshooting.md)
+- [自托管中继（Relay）](operations/relay.md)
+- [Relay v1 协议](operations/relay-protocol.md)
 
 ### [开发与协作](development/README.md)
 
 本地开发、验证、贡献和安全协作流程。
 
 - [开发指南](development/development.md)
+- [Desktop 开发与发布](development/desktop.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [安全策略](../SECURITY.md)
 - [变更记录](../CHANGELOG.md)
