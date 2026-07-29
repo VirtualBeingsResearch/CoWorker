@@ -35,6 +35,10 @@ restarts. See [First Run](../getting-started/README.en.md) for the complete path
 After initialization, the sidebar organizes ten areas under Observe, Shape,
 Extend, and Trace.
 
+![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
+
+<p align="center"><sub>Life Overview · The screenshot uses isolated synthetic demo data and contains no real users, credentials, or runtime records.</sub></p>
+
 ## Observe: understand the current state
 
 ### Life Overview

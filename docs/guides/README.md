@@ -28,6 +28,10 @@ mode 设置后保存，Coworker 会重启。详细步骤见[首次运行](../get
 
 初始化完成后，侧边栏按“观察、塑形、扩展、追溯”组织十个功能区。
 
+![Coworker Web 管理后台的生命总览](../assets/screenshots/admin-overview-zh.png)
+
+<p align="center"><sub>生命总览 · 截图使用隔离的伪造演示数据，不包含真实用户、密钥或运行记录。</sub></p>
+
 ## 观察：了解她现在怎样
 
 ### 生命总览

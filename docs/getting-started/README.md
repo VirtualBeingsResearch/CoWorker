@@ -73,6 +73,10 @@ Channel。按向导完成：
 5. 选择是否启用 Passive mode；
 6. 检查摘要后保存。
 
+![Coworker 首次初始化向导](../assets/screenshots/admin-first-run-zh.png)
+
+<p align="center"><sub>首次初始化向导 · 截图使用隔离的伪造配置，不包含真实密钥。</sub></p>
+
 推荐模型目录中的模型已经声明工具调用能力。手动输入目录外模型时，需要确认模型和 API
 网关支持 tool/function calling；向导不会发起可能计费的能力探测。
 
