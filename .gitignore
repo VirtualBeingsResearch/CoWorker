@@ -24,8 +24,8 @@ providers.json
 # 本地实验脚本，不纳入版本控制
 scratch/
 
-# Runtime data (keep dirs, ignore contents)
-data/*
+# Runtime data
+/data
 .coworker/*
 !.coworker/subconscious
 

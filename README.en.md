@@ -184,7 +184,7 @@ FFmpeg; FFmpeg is only used when `visual_analyze` must compress an oversized vid
 Build and start directly from the repository. Compose builds and uses the strict offline image
 with the embedding model preloaded by default, `ghcr.io/virtualbeingsresearch/coworker:offline`.
 The first build downloads all dependencies and the model, but the container does not access
-Hugging Face or a Git remote at runtime. The build also converts the source repository into
+Hugging Face or a Git remote at runtime. The build also converts the configured repository into
 a Git bundle embedded in the image:
 
 ```bash
@@ -197,19 +197,36 @@ To build the image without starting it:
 docker compose build
 ```
 
-On first startup, the image restores a Git workspace with its commit history, branches, and
-tags from the bundle into the `coworker-workspace` volume. Runtime data is kept separately in
-`coworker-state`. The final image does not contain the original `.git` directory. To embed a
-compatible custom repository:
+On first startup, Docker copies the image's `/app` tree into the `coworker-workspace` volume,
+then attaches its Git history, branches, and tags from the bundle. `/app` is both the source
+Coworker actually runs and the Agent's editable workspace. Runtime data remains separate in
+`coworker-state`. The final image does not contain the build environment's original `.git`
+directory. After an image update, the entrypoint fast-forwards only
+a clean, non-divergent managed branch to the image revision; local changes, commits, other
+branches, and divergent history are preserved. If a local build's source differs from the default
+bundle, first-time initialization preserves the image source and exposes those differences as
+working-tree changes. To embed a compatible custom repository:
 
 ```bash
 COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
 ```
 
+Developers can reuse the published strict-offline image while mounting the current checkout as
+the same `/app` workspace, without another Compose file:
+
+```bash
+COWORKER_WORKSPACE_SOURCE=. COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --pull always --no-build
+```
+
+This mode runs `src/` from the current checkout while reusing the image's Linux dependencies,
+Chromium, FFmpeg, and preloaded embedding model. Restart the container after changing Python
+source. Rebuild the image when `pyproject.toml` or `uv.lock` changes so `/opt/venv` stays in sync.
+
 The non-strict `runtime` and `with-embedder` images may instead clone
 `COWORKER_REPOSITORY_URL` on first startup. The strict offline image rejects that runtime
 network access; build its custom bundle into the image or mount one and set
-`COWORKER_REPOSITORY_BUNDLE`. An existing workspace volume is never recloned or overwritten.
+`COWORKER_REPOSITORY_BUNDLE`. An existing workspace volume is never recloned; it is only
+fast-forwarded under the safe conditions described above.
 
 To use the standard runtime image instead, which downloads its local embedding model when
 long-term memory is first enabled, explicitly override the build target and image tag. The cache

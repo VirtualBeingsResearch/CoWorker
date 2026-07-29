@@ -9,6 +9,7 @@
 
 # Secrets and machine-local configuration
 .env*
+!.env.example
 provider.json
 providers.json
 credentials/
