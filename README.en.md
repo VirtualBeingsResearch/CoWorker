@@ -12,7 +12,7 @@
   <p>
     <a href="https://github.com/VirtualBeingsResearch/CoWorker/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VirtualBeingsResearch/CoWorker/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;logo=githubactions&amp;logoColor=white" alt="CI status"></a>
     <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.13+"></a>
-    <a href="#bring-her-online"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
+    <a href="#quick-start"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/VirtualBeingsResearch/CoWorker?style=flat-square&amp;color=2ea44f" alt="MIT License"></a>
     <a href="https://github.com/VirtualBeingsResearch/CoWorker/stargazers"><img src="https://img.shields.io/github/stars/VirtualBeingsResearch/CoWorker?style=flat-square&amp;logo=github&amp;label=stars" alt="GitHub stars"></a>
   </p>
@@ -21,7 +21,7 @@
     <span> · </span>
     <a href="#what-she-does-for-a-team"><strong>Teamwork</strong></a>
     <span> · </span>
-    <a href="#bring-her-online"><strong>Quick start</strong></a>
+    <a href="#quick-start"><strong>Quick start</strong></a>
     <span> · </span>
     <a href="docs/README.en.md"><strong>Documentation</strong></a>
     <span> · </span>
@@ -137,166 +137,84 @@ flowchart LR
 
 In a single request, Coworker can recover yesterday's context, use file and code tools to investigate, save durable conclusions to memory, and set a reminder that survives restarts. These are not isolated features—they are actions inside one continuous loop.
 
-## Bring her online
+## Quick start
 
-Coworker currently supports running from a source checkout only; PyPI and wheel packages are
-not available. Install **Python 3.13+** and [uv](https://docs.astral.sh/uv/), clone this repository,
-and run the following commands from its root:
+The fastest local evaluation path is to run from source. You need **Python 3.13+**,
+[uv](https://docs.astral.sh/uv/), and access to a model service that supports tool/function
+calling (usually with an API key). PyPI and wheel packages are not currently available.
 
-> For one journey from installation and setup through the first message, use the
-> [complete First Run guide](docs/getting-started/README.en.md).
+### 1. Start Coworker
 
 ```bash
-# 1. Clone the repository and enter it
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-
-# 2. Install dependencies
 uv sync
-
-# 3. Install Chromium for the browser tool (once)
 uv run playwright install chromium
-
-# 4. Start Coworker
 uv run coworker
-# or
-uv run python -m coworker
 ```
 
-The current `pyproject.toml` uses the PyTorch CPU index on every platform. To use NVIDIA CUDA 13.0
-on Windows or Linux, switch the `torch` source as shown in that file, then run
-`uv lock && uv sync`.
-
-> [!NOTE]
-> Intel macOS cannot install the current PyTorch wheel. Use the checked-in
-> [Dev Container](docs/development/development.en.md#dev-container) to develop and test Python
-> code in a Linux x86_64 container.
-
-Coworker starts the agent loop, file inbox watcher, and FastAPI service together. The API is available at `http://localhost:8000` by default.
-
-> [!TIP]
-> You do not need a `.env` file for the first launch. If no administrator token exists, the terminal prints an auto-generated token once and saves it to `data/admin_config.json`. Use it to open `http://localhost:8000/admin`, then choose a model provider, enter its API key, and select a startup model. Coworker restarts safely and gets to work after you save the configuration.
-
-On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` if Chromium reports
-missing system libraries. The Docker image already includes Chromium, its system libraries, and
-FFmpeg; FFmpeg is only used when `visual_analyze` must compress an oversized video.
+`uv run python -m coworker` is equivalent to the last command. You do not need to create `.env`
+before the first run.
 
 <details>
-<summary><strong>Use Docker Compose</strong></summary>
-
-Build and start directly from the repository. Compose builds and uses the strict offline image
-with the embedding model preloaded by default, `ghcr.io/virtualbeingsresearch/coworker:offline`.
-The first build downloads all dependencies and the model, but the container does not access
-Hugging Face or a Git remote at runtime. The build also converts the configured repository into
-a Git bundle embedded in the image:
+<summary><strong>Prefer Docker Compose?</strong></summary>
 
 ```bash
+git clone https://github.com/VirtualBeingsResearch/CoWorker.git
+cd CoWorker
 docker compose up --build
 ```
 
-To build the image without starting it:
-
-```bash
-docker compose build
-```
-
-On first startup, Docker copies the image's `/app` tree into the `coworker-workspace` volume,
-then attaches its Git history, branches, and tags from the bundle. `/app` is both the source
-Coworker actually runs and the Agent's editable workspace. Runtime data remains separate in
-`coworker-state`. The final image does not contain the build environment's original `.git`
-directory. After an image update, the entrypoint fast-forwards only
-a clean, non-divergent managed branch to the image revision; local changes, commits, other
-branches, and divergent history are preserved. If a local build's source differs from the default
-bundle, first-time initialization preserves the image source and exposes those differences as
-working-tree changes. To embed a compatible custom repository:
-
-```bash
-COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
-```
-
-Developers can reuse the published strict-offline image while mounting the current checkout as
-the same `/app` workspace, without another Compose file:
-
-```bash
-COWORKER_WORKSPACE_SOURCE=. COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --pull always --no-build
-```
-
-This mode runs `src/` from the current checkout while reusing the image's Linux dependencies,
-Chromium, FFmpeg, and preloaded embedding model. Restart the container after changing Python
-source. Rebuild the image when `pyproject.toml` or `uv.lock` changes so `/opt/venv` stays in sync.
-
-The non-strict `runtime` and `with-embedder` images may instead clone
-`COWORKER_REPOSITORY_URL` on first startup. The strict offline image rejects that runtime
-network access; build its custom bundle into the image or mount one and set
-`COWORKER_REPOSITORY_BUNDLE`. An existing workspace volume is never recloned; it is only
-fast-forwarded under the safe conditions described above.
-
-To use the standard runtime image instead, which downloads its local embedding model when
-long-term memory is first enabled, explicitly override the build target and image tag. The cache
-remains in the `coworker-models` Docker volume. This is not the model used for conversation.
-
-```bash
-COWORKER_BUILD_TARGET=runtime COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:latest docker compose up --build
-```
-
-To preload the embedding model while still allowing the container to access Hugging Face at
-runtime, build and publish the optional non-strict-offline image:
-
-```bash
-docker build --target with-embedder -t coworker:with-embedder .
-```
-
-To build that variant with Compose:
-
-```bash
-COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:with-embedder docker compose up --build
-```
-
-Use `--build-arg EMBEDDER_MODEL=<HuggingFace model ID>` to preload the same model as
-`MEMORY__MEM0_EMBEDDER_MODEL`. Do not change an embedding model directly while keeping
-existing memories.
-
-To prevent the container from accessing the Hugging Face Hub (this does not make the
-configured conversation-model provider offline), build the strict offline variant:
-
-```bash
-docker build --target offline -t coworker:offline .
-```
-
-To build that variant with Compose:
-
-```bash
-COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --build
-```
-
-This variant sets `HF_HUB_OFFLINE=1` only after preloading the model. Its runtime
-embedding-model setting must match the model in the image, and the `coworker-models`
-volume must contain that model; a new volume is initialized from the image. Otherwise it
-fails instead of downloading at runtime. It also sets `COWORKER_REPOSITORY_OFFLINE=1`, so the
-Git workspace can only be initialized from the embedded or an explicitly mounted bundle.
+Compose builds the strict-offline runtime image with its embedding model preloaded by default,
+then persists the workspace, runtime state, and model cache separately. “Offline” here means the
+runtime does not fetch missing content from Hugging Face or Git remotes; your configured
+conversation-model provider may still require network access.
 
 </details>
 
-<details>
-<summary><strong>Unattended deployments and identity</strong></summary>
+> [!NOTE]
+> Intel macOS cannot install the current PyTorch wheel. Run the service through the
+> [Dev Container](docs/development/development.en.md#dev-container) or Docker.
+> On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` if Chromium reports
+> missing system libraries.
 
-For unattended deployments or secrets supplied through the environment, copy `.env.example` to `.env`. The `.env` file, system environment variables, `providers.json`, and settings from the administration page can coexist.
+### 2. Complete first-time setup
 
-If `data/identity/name.txt` does not exist on the first launch, the identity module starts in an unnamed state. You can later maintain the name, personality, and other identity files under `data/identity/`.
+On the first start, the terminal prints an auto-generated administrator token and stores it in
+`data/admin_config.json`. Open <http://127.0.0.1:8000/admin>, enter the token, and use the wizard to:
 
-</details>
+1. choose the runtime language and maximum output tokens;
+2. select a model Provider and startup model;
+3. enter the API key and Base URL when required;
+4. review and save the configuration.
 
-## Say hello
+![Coworker first-time setup wizard](docs/assets/screenshots/admin-first-run-en.png)
 
-Use the administration page at <http://localhost:8000/admin> to check her status, or send a message directly:
+<p align="center"><sub>First-time setup wizard · The screenshot uses isolated synthetic configuration and contains no real credentials.</sub></p>
+
+Coworker restarts safely after you save. A brief page disconnect is normal. Treat both the
+administrator token and model API key as secrets: do not send them through chat, commit them to
+Git, or place them in shared documents.
+
+### 3. Send the first message
+
+After the management page reconnects, verify the instance directly through the API:
 
 ```bash
-curl -X POST http://localhost:8000/messages \
+curl -X POST http://127.0.0.1:8000/messages \
   -H "Content-Type: application/json" \
-  -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
+  -d '{"sender_id": "alice", "content": "Hello, who are you?"}'
 ```
 
-For more REST, SSE, WebSocket, and file message examples, see [API and communication channels](docs/channels/api-and-channels.en.md).
+From there, continue in the [Web management console](docs/guides/README.en.md), install
+[Coworker Desktop](docs/channels/desktop.en.md) to collaborate with Codex or Claude Code, or
+connect your own tools through [API and Channels](docs/channels/api-and-channels.en.md).
+
+> [!TIP]
+> For the complete journey through runtime choices, setup verification, client selection, and
+> recovery, continue with the [First Run guide](docs/getting-started/README.en.md). See the
+> [Configuration Reference](docs/operations/configuration.en.md) for Docker images, environment
+> variables, and persistent volumes.
 
 ## Sync upstream source
 
