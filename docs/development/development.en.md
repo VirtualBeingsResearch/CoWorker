@@ -23,7 +23,8 @@ uv run mypy src
 uv run pytest
 ```
 
-Changes to the administration interface also require Node.js 20+. The build output is written to `src/coworker/web/`, which is shipped as static assets in the Python package:
+Web frontend or desktop changes also require Node.js 24.15+. The administration interface build
+output is written to `src/coworker/web/`, which is shipped as static assets in the Python package:
 
 ```bash
 npm ci --prefix web
