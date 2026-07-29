@@ -52,7 +52,7 @@ Usage:
   coworker-relay init --public-url <http-or-https-origin> [options]
 
 Options:
-  --dir <directory>       Deployment directory (default: coworker-relay-deploy)
+  --dir <directory>       Deployment directory (default: current directory)
   --public-url <origin>   Example: http://203.0.113.10:8443
   --external-port <port>  Published WebSocket port (default: 8443)
   --admin-port <port>     Host-loopback admin port (default: 8444)
@@ -87,12 +87,16 @@ Usage:
   coworker-relay instance list
   coworker-relay instance revoke <instance_id>
 
-Create returns a 10-minute, single-use, high-entropy pairing code.
+Create returns a 10-minute, single-use, high-entropy pairing code. An instance
+that is not paired before the code expires is removed automatically.
 `,
 	"instance create": `Create a Coworker instance
 
 Usage:
   coworker-relay instance create [--name <name>]
+
+The instance is removed automatically if its 10-minute pairing code expires
+before pairing completes.
 `,
 	"instance list": `List Coworker instances
 

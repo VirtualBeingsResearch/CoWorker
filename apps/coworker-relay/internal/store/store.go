@@ -306,45 +306,46 @@ func (s *Store) updateInstance(id string, mutate func(*Instance) error) error {
 
 func (s *Store) DeleteInstance(id string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.Bucket(instancesBucket).Delete([]byte(id)); err != nil {
+		return deleteInstance(tx, id)
+	})
+}
+
+func deleteInstance(tx *bolt.Tx, id string) error {
+	if err := tx.Bucket(instancesBucket).Delete([]byte(id)); err != nil {
+		return err
+	}
+	pairings := tx.Bucket(pairingsBucket)
+	var pairingKeys [][]byte
+	if err := pairings.ForEach(func(key, raw []byte) error {
+		var pairing Pairing
+		if json.Unmarshal(raw, &pairing) == nil && pairing.InstanceID == id {
+			pairingKeys = append(pairingKeys, append([]byte(nil), key...))
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, key := range pairingKeys {
+		if err := pairings.Delete(key); err != nil {
 			return err
 		}
-		pairings := tx.Bucket(pairingsBucket)
-		var pairingKeys [][]byte
-		if err := pairings.ForEach(func(key, raw []byte) error {
-			var pairing Pairing
-			if json.Unmarshal(raw, &pairing) == nil && pairing.InstanceID == id {
-				pairingKeys = append(pairingKeys, append([]byte(nil), key...))
-			}
-			return nil
-		}); err != nil {
-			return err
+	}
+	for _, bucketName := range [][]byte{failuresBucket, bansBucket} {
+		bucket := tx.Bucket(bucketName)
+		prefix := []byte(id + "\x00")
+		var keys [][]byte
+		cursor := bucket.Cursor()
+		for key, _ := cursor.Seek(prefix); key != nil &&
+			strings.HasPrefix(string(key), string(prefix)); key, _ = cursor.Next() {
+			keys = append(keys, append([]byte(nil), key...))
 		}
-		for _, key := range pairingKeys {
-			if err := pairings.Delete(key); err != nil {
+		for _, key := range keys {
+			if err := bucket.Delete(key); err != nil {
 				return err
 			}
 		}
-		for _, bucketName := range [][]byte{failuresBucket, bansBucket} {
-			bucket := tx.Bucket(bucketName)
-			prefix := []byte(id + "\x00")
-			var keys [][]byte
-			cursor := bucket.Cursor()
-			for key, _ := cursor.Seek(prefix); key != nil &&
-				strings.HasPrefix(string(key), string(prefix)); key, _ = cursor.Next() {
-				keys = append(keys, append([]byte(nil), key...))
-			}
-			for _, key := range keys {
-				if err := bucket.Delete(key); err != nil {
-					return err
-				}
-			}
-		}
-		if err := tx.Bucket(trafficBucket).Delete([]byte(id)); err != nil {
-			return err
-		}
-		return nil
-	})
+	}
+	return tx.Bucket(trafficBucket).Delete([]byte(id))
 }
 
 func (s *Store) RecordAudit(event AuditEvent) error {
@@ -412,20 +413,78 @@ func (s *Store) TrafficTotals() (Traffic, error) {
 }
 
 func (s *Store) GarbageCollect(now time.Time) (map[string]int, error) {
-	removed := map[string]int{"pairings": 0, "failures": 0, "bans": 0}
+	removed := map[string]int{"instances": 0, "pairings": 0, "failures": 0, "bans": 0}
 	err := s.db.Update(func(tx *bolt.Tx) error {
+		pairings := tx.Bucket(pairingsBucket)
+		var pairingKeys [][]byte
+		expiredInstanceIDs := make(map[string]struct{})
+		if err := pairings.ForEach(func(key, raw []byte) error {
+			var pairing Pairing
+			if json.Unmarshal(raw, &pairing) != nil {
+				pairingKeys = append(pairingKeys, append([]byte(nil), key...))
+				return nil
+			}
+			if pairing.Used || !pairing.ExpiresAt.After(now) {
+				pairingKeys = append(pairingKeys, append([]byte(nil), key...))
+				if !pairing.Used {
+					expiredInstanceIDs[pairing.InstanceID] = struct{}{}
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, key := range pairingKeys {
+			if err := pairings.Delete(key); err != nil {
+				return err
+			}
+			removed["pairings"]++
+		}
+		for instanceID := range expiredInstanceIDs {
+			raw := tx.Bucket(instancesBucket).Get([]byte(instanceID))
+			if raw == nil {
+				continue
+			}
+			var instance Instance
+			if err := json.Unmarshal(raw, &instance); err != nil {
+				return err
+			}
+			if instance.InstancePublicKey != "" {
+				continue
+			}
+			hasActivePairing := false
+			if err := pairings.ForEach(func(_, raw []byte) error {
+				var pairing Pairing
+				if json.Unmarshal(raw, &pairing) == nil &&
+					pairing.InstanceID == instanceID && !pairing.Used &&
+					pairing.ExpiresAt.After(now) {
+					hasActivePairing = true
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if hasActivePairing {
+				continue
+			}
+			if err := deleteInstance(tx, instanceID); err != nil {
+				return err
+			}
+			if err := putAudit(tx, AuditEvent{
+				At: now, Action: "instance.expire", InstanceID: instanceID,
+			}); err != nil {
+				return err
+			}
+			removed["instances"]++
+		}
 		for name, bucketName := range map[string][]byte{
-			"pairings": pairingsBucket, "failures": failuresBucket, "bans": bansBucket,
+			"failures": failuresBucket, "bans": bansBucket,
 		} {
 			bucket := tx.Bucket(bucketName)
 			var keys [][]byte
 			if err := bucket.ForEach(func(key, raw []byte) error {
 				expired := false
 				switch name {
-				case "pairings":
-					var value Pairing
-					expired = json.Unmarshal(raw, &value) != nil ||
-						value.Used || !value.ExpiresAt.After(now)
 				case "failures":
 					var values []time.Time
 					expired = json.Unmarshal(raw, &values) != nil

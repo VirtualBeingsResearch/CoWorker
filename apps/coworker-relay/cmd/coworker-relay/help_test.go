@@ -39,11 +39,25 @@ func TestInitHelpIncludesHTTPExampleAndNoCertificateFlags(t *testing.T) {
 	text := output.String()
 	if !strings.Contains(text, "http://203.0.113.10:8443") ||
 		!strings.Contains(text, "--admin-port") ||
-		!strings.Contains(text, "--deployment") {
+		!strings.Contains(text, "--deployment") ||
+		!strings.Contains(text, "default: current directory") {
 		t.Fatalf("unexpected init help:\n%s", text)
 	}
 	if strings.Contains(text, "--tls-cert") || strings.Contains(text, "--acme-domain") {
 		t.Fatalf("obsolete TLS setup remains:\n%s", text)
+	}
+}
+
+func TestInstanceCreateHelpDocumentsExpiredInstanceCleanup(t *testing.T) {
+	var output bytes.Buffer
+	handled, err := handleHelp([]string{"instance", "create", "--help"}, &output)
+	if err != nil || !handled {
+		t.Fatalf("instance create help failed: handled=%v err=%v", handled, err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "removed automatically") ||
+		!strings.Contains(text, "pairing code expires") {
+		t.Fatalf("instance create help lacks expiration cleanup:\n%s", text)
 	}
 }
 

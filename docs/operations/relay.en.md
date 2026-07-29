@@ -29,8 +29,9 @@ a container.
 For container deployment (the default), run:
 
 ```bash
-coworker-relay init
+mkdir coworker-relay-deploy
 cd coworker-relay-deploy
+coworker-relay init
 docker compose up -d
 ```
 
@@ -38,7 +39,10 @@ For native deployment, the generated configuration uses host data paths and bind
 administration listener only to loopback:
 
 ```bash
+mkdir coworker-relay-deploy
 cd coworker-relay-deploy
+coworker-relay init --deployment native \
+  --public-url http://203.0.113.10:8443
 coworker-relay serve
 ```
 
@@ -56,6 +60,8 @@ coworker-relay init \
 a mode-`0600` `.env` containing a random administrator token. The service and CLI read `.env`
 from the current directory by default; `--config` and `RELAY_CONFIG` select another file.
 Existing files are never silently overwritten.
+`init` writes deployment files to the current directory by default; `--dir` selects another
+directory.
 
 Native mode stores the database and Relay signing key under `data/` in the deployment directory.
 Compose mode publishes public port `8443` and binds the administration port only on the host
@@ -99,6 +105,10 @@ token to a new Desktop:
 Base URL: http://relay.example.com:8443/i/cw_xxx
 Bearer Token: cwct_v1_...
 ```
+
+If pairing does not complete within ten minutes, Relay automatically removes the unpaired
+instance during its next garbage-collection pass, which runs every minute. A paired instance is
+not removed when its pairing-code record expires.
 
 Desktop needs no transport, certificate, or public-key fields. It recognizes the exact instance
 path, displays “Relay / End-to-end encrypted,” and never falls back to plaintext HTTP after

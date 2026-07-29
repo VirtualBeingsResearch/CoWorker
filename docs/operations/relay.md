@@ -25,15 +25,19 @@ Relay 镜像和各平台二进制。首次运行 `init` 时，向导会询问是
 选择容器部署（默认）后运行：
 
 ```bash
-coworker-relay init
+mkdir coworker-relay-deploy
 cd coworker-relay-deploy
+coworker-relay init
 docker compose up -d
 ```
 
 选择原生部署后，生成的配置会使用宿主机数据路径和仅监听回环地址的管理端口：
 
 ```bash
+mkdir coworker-relay-deploy
 cd coworker-relay-deploy
+coworker-relay init --deployment native \
+  --public-url http://203.0.113.10:8443
 coworker-relay serve
 ```
 
@@ -49,6 +53,7 @@ coworker-relay init \
 `coworker-relay --help` 和每个子命令的 `--help` 都可直接查看。生成的 `.env` 权限为
 `0600`，包含随机管理员 Token；服务与 CLI 默认读取当前目录的 `.env`，也可用
 `--config` 或 `RELAY_CONFIG` 指定其他文件。现有文件不会被静默覆盖。
+`init` 默认把部署文件写入当前目录；也可用 `--dir` 指定其他目录。
 
 原生模式把数据库和 Relay 签名密钥保存在部署目录的 `data/` 下。Compose 模式则默认将
 公网 `8443` 映射到容器，并仅把管理端口映射到宿主机回环地址：
@@ -89,6 +94,9 @@ Base URL 和现有 communication token 填入新版 Desktop：
 Base URL: http://relay.example.com:8443/i/cw_xxx
 Bearer Token: cwct_v1_...
 ```
+
+如果十分钟内没有完成配对，Relay 会在下一次每分钟运行的垃圾回收中自动删除这个未配对
+实例。已经完成配对的实例不会因配对码记录过期而删除。
 
 Desktop 不需要 transport、证书或公钥字段。它会从精确的实例路径识别 Relay，显示
 “Relay / 端到端加密”，并且在连接失败、身份不匹配或协议不兼容时不会回退到明文 HTTP。

@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +70,46 @@ func TestAuthEpochOnlyIncreases(t *testing.T) {
 	stored, _ := database.GetInstance(instance.ID)
 	if stored.AuthPublicKey != "key-one" || stored.AuthEpoch != 1 {
 		t.Fatalf("unexpected instance: %#v", stored)
+	}
+}
+
+func TestGarbageCollectRemovesInstanceWhenPairingExpires(t *testing.T) {
+	database := openTestStore(t)
+	instance, _, err := database.CreateInstance("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := database.GarbageCollect(instance.CreatedAt.Add(11 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed["instances"] != 1 || removed["pairings"] != 1 {
+		t.Fatalf("unexpected garbage collection result: %#v", removed)
+	}
+	if _, err := database.GetInstance(instance.ID); err == nil {
+		t.Fatal("unpaired instance survived pairing expiration")
+	}
+}
+
+func TestGarbageCollectKeepsPairedInstance(t *testing.T) {
+	database := openTestStore(t)
+	instance, code, err := database.CreateInstance("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairingID := strings.SplitN(strings.TrimPrefix(code, "pair_"), ".", 2)[0]
+	if _, err := database.CompletePairing(pairingID, "instance-public-key"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := database.GarbageCollect(instance.CreatedAt.Add(11 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed["instances"] != 0 || removed["pairings"] != 1 {
+		t.Fatalf("unexpected garbage collection result: %#v", removed)
+	}
+	if _, err := database.GetInstance(instance.ID); err != nil {
+		t.Fatalf("paired instance was removed: %v", err)
 	}
 }
 

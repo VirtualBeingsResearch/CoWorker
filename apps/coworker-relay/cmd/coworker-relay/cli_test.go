@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+func TestInitDefaultsToCurrentDirectory(t *testing.T) {
+	if directory := defaultInitOptions().directory; directory != "." {
+		t.Fatalf("default init directory=%q, want current directory", directory)
+	}
+}
+
 func TestInitializeCreatesPlainWebSocketComposeAndLoopbackAdmin(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "relay")
 	token, publicURL, err := initialize(initOptions{

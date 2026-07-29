@@ -114,7 +114,7 @@ const (
 
 func defaultInitOptions() initOptions {
 	return initOptions{
-		directory: "coworker-relay-deploy", externalPort: 8443, adminPort: 8444,
+		directory: ".", externalPort: 8443, adminPort: 8444,
 		deployment: deploymentContainer,
 		image:      "ghcr.io/virtualbeingsresearch/coworker-relay:" + releaseTag(),
 	}
