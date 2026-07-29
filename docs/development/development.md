@@ -24,8 +24,8 @@ uv run mypy src
 uv run pytest
 ```
 
-修改管理界面时还需要 Node.js 20+。构建结果写入 `src/coworker/web/`，它是随
-Python 包发布的静态资源：
+修改 Web 前端或桌面端时还需要 Node.js 24.15+。管理界面的构建结果写入
+`src/coworker/web/`，它是随 Python 包发布的静态资源：
 
 ```bash
 npm ci --prefix web
