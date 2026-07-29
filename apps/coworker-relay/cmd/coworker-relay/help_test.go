@@ -38,7 +38,8 @@ func TestInitHelpIncludesHTTPExampleAndNoCertificateFlags(t *testing.T) {
 	}
 	text := output.String()
 	if !strings.Contains(text, "http://203.0.113.10:8443") ||
-		!strings.Contains(text, "--admin-port") {
+		!strings.Contains(text, "--admin-port") ||
+		!strings.Contains(text, "--deployment") {
 		t.Fatalf("unexpected init help:\n%s", text)
 	}
 	if strings.Contains(text, "--tls-cert") || strings.Contains(text, "--acme-domain") {

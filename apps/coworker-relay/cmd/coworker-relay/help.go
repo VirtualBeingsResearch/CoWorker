@@ -16,7 +16,7 @@ Usage:
 
 Commands:
   serve       Start the public WebSocket and local administration services
-  init        Create a Compose deployment (interactive with no options)
+  init        Create a container or native deployment (interactive with no options)
   health      Check the local Relay administration endpoint
   version     Print build information
   instance    Create, list, and revoke Coworker instances
@@ -56,8 +56,12 @@ Options:
   --public-url <origin>   Example: http://203.0.113.10:8443
   --external-port <port>  Published WebSocket port (default: 8443)
   --admin-port <port>     Host-loopback admin port (default: 8444)
+  --deployment <type>     container (default) or native
   --image <reference>     Relay container image
   --force                 Replace previously generated files
+
+Interactive setup asks whether to use Docker Compose. Native setup writes host
+paths and can be started directly with "coworker-relay serve".
 
 No certificate or port 80 is required. Operators may independently place a
 trusted HTTPS/WSS reverse proxy in front of the public listener.

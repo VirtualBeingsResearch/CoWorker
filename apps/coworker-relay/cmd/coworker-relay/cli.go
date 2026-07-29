@@ -100,16 +100,23 @@ type initOptions struct {
 	publicURL    string
 	externalPort int
 	adminPort    int
+	deployment   string
 	image        string
 	force        bool
 }
 
 var errInitCancelled = errors.New("initialization cancelled")
 
+const (
+	deploymentContainer = "container"
+	deploymentNative    = "native"
+)
+
 func defaultInitOptions() initOptions {
 	return initOptions{
 		directory: "coworker-relay-deploy", externalPort: 8443, adminPort: 8444,
-		image: "ghcr.io/virtualbeingsresearch/coworker-relay:" + releaseTag(),
+		deployment: deploymentContainer,
+		image:      "ghcr.io/virtualbeingsresearch/coworker-relay:" + releaseTag(),
 	}
 }
 
@@ -136,16 +143,22 @@ func initDeployment(args []string) {
 		fatal(err.Error())
 	}
 	absolute, _ := filepath.Abs(options.directory)
+	nextCommand := "docker compose up -d"
+	credentialPath := filepath.Join(absolute, ".env")
+	if options.deployment == deploymentNative {
+		nextCommand = "coworker-relay serve"
+	}
 	fmt.Printf(
 		"Relay deployment initialized in %s\n"+
+			"Deployment: %s\n"+
 			"Public URL: %s\n"+
 			"Local administration: http://127.0.0.1:%d\n"+
 			"Administrator token: saved only in %s\n\n"+
-			"Next:\n  cd %s\n  docker compose up -d\n"+
+			"Next:\n  cd %s\n  %s\n"+
 			"  coworker-relay health\n"+
 			"  coworker-relay instance create --name home-coworker\n",
-		absolute, normalizedURL, options.adminPort,
-		filepath.Join(absolute, ".env"), absolute,
+		absolute, options.deployment, normalizedURL, options.adminPort,
+		credentialPath, absolute, nextCommand,
 	)
 }
 
@@ -160,6 +173,10 @@ func parseInitOptions(args []string) (initOptions, error) {
 	)
 	flags.IntVar(&options.externalPort, "external-port", 8443, "published WebSocket port")
 	flags.IntVar(&options.adminPort, "admin-port", 8444, "loopback administration port")
+	flags.StringVar(
+		&options.deployment, "deployment", options.deployment,
+		"deployment type: container or native",
+	)
 	flags.StringVar(&options.image, "image", options.image, "container image")
 	flags.BoolVar(&options.force, "force", false, "replace generated files")
 	if err := flags.Parse(args); err != nil {
@@ -170,6 +187,9 @@ func parseInitOptions(args []string) (initOptions, error) {
 	}
 	if options.publicURL == "" {
 		return initOptions{}, errors.New("--public-url is required for non-interactive init")
+	}
+	if err := validateDeployment(options.deployment); err != nil {
+		return initOptions{}, err
 	}
 	return options, nil
 }
@@ -217,17 +237,29 @@ func promptInitOptions(
 	if err != nil {
 		return initOptions{}, errors.New("administration port must be a number")
 	}
-	options.image, err = prompt(reader, output, "Container image", options.image)
+	useContainer, err := promptConfirm(reader, output, "Run Relay with Docker Compose?", true)
 	if err != nil {
 		return initOptions{}, err
+	}
+	if useContainer {
+		options.deployment = deploymentContainer
+		options.image, err = prompt(reader, output, "Container image", options.image)
+		if err != nil {
+			return initOptions{}, err
+		}
+	} else {
+		options.deployment = deploymentNative
 	}
 	fmt.Fprintf(
 		output,
 		"\nDeployment summary:\n  Directory: %s\n  Public URL: %s\n"+
-			"  Public port: %d\n  Local admin port: %d\n  Image: %s\n",
+			"  Public port: %d\n  Local admin port: %d\n  Deployment: %s\n",
 		options.directory, options.publicURL, options.externalPort,
-		options.adminPort, options.image,
+		options.adminPort, options.deployment,
 	)
+	if options.deployment == deploymentContainer {
+		fmt.Fprintf(output, "  Image: %s\n", options.image)
+	}
 	confirmed, err := promptConfirm(reader, output, "Create deployment files?", true)
 	if err != nil {
 		return initOptions{}, err
@@ -365,6 +397,9 @@ func promptConfirm(
 func isTerminal(file *os.File) bool { return term.IsTerminal(int(file.Fd())) }
 
 func initialize(options initOptions) (string, string, error) {
+	if err := validateDeployment(options.deployment); err != nil {
+		return "", "", err
+	}
 	if options.externalPort < 1 || options.externalPort > 65535 ||
 		options.adminPort < 1 || options.adminPort > 65535 {
 		return "", "", errors.New("ports must be between 1 and 65535")
@@ -376,8 +411,13 @@ func initialize(options initOptions) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	if options.image == "" || strings.ContainsAny(options.image, "\r\n") {
+	if options.deployment == deploymentContainer &&
+		(options.image == "" || strings.ContainsAny(options.image, "\r\n")) {
 		return "", "", errors.New("--image must not be empty or contain newlines")
+	}
+	if strings.TrimSpace(options.directory) == "" ||
+		strings.ContainsAny(options.directory, "\r\n") {
+		return "", "", errors.New("--dir must not be empty or contain newlines")
 	}
 	directory, err := filepath.Abs(options.directory)
 	if err != nil {
@@ -404,14 +444,24 @@ func initialize(options initOptions) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	env := strings.Join([]string{
+	listen := ":" + strconv.Itoa(options.externalPort)
+	adminListen := "127.0.0.1:" + strconv.Itoa(options.adminPort)
+	databasePath := filepath.Join(directory, "data", "relay.db")
+	signingKeyPath := filepath.Join(directory, "data", "relay-signing.key")
+	if options.deployment == deploymentContainer {
+		listen = ":8443"
+		adminListen = ":8444"
+		databasePath = "/var/lib/coworker-relay/relay.db"
+		signingKeyPath = "/var/lib/coworker-relay/relay-signing.key"
+	}
+	envLines := []string{
 		"RELAY_PUBLIC_URL=" + normalizedURL,
 		"RELAY_ADMIN_URL=http://127.0.0.1:" + strconv.Itoa(options.adminPort),
 		"RELAY_ADMIN_TOKEN=" + adminToken,
-		"RELAY_LISTEN=:8443",
-		"RELAY_ADMIN_LISTEN=:8444",
-		"RELAY_DATABASE=/var/lib/coworker-relay/relay.db",
-		"RELAY_SIGNING_KEY=/var/lib/coworker-relay/relay-signing.key",
+		"RELAY_LISTEN=" + listen,
+		"RELAY_ADMIN_LISTEN=" + adminListen,
+		"RELAY_DATABASE=" + databasePath,
+		"RELAY_SIGNING_KEY=" + signingKeyPath,
 		"RELAY_CONNECTIONS_PER_MINUTE=60",
 		"RELAY_FRAMES_PER_MINUTE=2400",
 		"RELAY_AUTH_CONCURRENCY=32",
@@ -419,10 +469,16 @@ func initialize(options initOptions) (string, string, error) {
 		"RELAY_BAN_FAILURE_WINDOW=10m",
 		"RELAY_BAN_DURATION=1h",
 		"RELAY_MAX_FRAME_BYTES=262144",
-		"RELAY_EXTERNAL_PORT=" + strconv.Itoa(options.externalPort),
-		"RELAY_ADMIN_PORT=" + strconv.Itoa(options.adminPort),
-		"RELAY_IMAGE=" + options.image,
-	}, "\n") + "\n"
+	}
+	if options.deployment == deploymentContainer {
+		envLines = append(
+			envLines,
+			"RELAY_EXTERNAL_PORT="+strconv.Itoa(options.externalPort),
+			"RELAY_ADMIN_PORT="+strconv.Itoa(options.adminPort),
+			"RELAY_IMAGE="+options.image,
+		)
+	}
+	env := strings.Join(envLines, "\n") + "\n"
 	compose := `services:
   relay:
     image: ${RELAY_IMAGE}
@@ -469,13 +525,30 @@ volumes:
 	if err := writeFile(envPath, []byte(env), 0o600, flagValue); err != nil {
 		return "", "", err
 	}
-	if err := writeFile(composePath, []byte(compose), 0o644, flagValue); err != nil {
-		return "", "", err
+	if options.deployment == deploymentContainer {
+		if err := writeFile(composePath, []byte(compose), 0o644, flagValue); err != nil {
+			return "", "", err
+		}
+	} else if options.force {
+		if err := os.Remove(composePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", "", err
+		}
 	}
-	if err := writeFile(gitignorePath, []byte(".env\n"), 0o644, flagValue); err != nil {
+	gitignore := ".env\n"
+	if options.deployment == deploymentNative {
+		gitignore += "data/\n"
+	}
+	if err := writeFile(gitignorePath, []byte(gitignore), 0o644, flagValue); err != nil {
 		return "", "", err
 	}
 	return adminToken, normalizedURL, nil
+}
+
+func validateDeployment(value string) error {
+	if value != deploymentContainer && value != deploymentNative {
+		return errors.New("--deployment must be container or native")
+	}
+	return nil
 }
 
 func releaseTag() string {
@@ -740,7 +813,7 @@ func (c client) print(method, path string, body any, admin bool) {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   coworker-relay serve
-  coworker-relay init [--public-url <http-or-https-origin>] [options]
+  coworker-relay init [--public-url <http-or-https-origin>] [--deployment container|native] [options]
   coworker-relay health
   coworker-relay version
   coworker-relay instance create [--name <name>]

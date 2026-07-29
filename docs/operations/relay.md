@@ -20,7 +20,9 @@ http://relay.example.com:8443/i/{instance_id}
 ## 初始化与部署
 
 `apps/coworker-relay/` 提供单一的 `coworker-relay` 服务与管理工具。Release 同时提供
-Relay 镜像和各平台二进制。首次部署运行：
+Relay 镜像和各平台二进制。首次运行 `init` 时，向导会询问是否使用容器。
+
+选择容器部署（默认）后运行：
 
 ```bash
 coworker-relay init
@@ -28,18 +30,28 @@ cd coworker-relay-deploy
 docker compose up -d
 ```
 
-向导会显示公网地址样例并默认使用 `http://<host>:8443`。无需域名、证书、ACME 或公网
-80 端口；也可以非交互初始化：
+选择原生部署后，生成的配置会使用宿主机数据路径和仅监听回环地址的管理端口：
 
 ```bash
-coworker-relay init --public-url http://203.0.113.10:8443
+cd coworker-relay-deploy
+coworker-relay serve
+```
+
+向导会显示公网地址样例并默认使用 `http://<host>:8443`。无需域名、证书、ACME 或公网
+80 端口；也可以使用 `--deployment container|native` 非交互初始化：
+
+```bash
+coworker-relay init \
+  --public-url http://203.0.113.10:8443 \
+  --deployment native
 ```
 
 `coworker-relay --help` 和每个子命令的 `--help` 都可直接查看。生成的 `.env` 权限为
 `0600`，包含随机管理员 Token；服务与 CLI 默认读取当前目录的 `.env`，也可用
 `--config` 或 `RELAY_CONFIG` 指定其他文件。现有文件不会被静默覆盖。
 
-Compose 默认将公网 `8443` 映射到容器，并仅把管理端口映射到宿主机回环地址：
+原生模式把数据库和 Relay 签名密钥保存在部署目录的 `data/` 下。Compose 模式则默认将
+公网 `8443` 映射到容器，并仅把管理端口映射到宿主机回环地址：
 
 ```text
 0.0.0.0:8443 -> relay:8443

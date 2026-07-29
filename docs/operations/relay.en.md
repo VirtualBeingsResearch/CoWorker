@@ -23,7 +23,10 @@ Coworker. Relay has no legacy HTTP proxy facade; ordinary paths such as
 ## Initialization and deployment
 
 `apps/coworker-relay/` provides one `coworker-relay` service and administration tool. Releases
-include a Relay image and platform binaries. For a first deployment:
+include a Relay image and platform binaries. On the first `init`, the wizard asks whether to use
+a container.
+
+For container deployment (the default), run:
 
 ```bash
 coworker-relay init
@@ -31,11 +34,22 @@ cd coworker-relay-deploy
 docker compose up -d
 ```
 
-The wizard shows a public-origin example and defaults to `http://<host>:8443`. It does not require
-a domain, certificate, ACME, or public port 80. Non-interactive initialization is also supported:
+For native deployment, the generated configuration uses host data paths and binds the
+administration listener only to loopback:
 
 ```bash
-coworker-relay init --public-url http://203.0.113.10:8443
+cd coworker-relay-deploy
+coworker-relay serve
+```
+
+The wizard shows a public-origin example and defaults to `http://<host>:8443`. It does not require
+a domain, certificate, ACME, or public port 80. Use `--deployment container|native` for
+non-interactive initialization:
+
+```bash
+coworker-relay init \
+  --public-url http://203.0.113.10:8443 \
+  --deployment native
 ```
 
 `coworker-relay --help` and each subcommand's `--help` are self-contained. Initialization writes
@@ -43,7 +57,9 @@ a mode-`0600` `.env` containing a random administrator token. The service and CL
 from the current directory by default; `--config` and `RELAY_CONFIG` select another file.
 Existing files are never silently overwritten.
 
-Compose publishes public port `8443` and binds the administration port only on the host loopback:
+Native mode stores the database and Relay signing key under `data/` in the deployment directory.
+Compose mode publishes public port `8443` and binds the administration port only on the host
+loopback:
 
 ```text
 0.0.0.0:8443 -> relay:8443
