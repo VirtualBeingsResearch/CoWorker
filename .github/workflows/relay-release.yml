@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: apps/coworker-relay/go.mod
           cache-dependency-path: apps/coworker-relay/go.sum
@@ -100,7 +100,7 @@ jobs:
           (cd "$output" && sha256sum "$(basename "$asset")" > "$(basename "$asset").sha256")
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
       - name: Attest Relay archive
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.package.outputs.asset }}
       - uses: actions/upload-artifact@v7
