@@ -389,6 +389,7 @@ sleep_interrupted = "Sleep was interrupted by a system restart. Current time: {{
 system_restarted = "The system restarted. Current time: {{time}}."
 alarms_restored = "Restored {{count}} pending alarms."
 system_started = "The system started. Current time: {{time}}. {{environment}}."
+instance_already_running = "Another Coworker process is already using this data directory (lock: {{path}})."
 
 [autonomy]
 blocked = "Autonomy level {{current}} does not allow {{scope}} model calls; {{required}} is required."

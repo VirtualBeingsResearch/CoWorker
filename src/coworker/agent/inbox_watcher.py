@@ -201,6 +201,17 @@ class InboxWatcher:
     def pending_wake_levels(self) -> set[AutonomyLevel]:
         return {level for level, count in self._wake_counts.items() if count > 0}
 
+    def pending_by_wake_level(self) -> dict[AutonomyLevel, int]:
+        return {
+            level: count
+            for level, count in self._wake_counts.items()
+            if count > 0
+        }
+
+    @property
+    def buffered_pending_count(self) -> int:
+        return max(0, len(self._pending) - sum(self._wake_counts.values()))
+
     def has_source(self, source: str) -> bool:
         return any(event.source == source for event in self.pending_events())
 

@@ -389,6 +389,7 @@ sleep_interrupted = "睡眠被系统重启中断。当前时间：{{time}}。"
 system_restarted = "系统已重启。当前时间：{{time}}。"
 alarms_restored = "已恢复 {{count}} 个待触发闹钟。"
 system_started = "系统启动。当前时间：{{time}}。{{environment}}。"
+instance_already_running = "已有另一个 Coworker 进程正在使用此数据目录（锁：{{path}}）。"
 
 [autonomy]
 blocked = "当前主动性等级 {{current}} 不允许 {{scope}} 模型调用；需要达到 {{required}}。"

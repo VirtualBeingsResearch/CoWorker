@@ -139,6 +139,10 @@ class AgentLoop:
             except RestartRequestedException:
                 self.state.restart_requested = True
                 break
+            except asyncio.CancelledError:
+                if self._stop_event.is_set():
+                    break
+                raise
             except AutonomyBlockedError as error:
                 logger.info(tr("autonomy.cycle_paused", error=error))
             except Exception as e:
@@ -224,6 +228,9 @@ class AgentLoop:
 
     def stop(self) -> None:
         self._stop_event.set()
+        autonomy = getattr(self, "_autonomy", None)
+        if autonomy is not None:
+            autonomy.abort_waiters()
         # 唤醒 _rest() 中等待的消息事件，避免等满 idle_sleep_seconds 才退出
         self._inbox.message_event.set()
 

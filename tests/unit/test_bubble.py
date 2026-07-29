@@ -655,6 +655,7 @@ class TestBubbleMiniLoop:
         await asyncio.sleep(0)
 
         assert not task.done()
+        assert b.status == "running"
         assert not b.result
 
         autonomy.update(level=AutonomyLevel.REACTIVE)
@@ -664,6 +665,46 @@ class TestBubbleMiniLoop:
         assert "恢复后的摘要" in b.result
         assert "失败" not in b.result
         assert mock_brain.summarize.await_count == 2
+
+    async def test_policy_paused_timeout_summary_can_be_cancelled(
+        self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
+    ):
+        autonomy = AutonomyController(
+            AutonomyLevel.SILENT,
+            AutonomyThresholds(),
+        )
+        mock_brain.autonomy = autonomy
+        tc = ToolCall(id="c1", name="some_tool", arguments={})
+        mock_brain.think = AsyncMock(
+            return_value=_make_response(tool_calls=[tc], stop_reason="tool_use")
+        )
+        mock_brain.summarize = AsyncMock(
+            side_effect=AutonomyBlockedError(
+                current=AutonomyLevel.SILENT,
+                required=AutonomyLevel.REACTIVE,
+                scope=AutonomyScope.SUMMARY,
+            )
+        )
+        mock_registry.execute = AsyncMock(
+            return_value=MagicMock(content="tool result", is_error=False)
+        )
+        b = store.create("goal", messages, max_cycles=1)
+        assert isinstance(b, Bubble)
+        loop = _make_mini_loop(b, mock_brain, mock_registry, mock_inbox, store, tmp_path)
+
+        task = asyncio.create_task(loop.run())
+        b.task = task
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert b.status == "running"
+        result = await BubbleCancelTool(store).execute(bubble_id=b.id)
+        assert not result.is_error
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert b.status == "cancelled"
+        assert store.list_active() == []
 
     async def test_l1_direct_message_does_not_lower_l3_bubble_origin(
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
@@ -2175,6 +2216,47 @@ class TestPalaceWriteBack:
         kwargs = long_term.write.await_args.kwargs
         assert kwargs["tags"] == ["product", "bug"]
         assert kwargs["content"] == "bug 单已提交"
+
+    async def test_done_bubble_releases_slot_before_policy_paused_write_back(
+        self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
+    ):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        long_term = MagicMock()
+        long_term._mem = object()
+
+        async def blocked_write(**_kwargs):
+            entered.set()
+            await release.wait()
+            return "new_id"
+
+        long_term.write = AsyncMock(side_effect=blocked_write)
+        done_tc = ToolCall(id="c1", name="bubble_done", arguments={"result": "已完成"})
+        mock_brain.think = AsyncMock(
+            return_value=_make_response(tool_calls=[done_tc], stop_reason="tool_use")
+        )
+        b = store.create("goal", messages, max_cycles=5)
+        assert isinstance(b, Bubble)
+        b.palace_tags = ["product"]
+        loop = BubbleMiniLoop(
+            bubble=b,
+            brain=mock_brain,
+            tool_registry=mock_registry,
+            system_prompt="sys",
+            bubble_store=store,
+            inbox_watcher=mock_inbox,
+            logs_dir=str(tmp_path),
+            long_term=long_term,
+        )
+
+        task = asyncio.create_task(loop.run())
+        await entered.wait()
+
+        assert store.list_active() == []
+        mock_inbox.push.assert_awaited()
+
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
 
     async def test_no_write_back_without_palace_tags(
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path

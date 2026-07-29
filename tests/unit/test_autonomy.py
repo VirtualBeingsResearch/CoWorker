@@ -96,6 +96,42 @@ async def test_lowering_level_drains_in_flight_call_and_blocks_the_next():
 
 
 @pytest.mark.asyncio
+async def test_policy_wait_is_observable_and_can_be_aborted():
+    controller = AutonomyController(
+        AutonomyLevel.SILENT,
+        AutonomyThresholds(),
+    )
+
+    task = asyncio.create_task(
+        controller.wait_until_allowed(AutonomyScope.MEM0)
+    )
+    await asyncio.sleep(0)
+
+    assert controller.is_policy_paused is True
+    assert controller.waiting_scopes == [AutonomyScope.MEM0]
+
+    controller.abort_waiters()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert controller.is_policy_paused is False
+    assert controller.waiting_scopes == []
+
+
+@pytest.mark.asyncio
+async def test_aborted_controller_rejects_new_model_calls():
+    controller = AutonomyController(
+        AutonomyLevel.REACTIVE,
+        AutonomyThresholds(),
+    )
+    controller.abort_waiters()
+
+    with pytest.raises(asyncio.CancelledError):
+        async with controller.model_call(AutonomyScope.MAIN):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_raising_scope_threshold_marks_existing_call_as_draining():
     controller = AutonomyController(
         AutonomyLevel.REACTIVE,

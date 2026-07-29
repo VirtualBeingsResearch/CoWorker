@@ -15,8 +15,17 @@ from coworker.core.autonomy import AutonomyLevel
 from coworker.core.types import AttachmentData, IncomingEvent
 
 
-def _event(participant_id: str = "alice", content: str = "hello") -> IncomingEvent:
-    return IncomingEvent(participant_id=participant_id, content=content, timestamp=datetime.now())
+def _event(
+    participant_id: str = "alice",
+    content: str = "hello",
+    wake_level: AutonomyLevel | None = AutonomyLevel.REACTIVE,
+) -> IncomingEvent:
+    return IncomingEvent(
+        participant_id=participant_id,
+        content=content,
+        timestamp=datetime.now(),
+        wake_level=wake_level,
+    )
 
 
 class TestInboxWatcher:
@@ -48,6 +57,30 @@ class TestInboxWatcher:
         assert not watcher.message_event.is_set()
         await watcher.push(_event())
         assert watcher.message_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_pending_summary_separates_wake_levels_from_buffered_events(
+        self, tmp_path
+    ):
+        watcher = InboxWatcher(str(tmp_path / "inbox"))
+        await watcher.push(
+            _event(wake_level=AutonomyLevel.REACTIVE)
+        )
+        await watcher.push(
+            _event(
+                participant_id="alarm",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
+            )
+        )
+        await watcher.push(
+            _event(participant_id="system", wake_level=None)
+        )
+
+        assert watcher.pending_by_wake_level() == {
+            AutonomyLevel.REACTIVE: 1,
+            AutonomyLevel.EVENT_DRIVEN: 1,
+        }
+        assert watcher.buffered_pending_count == 1
 
     @pytest.mark.asyncio
     async def test_interceptors_run_in_registration_order(self, tmp_path):

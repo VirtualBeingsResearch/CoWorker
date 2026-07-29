@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import UTC, datetime, timedelta
@@ -9,11 +10,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.api.admin import router_module as admin
-from coworker.application import _print_setup_admin_token
+from coworker.application import _load_config, _print_setup_admin_token
 from coworker.channels.module import ChannelModuleRegistry
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
-from coworker.core.autonomy import AutonomyLevel
+from coworker.core.autonomy import (
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyThresholds,
+)
 from coworker.core.config import (
     Config,
     apply_admin_config_file,
@@ -23,7 +29,7 @@ from coworker.core.config import (
     normalize_admin_overrides_file,
     write_admin_overrides,
 )
-from coworker.core.types import Message
+from coworker.core.types import IncomingEvent, Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
@@ -1100,6 +1106,22 @@ def test_startup_normalization_rejects_invalid_passive_mode(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8")) == original
 
 
+def test_read_only_config_check_evolves_legacy_passive_mode_without_writing(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "admin_config.json"
+    original = {"agent": {"passive_mode": True}}
+    path.write_text(json.dumps(original), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ADMIN__CONFIG_FILE", str(path))
+
+    config = _load_config(persist_migrations=False)
+
+    assert config.agent.autonomy_level is AutonomyLevel.EVENT_DRIVEN
+    assert json.loads(path.read_text(encoding="utf-8")) == original
+
+
 def test_startup_normalization_preserves_explicit_empty_list(tmp_path):
     path = tmp_path / "admin_config.json"
     overrides = {
@@ -1420,6 +1442,103 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     assert response.json()["status"]["autonomy_thresholds"]["main"] == "reactive"
     assert response.json()["status"]["pending_events"] == 0
     assert response.json()["status"]["idle_sleep_seconds"] == 0
+    assert datetime.fromisoformat(response.json()["status"]["sampled_at"])
+    assert response.json()["counts"]["long_term_memories_available"] is True
+
+
+def test_overview_reports_policy_eligible_and_blocked_pending_events(tmp_path):
+    client, config = _client(
+        tmp_path,
+        alarm_manager=SimpleNamespace(list=lambda: []),
+    )
+    config.agent.autonomy_level = AutonomyLevel.REACTIVE
+    autonomy = AutonomyController(
+        AutonomyLevel.REACTIVE,
+        AutonomyThresholds(),
+    )
+    inbox = InboxWatcher(tmp_path / "inbox")
+    asyncio.run(
+        inbox.push(
+            IncomingEvent(
+                participant_id="alice",
+                content="direct",
+                wake_level=AutonomyLevel.REACTIVE,
+            )
+        )
+    )
+    asyncio.run(
+        inbox.push(
+            IncomingEvent(
+                participant_id="alarm",
+                content="alarm",
+                wake_level=AutonomyLevel.EVENT_DRIVEN,
+            )
+        )
+    )
+    asyncio.run(
+        inbox.push(
+            IncomingEvent(
+                participant_id="system",
+                content="buffered",
+                wake_level=None,
+            )
+        )
+    )
+    admin._agent._task_store = SimpleNamespace(list=lambda: [])
+    admin._agent._bubble_store = SimpleNamespace(list_active=lambda: [])
+    admin._agent._long_term = SimpleNamespace(count=AsyncMock(return_value=0))
+    admin._agent._short_term = ShortTermMemory()
+    admin._agent._autonomy = autonomy
+    admin._agent._inbox = inbox
+    admin._agent.state = SimpleNamespace(
+        is_running=True,
+        is_sleeping=False,
+        cycle_count=1,
+    )
+
+    response = client.get(
+        "/api/admin/overview",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    status = response.json()["status"]
+    assert status["pending_events"] == 3
+    assert status["pending_by_wake_level"] == {
+        "reactive": 1,
+        "event_driven": 1,
+    }
+    assert status["claimable_pending_count"] == 1
+    assert status["blocked_pending_count"] == 1
+    assert status["buffered_pending_count"] == 1
+
+
+def test_overview_keeps_core_status_when_long_term_count_fails(tmp_path):
+    client, _ = _client(
+        tmp_path,
+        alarm_manager=SimpleNamespace(list=lambda: []),
+    )
+    admin._agent._task_store = SimpleNamespace(list=lambda: [])
+    admin._agent._bubble_store = SimpleNamespace(list_active=lambda: [])
+    admin._agent._long_term = SimpleNamespace(
+        count=AsyncMock(side_effect=RuntimeError("memory unavailable"))
+    )
+    admin._agent._short_term = ShortTermMemory()
+    admin._agent.state = SimpleNamespace(
+        is_running=True,
+        is_sleeping=True,
+        cycle_count=1,
+    )
+
+    response = client.get(
+        "/api/admin/overview",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"]["autonomy_state"] == "waiting"
+    assert response.json()["counts"]["long_term_memories"] is None
+    assert response.json()["counts"]["long_term_memories_available"] is False
 
 
 def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):

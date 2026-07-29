@@ -854,7 +854,9 @@ class TestGetProfile:
         assert second.status_code == 200
         assert first.json()["readme"] == readme
         mock_inbox.push.assert_called_once()
-        assert "profile.md" in mock_inbox.push.call_args.args[0].content
+        event = mock_inbox.push.call_args.args[0]
+        assert "profile.md" in event.content
+        assert event.wake_level is None
 
     def test_first_run_profile_does_not_queue_generation(self, client, tmp_path):
         mock_inbox = MagicMock()

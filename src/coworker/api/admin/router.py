@@ -33,7 +33,7 @@ from coworker.agent.bubble_log_index import (
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.core.autonomy import AutonomyLevel
+from coworker.core.autonomy import AutonomyLevel, AutonomyScope
 from coworker.core.config import (
     Config,
     _deep_merge,
@@ -961,10 +961,39 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
     brain = _require_brain()
     tasks = agent._task_store.list() if agent._task_store else []
     bubbles = agent._bubble_store.list_active() if agent._bubble_store else []
-    memory_count = await agent._long_term.count()
+    try:
+        memory_count: int | None = await agent._long_term.count()
+    except Exception as error:
+        memory_count = None
+        logger.warning(f"Long-term memory count unavailable for overview: {error}")
     stm = agent._short_term
     autonomy = getattr(agent, "_autonomy", None)
     inbox = getattr(agent, "_inbox", None)
+    wake_counts = inbox.pending_by_wake_level() if inbox is not None else {}
+    pending_by_wake_level = {
+        level.value: count
+        for level, count in wake_counts.items()
+    }
+    claimable_pending_count = 0
+    blocked_pending_count = 0
+    for wake_level, count in wake_counts.items():
+        if autonomy is None or autonomy.allows(
+            AutonomyScope.MAIN,
+            trigger=wake_level,
+        ):
+            claimable_pending_count += count
+        else:
+            blocked_pending_count += count
+    buffered_pending_count = (
+        inbox.buffered_pending_count
+        if inbox is not None
+        else 0
+    )
+    policy_paused_scopes = (
+        [scope.value for scope in autonomy.waiting_scopes]
+        if autonomy is not None
+        else []
+    )
     return {
         "status": {
             "is_running": agent.state.is_running,
@@ -977,21 +1006,30 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "autonomy_state": (
                 "draining"
                 if autonomy is not None and autonomy.is_draining
+                else "paused"
+                if policy_paused_scopes
                 else "waiting"
                 if agent.state.is_sleeping
                 else "active"
             ),
+            "policy_paused_scopes": policy_paused_scopes,
             "autonomy_thresholds": _require_config().agent.autonomy_thresholds.model_dump(
                 mode="json"
             ),
             "pending_events": int(getattr(inbox, "pending_count", 0)),
+            "pending_by_wake_level": pending_by_wake_level,
+            "claimable_pending_count": claimable_pending_count,
+            "blocked_pending_count": blocked_pending_count,
+            "buffered_pending_count": buffered_pending_count,
             "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
+            "sampled_at": datetime.now().isoformat(),
         },
         "counts": {
             "tasks": len(tasks),
             "active_tasks": sum(t.status in ("pending", "in_progress") for t in tasks),
             "active_bubbles": len(bubbles),
             "long_term_memories": memory_count,
+            "long_term_memories_available": memory_count is not None,
             "short_term_messages": len(stm.primary),
             "alarms": len(_require_alarms().list()),
         },

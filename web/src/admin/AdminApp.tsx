@@ -306,7 +306,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         </ol>
       </aside>
       <section className="bootstrap-form-stage">
-        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t('页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
+        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t(autonomyLevel === 'autonomous' ? '正在带着新配置醒来' : '正在应用配置并启动服务')}</h2><p>{t('页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
@@ -368,6 +368,7 @@ function Loading({ error }: { error?: string }) {
 function runtimePresenceLabel(status: Json) {
   if (!status.is_running) return t('未运行');
   if (status.autonomy_state === 'draining') return t('安全排空中');
+  if (status.autonomy_state === 'paused') return t('策略暂停中');
   if (status.is_sleeping) return t(status.autonomy_level === 'silent' ? '静默中' : '等待事件');
   return t('正在运行');
 }
@@ -405,14 +406,24 @@ function Overview({ name }: { name: string }) {
   const running = status.is_running;
   const resting = running && Boolean(status.is_sleeping);
   const draining = running && status.autonomy_state === 'draining';
-  const presenceState = running ? (draining ? 'draining' : resting ? 'resting' : 'running') : 'quiet';
+  const policyPaused = running && status.autonomy_state === 'paused';
+  const presenceState = running ? (draining || policyPaused ? 'draining' : resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
   const autonomyLabel = t(autonomyOption(status.autonomy_level)?.label || String(status.autonomy_level));
   const pendingNote = status.pending_events
-    ? t(mainScopeBlocked(status) ? '等待符合策略的唤醒' : '等待处理')
+    ? t(status.blocked_pending_count > 0 && status.claimable_pending_count === 0
+      ? '受当前等级阻塞'
+      : status.buffered_pending_count === status.pending_events
+        ? '等待下一次合法唤醒'
+        : mainScopeBlocked(status)
+          ? '等待符合策略的唤醒'
+          : '等待处理')
     : t('当前无积压');
-  const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const sampledAt = status.sampled_at
+    ? new Date(status.sampled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : t('时间未知');
+  const longTermAvailable = counts.long_term_memories_available !== false;
   return <div className="page-stack">
     <section className={`presence-hero ${presenceState}`}>
       <div className="presence-copy">
@@ -432,16 +443,17 @@ function Overview({ name }: { name: string }) {
       </div>
       <button className="icon-btn" onClick={() => void reload()} title={t('刷新生命迹象')} aria-label={t('刷新生命迹象')}><RefreshCw size={16} /></button>
     </section>
+    {error && <div className="notice amber" role="alert"><TriangleAlert size={17} /><span>{t('状态刷新失败，当前显示上次成功采样。')} {error}</span><button className="ghost" onClick={() => void reload()}>{t('重试')}</button></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
     <div className="vital-grid">
       {[
         [t('活跃任务'), counts.active_tasks, t('{{count}} 项总计', { count: counts.tasks }), ListTodo],
         [t('运行 Bubble'), counts.active_bubbles, t('并行思考分支'), Orbit],
-        [t('长期记忆'), counts.long_term_memories, t('可语义检索'), Database],
+        [t('长期记忆'), longTermAvailable ? counts.long_term_memories : '—', t(longTermAvailable ? '可语义检索' : '统计暂时不可用'), Database],
         [t('短期上下文'), counts.short_term_messages, t('{{count}} 个树节点', { count: data.memory.tree_nodes }), MessagesSquare],
         [t('待触发闹钟'), counts.alarms, t('后台守候中'), AlarmClock],
         [t('待处理事件'), status.pending_events || 0, pendingNote, MessagesSquare],
-      ].map(([label, value, note, Icon]: any) => <article className="vital" key={label}><Icon size={18} /><span>{t(label)}</span><strong>{Number(value).toLocaleString()}</strong><small>{t(note)}</small></article>)}
+      ].map(([label, value, note, Icon]: any) => <article className="vital" key={label}><Icon size={18} /><span>{t(label)}</span><strong>{typeof value === 'number' ? value.toLocaleString() : value}</strong><small>{t(note)}</small></article>)}
     </div>
     <div className="two-col">
       <Panel title="上下文水位" note="短期消息与记忆树的当前结构">
@@ -2308,6 +2320,8 @@ export default function AdminApp() {
   const [ready, setReady] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [bootstrap, setBootstrap] = useState<Json | null>(null);
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [identity, setIdentity] = useState<AdminIdentity>({ name: '', confirmation_name: '' });
   const [section, setSection] = useState<Section>(sectionFromLocation);
   const [lifeState, setLifeState] = useState<LifeState>('quiet');
@@ -2320,8 +2334,11 @@ export default function AdminApp() {
   }, []);
   useEffect(() => {
     if (!ready) return;
-    api<Json>('/api/admin/bootstrap').then(setBootstrap).catch(() => setBootstrap({ required: false }));
-  }, [ready]);
+    setBootstrapError('');
+    api<Json>('/api/admin/bootstrap')
+      .then(setBootstrap)
+      .catch(error => setBootstrapError(error instanceof Error ? error.message : t('初始化状态读取失败')));
+  }, [ready, bootstrapAttempt]);
   useEffect(() => {
     const syncSection = () => setSection(sectionFromLocation());
     window.addEventListener('popstate', syncSection);
@@ -2358,7 +2375,7 @@ export default function AdminApp() {
   const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : '等待生命信号');
   if (!sessionChecked) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在确认本地值守状态…')}</span></div></main></>;
   if (!ready) return <Login onReady={result => { setIdentity(result); setReady(true); }} />;
-  if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在读取初始化状态…')}</span></div></main></>;
+  if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className={bootstrapError ? 'state-box error' : 'state-box'} role={bootstrapError ? 'alert' : 'status'}>{!bootstrapError && <span className="state-pulse"><i /><i /><i /></span>}<span>{t(bootstrapError || '正在读取初始化状态…')}</span>{bootstrapError && <button className="ghost" onClick={() => setBootstrapAttempt(value => value + 1)}>{t('重试')}</button>}</div></main></>;
   if (bootstrap.required) return <FirstRun data={bootstrap} onComplete={() => { setBootstrap({ required: false }); location.reload(); }} />;
   return <main className={`admin-shell life-${lifeState}`} data-language={language}>
     <aside className="admin-sidebar">

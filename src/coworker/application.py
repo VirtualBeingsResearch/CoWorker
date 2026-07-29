@@ -53,6 +53,7 @@ from coworker.core.config import (
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
+from coworker.core.instance_lock import InstanceAlreadyRunningError, InstanceLock
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
@@ -284,17 +285,21 @@ def _register_providers(brain: Brain, config: Config) -> None:
             logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 
-def _load_config_layers() -> tuple[Config, Config]:
+def _load_config_layers(
+    *,
+    persist_migrations: bool = True,
+) -> tuple[Config, Config]:
     inherited = Config()
-    normalize_admin_overrides_file(inherited)
+    if persist_migrations:
+        normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
     apply_runtime_model_config_file(config.llm)
     return inherited, config
 
 
-def _load_config() -> Config:
-    return _load_config_layers()[1]
+def _load_config(*, persist_migrations: bool = True) -> Config:
+    return _load_config_layers(persist_migrations=persist_migrations)[1]
 
 
 async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
@@ -312,7 +317,7 @@ async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
 async def _run_check() -> int:
     """--check 模式：走配置加载 + Provider 注册，不启动服务。0=通过，1=失败。"""
     try:
-        config = _load_config()
+        config = _load_config(persist_migrations=False)
         _setup_logging(config.agent.logs_dir)
         brain = Brain(
             config.llm.default_provider,
@@ -1137,9 +1142,26 @@ def run_sync(restart_signal: str | None = None) -> None:
     if args.check:
         sys.exit(asyncio.run(_run_check()))
 
-    if args.backfill_tree:
-        sys.exit(asyncio.run(_run_backfill()))
+    startup_config = Config()
+    configure_locale(startup_config.i18n.locale)
+    instance_lock = InstanceLock(
+        Path(startup_config.memory.db_path) / "coworker.instance.lock"
+    )
+    try:
+        instance_lock.acquire()
+    except InstanceAlreadyRunningError as error:
+        print(
+            tr("startup.instance_already_running", path=error),
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(1) from error
 
-    restart = asyncio.run(_main())
+    try:
+        if args.backfill_tree:
+            sys.exit(asyncio.run(_run_backfill()))
+        restart = asyncio.run(_main())
+    finally:
+        instance_lock.release()
     if restart:
         _restart_process(restart_signal)

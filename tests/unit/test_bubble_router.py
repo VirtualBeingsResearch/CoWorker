@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from coworker.agent.bubble import Bubble, BubbleStore
 from coworker.agent.bubble_router import BubbleMessageRouter
+from coworker.core.autonomy import (
+    AutonomyController,
+    AutonomyLevel,
+    AutonomyThresholds,
+)
 from coworker.core.types import AttachmentData, IncomingEvent, Message
 
 
@@ -57,6 +62,31 @@ class TestBubbleMessageRouter:
         router = BubbleMessageRouter(store)
 
         assert router(IncomingEvent(participant_id="system", content="notice", source="system")) is False
+        assert bubble.inbox.empty()
+
+    def test_policy_paused_bubble_leaves_direct_message_for_durable_main_inbox(self):
+        store = BubbleStore()
+        bubble = _bubble(store, participant_id="wecom:alice")
+        bubble.origin_trigger = AutonomyLevel.AUTONOMOUS
+        bubble.brain = type(
+            "PolicyBrain",
+            (),
+            {
+                "autonomy": AutonomyController(
+                    AutonomyLevel.REACTIVE,
+                    AutonomyThresholds(),
+                )
+            },
+        )()
+        router = BubbleMessageRouter(store)
+        event = IncomingEvent(
+            participant_id="wecom:alice",
+            content="请先回复我",
+            source="wecom",
+            wake_level=AutonomyLevel.REACTIVE,
+        )
+
+        assert router(event) is False
         assert bubble.inbox.empty()
 
     def test_preserves_attachment_and_conversation_metadata(self):

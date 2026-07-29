@@ -125,6 +125,10 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 `agent.autonomy_level=event_driven/autonomous`，并删除旧字段。环境变量
 `AGENT__PASSIVE_MODE` 不再读取。
 
+同一个 `MEMORY__DB_PATH` 同时只允许一个 Coworker 进程运行。启动时会持有
+`coworker.instance.lock`；第二个进程会在配置迁移、令牌生成和事件队列消费前退出，
+避免同一消息被重复执行或管理配置发生并发覆盖。`--check` 只校验环境，不占用实例锁。
+
 ### API、管理端与通信
 
 | 变量 | 默认值 | 说明 |

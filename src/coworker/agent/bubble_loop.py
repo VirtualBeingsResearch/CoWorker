@@ -558,7 +558,6 @@ class BubbleMiniLoop:
 
     async def _auto_summarize(self) -> None:
         bubble = self._bubble
-        bubble.status = "timeout"
         fork_plus_identity = len(bubble.forked_context) + 1
         inner_msgs = self._short_term.primary[fork_plus_identity:]
         try:
@@ -585,6 +584,7 @@ class BubbleMiniLoop:
                 bubble.result = summary
         except Exception as e:
             bubble.result = tr("bubble.summary_failed", error=e)
+        bubble.status = "timeout"
         logger.info(f"Bubble {bubble.id} timed out after {bubble.max_cycles} cycles")
 
     async def _persist_log(self) -> None:
@@ -656,7 +656,6 @@ class BubbleMiniLoop:
         from coworker.core.types import IncomingEvent
 
         bubble = self._bubble
-        await self._write_back_to_palaces()
         await self._handoff_notifier.announce_finished(bubble)
         merge_msg = _build_merge_message(bubble)
         if bubble.status == "timeout" and self._store.timeout_resume_seconds > 0:
@@ -689,6 +688,10 @@ class BubbleMiniLoop:
             if isinstance(item, IncomingEvent):
                 await self._inbox_watcher.push(item)
         self._store.mark_done(bubble)
+        # Palace write-back is optional finalization. Release the Bubble slot and
+        # deliver its result before waiting on a potentially policy-paused MEM0
+        # call so the user-visible task cannot look terminal while remaining active.
+        await self._write_back_to_palaces()
 
 
 def _build_merge_message(bubble: Bubble) -> str:

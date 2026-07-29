@@ -116,7 +116,9 @@ class AutonomyController:
         self._level = level
         self._thresholds = thresholds.model_copy(deep=True)
         self._changed = asyncio.Event()
+        self._abort_event = asyncio.Event()
         self._in_flight: Counter[tuple[AutonomyScope, AutonomyLevel]] = Counter()
+        self._waiting: Counter[tuple[AutonomyScope, AutonomyLevel]] = Counter()
 
     @property
     def level(self) -> AutonomyLevel:
@@ -138,6 +140,21 @@ class AutonomyController:
         )
 
     @property
+    def waiting_scopes(self) -> list[AutonomyScope]:
+        return sorted(
+            {
+                scope
+                for (scope, _), count in self._waiting.items()
+                if count > 0
+            },
+            key=lambda scope: scope.value,
+        )
+
+    @property
+    def is_policy_paused(self) -> bool:
+        return bool(self.waiting_scopes)
+
+    @property
     def change_event(self) -> asyncio.Event:
         return self._changed
 
@@ -157,6 +174,16 @@ class AutonomyController:
         changed = self._changed
         self._changed = asyncio.Event()
         changed.set()
+
+    def abort_waiters(self) -> None:
+        """Abort policy waits because the owning runtime is stopping."""
+
+        self._abort_event.set()
+        self._signal_change()
+
+    def _raise_if_aborted(self) -> None:
+        if self._abort_event.is_set():
+            raise asyncio.CancelledError
 
     def required_for(
         self,
@@ -200,11 +227,22 @@ class AutonomyController:
         *,
         trigger: AutonomyLevel = AutonomyLevel.SILENT,
     ) -> None:
-        while not self.allows(scope, trigger=trigger):
-            changed = self._changed
-            if self.allows(scope, trigger=trigger):
-                return
-            await changed.wait()
+        key = (scope, trigger)
+        self._waiting[key] += 1
+        self._signal_change()
+        try:
+            while not self.allows(scope, trigger=trigger):
+                self._raise_if_aborted()
+                changed = self._changed
+                if self.allows(scope, trigger=trigger):
+                    return
+                await changed.wait()
+            self._raise_if_aborted()
+        finally:
+            self._waiting[key] -= 1
+            if self._waiting[key] <= 0:
+                del self._waiting[key]
+            self._signal_change()
 
     async def retry_when_allowed(
         self,
@@ -225,6 +263,7 @@ class AutonomyController:
             key=lambda level: level.rank,
         )
         while True:
+            self._raise_if_aborted()
             try:
                 return await operation()
             except AutonomyBlockedError as error:
@@ -243,6 +282,7 @@ class AutonomyController:
             (trigger, current_autonomy_trigger()),
             key=lambda level: level.rank,
         )
+        self._raise_if_aborted()
         self.ensure_allowed(scope, trigger=resolved_trigger)
         key = (scope, resolved_trigger)
         self._in_flight[key] += 1

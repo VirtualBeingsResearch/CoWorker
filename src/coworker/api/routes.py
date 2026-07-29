@@ -427,7 +427,10 @@ async def get_profile():
                     days=_PROFILE_README_INTERVAL.days,
                 ),
                 source="system",
-                wake_level=AutonomyLevel.EVENT_DRIVEN,
+                # Profile upkeep should be invisible at L0-L2. It rides along
+                # with the next policy-eligible activation instead of waking the
+                # model merely because somebody opened the identity page.
+                wake_level=None,
             )
         )
         _profile_readme_last_reminded_at = now

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from coworker.core.autonomy import AutonomyLevel, AutonomyScope
 from coworker.core.types import IncomingEvent
 
 if TYPE_CHECKING:
@@ -45,6 +46,25 @@ class BubbleMessageRouter:
             conversation_id=event.conversation_id,
         )
         if bubble is None:
+            return False
+
+        autonomy = bubble.brain.autonomy if bubble.brain is not None else None
+        incoming_trigger = event.wake_level or AutonomyLevel.REACTIVE
+        required_trigger = max(
+            (bubble.origin_trigger, incoming_trigger),
+            key=lambda level: level.rank,
+        )
+        if autonomy is not None and not autonomy.allows(
+            AutonomyScope.BUBBLE,
+            trigger=required_trigger,
+        ):
+            logger.info(
+                "Kept inbound message from {}{} on the durable main inbox because "
+                "bubble {} is policy-paused",
+                event.participant_id,
+                f"/{event.conversation_id}" if event.conversation_id else "",
+                bubble.id,
+            )
             return False
 
         # put_nowait is intentional: InboxWatcher interceptors are synchronous,

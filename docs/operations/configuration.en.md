@@ -135,6 +135,12 @@ On the first startup after upgrading to a release with autonomy levels, an old
 `agent.autonomy_level=event_driven/autonomous`, and the old field is removed.
 The `AGENT__PASSIVE_MODE` environment variable is no longer read.
 
+Only one Coworker process may run against the same `MEMORY__DB_PATH`. Startup
+holds `coworker.instance.lock`; a second process exits before configuration
+migration, token generation, or event consumption, preventing duplicate event
+execution and concurrent configuration overwrites. `--check` only validates the
+environment and does not acquire the instance lock.
+
 ### API, administration, and communication
 
 | Variable | Default | Description |
