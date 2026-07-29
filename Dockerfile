@@ -48,7 +48,6 @@ WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     HF_HOME=/opt/huggingface \
-    PYTHONPATH=/app/src \
     COWORKER_BUNDLED_REPOSITORY_URL=${COWORKER_BUNDLE_REPOSITORY_URL} \
     COWORKER_WORKSPACE_PATH=/app \
     COWORKER_STATE_PATH=/var/lib/coworker
@@ -80,7 +79,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/status || exit 1
 
 ENTRYPOINT ["/app/scripts/container-entrypoint.sh"]
-CMD ["/opt/venv/bin/coworker"]
+CMD ["uv", "run", "coworker"]
 
 # Optional release target. Build it with:
 #   docker build --target with-embedder -t coworker:with-embedder .
