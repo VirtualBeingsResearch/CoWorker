@@ -1448,6 +1448,32 @@ def test_completed_bubble_index_avoids_rescanning_legacy_logs(tmp_path, monkeypa
     assert load_completed_bubble_index(tmp_path) == []
 
 
+def test_v1_bubble_index_rebuilds_model_from_legacy_log(tmp_path):
+    from coworker.agent.bubble_log_index import load_completed_bubble_index
+    from coworker.api.admin import router_module as admin
+
+    log_dir = tmp_path / "bubbles"
+    log_dir.mkdir()
+    (log_dir / "legacy.jsonl").write_text(
+        '{"type":"llm_response","provider":"openai","model":"gpt-5.2"}\n'
+        '{"__meta__":true,"id":"legacy","status":"done","provider":"","model":""}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "bubble_index.json").write_text(
+        '{"version":1,"records":{"legacy":{"log_id":"legacy","model":""}}}',
+        encoding="utf-8",
+    )
+
+    rebuilt = admin._completed_bubble_summaries(log_dir)
+
+    assert rebuilt[0]["provider"] == "openai"
+    assert rebuilt[0]["model"] == "gpt-5.2"
+    assert load_completed_bubble_index(tmp_path) == rebuilt
+    assert json.loads((tmp_path / "bubble_index.json").read_text(encoding="utf-8"))[
+        "version"
+    ] == 2
+
+
 def test_legacy_index_rebuild_preserves_a_concurrent_completion(tmp_path):
     from coworker.agent.bubble_log_index import (
         load_completed_bubble_index,

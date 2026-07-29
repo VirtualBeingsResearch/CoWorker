@@ -679,6 +679,8 @@ def _read_bubble_log_summary_uncached(
     """
     first: dict[str, object] | None = None
     meta: dict[str, object] | None = None
+    llm_provider = ""
+    llm_model = ""
     result = ""
     try:
         with Path(path).open("r", encoding="utf-8") as handle:
@@ -693,6 +695,9 @@ def _read_bubble_log_summary_uncached(
                     first = entry
                 if entry.get("__meta__"):
                     meta = entry
+                if entry.get("type") == "llm_response":
+                    llm_provider = llm_provider or str(entry.get("provider") or "")
+                    llm_model = llm_model or str(entry.get("model") or "")
                 if entry.get("type") == "tool_call" and entry.get("name") == "bubble_done":
                     arguments = entry.get("arguments")
                     if isinstance(arguments, dict) and not arguments.get("checkpoint"):
@@ -711,8 +716,8 @@ def _read_bubble_log_summary_uncached(
         "mode": mode,
         "goal": str(meta.get("goal") or tr("api.admin.goal_unrecorded")),
         "status": str(meta.get("status") or "done"),
-        "provider": str(meta.get("provider") or ""),
-        "model": str(meta.get("model") or ""),
+        "provider": str(meta.get("provider") or llm_provider),
+        "model": str(meta.get("model") or llm_model),
         "cycles_used": _as_int(meta.get("cycles_used")),
         "max_cycles": _as_int(meta.get("max_cycles")),
         "participant_id": str(meta.get("participant_id") or ""),

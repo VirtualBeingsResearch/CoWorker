@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble
 
 _INDEX_FILENAME = "bubble_index.json"
-_INDEX_VERSION = 1
+_INDEX_VERSION = 2
 _WRITE_LOCK = threading.Lock()
 
 
