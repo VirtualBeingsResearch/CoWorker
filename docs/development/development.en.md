@@ -57,6 +57,23 @@ The Dev Container is a Linux environment. It supports Python, web, and Explore L
 but cannot build or validate macOS-specific Tauri `.app`/`.dmg` artifacts, signing, or
 notarization. Continue to perform those tasks on macOS or a matching CI runner.
 
+### Develop with the offline image
+
+To run and debug only the Coworker service, reuse the published strict-offline image and mount the
+current checkout directly at `/app`:
+
+```bash
+COWORKER_WORKSPACE_SOURCE=. \
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline \
+docker compose up --pull always --no-build
+```
+
+`/app` is both the source directory Python actually loads and the Agent workspace, so the host,
+Agent, and running process see the same Git checkout. The image supplies the Linux Python
+environment, Chromium, FFmpeg, and preloaded embedding model; restart the container after source
+changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
+`COWORKER_WORKSPACE_SOURCE=. docker compose up --build`.
+
 ### Explore Lab
 
 The Explore Lab backend can serve the frontend build directly. Branch runtimes use virtual communication participants (`explore_lab` by default): `communicate` records outbound messages in branch state without external delivery, and `list_connections` reports those virtual participants as active connections. Normal use requires starting only the backend after building the UI:

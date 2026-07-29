@@ -195,13 +195,26 @@ docker compose up --build
 docker compose build
 ```
 
-首次启动会从镜像内 bundle 恢复带提交历史、分支和 tag 的 Git 工作区到
-`coworker-workspace` 卷，运行数据保存到独立的 `coworker-state` 卷。最终镜像不会
-包含原始 `.git` 目录。可在构建时嵌入兼容的自定义仓库：
+首次启动会把镜像内 `/app` 复制到 `coworker-workspace` 卷，再从 bundle 恢复
+Git 历史、分支和 tag。`/app` 同时是 Coworker 实际运行的源码和 Agent 可编辑的
+工作区；运行数据保存到独立的 `coworker-state` 卷。最终镜像不会包含构建环境原始的
+`.git` 目录。更新镜像后，入口脚本只会把干净、未分叉的托管分支快进到镜像提交；
+本地修改、提交、其他分支和分叉历史都会保留。可在构建时嵌入兼容的自定义仓库：
 
 ```bash
 COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
 ```
+
+开发者可以直接复用已发布的严格离线镜像，并把当前 checkout 挂载为同一个 `/app`
+工作区，不需要额外的 Compose 文件：
+
+```bash
+COWORKER_WORKSPACE_SOURCE=. COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --pull always --no-build
+```
+
+此模式直接运行当前 checkout 的 `src/`，同时复用镜像内的 Linux 依赖、Chromium、
+FFmpeg 和预置 embedding 模型。修改 Python 源码后重启容器即可；如果
+`pyproject.toml` 或 `uv.lock` 改变，应重新构建镜像以同步 `/opt/venv`。
 
 非严格离线的 `runtime` 或 `with-embedder` 镜像还可在首次启动时通过
 `COWORKER_REPOSITORY_URL` 从其他仓库克隆。严格离线镜像会拒绝这种运行时网络访问；

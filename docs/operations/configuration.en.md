@@ -168,13 +168,22 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 |---|---|---|
 | `COWORKER_BUNDLE_REPOSITORY_URL` | Official Coworker repository | Compatible repository converted to a Git bundle while building the image |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
+| `COWORKER_WORKSPACE_PATH` | `/app` | In-container Git workspace shared by the running source and the Agent |
+| `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose mount source; set it to `.` to replace the named volume with the current checkout |
 | `COWORKER_REPOSITORY_URL` | Empty | Repository cloned on first startup by a non-strict-offline image |
 | `COWORKER_REPOSITORY_REF` | Bundled commit or remote default branch | Branch, tag, or commit checked out during initialization |
 | `COWORKER_REPOSITORY_BUNDLE` | Bundle embedded in the image | Path to an explicitly mounted custom bundle |
 
-Repository settings only apply to an empty workspace volume. The strict offline image refuses
-network access through `COWORKER_REPOSITORY_URL`. Generate private-repository bundles in a
-controlled build environment; do not put credentials in URLs or image build arguments.
+When the default named volume is first created, Docker copies the image's `/app` tree into it and
+the entrypoint restores the Git metadata from the bundle. With `COWORKER_WORKSPACE_SOURCE=.`, the
+existing local Git checkout is mounted directly at `/app`, and repository initialization never
+overwrites it.
+After an image update, the entrypoint automatically fast-forwards only a clean, non-divergent
+managed workspace that remains on the image's default branch; local changes, commits, other
+branches, and divergent history remain untouched. Other repository settings apply only before the
+workspace is initialized. The strict offline image refuses network access through
+`COWORKER_REPOSITORY_URL`. Generate private-repository bundles in a controlled build environment;
+do not put credentials in URLs or image build arguments.
 
 ## Supported models
 
