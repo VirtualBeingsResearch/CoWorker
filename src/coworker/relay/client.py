@@ -26,7 +26,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from loguru import logger
 from websockets.asyncio.client import ClientConnection, connect
 
-from coworker.api.relay_policy import relay_route_allowed
 from coworker.core.config import (
     Config,
     _deep_merge,
@@ -49,6 +48,7 @@ from coworker.relay.crypto import (
     sign_text,
     verify_text,
 )
+from coworker.relay.policy import relay_route_allowed
 from coworker.relay.protocol import (
     Frame,
     FrameDecoder,
