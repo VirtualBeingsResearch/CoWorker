@@ -279,7 +279,7 @@ jobs:
         working-directory: apps/coworker-relay
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: apps/coworker-relay/go.mod
           cache-dependency-path: apps/coworker-relay/go.sum
