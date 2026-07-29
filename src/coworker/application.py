@@ -235,6 +235,16 @@ def _append_recovered_tool_result(
     return True
 
 
+async def _enqueue_startup_event(
+    inbox_watcher: InboxWatcher,
+    event: IncomingEvent,
+    *,
+    passive_mode: bool,
+) -> None:
+    """Retain startup context without waking an agent in passive mode."""
+    await inbox_watcher.push(event, wake=not passive_mode)
+
+
 def _resolve_memory_provider(llm_config: LLMConfig, provider: str) -> ProviderSpec | None:
     providers = llm_config.resolved_providers()
     by_name = {spec.name: spec for spec in providers}
@@ -860,16 +870,19 @@ async def _main() -> bool:
             restart_msg += tr("startup.environment_fragment", changes=env_diff)
         if locale_diff:
             restart_msg += tr("startup.environment_fragment", changes=locale_diff)
-        await inbox_watcher.push(
+        await _enqueue_startup_event(
+            inbox_watcher,
             IncomingEvent(
                 participant_id="system",
                 content=restart_msg,
                 source="system",
-            )
+            ),
+            passive_mode=config.agent.passive_mode,
         )
     elif not setup_required and (env_diff or locale_diff):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        await inbox_watcher.push(
+        await _enqueue_startup_event(
+            inbox_watcher,
             IncomingEvent(
                 participant_id="system",
                 content=tr(
@@ -880,7 +893,8 @@ async def _main() -> bool:
                     ),
                 ),
                 source="system",
-            )
+            ),
+            passive_mode=config.agent.passive_mode,
         )
 
     agent_loop = AgentLoop(
