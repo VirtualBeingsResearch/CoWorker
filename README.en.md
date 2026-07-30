@@ -279,6 +279,7 @@ data, cleanup scope, and deployment boundaries.
 | [Documentation index](docs/README.en.md) | All usage, design, and collaboration documentation |
 | [First Run](docs/getting-started/README.en.md) | Install the runtime, initialize a model, verify the instance, and select a client |
 | [Web Management Console](docs/guides/README.en.md) | Status, memory, tasks, models, identity, extensions, and diagnostics |
+| [Virtual-Life Philosophy and Life Architecture](docs/architecture/lifeform-philosophy.en.md) | Philosophy, life mechanisms, experimental facilities, and architecture criteria |
 | [Configuration and models](docs/operations/configuration.en.md) | Environment variables, providers, models, and multi-instance configuration |
 | [Data and trust boundaries](docs/architecture/data-boundaries.en.md) | Local storage, external services, permissions, and cleanup |
 | [API and communication channels](docs/channels/api-and-channels.en.md) | REST, SSE, WebSocket, and file messages |

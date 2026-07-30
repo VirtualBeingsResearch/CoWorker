@@ -22,6 +22,7 @@
 | 长期部署、升级或恢复实例 | [部署](operations/deployment.md) · [升级](operations/upgrading.md) · [备份](operations/backup-and-restore.md) |
 | 排查启动、模型或连接问题 | [故障排查](operations/troubleshooting.md) |
 | 了解数据保存在哪里、什么可能外发 | [数据与信任边界](architecture/data-boundaries.md) |
+| 理解项目为何以虚拟生命为目标 | [虚拟生命理念与生命架构](architecture/lifeform-philosophy.md) |
 | 理解身份、记忆、工具与生命循环 | [核心概念与能力](architecture/concepts.md) |
 | 查找 Bubble、Palace、Participant 等术语 | [术语表](glossary.md) |
 
@@ -44,6 +45,7 @@
 
 产品的运行模型、记忆机制、数据保存位置和信任边界。
 
+- [虚拟生命理念与生命架构](architecture/lifeform-philosophy.md)
 - [核心概念与能力](architecture/concepts.md)
 - [运行时架构与消息流](architecture/runtime-flow.md)
 - [数据与信任边界](architecture/data-boundaries.md)

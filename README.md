@@ -268,6 +268,7 @@ remote 和分支后执行 `git push`。
 | [文档索引](docs/README.md) | 全部使用、设计与协作文档 |
 | [首次运行](docs/getting-started/README.md) | 安装运行时、初始化模型、验证实例并选择客户端 |
 | [Web 管理后台](docs/guides/README.md) | 状态、记忆、任务、模型、身份、扩展与诊断 |
+| [虚拟生命理念与生命架构](docs/architecture/lifeform-philosophy.md) | 理念、生命机制、实验设施与架构判断原则 |
 | [配置与模型](docs/operations/configuration.md) | 环境变量、Provider、模型与多实例配置 |
 | [数据与信任边界](docs/architecture/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
 | [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |

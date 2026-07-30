@@ -22,6 +22,7 @@ This documentation covers operation, configuration, communication surfaces, prod
 | Deploy, upgrade, or recover a long-running instance | [Deployment](operations/deployment.en.md) · [Upgrade](operations/upgrading.en.md) · [Backup](operations/backup-and-restore.en.md) |
 | Diagnose startup, model, or connection failures | [Troubleshooting](operations/troubleshooting.en.md) |
 | Understand local storage and outbound data | [Data and trust boundaries](architecture/data-boundaries.en.md) |
+| Understand why the project pursues virtual life | [Virtual-Life Philosophy and Life Architecture](architecture/lifeform-philosophy.en.md) |
 | Learn how identity, memory, tools, and the runtime fit together | [Core concepts and capabilities](architecture/concepts.en.md) |
 | Look up terms such as Bubble, Palace, and Participant | [Glossary](glossary.en.md) |
 
@@ -44,6 +45,7 @@ Use Life Overview, memory, runtime, models, identity, capability content, remote
 
 Runtime model, memory mechanisms, storage locations, and trust boundaries.
 
+- [Virtual-Life Philosophy and Life Architecture](architecture/lifeform-philosophy.en.md)
 - [Core concepts and capabilities](architecture/concepts.en.md)
 - [Runtime Architecture and Message Flow](architecture/runtime-flow.en.md)
 - [Data and trust boundaries](architecture/data-boundaries.en.md)
