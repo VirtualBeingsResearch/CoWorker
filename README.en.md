@@ -198,7 +198,15 @@ Git, or place them in shared documents.
 
 ### 3. Send the first message
 
-After the management page reconnects, verify the instance directly through the API:
+After the page reconnects, open <http://127.0.0.1:8000/>. Use the “Chat with
+Coworker” entry in the lower-right corner of the identity page. On first use,
+enter your display name and select “Start chatting,” then send “Hello, who are
+you?” Receiving a reply confirms that the frontend, message channel, and
+current model are working.
+
+<details>
+<summary>Verify through the API in a headless environment or while
+troubleshooting</summary>
 
 ```bash
 curl -X POST http://127.0.0.1:8000/messages \
@@ -206,9 +214,12 @@ curl -X POST http://127.0.0.1:8000/messages \
   -d '{"sender_id": "alice", "content": "Hello, who are you?"}'
 ```
 
-From there, continue in the [Web management console](docs/guides/README.en.md), install
-[Coworker Desktop](docs/channels/desktop.en.md) to collaborate with Codex or Claude Code, or
-connect your own tools through [API and Channels](docs/channels/api-and-channels.en.md).
+</details>
+
+From there, use the [Web management console](docs/guides/README.en.md) to refine
+the setup, install [Coworker Desktop](docs/channels/desktop.en.md) to collaborate
+with Codex or Claude Code, or connect your own tools through
+[API and Channels](docs/channels/api-and-channels.en.md).
 
 > [!TIP]
 > For the complete journey through runtime choices, setup verification, client selection, and

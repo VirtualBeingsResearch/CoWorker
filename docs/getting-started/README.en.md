@@ -98,7 +98,22 @@ additional processes.
 
 ## 5. Confirm the instance is ready
 
-After setup, check that:
+After setup finishes and the page reconnects, open <http://127.0.0.1:8000/>.
+Use the “Chat with Coworker” entry in the lower-right corner of the identity
+page:
+
+1. On first use, enter your display name and select “Start chatting.”
+2. Send “Hello, who are you?”
+3. Receiving a reply confirms that the frontend, message channel, and current
+   model are working.
+
+The display name establishes your connection identity in this browser; it is
+not administrator authentication. Web chat history is stored only in the
+current browser and does not automatically follow you after browser data is
+cleared or when you switch devices.
+
+You can also open the [Management Console](../guides/README.en.md) and check
+that:
 
 - Life Overview no longer reports first-time setup;
 - the current model and runtime state are correct;
@@ -106,13 +121,17 @@ After setup, check that:
   tasks;
 - the terminal is not repeating the same startup error.
 
-You can also request status:
+<details>
+<summary>Verify through the API in a headless environment or while
+troubleshooting</summary>
+
+First request status:
 
 ```bash
 curl http://127.0.0.1:8000/status
 ```
 
-Then send the first message:
+Then send a message:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/messages \
@@ -123,6 +142,8 @@ curl -X POST http://127.0.0.1:8000/messages \
 If the response is an authentication error, confirm whether the endpoint
 requires a communication token. Do not work around it by exposing the service
 or disabling production authentication.
+
+</details>
 
 ## 6. Complete identity and daily settings
 

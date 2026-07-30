@@ -196,7 +196,12 @@ Compose 默认构建预置 embedding 模型的严格离线运行时镜像，并�
 
 ### 3. 发出第一条消息
 
-等待管理页面重新连接后，可以直接通过 API 验证实例：
+等待页面重新连接后，打开 <http://127.0.0.1:8000/>。在身份主页右下角打开
+“与搭档对话”，首次使用时填写你的显示名称并点击“开始对话”，然后发送
+“你好，你是谁？”。收到回复，就说明前端、消息通道和当前模型已经可以正常工作。
+
+<details>
+<summary>无界面环境或排障时，通过 API 验证</summary>
 
 ```bash
 curl -X POST http://127.0.0.1:8000/messages \
@@ -204,7 +209,9 @@ curl -X POST http://127.0.0.1:8000/messages \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 ```
 
-接下来可以继续使用 [Web 管理后台](docs/guides/README.md)，安装
+</details>
+
+接下来可以进入 [Web 管理后台](docs/guides/README.md)完善配置，安装
 [Coworker Desktop](docs/channels/desktop.md) 与 Codex / Claude Code 协作，或通过
 [API 与通信入口](docs/channels/api-and-channels.md) 接入自己的工具。
 
