@@ -12,7 +12,7 @@ RUN ldflags="-s -w \
       -X github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay/internal/buildinfo.Date=${RELAY_BUILD_DATE}" \
     && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/coworker-relay ./cmd/coworker-relay
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates \
     && addgroup -S relay \
     && adduser -S -G relay relay
