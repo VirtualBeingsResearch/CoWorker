@@ -10,6 +10,10 @@ memory, tasks, models, identity, capability content, remote access, and
 diagnostics. It is an administration surface, not a public multi-tenant control
 plane.
 
+To start from an outcome instead of page structure, see [Common Use Cases](use-cases.en.md).
+Use [Authoring Capability Content](capability-authoring.en.md) when creating a Skill, Palace, or
+subconscious mode.
+
 ## Sign-in and security boundary
 
 Sign in with the administrator token printed by the startup terminal. An

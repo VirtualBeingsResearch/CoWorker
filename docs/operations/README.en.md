@@ -6,7 +6,12 @@
 
 This domain contains configuration and operational guidance for deploying and running Coworker.
 
-- [Configuration and models](configuration.en.md): environment variables, providers, model selection, multi-instance setup, and runtime model switching.
+- [Configuration and models](configuration.en.md): environment variables, model selection, multi-instance setup, and runtime model switching.
+- [Provider Configuration Guide](providers.en.md): Provider dialects, model roles, multiple instances, and common call failures.
+- [Long-running Deployment](deployment.en.md): Docker, source process management, networking, security, and go-live checks.
+- [Upgrading and Migration](upgrading.en.md): Coworker self-upgrade, manual upgrade, data migration, compatibility, and rollback.
+- [Backup and Restore](backup-and-restore.en.md): emergency context, `data/` snapshots, and full disaster recovery.
+- [Observability and Routine Operations](observability.en.md): health, diagnostics, logs, usage, cost, and routine checks.
 - [Troubleshooting](troubleshooting.en.md): one diagnostic order for the service, console, models, memory, Desktop, Relay, and containers.
 - [Self-hosted Relay](relay.en.md): path-based public access, end-to-end encryption, pairing, bans, and operations.
 - [Relay v1 protocol](relay-protocol.en.md): key derivation, inner TLS, virtual HTTP, and compatibility boundaries.

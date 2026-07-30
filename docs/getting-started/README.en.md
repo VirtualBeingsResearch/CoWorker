@@ -17,6 +17,9 @@ model, and can receive messages.
 | Docker Compose | Isolation and prebuilt dependencies | Docker; the default is the strict offline runtime image |
 | Desktop | A local collaboration workbench | A separately running Coworker service is still required |
 
+See [Platform Support and Component Compatibility](platform-support.en.md) for operating systems,
+CPU architectures, Desktop artifacts, and protocol notes.
+
 Coworker Desktop is not an installer for the Coworker service. It connects to an
 existing instance and integrates Local, Codex, and Claude Code conversations.
 

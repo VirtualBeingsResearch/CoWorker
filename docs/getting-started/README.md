@@ -15,6 +15,9 @@
 | Docker Compose | 隔离运行、复用预置依赖 | Docker；默认使用严格离线运行时镜像 |
 | Desktop | 本机协作工作台 | 仍需先有独立运行的 Coworker 服务 |
 
+完整操作系统、CPU 架构、Desktop 制品和协议说明见
+[平台支持与组件兼容](platform-support.md)。
+
 Coworker Desktop 不是 Coworker 服务的安装器。它连接已经运行的实例，并把 Local、Codex
 和 Claude Code 会话接入 Coworker。
 
