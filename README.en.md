@@ -33,7 +33,7 @@
 
 ![Coworker Web identity page showing Aster's identity, current state, and profile](docs/assets/screenshots/web-identity-en.png)
 
-<p align="center"><sub>Web identity page · Captured with isolated synthetic demo data.</sub></p>
+<p align="center"><sub>Web identity page · Review Coworker's identity, current state, and profile.</sub></p>
 
 Most AI tools appear when you ask a question and stop after the answer. Coworker stays present: she has her own identity and memory, uses real tools to get work done, can reflect in the background, and shows up where you already work—through APIs, WeCom, or Coworker Desktop.
 
@@ -81,8 +81,6 @@ Identity, memory, tasks, and tools all live in the same local-first runtime. Web
 <p align="center"><sub>Web usage · Drill down from totals to models, sources, cache behavior, and tool calls.</sub></p>
 
 </details>
-
-> Every screenshot on this page uses isolated synthetic demo data and contains no real users, secrets, conversations, or runtime records.
 
 ## Why call her a “virtual lifeform”?
 
@@ -190,7 +188,7 @@ On the first start, the terminal prints an auto-generated administrator token an
 
 ![Coworker first-time setup wizard](docs/assets/screenshots/admin-first-run-en.png)
 
-<p align="center"><sub>First-time setup wizard · The screenshot uses isolated synthetic configuration and contains no real credentials.</sub></p>
+<p align="center"><sub>First-time setup wizard · Configure runtime language, Provider, and startup model.</sub></p>
 
 Coworker restarts safely after you save. A brief page disconnect is normal. Treat both the
 administrator token and model API key as secrets: do not send them through chat, commit them to

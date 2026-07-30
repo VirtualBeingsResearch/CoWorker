@@ -114,15 +114,17 @@ distinct from product controls, and retain an unannotated original for future up
 ### Add the image and review it
 
 Place the image after the first step that needs it. Alt text should name the interface and state,
-not say “screenshot.” Add a note below the image that declares isolated synthetic data:
+not say “screenshot.” Visible captions should describe the interface and user outcome, without
+repeating synthetic-data or security disclaimers. Those belong to the maintenance workflow and PR
+review, not the screenshot name:
 
 ```markdown
 ![Coworker first-time setup wizard](../assets/screenshots/admin-first-run-en.png)
 
-<p align="center"><sub>First-time setup wizard · The screenshot uses isolated synthetic configuration and contains no real credentials.</sub></p>
+<p align="center"><sub>First-time setup wizard · Configure runtime language, Provider, and startup model.</sub></p>
 ```
 
-The Chinese companion must use its `-zh` file, Chinese alt text, and Chinese note. Before
+The Chinese companion must use its `-zh` file, Chinese alt text, and Chinese caption. Before
 submission, review the image again from the perspective of someone other than its creator. If any
 value might be sensitive, rebuild the scenario and recapture instead of relying only on blur or
 redaction.

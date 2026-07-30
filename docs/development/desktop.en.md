@@ -14,8 +14,6 @@ Coworker Desktop is a local collaboration workbench. It brings the local user, C
 
 <p align="center"><sub>Manage runtime health and Coworker instances on the left, switch actors and conversations in the middle, and inspect messages and tool activity on the right.</sub></p>
 
-This screenshot uses isolated synthetic demo data and contains no real users, secrets, conversations, or runtime records.
-
 The local user, Codex, and Claude Code appear as three independent `actor` identities. A `participant` selects the target identity, while `actor` and `conversation_id` jointly address a session. Ordinary AI `final` output remains in the local session; only an explicit `send_to_coworker` call notifies Coworker.
 
 Coworker Desktop has two distribution and runtime modes:

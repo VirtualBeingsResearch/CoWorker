@@ -33,7 +33,7 @@
 
 ![Coworker Web 身份主页，展示 Aster 的身份、当前状态与自述](docs/assets/screenshots/web-identity-zh.png)
 
-<p align="center"><sub>Web 身份主页 · 截图使用隔离的伪造演示数据。</sub></p>
+<p align="center"><sub>Web 身份主页 · 查看搭档的身份、当前状态与自述。</sub></p>
 
 大多数 AI 只在你提问时出现，回答完便停下。Coworker 选择持续在场：她拥有自己的身份和记忆，能调用真实工具完成工作，也可以在后台整理经验，并通过 API、企业微信或 Coworker Desktop 出现在你已经熟悉的工作流里。
 
@@ -81,8 +81,6 @@
 <p align="center"><sub>Web 用量页 · 从总量下钻到模型、来源、缓存与工具调用。</sub></p>
 
 </details>
-
-> 本页截图均使用隔离的伪造演示数据，不包含真实用户、密钥、会话或运行记录。
 
 ## 为什么称她为“虚拟生命体”？
 
@@ -189,7 +187,7 @@ Compose 默认构建预置 embedding 模型的严格离线运行时镜像，并�
 
 ![Coworker 首次初始化向导](docs/assets/screenshots/admin-first-run-zh.png)
 
-<p align="center"><sub>首次初始化向导 · 截图使用隔离的伪造配置，不包含真实密钥。</sub></p>
+<p align="center"><sub>首次初始化向导 · 配置运行语言、Provider 与启动模型。</sub></p>
 
 保存后 Coworker 会安全重启；页面短暂断开属于正常现象。管理员令牌和模型 API Key
 都属于敏感信息，不要发送到聊天、提交到 Git 或放进共享文档。

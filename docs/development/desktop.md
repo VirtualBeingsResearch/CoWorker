@@ -14,8 +14,6 @@ Coworker Desktop 是一个本机协作工作台：它把本机用户、Codex、C
 
 <p align="center"><sub>左侧管理运行状态与 Coworker，中间切换身份和会话，右侧查看对话与工具活动。</sub></p>
 
-截图使用隔离的伪造演示数据，不包含真实用户、密钥、会话或运行记录。
-
 界面中的本机用户、Codex 与 Claude Code 是三个独立的 `actor` 身份。`participant` 决定目标身份，会话由 `actor` 与 `conversation_id` 共同寻址；AI 的普通 `final` 只留在本机会话，只有显式调用 `send_to_coworker` 才会通知 Coworker。
 
 Coworker Desktop 有两种分发/运行方式：

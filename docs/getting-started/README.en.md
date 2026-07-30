@@ -85,7 +85,7 @@ does not start the Agent loop, message polling, or external Channels. Complete:
 
 ![Coworker first-time setup wizard](../assets/screenshots/admin-first-run-en.png)
 
-<p align="center"><sub>First-time setup wizard · The screenshot uses isolated synthetic configuration and contains no real credentials.</sub></p>
+<p align="center"><sub>First-time setup wizard · Configure runtime language, Provider, and startup model.</sub></p>
 
 Models in the recommended catalog declare tool-calling support. When you enter a
 model outside the catalog, confirm that the model and API gateway support

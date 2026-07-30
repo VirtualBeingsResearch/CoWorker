@@ -41,7 +41,7 @@ Extend, and Trace.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
-<p align="center"><sub>Life Overview · The screenshot uses isolated synthetic demo data and contains no real users, credentials, or runtime records.</sub></p>
+<p align="center"><sub>Life Overview · Review current state, context pressure, model, and runtime metrics.</sub></p>
 
 ## Observe: understand the current state
 
