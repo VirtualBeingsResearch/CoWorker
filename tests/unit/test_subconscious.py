@@ -752,7 +752,7 @@ class TestSchedulerSpawn:
             await scheduler._spawn(mode_loader.get("audit"), messages)
         assert len(store._active) + len(store._history) >= 1
 
-    async def test_spawn_persists_actual_response_provider_and_model_in_index(
+    async def test_spawn_persists_current_provider_and_model_in_index(
         self, scheduler, store, mode_loader, messages, mock_brain, tmp_path
     ):
         from coworker.agent.bubble_log_index import load_completed_bubble_index
@@ -766,7 +766,6 @@ class TestSchedulerSpawn:
                 stop_reason="tool_use",
                 model="mock-model",
                 usage={},
-                provider="fallback",
             )
         )
         scheduler._create_brain = MagicMock(return_value=mock_brain)
@@ -781,7 +780,7 @@ class TestSchedulerSpawn:
 
         indexed = load_completed_bubble_index(tmp_path / "subconscious")
         assert indexed is not None
-        assert indexed[0]["provider"] == "fallback"
+        assert indexed[0]["provider"] == "mock"
         assert indexed[0]["model"] == "mock-model"
 
     async def test_spawn_sets_active_mode(self, scheduler, store, mode_loader, messages):

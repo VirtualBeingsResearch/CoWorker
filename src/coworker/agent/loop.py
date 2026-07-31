@@ -373,13 +373,11 @@ class AgentLoop:
             input_tokens = max(0, int(response.usage.get("input_tokens", 0) or 0))
         except (AttributeError, TypeError, ValueError):
             input_tokens = 0
-        actual_provider = response.provider or self._brain.current_provider_name
-        actual_model = response.model or self._brain.current_model
         self.state.last_main_response_usage = (
             {
                 "input_tokens": input_tokens,
-                "provider": actual_provider,
-                "model": actual_model,
+                "provider": self._brain.current_provider_name,
+                "model": response.model or self._brain.current_model,
                 "measured_at": datetime.now().isoformat(),
             }
             if input_tokens
@@ -391,16 +389,18 @@ class AgentLoop:
                 response.content,
                 response.tool_calls,
                 response.stop_reason,
-                actual_model,
+                response.model,
                 response.usage,
-                provider=actual_provider,
+                provider=self._brain.current_provider_name,
                 thinking=bool(self._brain.thinking),
             )
 
         assistant_msg = Message(
             role="assistant",
             content=response.content,
-            source=f"{actual_provider}/{actual_model}",
+            source=(
+                f"{self._brain.current_provider_name}/{response.model or self._brain.current_model}"
+            ),
             reasoning_content=response.reasoning_content,
             tool_calls=[
                 {
