@@ -352,6 +352,8 @@ class SubconsciousScheduler:
             goal=goal,
             forked_context=forked_context,
             max_cycles=max_cycles,
+            provider=self._brain.current_provider_name,
+            model=self._brain.current_model,
         )
         if isinstance(result, str):
             logger.debug(f"Subconscious {mode.name} skipped: {result}")

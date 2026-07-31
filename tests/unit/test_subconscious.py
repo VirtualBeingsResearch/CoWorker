@@ -12,7 +12,7 @@ from coworker.agent.subconscious import (
     SubconsciousScheduler,
 )
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
-from coworker.core.types import Message
+from coworker.core.types import LLMResponse, Message, ToolCall
 from coworker.palaces.loader import Palace
 
 # ---------------------------------------------------------------------------
@@ -751,6 +751,37 @@ class TestSchedulerSpawn:
         with patch.object(SubconsciousMiniLoop, "run", new_callable=lambda: lambda self: asyncio.sleep(0)):
             await scheduler._spawn(mode_loader.get("audit"), messages)
         assert len(store._active) + len(store._history) >= 1
+
+    async def test_spawn_persists_current_provider_and_model_in_index(
+        self, scheduler, store, mode_loader, messages, mock_brain, tmp_path
+    ):
+        from coworker.agent.bubble_log_index import load_completed_bubble_index
+
+        mock_brain.think = AsyncMock(
+            return_value=LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCall(id="done", name="bubble_done", arguments={"result": "ok"})
+                ],
+                stop_reason="tool_use",
+                model="mock-model",
+                usage={},
+            )
+        )
+        scheduler._create_brain = MagicMock(return_value=mock_brain)
+
+        await scheduler._spawn(mode_loader.get("audit"), messages)
+        bubble = next(iter(store._active.values()))
+        assert bubble.provider == "mock"
+        assert bubble.model == "mock-model"
+        assert bubble.brain.current_provider_name == bubble.provider
+        assert bubble.brain.current_model == bubble.model
+        await bubble.task
+
+        indexed = load_completed_bubble_index(tmp_path / "subconscious")
+        assert indexed is not None
+        assert indexed[0]["provider"] == "mock"
+        assert indexed[0]["model"] == "mock-model"
 
     async def test_spawn_sets_active_mode(self, scheduler, store, mode_loader, messages):
         with patch.object(SubconsciousMiniLoop, "run", new_callable=lambda: lambda self: asyncio.sleep(0)):
