@@ -412,13 +412,21 @@ def _make_mini_loop(
     )
 
 
-def _make_response(content="", tool_calls=None, stop_reason="end_turn", usage=None, model="mock"):
+def _make_response(
+    content="",
+    tool_calls=None,
+    stop_reason="end_turn",
+    usage=None,
+    model="mock",
+    provider="",
+):
     return LLMResponse(
         content=content,
         tool_calls=tool_calls or [],
         stop_reason=stop_reason,
         model=model,
         usage=usage or {},
+        provider=provider,
     )
 
 
@@ -505,8 +513,15 @@ class TestBubbleMiniLoop:
             stop_reason="tool_use",
             usage={"input_tokens": 5, "output_tokens": 7},
             model="sub-model",
+            provider="fallback",
         ))
-        b = store.create("goal", messages, max_cycles=5)
+        b = store.create(
+            "goal",
+            messages,
+            max_cycles=5,
+            provider="requested",
+            model="requested-model",
+        )
         assert isinstance(b, Bubble)
         loop = SubconsciousMiniLoop(
             mode="audit",
@@ -529,10 +544,12 @@ class TestBubbleMiniLoop:
         assert today["total_tokens"] == 12
         assert today["tool_calls"] == 1
         assert today["by_model"]["sub-model"]["total_tokens"] == 12
-        assert today["by_provider_model"]["mock/sub-model"]["total_tokens"] == 12
+        assert today["by_provider_model"]["fallback/sub-model"]["total_tokens"] == 12
         assert today["by_scope"]["subconscious"]["total_tokens"] == 12
         assert today["by_scope"]["subconscious"]["tools"] == {"bubble_done": 1}
         assert today["by_scope"]["bubble"]["total_tokens"] == 0
+        assert b.provider == "fallback"
+        assert b.model == "sub-model"
 
     async def test_auto_merge_pushes_to_inbox(self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path):
         """Merge is routed through inbox to avoid mid-tool-execution insertion."""
@@ -1165,8 +1182,8 @@ class TestBubbleMiniLoop:
         assert lines[-1]["__meta__"] is True
         assert lines[-1]["id"] == b.id
         assert lines[-1]["goal"] == "goal"
-        assert lines[-1]["provider"] == ""
-        assert lines[-1]["model"] == ""
+        assert lines[-1]["provider"] == "mock"
+        assert lines[-1]["model"] == "mock"
         assert "ts" in lines[-1]
         # first line is the identity message_in entry
         assert lines[0]["type"] == "message_in"
@@ -2142,8 +2159,8 @@ class TestPalaceLogging:
         assert meta[0]["palaces"] == ["product-bug"]
         assert meta[0]["participant_id"] == "alice"
         assert meta[0]["palace_tags"] == ["product", "bug"]
-        assert meta[0]["provider"] == ""
-        assert meta[0]["model"] == ""
+        assert meta[0]["provider"] == "mock"
+        assert meta[0]["model"] == "mock"
 
         from coworker.agent.bubble_log_index import load_completed_bubble_index
 
@@ -2153,6 +2170,8 @@ class TestPalaceLogging:
         assert indexed[0]["id"] == b.id
         assert indexed[0]["status"] == "done"
         assert indexed[0]["result"] == "ok"
+        assert indexed[0]["provider"] == "mock"
+        assert indexed[0]["model"] == "mock"
 
 
 class TestBubbleCheckTool:

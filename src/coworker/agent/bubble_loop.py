@@ -278,6 +278,13 @@ class BubbleMiniLoop:
                 system_prompt=self._system_prompt,
                 tools=tool_schemas,
             )
+            actual_provider = response.provider or self._brain.current_provider_name
+            actual_model = response.model or self._brain.current_model
+            # Bubble metadata is an execution record, not merely the requested
+            # configuration. Keep it aligned with the latest successful response
+            # so fallbacks are reflected in the terminal index and admin UI.
+            bubble.provider = actual_provider
+            bubble.model = actual_model
 
             if self._ilog:
                 self._ilog.log_llm_response(
@@ -285,9 +292,9 @@ class BubbleMiniLoop:
                     content=response.content,
                     tool_calls=response.tool_calls,
                     stop_reason=response.stop_reason,
-                    model=response.model,
+                    model=actual_model,
                     usage=response.usage,
-                    provider=self._brain.current_provider_name,
+                    provider=actual_provider,
                     thinking=bool(self._brain.thinking),
                 )
 

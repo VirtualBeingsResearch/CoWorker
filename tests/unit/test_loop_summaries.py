@@ -192,13 +192,20 @@ async def test_run_active_starts_first_cycle_immediately():
     loop._cycle.assert_awaited_once()
 
 
-def _make_brain(content="ok", tool_calls=None, stop_reason="end_turn", usage=None):
+def _make_brain(
+    content="ok",
+    tool_calls=None,
+    stop_reason="end_turn",
+    usage=None,
+    response_provider="",
+):
     response = LLMResponse(
         content=content,
         tool_calls=tool_calls or [],
         stop_reason=stop_reason,
         model="mock-model",
         usage=usage or {},
+        provider=response_provider,
     )
     brain = MagicMock()
     brain.think = AsyncMock(return_value=response)
@@ -222,6 +229,22 @@ async def test_cycle_records_latest_main_response_input_tokens():
     assert loop.state.last_main_response_usage["model"] == "mock-model"
     assert loop.state.last_main_response_usage["measured_at"]
     assert mem.primary[-1].usage == {"input_tokens": 321, "output_tokens": 12}
+
+
+@pytest.mark.asyncio
+async def test_cycle_attributes_usage_to_response_provider():
+    mem = ShortTermMemory()
+    brain = _make_brain(
+        usage={"input_tokens": 21, "output_tokens": 2},
+        response_provider="fallback",
+    )
+    loop = _make_loop(brain, mem)
+    loop._short_term.compress_if_needed = AsyncMock()
+
+    await loop._cycle()
+
+    assert loop.state.last_main_response_usage["provider"] == "fallback"
+    assert mem.primary[-1].source == "fallback/mock-model"
 
 
 @pytest.mark.asyncio
