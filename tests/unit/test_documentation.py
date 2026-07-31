@@ -118,3 +118,8 @@ def test_documented_configuration_defaults_match_code() -> None:
             assert actual == expected, (
                 f"Stale default in {document.name}: {env_name} should be {expected}"
             )
+
+
+def test_interaction_log_rotation_configuration() -> None:
+    assert AgentConfig().interaction_log_rotation_bytes == 50 * 1024 * 1024
+    assert "log_rotation_enabled" not in MemoryConfig.model_fields

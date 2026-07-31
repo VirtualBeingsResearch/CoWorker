@@ -179,7 +179,6 @@ class MemoryConfig(_EnvSettings):
     tree_backfill_max_leaves: int = 64  # `--backfill-tree` 一次性回溯生成叶子数上限
     tree_backfill_concurrency: int = 5  # 回溯时叶子摘要/归约合并的并发上限
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
-    log_rotation_enabled: bool = False  # 日志物理轮转（后续项）；寻址层已抗分片
 
     auto_recall_enabled: bool = True
     auto_recall_relevance_threshold: float = 0.5
@@ -406,7 +405,7 @@ class AgentConfig(_EnvSettings):
     desktop_registry_dir: str = "data/coworker_desktop/registry"
     identity_dir: str = "data/identity"
     logs_dir: str = "data/logs"
-    interaction_log_rotation_bytes: int = 10 * 1024 * 1024
+    interaction_log_rotation_bytes: int = 50 * 1024 * 1024
     skills_dir: str = ".coworker/skills"
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"

@@ -102,7 +102,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__OUTBOX_DIR` | `data/outbox` | 文件消息输出目录 |
 | `AGENT__IDENTITY_DIR` | `data/identity` | 身份文件目录 |
 | `AGENT__LOGS_DIR` | `data/logs` | 日志目录 |
-| `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `10485760` | 单个交互日志分片的最大字节数；达到阈值后当前 `interactions.jsonl` 会归档为递增编号分片并继续写入新文件。设为 `0` 可关闭轮转。 |
+| `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `52428800` | 单个交互日志分片的最大字节数；达到阈值后当前 `interactions.jsonl` 会归档为递增编号分片并继续写入新文件。设为 `0` 可关闭轮转。 |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
 | `AGENT__TICK` | `true` | 是否启用无外部消息时的自主 tick |
