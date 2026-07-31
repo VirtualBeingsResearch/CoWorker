@@ -164,15 +164,11 @@ class MemoryConfig(_EnvSettings):
 
     db_path: str = "data/memory"
     short_term_max_tokens: int = 80_000
-    compress_threshold: float = 0.55
-    compress_ratio: float = 0.25
-    compress_protected_tail: float = (
-        0.40  # legacy 单锚点路径用；tree 启用时由 tree_tail_fraction 取代
-    )
+    # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。
+    compress_ratio: float = Field(default=0.30, gt=0, lt=1)
 
     # 多分辨率记忆块树（Memory Block Tree）。tree_enabled=False 回退到旧的单锚点压缩。
     tree_enabled: bool = True
-    tree_tail_fraction: float = 0.70  # 尾部保留原始消息的 token 占比
     tree_spine_cap_fraction: float = (
         0.30  # 脊柱 token 上限占比；唯一预算旋钮，节点预算/K 均由它导出
     )

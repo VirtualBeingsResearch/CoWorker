@@ -72,13 +72,13 @@ class TestShortTermMemory:
         assert mem.estimate_tokens() == estimate_text_tokens(content)
 
     def test_serialize_deserialize_round_trip(self):
-        mem = ShortTermMemory(max_tokens=1000, compress_threshold=0.5)
+        mem = ShortTermMemory(max_tokens=1000, compress_ratio=0.3)
         mem.primary.append(Message(role="assistant", content="thought"))
         thread = mem.get_thread("alice")
         thread.add(Message(role="user", content="hi alice"))
 
         data = mem.serialize()
-        restored = ShortTermMemory.deserialize(data, max_tokens=1000, compress_threshold=0.5)
+        restored = ShortTermMemory.deserialize(data, max_tokens=1000, compress_ratio=0.3)
 
         assert len(restored.primary) == 1
         assert restored.primary[0].content == "thought"
@@ -94,59 +94,45 @@ class TestShortTermMemory:
         loaded = ShortTermMemory.load_from_file(state_file)
         assert loaded.primary[0].content == "persisted"
 
-    @pytest.mark.asyncio
-    async def test_compress_if_needed_below_threshold(self, mock_provider):
-        from coworker.brain.brain import Brain
-        brain = Brain("mock", "mock-model")
-        brain.register_provider(mock_provider)
+    def test_compression_budget_uses_observed_provider_tokens(self):
+        mem = ShortTermMemory(max_tokens=10_000)
 
-        mem = ShortTermMemory(max_tokens=10_000, compress_threshold=0.8)
-        mem.primary.append(Message(role="assistant", content="short"))
+        assert mem.compression_budget_reached(9_999) is False
+        assert mem.compression_budget_reached(10_000) is True
+        assert mem.compression_budget_reached(10_001) is True
 
-        original_len = len(mem.primary)
-        await mem.compress_if_needed(brain)
-        assert len(mem.primary) == original_len  # nothing changed
-        assert mem.compress_generation == 0  # no compression → counter unchanged
+    def test_compression_budget_falls_back_to_rendered_context_estimate(self):
+        mem = ShortTermMemory(max_tokens=10)
+        mem.primary.append(Message(role="assistant", content="message " * 20))
 
-    @pytest.mark.asyncio
-    async def test_compress_if_needed_above_threshold(self, mock_long_term):
-        from coworker.brain.brain import Brain
-        from coworker.core.types import LLMResponse
-        from tests.conftest import MockProvider
+        assert mem.compression_budget_reached() is True
 
-        provider = MockProvider(LLMResponse(
-            content="compressed summary。关键词：test",
-            tool_calls=[], stop_reason="end_turn",
-            model="mock-model", usage={},
-        ))
-        brain = Brain("mock", "mock-model")
-        brain.register_provider(provider)
-
-        # set very low threshold so a few messages trigger compression
-        # tree_enabled=False: exercise the legacy single-anchor path explicitly.
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1, tree_enabled=False)
-        for i in range(8):
-            mem.primary.append(Message(role="user", content=f"message {i} " * 5))
-
-        await mem.compress_if_needed(brain)
-        # compression runs in background; wait for it
-        assert mem._compress_task is not None
-        await mem._compress_task
-
-        # primary should be shorter now
-        assert len(mem.primary) < 8
-        # summary message injected
-        assert any("行动摘要" in m.content for m in mem.primary)
-        # an actual compression bumps the generation counter
-        assert mem.compress_generation == 1
-        # compressor no longer writes long-term memory (owned by the subconscious)
-        mock_long_term.write.assert_not_awaited()
+    @pytest.mark.parametrize("ratio", [0, 1, -0.1, 1.1])
+    def test_compress_ratio_must_be_between_zero_and_one(self, ratio):
+        with pytest.raises(ValueError, match="compress_ratio"):
+            ShortTermMemory(compress_ratio=ratio)
 
     def test_compress_preview_empty_when_too_small(self):
         mem = ShortTermMemory(max_tokens=10_000)
         mem.primary.append(Message(role="user", content="hi"))
         mem.primary.append(Message(role="assistant", content="hello"))
         assert mem.compress_preview() == []
+
+    def test_compress_ratio_selects_the_same_oldest_prefix_in_tree_and_legacy_modes(self):
+        messages = [
+            Message(role="user", content=f"{index}:" + "x" * 400)
+            for index in range(10)
+        ]
+        tree = ShortTermMemory(compress_ratio=0.30, tree_enabled=True)
+        legacy = ShortTermMemory(compress_ratio=0.30, tree_enabled=False)
+        tree.primary.extend(messages)
+        legacy.primary.extend(messages)
+
+        tree_preview = tree.compress_preview()
+        legacy_preview = legacy.compress_preview()
+
+        assert tree_preview == legacy_preview
+        assert tree_preview == messages[:3]
 
     def test_compress_all_preview_excludes_active_tool_use_tail(self):
         mem = ShortTermMemory()
@@ -177,7 +163,7 @@ class TestShortTermMemory:
         brain = Brain("mock", "mock-model")
         brain.register_provider(provider)
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1, tree_enabled=False)
+        mem = ShortTermMemory(max_tokens=10, tree_enabled=False)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -212,7 +198,7 @@ class TestShortTermMemory:
     @pytest.mark.asyncio
     async def test_tree_promotion_moves_slice_out_and_renders_prefix(self):
         brain = self._summary_brain()
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)  # tree_enabled default True
+        mem = ShortTermMemory(max_tokens=10)  # tree_enabled default True
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -242,7 +228,7 @@ class TestShortTermMemory:
         brain = Brain("mock", "mock-model")
         brain.register_provider(provider)
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -257,7 +243,7 @@ class TestShortTermMemory:
     @pytest.mark.asyncio
     async def test_tree_serialize_round_trip(self):
         brain = self._summary_brain()
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
         await mem.compress_now(brain)
@@ -359,7 +345,7 @@ class TestShortTermMemory:
         # C1: brain.summarize 的 await 期间主循环 clear() 了 primary 前缀 →
         # 压缩必须放弃 splice，不能误删新消息、也不能加叶子。
         brain = self._summary_brain()
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -383,7 +369,7 @@ class TestShortTermMemory:
         from coworker.memory.memory_tree import MemoryNode
 
         brain = self._summary_brain()
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -415,7 +401,7 @@ class TestShortTermMemory:
         from coworker.memory.memory_tree import MemoryNode
 
         brain = self._summary_brain()
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"message {i} " * 5))
 
@@ -456,7 +442,7 @@ class TestShortTermMemory:
         brain.summarize = AsyncMock(return_value="叶子摘要")
         brain.active_provider = None
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"msg {i} " * 5))
 
@@ -486,7 +472,7 @@ class TestShortTermMemory:
         brain.summarize = AsyncMock(side_effect=["巨" * 1000, "短"])
         brain.active_provider = None
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"msg {i} " * 5))
 
@@ -511,7 +497,7 @@ class TestShortTermMemory:
         brain.summarize = AsyncMock(side_effect=["", "短"])
         brain.active_provider = None
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"msg {i} " * 5))
 
@@ -531,7 +517,7 @@ class TestShortTermMemory:
         brain.summarize = AsyncMock(return_value="摘要")
         brain.active_provider = None
 
-        mem = ShortTermMemory(max_tokens=10, compress_threshold=0.1)
+        mem = ShortTermMemory(max_tokens=10)
         for i in range(8):
             mem.primary.append(Message(role="user", content=f"msg {i} " * 5))
 

@@ -283,15 +283,6 @@ class AgentLoop:
             await self._auto_recall(combined_text)
             await self._task_reminder()
         else:
-            if self._subconscious is not None and self._short_term.should_compress():
-                # 只把「即将被压缩掉的那段」交给潜意识，避免它反复提炼仍驻留的尾部内容。
-                await self._subconscious.notify_pre_compress(self._short_term.compress_preview())
-            _compress_system_prompt = self._prompt_builder.build()
-            await self._short_term.compress_if_needed(
-                self._brain,
-                self._snapshot_path,
-                agent_system_prompt=_compress_system_prompt,
-            )
             await self._task_reminder()
 
         # 仅在「实际发生压缩」后刷新系统提示词：模型刚写入的 identity / thinking /
@@ -426,7 +417,10 @@ class AgentLoop:
             recall_query = assistant_msg.reasoning_content or assistant_msg.content_text()
             await self._auto_recall(recall_query)
             await self._task_reminder()
-        elif not events:
+
+        await self._compress_after_budget_reached(input_tokens, system_prompt)
+
+        if not response.tool_calls and not events:
             await self._rest()
 
         self.state.cycle_count += 1
@@ -443,6 +437,43 @@ class AgentLoop:
     @staticmethod
     def _build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
         return build_content_blocks(events)
+
+    async def _compress_after_budget_reached(
+        self,
+        observed_input_tokens: int,
+        system_prompt: str,
+    ) -> None:
+        """Run one compression pass after a completed main-model request reaches budget.
+
+        Provider usage is the preferred measurement because it reflects the complete
+        request. Providers without usage fall back to an estimate of the currently
+        rendered short-term context. The budget is a trigger, not a hard request cap:
+        one pass runs per completed main cycle and temporary overshoot is allowed.
+        """
+        if not self._short_term.compression_budget_reached(observed_input_tokens):
+            return
+
+        preview = self._short_term.compress_preview()
+        if not preview:
+            logger.warning(
+                "Context compression budget reached, but no complete message slice is compressible"
+            )
+            return
+
+        if self._subconscious is not None:
+            # 只把即将离开原始尾部的切片交给潜意识，避免重复提炼仍驻留的内容。
+            await self._subconscious.notify_pre_compress(preview)
+
+        compressed, _ = await self._short_term.compress_now(
+            self._brain,
+            agent_system_prompt=system_prompt,
+        )
+        if compressed:
+            source = "provider" if observed_input_tokens > 0 else "estimated"
+            logger.info(
+                f"Context compression budget reached ({source}); "
+                f"compressed {compressed} message(s)"
+            )
 
     async def _act(self, tool_calls) -> None:
         results: list[ToolResult] = []

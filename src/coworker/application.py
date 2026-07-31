@@ -353,12 +353,9 @@ def _build_stm_kwargs(config: Config, log_store: LogStore) -> dict:
     """ShortTermMemory 的构造参数（含记忆树配置），供主入口与回溯命令复用。"""
     return dict(
         max_tokens=config.memory.short_term_max_tokens,
-        compress_threshold=config.memory.compress_threshold,
         compress_ratio=config.memory.compress_ratio,
-        compress_protected_tail=config.memory.compress_protected_tail,
         log_store=log_store,
         tree_enabled=config.memory.tree_enabled,
-        tree_tail_fraction=config.memory.tree_tail_fraction,
         tree_spine_cap_fraction=config.memory.tree_spine_cap_fraction,
         tree_backfill_concurrency=config.memory.tree_backfill_concurrency,
         tree_merge_reach_depth=config.memory.tree_merge_reach_depth,

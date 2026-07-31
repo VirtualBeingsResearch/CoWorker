@@ -1050,7 +1050,7 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
         <span><small>{t('采样模型')}</small><b>{water.provider}/{water.model}</b></span>
         <span><small>{t('当前短期估算')}</small><b>{Number(water.estimated_short_term_tokens).toLocaleString()} token</b></span>
         <span><small>{t('消息 / 脊柱 / 固定项')}</small><b>{data.stats.message_count} / {data.stats.tree_node_count} / {data.stats.pinned_count}</b></span>
-        <p><ShieldCheck size={13} />{t('精确值包含系统提示与工具定义；短期估算用于判断压缩水位。')}</p>
+        <p><ShieldCheck size={13} />{t('优先按最近一次精确输入触发压缩；无精确值时回退当前短期估算。')}</p>
       </div>
       <button className="icon-btn watermark-refresh" onClick={() => void reload()} title={t('刷新短期记忆')} aria-label={t('刷新短期记忆')}><RefreshCw size={16} /></button>
     </section>

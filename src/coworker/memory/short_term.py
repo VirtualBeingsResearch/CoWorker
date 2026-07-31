@@ -30,27 +30,23 @@ class ShortTermMemory:
     def __init__(
         self,
         max_tokens: int = 80_000,
-        compress_threshold: float = 0.55,
-        compress_ratio: float = 0.25,
-        compress_protected_tail: float = 0.40,
+        compress_ratio: float = 0.30,
         log_store: LogStore | None = None,
         tree_enabled: bool = True,
-        tree_tail_fraction: float = 0.60,
         tree_spine_cap_fraction: float = 0.40,
         tree_backfill_concurrency: int = 5,
         tree_merge_reach_depth: int = 2,
     ) -> None:
+        if not 0 < compress_ratio < 1:
+            raise ValueError("compress_ratio must be between 0 and 1")
         self.primary: list[Message] = []
         self.pinned_items: list[PinnedItem] = []
         self.threads: dict[str, ConversationThread] = {}
         self.active_provider: str = ""
         self.active_model: str = ""
         self._max_tokens = max_tokens
-        self._compress_threshold = compress_threshold
         self._compress_ratio = compress_ratio
-        self._compress_protected_tail = compress_protected_tail
         self._compressing = False
-        self._compress_task: asyncio.Task | None = None
         self._tree_rebalance_task: asyncio.Task | None = None
         # 每发生一次实际压缩自增，作为进程内「上下文已被压缩」的信号，
         # 供主循环检测并在压缩时刷新系统提示词快照。
@@ -60,10 +56,6 @@ class ShortTermMemory:
         # 提升为树叶并按时间尺度级联合并；脊柱活在 primary 之外，由 build_context 渲染。
         self._tree_enabled = tree_enabled
         self._log_store = log_store
-        # tree_enabled 时尾部保护比例改由 tree_tail_fraction 决定（取代 legacy compress_protected_tail）
-        self._protected_tail_fraction = (
-            tree_tail_fraction if tree_enabled else compress_protected_tail
-        )
         self.tree = MemoryBlockTree(
             spine_cap_tokens=int(max_tokens * tree_spine_cap_fraction),
             reach_depth=tree_merge_reach_depth,
@@ -245,26 +237,16 @@ class ShortTermMemory:
     def _compress_cutoff(self, total_tokens: int) -> int:
         """Index such that ``primary[:cutoff]`` is what compression would compress.
 
-        The newest ``compress_protected_tail`` share of tokens is never compressed;
-        within the remainder, walk forward up to ``compress_ratio`` of tokens, then
-        extend to keep trailing tool-call chains intact. Returns 0 if there is nothing
-        worth compressing (fewer than 2 messages would be cut).
+        Walk forward through the oldest messages up to ``compress_ratio`` of the
+        current primary token count, then extend to keep trailing tool-call chains
+        intact. Tree and legacy modes share this selection policy; they differ only
+        in where the resulting summary is stored. Returns 0 if fewer than two
+        messages would be cut.
         """
-        # Determine protected tail boundary (newest N% of tokens are never compressed)
-        protected_budget = int(total_tokens * self._protected_tail_fraction)
-        protected_start = len(self.primary)
-        tail_tokens = 0
-        for i in range(len(self.primary) - 1, -1, -1):
-            tail_tokens += estimate_content_tokens(self.primary[i].content)
-            if tail_tokens >= protected_budget:
-                protected_start = i + 1
-                break
-
-        # Walk forward to find cutoff within compress_ratio token budget
         compress_budget = int(total_tokens * self._compress_ratio)
         cutoff = 0
         accumulated = 0
-        for i in range(protected_start):
+        for i in range(len(self.primary)):
             t = estimate_content_tokens(self.primary[i].content)
             if accumulated + t > compress_budget:
                 break
@@ -274,8 +256,8 @@ class ShortTermMemory:
         if cutoff < 2:
             return 0
 
-        # Extend cutoff over the FULL trailing tool-result run — even past protected_start.
-        # 否则当一组并行 tool_result 跨越 protected_start 边界时，会把 assistant[tool_use]
+        # Extend cutoff over the FULL trailing tool-result run.
+        # 否则当一组并行 tool_result 跨越预算切点时，会把 assistant[tool_use]
         # 压进切片、却把它的部分 tool_result 留在保留侧开头，形成「孤儿 tool_result」
         # （无父 tool_use），下一次 build_context 会被 provider 拒绝。宁可多压一点也要保链完整。
         n = len(self.primary)
@@ -680,47 +662,14 @@ class ShortTermMemory:
         )
         return len(to_compress), 0
 
-    def should_compress(self) -> bool:
+    def compression_budget_reached(self, token_count: int | None = None) -> bool:
+        """Whether an observed or estimated context has reached the compression budget."""
         if self._compressing:
             return False
-        threshold = int(self._max_tokens * self._compress_threshold)
-        return self.estimate_tokens() >= threshold
-
-    async def compress_if_needed(
-        self,
-        brain: Brain,
-        snapshot_path: Path | None = None,
-        agent_system_prompt: str = "",
-    ) -> None:
-        if self._compressing:
-            return
-        threshold = int(self._max_tokens * self._compress_threshold)
-        token_count = await brain.count_tokens(self.primary)
-        if token_count < threshold:
-            return
-        self._compress_task = asyncio.create_task(
-            bind_locale(
-                lambda: self._do_compress_and_snapshot(brain, snapshot_path, agent_system_prompt)
-            )
+        measured = token_count if token_count is not None and token_count > 0 else sum(
+            estimate_content_tokens(message.content) for message in self.build_context()
         )
-        self._compress_task.add_done_callback(self._on_compress_done)
-
-    async def _do_compress_and_snapshot(
-        self,
-        brain: Brain,
-        snapshot_path: Path | None,
-        agent_system_prompt: str = "",
-    ) -> tuple[int, int]:
-        result = await self._do_compress(brain, agent_system_prompt=agent_system_prompt)
-        if snapshot_path:
-            self.save_to_file(snapshot_path)
-            logger.debug("Snapshot saved after background compression")
-        return result
-
-    @staticmethod
-    def _on_compress_done(task: asyncio.Task) -> None:
-        if not task.cancelled() and task.exception():
-            logger.error(f"Background compression failed: {task.exception()}")
+        return measured >= self._max_tokens
 
     def schedule_tree_rebalance_if_needed(
         self,
@@ -767,7 +716,7 @@ class ShortTermMemory:
         context_hint: str | None = None,
         agent_system_prompt: str = "",
     ) -> tuple[int, int]:
-        """Force compress regardless of threshold. Returns (messages_compressed, memories_saved)."""
+        """Force one compression pass. Returns (messages_compressed, memories_saved)."""
         return await self._do_compress(brain, context_hint, agent_system_prompt)
 
     async def compress_all_now(
@@ -1039,7 +988,7 @@ class ShortTermMemory:
 
     @classmethod
     def deserialize(cls, data: dict, **kwargs) -> ShortTermMemory:
-        # kwargs 透传给 __init__（max_tokens / compress_* / log_store / tree_* 等）。
+        # kwargs 透传给 __init__（max_tokens / compress_ratio / log_store / tree_* 等）。
         mem = cls(**kwargs)
         mem.tree.load(data.get("tree", {}))
         mem._heal_legacy_tree_nodes()

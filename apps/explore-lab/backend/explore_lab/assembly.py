@@ -105,12 +105,9 @@ from explore_lab.lab_communicate import LabCommunicateTool
 def _build_stm_kwargs(config: Config, log_store: LogStore) -> dict:
     return dict(
         max_tokens=config.memory.short_term_max_tokens,
-        compress_threshold=config.memory.compress_threshold,
         compress_ratio=config.memory.compress_ratio,
-        compress_protected_tail=config.memory.compress_protected_tail,
         log_store=log_store,
         tree_enabled=config.memory.tree_enabled,
-        tree_tail_fraction=config.memory.tree_tail_fraction,
         tree_spine_cap_fraction=config.memory.tree_spine_cap_fraction,
         tree_backfill_concurrency=config.memory.tree_backfill_concurrency,
         tree_merge_reach_depth=config.memory.tree_merge_reach_depth,

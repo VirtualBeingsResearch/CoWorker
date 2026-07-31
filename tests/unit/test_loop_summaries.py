@@ -213,7 +213,6 @@ async def test_cycle_records_latest_main_response_input_tokens():
     mem = ShortTermMemory()
     brain = _make_brain(usage={"input_tokens": 321, "output_tokens": 12})
     loop = _make_loop(brain, mem)
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -230,7 +229,6 @@ async def test_user_event_appended_to_primary():
     brain = _make_brain()
     event = IncomingEvent(participant_id="alice", content="hello", source="wecom")
     loop = _make_loop(brain, mem, events=[event])
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -245,7 +243,6 @@ async def test_prompt_refreshed_only_after_compression():
     mem = ShortTermMemory()
     brain = _make_brain()
     loop = _make_loop(brain, mem)
-    loop._short_term.compress_if_needed = AsyncMock()
 
     # 无压缩发生：generation 未变，不应刷新系统提示词输入
     await loop._cycle()
@@ -262,7 +259,6 @@ async def test_recent_activity_syncs_only_after_compression_generation_changes()
     mem = ShortTermMemory()
     brain = _make_brain()
     loop = _make_loop(brain, mem)
-    loop._short_term.compress_if_needed = AsyncMock()
     recent = MagicMock()
     recent.schedule_sync_compressed_from_log = MagicMock()
     loop._recent_activity = recent
@@ -286,7 +282,6 @@ async def test_assistant_response_appended_to_primary():
     brain = _make_brain(content="my reply")
     event = IncomingEvent(participant_id="alice", content="hi")
     loop = _make_loop(brain, mem, events=[event])
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -379,7 +374,6 @@ async def test_tool_results_appended_to_primary():
 
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="do it")])
     loop._tools = tools
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -389,28 +383,48 @@ async def test_tool_results_appended_to_primary():
 
 
 @pytest.mark.asyncio
-async def test_compress_called_when_idle():
-    mem = ShortTermMemory()
-    brain = _make_brain()
+async def test_compresses_once_after_provider_input_reaches_budget():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
     loop = _make_loop(brain, mem, events=[])
-    loop._short_term.compress_if_needed = AsyncMock()
+    mem.compress_now = AsyncMock(return_value=(2, 0))
 
     await loop._cycle()
 
-    loop._short_term.compress_if_needed.assert_awaited_once()
+    mem.compress_now.assert_awaited_once_with(
+        brain,
+        agent_system_prompt="system prompt",
+    )
 
 
 @pytest.mark.asyncio
-async def test_compress_not_called_when_event_received():
-    mem = ShortTermMemory()
-    brain = _make_brain()
+async def test_does_not_compress_below_provider_input_budget():
+    mem = ShortTermMemory(max_tokens=100)
+    brain = _make_brain(usage={"input_tokens": 99})
     event = IncomingEvent(participant_id="alice", content="hi")
     loop = _make_loop(brain, mem, events=[event])
-    loop._short_term.compress_if_needed = AsyncMock()
+    mem.compress_now = AsyncMock(return_value=(2, 0))
 
     await loop._cycle()
 
-    loop._short_term.compress_if_needed.assert_not_awaited()
+    mem.compress_now.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_budget_compression_also_runs_on_event_cycles():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 101})
+    event = IncomingEvent(participant_id="alice", content="hi")
+    loop = _make_loop(brain, mem, events=[event])
+    mem.compress_now = AsyncMock(return_value=(2, 0))
+
+    await loop._cycle()
+
+    mem.compress_now.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -428,7 +442,6 @@ async def test_extra_events_pushed_back():
     loop = _make_loop(brain, mem)
     loop._inbox = inbox
     loop._config.agent.inbox_batch_max = 1  # 只处理第一条，其余入队
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -448,7 +461,6 @@ async def test_tick_not_injected_after_tool_use():
     brain = _make_brain()
     loop = _make_loop(brain, mem, events=[])
     loop.state.tick = True
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -466,7 +478,6 @@ async def test_tick_injected_after_end_turn():
     brain = _make_brain()
     loop = _make_loop(brain, mem, events=[])
     loop.state.tick = True
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -486,7 +497,6 @@ async def test_tick_suppressed_when_pins_reinjected():
     brain = _make_brain()
     loop = _make_loop(brain, mem, events=[])
     loop.state.tick = True
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -507,7 +517,6 @@ async def test_tick_fires_normally_when_no_pins_reinjected():
     brain = _make_brain()
     loop = _make_loop(brain, mem, events=[])
     loop.state.tick = True
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -522,7 +531,6 @@ async def test_auto_recall_skips_empty_query():
     brain = _make_brain()
     event = IncomingEvent(participant_id="alice", content="")
     loop = _make_loop(brain, mem, events=[event])
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -545,7 +553,6 @@ async def test_same_user_events_batched_into_one_message():
 
     loop = _make_loop(brain, mem)
     loop._inbox = inbox
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -578,7 +585,6 @@ async def test_mixed_users_batched_together():
 
     loop = _make_loop(brain, mem)
     loop._inbox = inbox
-    loop._short_term.compress_if_needed = AsyncMock()
 
     await loop._cycle()
 
@@ -613,7 +619,6 @@ async def test_auto_recall_injects_and_deduplicates():
     }
 
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="Python")])
-    loop._short_term.compress_if_needed = AsyncMock()
 
     # 激活 auto_recall：给 _mem 设一个非 None 值，query 返回 fake_memory
     loop._long_term._mem = MagicMock()
@@ -647,7 +652,6 @@ async def test_recent_activity_auto_recall_injects_and_deduplicates():
     mem = ShortTermMemory()
     brain = _make_brain()
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="部署结果")])
-    loop._short_term.compress_if_needed = AsyncMock()
     loop._config.memory.recent_activity_auto_recall_enabled = True
     loop._config.memory.recent_activity_auto_recall_limit = 2
     loop._config.memory.recent_activity_auto_recall_relevance_threshold = 0.72
@@ -705,7 +709,6 @@ async def test_skill_warning_injected_into_model_context():
     brain = _make_brain()
     event = IncomingEvent(participant_id="alice", content="需要一个 skill")
     loop = _make_loop(brain, mem, events=[event])
-    loop._short_term.compress_if_needed = AsyncMock()
     loop._prompt_builder.consume_skill_load_warnings.return_value = [
         "Skill 文件 D:\\tmp\\bad-skill\\SKILL.md 的 YAML frontmatter 解析失败。"
     ]

@@ -69,12 +69,9 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | 长期记忆数据库目录 |
-| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | 短期记忆 token 上限 |
-| `MEMORY__COMPRESS_THRESHOLD` | `0.55` | 触发自动压缩的阈值 |
-| `MEMORY__COMPRESS_RATIO` | `0.25` | legacy 单锚点压缩时每次处理的上下文比例 |
-| `MEMORY__COMPRESS_PROTECTED_TAIL` | `0.40` | legacy 单锚点压缩时保留在尾部的原始消息比例 |
+| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
+| `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |
-| `MEMORY__TREE_TAIL_FRACTION` | `0.70` | 尾部保留原始消息的 token 占比 |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | 记忆树脊柱 token 上限占比 |
 | `MEMORY__TREE_BACKFILL_MAX_LEAVES` | `64` | `--backfill-tree` 一次性回溯历史生成的叶子数上限 |
 | `MEMORY__TREE_BACKFILL_CONCURRENCY` | `5` | 回溯时叶子摘要/归约合并的并发上限 |
