@@ -643,7 +643,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '采样模型': 'Sampled model',
   '当前短期估算': 'Current short-term estimate',
   '消息 / 脊柱 / 固定项': 'Messages / spine / pinned',
-  '精确值包含系统提示与工具定义；短期估算用于判断压缩水位。': 'The exact value includes the system prompt and tool definitions; the short-term estimate guides compression.',
+  '优先按最近一次精确输入触发压缩；无精确值时回退当前短期估算。': 'Compression uses the latest exact model input when available and falls back to the current short-term estimate.',
   '刷新短期记忆': 'Refresh short-term memory',
   '记忆脊柱': 'Memory spine',
   '越老的记忆层级越高；展开节点可向下查看保留的细节。': 'Older memories sit higher in the hierarchy; expand a node to inspect retained detail.',

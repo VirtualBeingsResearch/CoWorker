@@ -106,7 +106,7 @@ coworker/
 
 ## Memory system
 
-Short-term memory is divided into the agent's own thought stream and participant-isolated conversation threads. When token usage reaches `MEMORY__COMPRESS_THRESHOLD`, the system compresses older messages through the **multiresolution memory tree** described below. Immediately before compression, the subconscious process also extracts durable information into mem0.
+Short-term memory is divided into the agent's own thought stream and participant-isolated conversation threads. When the latest complete model input reaches the `MEMORY__SHORT_TERM_MAX_TOKENS` budget, the system compresses the oldest share selected by `MEMORY__COMPRESS_RATIO` through the **multiresolution memory tree** described below. Immediately before compression, the subconscious process also extracts durable information into mem0. The budget is a compression trigger and allows temporary overshoot.
 
 ### Multiresolution memory tree (short-term memory LOD)
 
