@@ -57,8 +57,8 @@ class DetailStore:
         except OSError as error:
             logger.warning(f"Failed to list desktop detail dir {directory}: {error}")
             return
-        cutoff = time.time() - _DETAIL_MAX_AGE_SECONDS
-        expired = [path for path in files if self._mtime(path) < cutoff]
+        cutoff = time.time_ns() - (_DETAIL_MAX_AGE_SECONDS * 1_000_000_000)
+        expired = [path for path in files if self._mtime_ns(path) < cutoff]
         expired_set = set(expired)
         for path in expired:
             self._unlink(path)
@@ -66,16 +66,16 @@ class DetailStore:
         excess = len(survivors) - _DETAIL_MAX_FILES
         if excess <= 0:
             return
-        survivors.sort(key=self._mtime)
+        survivors.sort(key=lambda path: (self._mtime_ns(path), path.name))
         for path in survivors[:excess]:
             self._unlink(path)
 
     @staticmethod
-    def _mtime(path: Path) -> float:
+    def _mtime_ns(path: Path) -> int:
         try:
-            return path.stat().st_mtime
+            return path.stat().st_mtime_ns
         except OSError:
-            return float("inf")
+            return 2**63 - 1
 
     @staticmethod
     def _unlink(path: Path) -> None:

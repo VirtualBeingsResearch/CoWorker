@@ -226,10 +226,7 @@ fn default_macos_codex_app_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
 
 #[cfg(any(not(windows), test))]
 fn default_unix_runtime_bin_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
-    let mut paths = vec![
-        PathBuf::from("/opt/homebrew/bin"),
-        PathBuf::from("/usr/local/bin"),
-    ];
+    let mut paths = Vec::new();
     if let Some(home) = home_value {
         let home = PathBuf::from(home);
         paths.extend([
@@ -241,6 +238,10 @@ fn default_unix_runtime_bin_paths(home_value: Option<&OsStr>) -> Vec<PathBuf> {
         ]);
         paths.extend(nvm_bin_paths(&home));
     }
+    paths.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]);
     paths.retain(|path| path.is_dir());
     paths
 }

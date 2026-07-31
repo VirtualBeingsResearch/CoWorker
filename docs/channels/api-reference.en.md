@@ -1,0 +1,134 @@
+# API Reference
+
+[中文](api-reference.md) · English
+
+[← Back to Channels and Clients](README.en.md)
+
+This page documents HTTP, SSE, and WebSocket contracts for local integrations. See
+[API and Communication Channels](api-and-channels.en.md) for Channel extension and full behavior.
+Coworker v0.x does not provide an enterprise multi-tenant authorization boundary. Do not expose
+the API directly to the public internet.
+
+## OpenAPI
+
+After first-time setup, FastAPI provides:
+
+- OpenAPI JSON: `GET /openapi.json`
+- Swagger UI: `GET /docs`
+- ReDoc: `GET /redoc`
+
+Before setup is complete, ordinary routes redirect to `/admin`. The generated schema includes
+management implementation endpoints. `/api/admin/*` primarily serves the matching Web management
+console and is not a long-term compatibility promise for independent clients.
+
+## Authentication scope
+
+| Endpoint class | Default authentication |
+|---|---|
+| Ordinary local `POST /messages` and `GET /status` | No separate Bearer; relies on loopback/trusted-network isolation |
+| Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
+| `/api/admin/*` and configuration export | Administrator token |
+| Desktop release management | Desktop-update administrator token or administrator token |
+
+The first-run flow falls back to the administrator token when no separate communication token is
+configured. Set `API__COMMUNICATION_TOKEN` for long-running use. Do not use development mode as an
+authentication workaround.
+
+## Core HTTP endpoints
+
+| Method and path | Purpose |
+|---|---|
+| `POST /messages` | Queue a message and optional attachments for the Agent |
+| `GET /status` | Runtime, model, and usage snapshot |
+| `GET /profile` | Identity, profile text, and earliest log time |
+| `POST /switch_model` | Switch the main Provider/model |
+| `GET/PATCH /model_config` | Read or change summary, fallback, and vision settings |
+| `GET/POST /backfill_tree` | Query or start historical memory-tree backfill |
+| `GET /backups` | List emergency short-term-context backups |
+| `POST /backups/restore` | Restore an emergency backup in `full` or `summarize` mode |
+| `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
+
+### Send a message
+
+```json
+{
+  "sender_id": "integration:alice",
+  "content": "Summarize today's tasks",
+  "conversation_id": "daily",
+  "attachments": [
+    {
+      "filename": "notes.txt",
+      "media_type": "text/plain",
+      "data": "base64-encoded-bytes"
+    }
+  ]
+}
+```
+
+An ordinary accepted message returns:
+
+```json
+{
+  "status": "queued",
+  "sender_id": "integration:alice",
+  "conversation_id": "daily"
+}
+```
+
+`sender_id` contributes to the persistent conversation-isolation boundary. Keep it stable,
+auditable, and unique to the participant. Attachment `data` is Base64. HTTP success means queued,
+not that a model response has completed.
+
+### Status and models
+
+```bash
+curl http://127.0.0.1:8000/status
+
+curl -X POST http://127.0.0.1:8000/switch_model \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
+```
+
+`/status` may gain fields when optional modules are available. Clients should tolerate unknown
+fields. Integrations that require an audit trail should retain the raw response and Coworker version.
+
+## SSE and WebSocket
+
+- WebSocket: `ws://127.0.0.1:8000/ws/{participant_id}` for bidirectional text.
+- SSE: `GET /sse/{participant_id}` for outbound messages; send inbound messages through
+  `POST /messages` with the same ID.
+- Only one SSE or WebSocket connection may use a `participant_id` at a time.
+- SSE sends a comment heartbeat every 15 seconds; proxies should disable response buffering.
+- `coworker-desktop:*` IDs require a communication Bearer. Native browser `EventSource` cannot set
+  an Authorization header, so do not use it for a protected Desktop participant.
+
+Outbound events contain message text and may include structured `extra`, such as Bubble handoff
+state. Prefer `extra.bubble` over parsing localized notice text.
+
+## Errors and retries
+
+FastAPI errors usually have this form:
+
+```json
+{"detail":"error description"}
+```
+
+| Status | Response |
+|---|---|
+| `400/422` | Correct request, model, or protocol fields; do not retry unchanged |
+| `401/403` | Check token and scope; never log the full Authorization value |
+| `404` | Check resource, version, or whether the feature is enabled |
+| `409` | A task or connection already exists; query its state first |
+| `503` | Agent, Channel, or token is not ready; retry with backoff |
+
+Ordinary `/messages` has no general idempotency key. Only the Desktop protocol uses `message_id`
+for bounded deduplication. Custom integrations should avoid repeating side-effecting messages.
+
+## Management and release endpoints
+
+`/api/admin/*`, `/api/desktop-updates/*`, and `/api/export_config` can change configuration,
+restore state, publish artifacts, or export secrets. Unless you are developing the matching
+official console, prefer the Web UI and read [Web Management Console](../guides/README.en.md) and
+[Data and Trust Boundaries](../architecture/data-boundaries.en.md) first.
+
+[← Back to project home](../../README.en.md)

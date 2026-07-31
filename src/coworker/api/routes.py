@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
@@ -121,6 +121,18 @@ def verify_communication_authorization(authorization: str | None) -> None:
         )
 
 
+def update_communication_token(token: str) -> None:
+    """Atomically replace the communication token used by existing ASGI routes."""
+
+    global _communication_token
+    _communication_token = token.strip()
+
+
+def is_authenticated_relay_request(request: Request) -> bool:
+    relay = request.scope.get("state", {}).get("coworker_relay")
+    return isinstance(relay, dict) and relay.get("authenticated_tunnel") is True
+
+
 class SwitchModelPayload(BaseModel):
     provider: str
     model_id: str = ""  # 省略则使用该 provider 实例配置的 default_model
@@ -163,7 +175,11 @@ def _model_config_response() -> dict:
 
 
 @router.post("/messages")
-async def post_message(message: MessagePayload, authorization: str | None = Header(default=None)):
+async def post_message(
+    message: MessagePayload,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
     if _inbox is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     is_desktop = (
@@ -171,8 +187,9 @@ async def post_message(message: MessagePayload, authorization: str | None = Head
         or message.message_id is not None
         or message.type is not None
     )
-    if is_desktop:
+    if is_desktop or is_authenticated_relay_request(request):
         verify_communication_authorization(authorization)
+    if is_desktop:
         if message.protocol_version != 1:
             raise HTTPException(status_code=422, detail=tr("api.message.protocol_version"))
         if not message.message_id:
@@ -224,7 +241,12 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
 
 
 @router.get("/status")
-async def get_status():
+async def get_status(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    if is_authenticated_relay_request(request):
+        verify_communication_authorization(authorization)
     if _agent is None:
         return {"status": "not_started"}
     s = _agent.state

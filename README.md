@@ -12,7 +12,7 @@
   <p>
     <a href="https://github.com/VirtualBeingsResearch/CoWorker/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VirtualBeingsResearch/CoWorker/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;logo=githubactions&amp;logoColor=white" alt="CI status"></a>
     <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.13+"></a>
-    <a href="#让她跑起来"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
+    <a href="#快速开始"><img src="https://img.shields.io/badge/deployment-self--hosted-6f42c1?style=flat-square" alt="Self-hosted"></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/VirtualBeingsResearch/CoWorker?style=flat-square&amp;color=2ea44f" alt="MIT License"></a>
     <a href="https://github.com/VirtualBeingsResearch/CoWorker/stargazers"><img src="https://img.shields.io/github/stars/VirtualBeingsResearch/CoWorker?style=flat-square&amp;logo=github&amp;label=stars" alt="GitHub stars"></a>
   </p>
@@ -21,7 +21,7 @@
     <span> · </span>
     <a href="#她在团队里扮演什么角色"><strong>团队协作</strong></a>
     <span> · </span>
-    <a href="#让她跑起来"><strong>快速开始</strong></a>
+    <a href="#快速开始"><strong>快速开始</strong></a>
     <span> · </span>
     <a href="docs/README.md"><strong>文档</strong></a>
     <span> · </span>
@@ -33,7 +33,7 @@
 
 ![Coworker Web 身份主页，展示 Aster 的身份、当前状态与自述](docs/assets/screenshots/web-identity-zh.png)
 
-<p align="center"><sub>Web 身份主页 · 截图使用隔离的伪造演示数据。</sub></p>
+<p align="center"><sub>Web 身份主页 · 查看搭档的身份、当前状态与自述。</sub></p>
 
 大多数 AI 只在你提问时出现，回答完便停下。Coworker 选择持续在场：她拥有自己的身份和记忆，能调用真实工具完成工作，也可以在后台整理经验，并通过 API、企业微信或 Coworker Desktop 出现在你已经熟悉的工作流里。
 
@@ -81,8 +81,6 @@
 <p align="center"><sub>Web 用量页 · 从总量下钻到模型、来源、缓存与工具调用。</sub></p>
 
 </details>
-
-> 本页截图均使用隔离的伪造演示数据，不包含真实用户、密钥、会话或运行记录。
 
 ## 为什么称她为“虚拟生命体”？
 
@@ -137,156 +135,88 @@ flowchart LR
 
 在一次请求里，Coworker 可以找回昨天的上下文，调用文件与代码工具完成排查，把值得保留的结论写入记忆，再设置一个可跨重启恢复的提醒。对她来说，这些不是彼此孤立的功能，而是同一个持续循环里的动作。
 
-## 让她跑起来
+## 快速开始
 
-当前只支持从源码运行，不提供 PyPI / wheel 安装路径。准备好
-**Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)，克隆本仓库并进入项目目录后：
+最快的本地体验路径是从源码启动。你需要 **Python 3.13+**、
+[uv](https://docs.astral.sh/uv/) 和一个支持 tool/function calling 的模型服务
+（通常需要 API Key）。
+当前不提供 PyPI / wheel 安装包。
+
+### 1. 启动 Coworker
 
 ```bash
-# 1. 克隆仓库并进入项目目录
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-
-# 2. 安装依赖
 uv sync
-
-# 3. 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium
-
-# 4. 直接启动
 uv run coworker
-# 或
-uv run python -m coworker
 ```
 
-当前 `pyproject.toml` 在所有平台都使用 PyTorch CPU 索引。如需在 Windows/Linux
-上使用 NVIDIA GPU（CUDA 13.0），请按文件中的注释切换 `torch` source，再执行
-`uv lock && uv sync`。
-
-> [!NOTE]
-> Intel macOS 无法安装当前版本的 PyTorch wheel。请使用仓库内的
-> [Dev Container](docs/development/development.md#dev-container)，在 Linux x86_64
-> 容器中完成 Python 开发和测试。
-
-启动后，Agent 循环、文件 inbox 监听和 FastAPI 服务会同时运行。默认 API 地址为 `http://localhost:8000`。
-
-> [!TIP]
-> 首次启动不需要先写 `.env`。如果还没有管理员令牌，终端会显示一次自动生成的令牌并将它保存到 `data/admin_config.json`。用它打开 `http://localhost:8000/admin`，按照向导填写模型服务、API Key 和启动模型即可。保存后 Coworker 会安全重启并开始工作。
-
-Debian/Ubuntu 如果还缺少 Chromium 的系统库，可改用
-`uv run playwright install --with-deps chromium`。FFmpeg 仅在 `visual_analyze`
-需要压缩超限视频时使用；Docker 镜像已经内置 Chromium、系统库和 FFmpeg。
+`uv run python -m coworker` 与最后一条命令等价。首次运行不需要提前创建 `.env`。
 
 <details>
-<summary><strong>使用 Docker Compose</strong></summary>
-
-从仓库直接构建并启动。Compose 默认构建并使用预置 embedding 模型的严格离线镜像
-`ghcr.io/virtualbeingsresearch/coworker:offline`；首次构建会下载全部依赖和模型，
-并把配置的仓库转换为 Git bundle 放入镜像；运行时不会访问 Hugging Face 或 Git
-远端：
+<summary><strong>更想使用 Docker Compose？</strong></summary>
 
 ```bash
+git clone https://github.com/VirtualBeingsResearch/CoWorker.git
+cd CoWorker
 docker compose up --build
 ```
 
-只构建镜像：
-
-```bash
-docker compose build
-```
-
-首次启动会把镜像内 `/app` 复制到 `coworker-workspace` 卷，再从 bundle 补齐
-Git 历史、分支和 tag。`/app` 同时是 Coworker 实际运行的源码和 Agent 可编辑的
-工作区；运行数据保存到独立的 `coworker-state` 卷。最终镜像不会包含构建环境原始的
-`.git` 目录。更新镜像后，入口脚本只会把干净、未分叉的托管分支快进到镜像提交；
-本地修改、提交、其他分支和分叉历史都会保留。本地构建源码与默认 bundle 不同时，
-首次初始化会保留镜像中的源码并将差异显示为工作区修改。可在构建时嵌入兼容的自定义仓库：
-
-```bash
-COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/example/CoWorker.git COWORKER_BUNDLE_REPOSITORY_REF=main docker compose build
-```
-
-开发者可以直接复用已发布的严格离线镜像，并把当前 checkout 挂载为同一个 `/app`
-工作区，不需要额外的 Compose 文件：
-
-```bash
-COWORKER_WORKSPACE_SOURCE=. COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --pull always --no-build
-```
-
-此模式直接运行当前 checkout 的 `src/`，同时复用镜像内的 Linux 依赖、Chromium、
-FFmpeg 和预置 embedding 模型。修改 Python 源码后重启容器即可；如果
-`pyproject.toml` 或 `uv.lock` 改变，应重新构建镜像以同步 `/opt/venv`。
-
-非严格离线的 `runtime` 或 `with-embedder` 镜像还可在首次启动时通过
-`COWORKER_REPOSITORY_URL` 从其他仓库克隆。严格离线镜像会拒绝这种运行时网络访问；
-需要自定义仓库时应在构建阶段生成对应 bundle，或将自定义 bundle 挂载到容器并设置
-`COWORKER_REPOSITORY_BUNDLE`。已有 workspace 卷不会被重新克隆；只会按上述安全条件
-自动快进。
-
-如需使用标准运行时镜像（长期记忆首次启用时才下载本地 embedding 模型），可显式覆盖
-构建目标和镜像标签；缓存仍会保存在 `coworker-models` Docker 卷中。这个模型不是对话
-使用的大模型。
-
-```bash
-COWORKER_BUILD_TARGET=runtime COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:latest docker compose up --build
-```
-
-如需预置 embedding 模型、但仍允许容器在运行时访问 Hugging Face，可额外构建并发布
-非严格离线镜像：
-
-```bash
-docker build --target with-embedder -t coworker:with-embedder .
-```
-
-用 Compose 构建该变体时：
-
-```bash
-COWORKER_BUILD_TARGET=with-embedder COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:with-embedder docker compose up --build
-```
-
-可通过 `--build-arg EMBEDDER_MODEL=<HuggingFace 模型 ID>` 预置与
-`MEMORY__MEM0_EMBEDDER_MODEL` 一致的模型。已有记忆时不要直接更换 embedding 模型。
-
-如需禁止容器访问 Hugging Face Hub（不代表对话模型服务也离线），构建严格离线变体：
-
-```bash
-docker build --target offline -t coworker:offline .
-```
-
-用 Compose 构建该变体时：
-
-```bash
-COWORKER_BUILD_TARGET=offline COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline docker compose up --build
-```
-
-该变体会在预置完成后设置 `HF_HUB_OFFLINE=1`。运行时配置的 embedding 模型必须与
-镜像中预置的模型一致，且 `coworker-models` 卷必须包含该模型；新卷会由镜像自动初始化。
-否则会直接失败而不会尝试联网下载。它还会设置 `COWORKER_REPOSITORY_OFFLINE=1`，
-确保 Git 工作区只能从镜像内或显式挂载的 bundle 初始化。
+Compose 默认构建预置 embedding 模型的严格离线运行时镜像，并分别持久化工作区、
+运行状态和模型缓存。这里的“离线”只表示运行时不会从 Hugging Face 或 Git 远端补齐
+内容；你配置的对话模型服务仍可能需要联网。
 
 </details>
+
+> [!NOTE]
+> Intel macOS 无法安装当前版本的 PyTorch wheel，请通过
+> [Dev Container](docs/development/development.md#dev-container) 或 Docker 运行服务。
+> Debian / Ubuntu 缺少 Chromium 系统库时，改用
+> `uv run playwright install --with-deps chromium`。
+
+### 2. 完成首次设置
+
+第一次启动会在终端显示自动生成的管理员令牌，并保存到
+`data/admin_config.json`。打开 <http://127.0.0.1:8000/admin>，输入令牌，然后在向导中：
+
+1. 选择运行时语言和单次输出 Token 上限；
+2. 选择模型 Provider 与启动模型；
+3. 填写 API Key 和必要的 Base URL；
+4. 检查配置并保存。
+
+![Coworker 首次初始化向导](docs/assets/screenshots/admin-first-run-zh.png)
+
+<p align="center"><sub>首次初始化向导 · 配置运行语言、Provider 与启动模型。</sub></p>
+
+保存后 Coworker 会安全重启；页面短暂断开属于正常现象。管理员令牌和模型 API Key
+都属于敏感信息，不要发送到聊天、提交到 Git 或放进共享文档。
+
+### 3. 发出第一条消息
+
+等待页面重新连接后，打开 <http://127.0.0.1:8000/>。在身份主页右下角打开
+“与搭档对话”，首次使用时填写你的显示名称并点击“开始对话”，然后发送
+“你好，你是谁？”。收到回复，就说明前端、消息通道和当前模型已经可以正常工作。
 
 <details>
-<summary><strong>无人值守部署与身份配置</strong></summary>
-
-需要无人值守部署或希望通过环境注入密钥时，仍可复制 `.env.example` 为 `.env`。`.env`、系统环境变量、`providers.json` 与管理端配置可以并存。
-
-首次启动如果 `data/identity/name.txt` 不存在，身份模块会以未命名状态加载；后续可在 `data/identity/` 中维护名字、人格等身份文件。
-
-</details>
-
-## 和她打个招呼
-
-你可以在管理页面 <http://localhost:8000/admin> 查看状态，也可以直接发一条消息：
+<summary>无界面环境或排障时，通过 API 验证</summary>
 
 ```bash
-curl -X POST http://localhost:8000/messages \
+curl -X POST http://127.0.0.1:8000/messages \
   -H "Content-Type: application/json" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 ```
 
-更多 REST、SSE、WebSocket 和文件消息示例见
-[API 与通信入口](docs/channels/api-and-channels.md)。
+</details>
+
+接下来可以进入 [Web 管理后台](docs/guides/README.md)完善配置，安装
+[Coworker Desktop](docs/channels/desktop.md) 与 Codex / Claude Code 协作，或通过
+[API 与通信入口](docs/channels/api-and-channels.md) 接入自己的工具。
+
+> [!TIP]
+> 想完整了解运行方式、初始化检查、客户端选择和故障恢复，请继续阅读
+> [首次运行指南](docs/getting-started/README.md)。Docker 镜像、环境变量和持久卷的
+> 详细说明见[配置参考](docs/operations/configuration.md)。
 
 ## 同步上游源码
 
@@ -336,10 +266,15 @@ remote 和分支后执行 `git push`。
 | 文档 | 内容 |
 |---|---|
 | [文档索引](docs/README.md) | 全部使用、设计与协作文档 |
+| [首次运行](docs/getting-started/README.md) | 安装运行时、初始化模型、验证实例并选择客户端 |
+| [Web 管理后台](docs/guides/README.md) | 状态、记忆、任务、模型、身份、扩展与诊断 |
+| [虚拟生命理念与生命架构](docs/architecture/lifeform-philosophy.md) | 理念、生命机制、实验设施与架构判断原则 |
 | [配置与模型](docs/operations/configuration.md) | 环境变量、Provider、模型与多实例配置 |
 | [数据与信任边界](docs/architecture/data-boundaries.md) | 本地存储、外部服务、权限与数据清理 |
 | [API 与通信入口](docs/channels/api-and-channels.md) | REST、SSE、WebSocket 与文件消息 |
-| [Coworker Desktop](docs/channels/desktop.md) | 连接本机用户、Codex 与 Claude Code 的桌面工作台，以及 CLI、配置与构建说明 |
+| [Coworker Desktop](docs/channels/desktop.md) | 安装、首次连接、会话、权限、托盘与更新 |
+| [故障排查](docs/operations/troubleshooting.md) | 服务、模型、记忆、Desktop、Relay 与容器的检查顺序 |
+| [自托管中继（Relay）](docs/operations/relay.md) | 通过端到端加密从内网提供 Desktop通信、部署、配对、备份与运维 |
 | [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
 | [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |
 

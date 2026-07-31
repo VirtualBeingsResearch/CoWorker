@@ -43,6 +43,7 @@ def _client(
     wecom: dict | None = None,
     weixin: dict | None = None,
     channel_modules=None,
+    relay_client=None,
 ):
     config = Config.model_validate(
         {
@@ -80,11 +81,53 @@ def _client(
         palace_loader=None,
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
+        relay_client=relay_client,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
     app.include_router(admin.router)
     return TestClient(app), config
+
+
+def test_relay_status_does_not_return_token_until_explicitly_requested(tmp_path):
+    class FakeRelayClient:
+        def snapshot(self, *, include_token: bool = False):
+            result = {"status": "connected", "instance_id": "cw_abcdefgh"}
+            if include_token:
+                result["communication_token"] = "desktop-secret"
+            return result
+
+    client, _ = _client(tmp_path, relay_client=FakeRelayClient())
+    headers = {"Authorization": "Bearer secret"}
+
+    status = client.get("/api/admin/relay", headers=headers)
+    token = client.get("/api/admin/relay/token", headers=headers)
+
+    assert status.status_code == 200
+    assert "communication_token" not in status.json()
+    assert token.json() == {"communication_token": "desktop-secret"}
+
+
+def test_relay_token_rotation_uses_built_in_client(tmp_path):
+    class FakeRelayClient:
+        def __init__(self):
+            self.rotate_token = AsyncMock(
+                return_value={"status": "connecting", "instance_id": "cw_abcdefgh"}
+            )
+
+        def snapshot(self, *, include_token: bool = False):
+            return {"status": "connected", "instance_id": "cw_abcdefgh"}
+
+    relay = FakeRelayClient()
+    client, _ = _client(tmp_path, relay_client=relay)
+    response = client.post(
+        "/api/admin/relay/rotate-token",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["instance_id"] == "cw_abcdefgh"
+    relay.rotate_token.assert_awaited_once()
 
 
 def test_admin_alarm_accepts_browser_utc_timestamp(tmp_path):
@@ -633,11 +676,12 @@ def test_config_response_identifies_overridden_fields(tmp_path):
 
 def test_config_patch_explicitly_clears_one_override(tmp_path):
     path = tmp_path / "admin_config.json"
+    client, config = _client(tmp_path)
+    retained_host = "0.0.0.0" if config.api.host != "0.0.0.0" else "127.0.0.1"
     path.write_text(
-        json.dumps({"api": {"host": "0.0.0.0", "port": 8123}}),
+        json.dumps({"api": {"host": retained_host, "port": 8123}}),
         encoding="utf-8",
     )
-    client, config = _client(tmp_path)
     config.api.port = 8123
 
     response = client.patch(
@@ -647,9 +691,7 @@ def test_config_patch_explicitly_clears_one_override(tmp_path):
     )
 
     assert response.status_code == 200
-    assert json.loads(path.read_text(encoding="utf-8")) == {
-        "api": {"host": "0.0.0.0"}
-    }
+    assert json.loads(path.read_text(encoding="utf-8")) == {"api": {"host": retained_host}}
 
 
 def test_config_patch_rejects_unknown_clear_override(tmp_path):

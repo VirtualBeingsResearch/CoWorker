@@ -34,7 +34,15 @@ updates:
     multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      - /apps/coworker-relay
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: gomod
+    directory: /apps/coworker-relay
     patterns:
       - "*"
     multi-ecosystem-group: all-dependencies

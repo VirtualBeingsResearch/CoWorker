@@ -294,11 +294,12 @@ class TestQueryMemoryTool:
         result = await tool.execute(query="内容", limit=5)
 
         assert not result.is_error
-        assert "R1." in result.content
-        assert "R2." in result.content
-        assert "R3." not in result.content
-        assert "L3." in result.content
-        assert "L4." not in result.content
+        result_lines = result.content.splitlines()
+        assert any(line.startswith("R1.") for line in result_lines)
+        assert any(line.startswith("R2.") for line in result_lines)
+        assert not any(line.startswith("R3.") for line in result_lines)
+        assert any(line.startswith("L3.") for line in result_lines)
+        assert not any(line.startswith("L4.") for line in result_lines)
 
     @pytest.mark.asyncio
     async def test_combined_result_is_compact_and_full_text_is_frozen_to_file(self, tmp_path):

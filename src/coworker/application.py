@@ -64,6 +64,7 @@ from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
 from coworker.prompts.system_prompt import SystemPromptBuilder
+from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
 from coworker.tools.alarm_tools import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
 from coworker.tools.breathe_tool import BreatheTool
@@ -928,6 +929,7 @@ async def _main() -> bool:
         runtime_key=desktop_update_runtime.runtime_key,
         token=desktop_update_runtime.token,
     )
+    relay_client = RelayClient(api_app.app, config)
 
     if not setup_required:
         channel_system.install(
@@ -961,6 +963,7 @@ async def _main() -> bool:
         mode_loader=mode_loader,
         desktop_update_sync=desktop_update_sync,
         inherited_config=inherited_config,
+        relay_client=relay_client,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(
@@ -1024,6 +1027,7 @@ async def _main() -> bool:
 
     await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
     await channel_system.registry.start()
+    await relay_client.start()
     server_task = asyncio.create_task(server.serve(), name="server")
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
@@ -1071,6 +1075,7 @@ async def _main() -> bool:
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
         await channel_system.registry.stop()
+        await relay_client.stop()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()

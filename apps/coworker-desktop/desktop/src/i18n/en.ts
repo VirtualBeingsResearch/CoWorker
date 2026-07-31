@@ -326,6 +326,7 @@ export const en = {
   "config.fieldCoworkerId": "Coworker ID",
   "config.fieldCoworkerName": "Coworker name",
   "config.fieldCoworkerBaseUrl": "Coworker base URL",
+  "config.relayE2eeDetected": "Relay connection detected. Traffic to Coworker uses end-to-end encryption.",
   "config.fieldBearerToken": "Bearer token",
   "config.fieldDevelopmentMode": "Development mode",
   "config.developmentModeHint": "Allow unauthenticated HTTP connections (unsafe; local development only)",

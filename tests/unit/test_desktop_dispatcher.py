@@ -331,3 +331,21 @@ def test_detail_files_are_pruned_by_count(tmp_path, monkeypatch):
     assert paths[-1].exists()
     assert paths[-2].exists()
     assert not paths[0].exists()
+
+
+def test_detail_count_pruning_is_deterministic_when_mtimes_match(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr("coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 10)
+    dispatcher = _dispatcher(tmp_path)
+    registry = dispatcher._registry
+    paths = [registry.write_detail(f"k{i}", f"content {i}") for i in range(4)]
+    same_time = time.time_ns() - 1_000_000_000
+    for path in paths:
+        os.utime(path, ns=(same_time, same_time))
+
+    monkeypatch.setattr("coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 2)
+    registry._prune_details()
+
+    assert [path.name for path in paths if path.exists()] == ["k2.txt", "k3.txt"]

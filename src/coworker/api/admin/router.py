@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
     from coworker.palaces.loader import Palace, PalaceLoader
+    from coworker.relay import RelayClient
     from coworker.skills.loader import Skill, SkillLoader
     from coworker.tools.alarm_tools import AlarmManager
     from coworker.tools.reasoning_tools import Task, TaskStore
@@ -78,6 +79,7 @@ _desktop_update_sync: SyncService | None = None
 _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
+_relay_client: RelayClient | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
@@ -171,6 +173,13 @@ class BackupRestorePayload(BaseModel):
     confirm_name: str = ""
 
 
+class RelayConnectPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    relay_url: str = Field(min_length=1, max_length=2048)
+    pairing_code: str = Field(min_length=4, max_length=128)
+
+
 def setup_admin(
     *,
     agent: AgentLoop,
@@ -182,6 +191,7 @@ def setup_admin(
     mode_loader: SubconsciousModeLoader,
     desktop_update_sync: SyncService | None = None,
     inherited_config: Config | None = None,
+    relay_client: RelayClient | None = None,
 ) -> None:
     global \
         _agent, \
@@ -193,7 +203,8 @@ def setup_admin(
         _palace_loader, \
         _mode_loader, \
         _desktop_update_sync, \
-        _admin_config_service
+        _admin_config_service, \
+        _relay_client
     _agent = agent
     _brain = brain
     _config = config
@@ -203,6 +214,7 @@ def setup_admin(
     _palace_loader = palace_loader
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
+    _relay_client = relay_client
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -232,6 +244,15 @@ def _require_brain() -> Brain:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.brain_not_ready"))
     return _brain
+
+
+def _require_relay_client() -> RelayClient:
+    if _relay_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.relay.client_not_ready"),
+        )
+    return _relay_client
 
 
 def _require_config() -> Config:
@@ -1058,6 +1079,101 @@ async def get_channel_management(
             detail=tr("api.admin.channel_management_missing", channel=channel_name),
         )
     return await management.snapshot()
+
+
+@router.get("/relay")
+async def get_relay(_: None = Depends(require_admin)) -> ApiResponse:
+    return _require_relay_client().snapshot()
+
+
+@router.get("/relay/token")
+async def get_relay_token(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    _audit(request, "relay.token.read", "relay")
+    snapshot = _require_relay_client().snapshot(include_token=True)
+    return {"communication_token": snapshot.get("communication_token", "")}
+
+
+@router.post("/relay/connect")
+async def connect_relay(
+    payload: RelayConnectPayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    try:
+        result = await _require_relay_client().enroll(
+            payload.relay_url,
+            payload.pairing_code,
+        )
+    except Exception as error:
+        _audit(request, "relay.connect", "relay", result="error", detail=type(error).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.relay.connect_failed", error=error),
+        ) from error
+    _audit(request, "relay.connect", str(result.get("instance_id", "")))
+    return result
+
+
+@router.post("/relay/test")
+async def test_relay(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    try:
+        result = await _require_relay_client().test()
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.relay.test_failed", error=error),
+        ) from error
+    _audit(request, "relay.test", "relay")
+    return result
+
+
+@router.post("/relay/reconnect", status_code=202)
+async def reconnect_relay(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    await _require_relay_client().reconnect()
+    _audit(request, "relay.reconnect", "relay")
+    return {"accepted": True}
+
+@router.post("/relay/rotate-token")
+async def rotate_relay_token(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    try:
+        result = await _require_relay_client().rotate_token()
+    except Exception as error:
+        _audit(
+            request,
+            "relay.token.rotate",
+            "relay",
+            result="error",
+            detail=type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.relay.token_rotation_failed", error=error),
+        ) from error
+    _audit(request, "relay.token.rotate", str(result.get("instance_id", "")))
+    return result
+
+
+@router.delete("/relay", status_code=204)
+async def disconnect_relay(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> Response:
+    instance_id = str(_require_relay_client().snapshot().get("instance_id", ""))
+    await _require_relay_client().disconnect()
+    _audit(request, "relay.disconnect", instance_id or "relay")
+    return Response(status_code=204)
 
 
 @router.post("/channels/{channel_name}/management/{command}")

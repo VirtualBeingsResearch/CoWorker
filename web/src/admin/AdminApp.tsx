@@ -14,7 +14,7 @@ import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'releases' | 'audit';
+type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'relay' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
@@ -27,6 +27,7 @@ const NAV: Array<{ id: Section; label: string; description: string; group: NavGr
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
   { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
   { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
+  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', group: '扩展', icon: CloudUpload },
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
 ];
@@ -2250,6 +2251,170 @@ function Audit() {
 
 function Empty({ text }: { text: string }) { return <div className="empty"><Wrench size={23} /><p>{t(text)}</p></div>; }
 
+function RelayAccess() {
+  const relay = useLoad<Json>(() => api('/api/admin/relay'), []);
+  const [relayUrl, setRelayUrl] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [communicationToken, setCommunicationToken] = useState('');
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => void relay.reload(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [relay.reload]);
+  useEffect(() => {
+    if (relay.data && !relay.data.instance_id) {
+      setShowToken(false);
+      setCommunicationToken('');
+    }
+  }, [relay.data]);
+  const action = async (name: string, operation: () => Promise<unknown>, success: string, afterSuccess?: () => void) => {
+    setBusy(name); setNotice(null);
+    try {
+      await operation();
+      afterSuccess?.();
+      setNotice({ kind: 'success', text: t(success) });
+      await relay.reload();
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') });
+    } finally {
+      setBusy('');
+    }
+  };
+  const copy = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice({ kind: 'success', text: t('{{label}}已复制', { label: t(label) }) });
+    } catch {
+      setNotice({ kind: 'error', text: t('无法访问剪贴板，请手动复制。') });
+    }
+  };
+  const loadToken = async () => {
+    const result = await api<Json>('/api/admin/relay/token');
+    const token = String(result.communication_token || '');
+    setCommunicationToken(token);
+    return token;
+  };
+  const copyDesktopConfig = async () => {
+    setBusy('copy-config');
+    try {
+      const token = communicationToken || await loadToken();
+      await copy(`Base URL: ${String(relay.data?.public_base_url || '')}\nBearer Token: ${token}`, 'Desktop 配置');
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') });
+    } finally {
+      setBusy('');
+    }
+  };
+  if (relay.loading && !relay.data) return <Loading error={relay.error} />;
+  const data = relay.data || {};
+  const configured = Boolean(data.instance_id);
+  const connected = data.status === 'connected';
+  const connecting = data.status === 'connecting';
+  const tokenCompatible = data.communication_token_compatible !== false;
+  const statusTitle = connected ? '已安全连接' : connecting ? '正在建立安全连接' : configured ? '连接已中断' : '尚未配对';
+  const statusBadge = connected ? '已连接' : connecting ? '连接中' : configured ? '已断开' : '未配置';
+  const statusDetail = connected
+    ? '新版 Desktop 可以使用下方配置连接这台 Coworker。'
+    : connecting
+      ? '正在认证 Relay 并建立加密出站隧道。'
+      : configured
+        ? '内置 Relay Client 会自动重连；你也可以查看错误或手动重连。'
+        : '准备 Relay 地址和 10 分钟内有效的一次性配对码即可开始。';
+  return <div className="page-stack relay-access">
+    <Panel title="远程访问" note="通过自托管中继（Relay）让新版 Desktop 从公网安全连接这台 Coworker。"
+      action={configured ? <button className="ghost mini" disabled={relay.loading || Boolean(busy)} onClick={() => void relay.reload()}><RefreshCw size={13} />{t(relay.loading ? '正在刷新…' : '刷新状态')}</button> : undefined}>
+      <section className={`relay-hero ${connected ? 'connected' : configured ? 'waiting' : 'idle'}`}>
+        <div className="relay-signal"><CloudUpload size={26} /><i /></div>
+        <div><span>{t('远程访问状态')}</span><h3>{t(statusTitle)}</h3>
+          <p>{t(statusDetail)}</p>
+        </div>
+        <b className={`relay-status-badge ${connected ? 'ok' : connecting ? 'pending' : configured ? 'error' : ''}`}>{t(statusBadge)}</b>
+      </section>
+      {!configured ? <>
+        <ol className="relay-steps" aria-label={t('连接步骤')}>
+          <li><span>1</span><div><b>{t('部署 Relay')}</b><small>{t('在公网主机初始化并启动 coworker-relay。')}</small></div></li>
+          <li><span>2</span><div><b>{t('创建配对码')}</b><small><code>coworker-relay instance create --name home</code></small></div></li>
+          <li><span>3</span><div><b>{t('连接 Coworker')}</b><small>{t('在下方粘贴 Relay 地址和一次性配对码。')}</small></div></li>
+        </ol>
+        <form className="relay-enroll" onSubmit={event => {
+        event.preventDefault();
+        void action('connect', () => api('/api/admin/relay/connect', {
+          method: 'POST',
+          body: JSON.stringify({ relay_url: relayUrl.trim().replace(/\/+$/, ''), pairing_code: pairingCode.trim() }),
+        }), 'Relay 配对成功', () => {
+          setRelayUrl('');
+          setPairingCode('');
+        });
+      }}>
+        <header><div><h3>{t('连接此 Coworker')}</h3><p>{t('配对只需完成一次；之后 Coworker 会自动维护出站连接。')}</p></div><ShieldCheck size={22} /></header>
+        <label><span>{t('Relay 地址')}</span><input type="url" required inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="http://203.0.113.10:8443" value={relayUrl} onBlur={() => setRelayUrl(value => value.trim().replace(/\/+$/, ''))} onChange={event => setRelayUrl(event.target.value)} /><small>{t('示例：http://203.0.113.10:8443；不要填写 /i/... 实例路径。')}</small></label>
+        <label><span>{t('一次性配对码')}</span><input required autoComplete="one-time-code" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="pair_…" value={pairingCode} onChange={event => setPairingCode(event.target.value)} /><small>{t('在 Relay 主机运行 instance create 后获得，10 分钟内仅可使用一次。')}</small></label>
+        {data.communication_token_compatible === false && <div className="notice error" role="alert">
+          <TriangleAlert size={18} /><span>{t('当前通信 Token 不符合 Relay 的高熵格式。请先轮换；现有直连 Desktop 随后也必须更新 Token。')}</span>
+          <button type="button" className="ghost" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('轮换通信 Token？现有 Desktop 必须改用新 Token 后才能重新连接。'))) {
+              void action('rotate-token', () => api('/api/admin/relay/rotate-token', { method: 'POST' }), '通信 Token 已轮换，请更新 Desktop 配置');
+            }
+          }}>{t('轮换为 Relay 通信 Token')}</button>
+        </div>}
+        <footer><button className="primary" disabled={Boolean(busy) || !tokenCompatible || !relayUrl.trim() || !pairingCode.trim()}><CloudUpload size={15} />{t(busy === 'connect' ? '正在配对并连接…' : '配对并连接')}</button><small>{t('不会开放 Coworker 的内网端口。')}</small></footer>
+      </form>
+      </> : <>
+        <section className="relay-desktop-config">
+          <header><div><span>{t('下一步')}</span><h3>{t('在新版 Desktop 中连接')}</h3><p>{t('只需填写 Base URL 和 Token；Desktop 会自动识别 Relay 并强制使用端到端加密。')}</p></div><button className="primary" disabled={Boolean(busy) || !data.public_base_url} onClick={() => void copyDesktopConfig()}><KeyRound size={15} />{t(busy === 'copy-config' ? '正在准备配置…' : '复制完整配置')}</button></header>
+          <div className="relay-credentials">
+            <article><span>{t('Base URL')}</span><div><code>{String(data.public_base_url || '')}</code><button className="ghost mini" disabled={!data.public_base_url} onClick={() => void copy(String(data.public_base_url || ''), 'Base URL')}>{t('复制到剪贴板')}</button></div></article>
+            <article><span>{t('Bearer Token')}</span><div><code className={showToken ? '' : 'masked'}>{showToken ? communicationToken : '••••••••••••••••••••••••'}</code><span className="relay-inline-actions"><button className="ghost mini" disabled={busy === 'token'} onClick={() => {
+            if (showToken) { setShowToken(false); setCommunicationToken(''); return; }
+            setBusy('token');
+            void loadToken().then(() => setShowToken(true)).catch(error => setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') })).finally(() => setBusy(''));
+          }}>{t(showToken ? '隐藏' : '显示')}</button><button className="ghost mini" disabled={busy === 'token'} onClick={() => {
+            setBusy('token');
+            void (communicationToken ? Promise.resolve(communicationToken) : loadToken()).then(token => copy(token, 'Bearer Token')).catch(error => setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') })).finally(() => setBusy(''));
+          }}>{t('复制到剪贴板')}</button></span></div></article>
+          </div>
+          <small className="relay-secret-note"><ShieldCheck size={13} />{t('完整配置包含通信 Token，请只粘贴到你信任的 Desktop。')}</small>
+        </section>
+        {data.last_error && <div className="notice error" role="alert">{String(data.last_error)}</div>}
+        {data.auth_key_synced === false && <div className="notice error" role="alert"><TriangleAlert size={18} />{t('入口认证公钥尚未同步；Relay 不会接受新的 Desktop 连接。请先尝试重新连接。')}</div>}
+      </>}
+      {notice && <div className={`notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
+      {relay.error && <div className="notice error" role="alert"><span>{relay.error}</span><button className="ghost mini" onClick={() => void relay.reload()}>{t('重试')}</button></div>}
+    </Panel>
+    {configured && <Panel title="连接健康与维护" note="日常无需操作；连接中断时 Coworker 会自动重试。">
+      <div className="relay-health-grid">
+        <article><span>{t('Relay 地址')}</span><code>{String(data.relay_url || '')}</code></article>
+        <article><span>{t('实例 ID')}</span><code>{String(data.instance_id || '')}</code></article>
+        <article><span>{t('端到端协议')}</span><b>{data.e2ee ? `E2EE v${String(data.protocol_version || 1)}` : t('未启用')}</b><small>{t('认证 epoch {{epoch}}', { epoch: Number(data.auth_epoch || 0) })}</small></article>
+        <article><span>{t('活动 Desktop 会话')}</span><b>{Number(data.active_sessions || 0)}</b></article>
+        <article><span>{t('最后心跳')}</span><b>{data.last_heartbeat ? new Date(String(data.last_heartbeat)).toLocaleString() : t('尚无')}</b></article>
+        <article><span>{t('隧道延迟')}</span><b>{data.latency_ms == null ? '—' : `${Math.round(Number(data.latency_ms))} ms`}</b></article>
+      </div>
+      <div className="relay-maintenance-actions">
+        <button className="ghost" disabled={Boolean(busy) || !connected} onClick={() => void action('test', () => api('/api/admin/relay/test', { method: 'POST' }), 'Relay 端到端连接测试成功')}><ShieldCheck size={15} />{t(busy === 'test' ? '正在测试…' : '测试端到端连接')}</button>
+        <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/relay/reconnect', { method: 'POST' }), '已请求重新连接')}><RefreshCw size={15} />{t(busy === 'reconnect' ? '正在重新连接…' : '重新连接')}</button>
+      </div>
+      <details className="relay-sensitive-actions">
+        <summary><TriangleAlert size={15} /><span><b>{t('凭据与连接管理')}</b><small>{t('这些操作会让现有 Desktop 断开或需要重新配置。')}</small></span></summary>
+        <div>
+          <button className="danger-outline" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('轮换通信 Token？现有 Desktop 必须改用新 Token 后才能重新连接。'))) {
+              void action('rotate-token', () => api('/api/admin/relay/rotate-token', { method: 'POST' }), '通信 Token 已轮换，请更新 Desktop 配置');
+            }
+          }}>{t(busy === 'rotate-token' ? '正在轮换…' : '轮换通信 Token')}</button>
+          <button className="danger-solid" disabled={Boolean(busy)} onClick={() => {
+            if (window.confirm(t('断开 Relay 并删除本地实例密钥？Relay 上的实例仍需使用 coworker-relay 撤销。'))) {
+              void action('disconnect', () => api('/api/admin/relay', { method: 'DELETE' }), 'Relay 已断开');
+            }
+          }}>{t(busy === 'disconnect' ? '正在断开…' : '断开并删除本地凭据')}</button>
+        </div>
+      </details>
+    </Panel>}
+  </div>;
+}
+
 export default function AdminApp() {
   const { language } = useAdminI18n();
   const [ready, setReady] = useState(false);
@@ -2341,6 +2506,7 @@ export default function AdminApp() {
         {section === 'runtime' && <Runtime confirmationName={confirmationName} />}
         {section === 'identity' && <Identity onIdentity={setIdentity} />}
         {section === 'content' && <ContentManager />}
+        {section === 'relay' && <RelayAccess />}
         {section === 'releases' && <DesktopReleases />}
         {section === 'audit' && <Audit />}
       </div>

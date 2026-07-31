@@ -310,7 +310,9 @@ impl DesktopConfig {
         };
         if !config.security.development_mode {
             for coworker in &config.codex.coworkers {
-                if !coworker.base_url.starts_with("https://") {
+                if !coworker.base_url.starts_with("https://")
+                    && crate::relay_transport::relay_endpoint(&coworker.base_url).is_none()
+                {
                     return Err(BridgeError::Config(format!(
                         "production Coworker {} must use an https:// URL",
                         coworker.coworker_id
