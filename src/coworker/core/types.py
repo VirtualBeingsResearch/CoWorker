@@ -60,6 +60,7 @@ class PinnedItem:
     content: str
     file_path: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now())
+    system_managed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -67,6 +68,7 @@ class PinnedItem:
             "label": self.label,
             "content": self.content,
             "created_at": self.created_at.isoformat(),
+            "system_managed": self.system_managed,
         }
         if self.file_path:
             d["file_path"] = self.file_path
@@ -80,6 +82,7 @@ class PinnedItem:
             content=d["content"],
             file_path=d.get("file_path"),
             created_at=datetime.fromisoformat(d.get("created_at", datetime.now().isoformat())),
+            system_managed=d.get("system_managed", False),
         )
 
 

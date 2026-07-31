@@ -117,6 +117,8 @@ list_title = "{{count}} pin(s):"
 source = "  source: {{path}}"
 list_item = "- [{{id}}] {{label}}  about {{tokens}} tokens  {{time}}{{source}}"
 total = "About {{tokens}} tokens total"
+system_managed = "This pin is system-managed and cannot be modified or unpinned."
+system_suffix = " (system-managed)"
 
 [tool_result.communicate]
 bound_participant = "This bubble can message only its bound participant; participant_id cannot be changed."

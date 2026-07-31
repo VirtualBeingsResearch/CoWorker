@@ -196,9 +196,11 @@ tool_parse_error = "Tool argument JSON could not be parsed. Generate valid argum
 auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
 recent_activity_title = "[automatic recall · recent activity replay]"
-task_reminder = "[task reminder] There are unfinished tasks:"
-task_wakeup = "[task reminder] Unfinished tasks interrupted sleep:"
+task_reminder = "[task reminder] {{count}} unfinished task(s) remain; view them with task_list / task_get."
+task_wakeup = "[task reminder] {{count}} unfinished task(s) interrupted sleep."
 task_details_hint = " has_details=true; use task_get to view details"
+task_pin_label = "Unfinished tasks"
+task_board_more = "... and {{count}} more; use task_list"
 
 [bubble]
 cancelled = "The bubble was cancelled manually"

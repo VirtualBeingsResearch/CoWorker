@@ -909,6 +909,22 @@ class TestPinnedContext:
         assert restored.pinned_items[0].pin_id == "rules"
         assert restored.pinned_items[0].label == "编码规范"
 
+    def test_serialize_deserialize_preserves_system_managed_flag(self):
+        mem = ShortTermMemory()
+        mem.pin("task_board", "未完成任务", "- [a1] 做某事", system_managed=True)
+        restored = ShortTermMemory.deserialize(mem.serialize())
+        assert len(restored.pinned_items) == 1
+        assert restored.pinned_items[0].system_managed is True
+
+    def test_deserialize_defaults_system_managed_false(self):
+        mem = ShortTermMemory()
+        mem.pin("rules", "规范", "内容")
+        data = mem.serialize()
+        # 模拟旧快照：缺省 system_managed 字段应回落为 False
+        data["pinned_items"][0].pop("system_managed", None)
+        restored = ShortTermMemory.deserialize(data)
+        assert restored.pinned_items[0].system_managed is False
+
     def test_serialize_deserialize_preserves_pin_id_on_messages(self):
         mem = ShortTermMemory()
         mem.pin("rules", "规范", "内容")

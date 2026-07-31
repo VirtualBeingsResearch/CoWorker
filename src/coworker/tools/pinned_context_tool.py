@@ -141,8 +141,17 @@ class ManagePinnedContextTool(Tool):
         old_item = next(
             (item for item in self._short_term.pinned_items if item.pin_id == pin_id), None
         )
+        if old_item is not None and old_item.system_managed:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.pin.system_managed"),
+                is_error=True,
+            )
+        # system_managed pin（如任务总览）由系统维护，不占用模型手动 pin 的预算。
         existing_tokens = sum(
-            estimate_text_tokens(item.content) for item in self._short_term.pinned_items
+            estimate_text_tokens(item.content)
+            for item in self._short_term.pinned_items
+            if not item.system_managed
         )
         if old_item is not None:
             existing_tokens -= estimate_text_tokens(old_item.content)
@@ -182,6 +191,15 @@ class ManagePinnedContextTool(Tool):
                 content=tr("tool_result.pin.unpin_needs_id"),
                 is_error=True,
             )
+        item = next(
+            (item for item in self._short_term.pinned_items if item.pin_id == pin_id), None
+        )
+        if item is not None and item.system_managed:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.pin.system_managed"),
+                is_error=True,
+            )
         found = self._short_term.unpin(pin_id)
         if not found:
             existing_ids = [item.pin_id for item in self._short_term.pinned_items]
@@ -211,11 +229,16 @@ class ManagePinnedContextTool(Tool):
             if len(item.content) > 80:
                 preview += "..."
             source = tr("tool_result.pin.source", path=item.file_path) if item.file_path else ""
+            label = (
+                item.label + tr("tool_result.pin.system_suffix")
+                if item.system_managed
+                else item.label
+            )
             lines.append(
                 tr(
                     "tool_result.pin.list_item",
                     id=item.pin_id,
-                    label=item.label,
+                    label=label,
                     tokens=tokens,
                     time=item.created_at.strftime("%m-%d %H:%M"),
                     source=source,

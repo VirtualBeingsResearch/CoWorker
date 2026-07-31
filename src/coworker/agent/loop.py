@@ -15,7 +15,6 @@ from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import tr
 from coworker.memory.recent_activity import render_recent_activity_replay
-from coworker.tools.reasoning_tools import format_task_times
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import BubbleStore
@@ -29,13 +28,18 @@ if TYPE_CHECKING:
     from coworker.memory.recent_activity import RecentActivityMemory
     from coworker.memory.short_term import ShortTermMemory
     from coworker.prompts.system_prompt import SystemPromptBuilder
-    from coworker.tools.reasoning_tools import TaskStore
+    from coworker.tools.reasoning_tools import Task, TaskStore
     from coworker.tools.registry import ToolRegistry
 
 # 连续错误阈值：超过此数量的连续错误将触发恢复措施
 _MAX_CONSECUTIVE_ERRORS = 5
 # 恢复后的等待时间（秒），给 API 冷却时间
 _RECOVERY_COOLDOWN_SECONDS = 30
+
+# 活动任务总览 pin：单一系统维护的 pin，内容为未完成任务紧凑列表，跨压缩保留。
+_TASK_BOARD_PIN_ID = "task_board"
+# 总览 pin 中最多列出的任务数，超出部分折叠为「还有 N 个」提示。
+_TASK_BOARD_MAX_TASKS = 20
 
 
 class AgentLoop:
@@ -238,6 +242,7 @@ class AgentLoop:
             # configured. Setup completion restarts into a fully initialized loop.
             await self._rest()
             return
+        self._sync_task_pins()
         reinjected_pins = self._short_term.reinject_missing_pins()
         if reinjected_pins and self._ilog:
             self._ilog.log_pin_reinjected(
@@ -591,6 +596,42 @@ class AgentLoop:
         )
         logger.debug(f"Auto-recalled {len(fresh)} recent activities")
 
+    def _build_task_board_content(self, active: list[Task]) -> str:
+        """生成活动任务总览 pin 的内容（描述级，details 按需 task_get）。"""
+        lines: list[str] = []
+        for i, t in enumerate(active):
+            if i >= _TASK_BOARD_MAX_TASKS:
+                lines.append(tr("loop.task_board_more", count=len(active) - i))
+                break
+            suffix = tr("loop.task_details_hint") if t.details.strip() else ""
+            lines.append(f"- [{t.id}] [{t.status}] {t.description}{suffix}")
+        return "\n".join(lines)
+
+    def _sync_task_pins(self) -> None:
+        """把活动任务同步为单一系统管理总览 pin（跨压缩常驻上下文）。
+
+        全部任务完成后 unpin；总览内容变化时原地刷新 pinned_items 条目
+        （primary 中已可见的旧消息保持原样，压缩后再以新内容重新注入）。
+        """
+        if self._task_store is None:
+            return
+        active = [t for t in self._task_store.list() if t.status in ("pending", "in_progress")]
+        if not active:
+            self._short_term.unpin(_TASK_BOARD_PIN_ID)
+            return
+        content = self._build_task_board_content(active)
+        existing = next(
+            (item for item in self._short_term.pinned_items if item.pin_id == _TASK_BOARD_PIN_ID),
+            None,
+        )
+        if existing is None or existing.content != content:
+            self._short_term.pin(
+                pin_id=_TASK_BOARD_PIN_ID,
+                label=tr("loop.task_pin_label"),
+                content=content,
+                system_managed=True,
+            )
+
     async def _task_reminder(self) -> None:
         if self._task_store is None:
             return
@@ -608,14 +649,13 @@ class AgentLoop:
         active = [t for t in self._task_store.list() if t.status in ("pending", "in_progress")]
         if not active:
             return
-        lines = [tr("loop.task_reminder")]
-        for t in active:
-            suffix = tr("loop.task_details_hint") if t.details.strip() else ""
-            lines.append(
-                f"- [{t.id}] [{t.status}] [{format_task_times(t)}] {t.description}{suffix} "
-            )
+        # 任务全文由任务总览 pin 常驻上下文，此处只注入一句简单提醒。
         self._short_term.primary.append(
-            Message(role="user", content="\n".join(lines), source="task_reminder")
+            Message(
+                role="user",
+                content=tr("loop.task_reminder", count=len(active)),
+                source="task_reminder",
+            )
         )
         if self._ilog:
             self._ilog.log_task_reminder(
@@ -649,16 +689,11 @@ class AgentLoop:
             active = [t for t in task_store.list() if t.status in ("pending", "in_progress")]
             if not active:
                 continue
-            lines = [tr("loop.task_wakeup")]
-            for t in active:
-                suffix = tr("loop.task_details_hint") if t.details.strip() else ""
-                lines.append(
-                    f"- [{t.id}] [{t.status}] {t.description}{suffix} {format_task_times(t)}"
-                )
+            # 任务全文由任务总览 pin 常驻上下文，唤醒只注入一句简单提醒。
             await self._inbox.push(
                 IncomingEvent(
                     participant_id="system",
-                    content="\n".join(lines),
+                    content=tr("loop.task_wakeup", count=len(active)),
                     source="task_reminder",
                     timestamp=datetime.now(),
                 )
