@@ -1009,6 +1009,16 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
   const [pinMessage, setPinMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
+  const tailRef = useRef<HTMLDivElement | null>(null);
+  const tailStick = useRef(true);
+  useEffect(() => {
+    const node = tailRef.current;
+    if (node && tailStick.current) node.scrollTop = node.scrollHeight;
+  }, [data?.messages]);
+  const onTailScroll = () => {
+    const node = tailRef.current;
+    if (node) tailStick.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+  };
   useEffect(() => {
     if (!data?.backfill?.running) return;
     const timer = window.setInterval(() => { void api<Json>('/api/admin/memory/short-term').then(setData).catch(() => undefined); }, 1500);
@@ -1060,7 +1070,7 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
         <div className="short-tree">{data.tree.nodes.length ? data.tree.nodes.map((node: Json, treeIndex: number) => <MemoryTreeNode node={node} key={node.t_start + '-' + node.level + '-' + treeIndex} />) : <Empty text="记忆树还是空的；上下文压缩后会在这里形成时间脊柱。" />}</div>
       </Panel>
       <Panel title="当前消息尾部" note="这些消息会按顺序直接进入下一次主线思考。" className="short-tail-panel">
-        <div className="short-message-list">{data.messages.length ? data.messages.map((message: Json, messageIndex: number) => <MemoryMessage message={message} index={messageIndex} defaultOpen={messageIndex >= data.messages.length - 3} coworkerName={coworkerName} key={message.timestamp + '-' + message.index} />) : <Empty text="当前没有短期消息；新的输入会从这里开始累积。" />}</div>
+        <div className="short-message-list" ref={tailRef} onScroll={onTailScroll}>{data.messages.length ? data.messages.map((message: Json, messageIndex: number) => <MemoryMessage message={message} index={messageIndex} defaultOpen={messageIndex >= data.messages.length - 3} coworkerName={coworkerName} key={message.timestamp + '-' + message.index} />) : <Empty text="当前没有短期消息；新的输入会从这里开始累积。" />}</div>
       </Panel>
     </div>
 
