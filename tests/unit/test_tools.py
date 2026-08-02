@@ -1893,6 +1893,35 @@ class TestVisualAnalysisTool:
         assert kwargs["vision_model"] == "dynamic_model"
 
     @pytest.mark.asyncio
+    async def test_bubble_fork_waits_and_returns_result_without_inbox(self, tmp_path):
+        from coworker.core.tool_scope import ToolScope
+        from coworker.tools.code_tools import BackgroundJobStore
+
+        img = tmp_path / "test.png"
+        img.write_bytes(self._png_bytes())
+        brain = self._make_brain(response="bubble vision result")
+        brain.vision_provider_name = "dynamic_provider"
+        brain.vision_model = "dynamic_model"
+        tool = VisualAnalysisTool(brain, inbox=self._make_inbox())
+        scope = ToolScope(
+            task_store=TaskStore(store_path=None),
+            job_store=BackgroundJobStore(),
+            inbox=None,
+            scope_id="bbl_test",
+            allow_block=True,
+            brain=brain,
+        )
+
+        result = await tool.fork(scope).execute(
+            media_path=str(img),
+            question="what is it?",
+        )
+
+        assert not result.is_error
+        assert "bubble vision result" in result.content
+        brain.query_with_vision.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_execute_without_vision_config_returns_error(self, tmp_path):
         img = tmp_path / "test.png"
         img.write_bytes(self._png_bytes())

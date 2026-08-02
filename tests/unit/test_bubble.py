@@ -557,6 +557,75 @@ class TestBubbleMiniLoop:
         push_contents = [call[0][0].content for call in mock_inbox.push.call_args_list]
         assert any("[泡泡思考结果]" in c for c in push_contents)
 
+    async def test_visual_analysis_result_is_returned_inside_bubble(
+        self, store, messages, mock_brain, mock_inbox, tmp_path
+    ):
+        from PIL import Image
+
+        from coworker.tools.registry import ToolRegistry
+        from coworker.tools.vision_tools import VisualAnalysisTool
+
+        image_path = tmp_path / "cat.png"
+        Image.new("RGB", (1, 1), color=(255, 255, 255)).save(image_path)
+        mock_brain.vision_provider_name = "vision-provider"
+        mock_brain.vision_model = "vision-model"
+        mock_brain.query_with_vision = AsyncMock(return_value="画面里有一只猫")
+
+        captured: list[list[Message]] = []
+
+        async def capture_think(messages, system_prompt, tools):
+            captured.append(list(messages))
+            if len(captured) == 1:
+                return _make_response(
+                    tool_calls=[
+                        ToolCall(
+                            id="vision",
+                            name="visual_analyze",
+                            arguments={
+                                "media_path": str(image_path),
+                                "question": "画面里有什么？",
+                            },
+                        )
+                    ],
+                    stop_reason="tool_use",
+                )
+            return _make_response(
+                tool_calls=[
+                    ToolCall(
+                        id="done",
+                        name="bubble_done",
+                        arguments={"result": "确认画面里有一只猫"},
+                    )
+                ],
+                stop_reason="tool_use",
+            )
+
+        mock_brain.think = capture_think
+        registry = ToolRegistry()
+        registry.register(VisualAnalysisTool(mock_brain, inbox=mock_inbox))
+        bubble = store.create("分析图片", messages, max_cycles=3)
+        assert isinstance(bubble, Bubble)
+
+        await _make_mini_loop(
+            bubble,
+            mock_brain,
+            registry,
+            mock_inbox,
+            store,
+            tmp_path,
+        ).run()
+
+        second_cycle_tool_results = [
+            message.content
+            for message in captured[1]
+            if message.role == "tool" and isinstance(message.content, str)
+        ]
+        assert any("画面里有一只猫" in content for content in second_cycle_tool_results)
+        assert bubble.status == "done"
+        assert bubble.result == "确认画面里有一只猫"
+        pushed_contents = [call.args[0].content for call in mock_inbox.push.call_args_list]
+        assert not any("[图片分析结果:" in content for content in pushed_contents)
+
     async def test_burst_warning_on_last_cycle(
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
     ):

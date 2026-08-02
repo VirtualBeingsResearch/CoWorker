@@ -44,7 +44,7 @@ restart_self = "保存状态并安全重启 Coworker。"
 clear_short_term_memory = "压缩并清理短期记忆。"
 sleep = "休眠指定秒数，期间仍可被新消息或闹钟唤醒。"
 view_image = "加载图片并直接放入视觉模型上下文。"
-visual_analyze = "在后台使用视觉模型分析图片或视频。"
+visual_analyze = "使用视觉模型分析图片或视频；结果会返回发起调用的线程。"
 search_web = "搜索互联网并返回结果摘要。"
 fetch_url = "获取 URL 的正文内容。"
 
