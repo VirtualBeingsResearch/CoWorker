@@ -44,7 +44,7 @@ restart_self = "Save state and safely restart Coworker."
 clear_short_term_memory = "Compress and clear short-term memory."
 sleep = "Sleep for a number of seconds while remaining interruptible by messages or alarms."
 view_image = "Load an image directly into the vision model context."
-visual_analyze = "Analyze an image or video with the vision model in the background."
+visual_analyze = "Analyze an image or video with the vision model; the result is delivered to the calling thread."
 search_web = "Search the internet and return summarized results."
 fetch_url = "Fetch the main content of a URL."
 

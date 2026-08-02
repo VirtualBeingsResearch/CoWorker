@@ -293,12 +293,14 @@ class VisualAnalysisTool(Tool):
         vision_model: str = "",
         inbox: InboxWatcher | None = None,
         max_dimension: int = _DEFAULT_MAX_DIMENSION,
+        allow_block: bool = False,
     ) -> None:
         self._brain = brain
         self._vision_provider = vision_provider
         self._vision_model = vision_model
         self._inbox = inbox
         self._max_dimension = max_dimension
+        self._allow_block = allow_block
 
     @property
     def definition(self) -> ToolDefinition:
@@ -307,7 +309,7 @@ class VisualAnalysisTool(Tool):
             description=(
                 "对图片或视频进行视觉分析和推理。当你收到视觉附件但无法直接查看时使用此工具。"
                 "支持本地文件路径和 HTTP(S) URL；视频会作为 Base64 文件直接交给支持原生视频"
-                "输入的视觉模型，超限时会尝试压缩。调用后立即返回，结果通过系统消息推送。"
+                "输入的视觉模型，超限时会尝试压缩。结果会返回发起调用的线程。"
             ),
             parameters={
                 "type": "object",
@@ -343,7 +345,7 @@ class VisualAnalysisTool(Tool):
                 is_error=True,
             )
         inbox = self._inbox
-        if inbox is None:
+        if not self._allow_block and inbox is None:
             return ToolResult(tool_call_id="", content=tr("vision.inbox_unready"), is_error=True)
 
         try:
@@ -366,7 +368,7 @@ class VisualAnalysisTool(Tool):
 
         bound_locale = capture_locale()
 
-        async def _run() -> None:
+        async def _analyze() -> tuple[str, bool]:
             with locale_context(bound_locale):
                 kind = tr("vision.video" if is_video else "vision.image")
                 try:
@@ -414,12 +416,22 @@ class VisualAnalysisTool(Tool):
                         question=question,
                         answer=answer,
                     )
+                    return content, False
                 except Exception as e:
-                    logger.error(f"VisualAnalysisTool background task failed: {e}")
-                    content = tr("vision.analysis_failed", kind=kind, path=media_path, error=e)
-                await inbox.push(
-                    IncomingEvent(participant_id="system", content=content, source="system")
-                )
+                    logger.error(f"VisualAnalysisTool task failed: {e}")
+                    return tr("vision.analysis_failed", kind=kind, path=media_path, error=e), True
+
+        if self._allow_block:
+            content, is_error = await _analyze()
+            return ToolResult(tool_call_id="", content=content, is_error=is_error)
+
+        assert inbox is not None
+
+        async def _run() -> None:
+            content, _ = await _analyze()
+            await inbox.push(
+                IncomingEvent(participant_id="system", content=content, source="system")
+            )
 
         task = asyncio.create_task(_run())
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
@@ -429,6 +441,9 @@ class VisualAnalysisTool(Tool):
     def fork(self, scope: ToolScope) -> VisualAnalysisTool:
         return VisualAnalysisTool(
             brain=scope.brain or self._brain,
+            vision_provider=self._vision_provider,
+            vision_model=self._vision_model,
             inbox=scope.inbox,
             max_dimension=self._max_dimension,
+            allow_block=scope.allow_block,
         )
