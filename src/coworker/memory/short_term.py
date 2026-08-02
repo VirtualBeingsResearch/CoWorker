@@ -74,19 +74,33 @@ class ShortTermMemory:
             self.threads[participant_id] = ConversationThread(participant_id=participant_id)
         return self.threads[participant_id]
 
-    def pin(self, pin_id: str, label: str, content: str, file_path: str | None = None) -> None:
+    def pin(
+        self,
+        pin_id: str,
+        label: str,
+        content: str,
+        file_path: str | None = None,
+        system_managed: bool = False,
+    ) -> None:
         existing = next((item for item in self.pinned_items if item.pin_id == pin_id), None)
         if existing is not None:
             # primary 中已可见的 pin 消息不能原地改写，否则会破坏 provider 前缀缓存一致性。
             existing.label = label
             existing.content = content
             existing.file_path = file_path
+            existing.system_managed = system_managed
         else:
             # 新 pin 只写入 pinned_items，不立即插入 primary，
             # 避免在 tool_use→tool_result 之间注入 user 消息破坏对话结构。
             # reinject_missing_pins() 会在下一个 cycle 开头将其补入。
             self.pinned_items.append(
-                PinnedItem(pin_id=pin_id, label=label, content=content, file_path=file_path)
+                PinnedItem(
+                    pin_id=pin_id,
+                    label=label,
+                    content=content,
+                    file_path=file_path,
+                    system_managed=system_managed,
+                )
             )
 
     def unpin(self, pin_id: str) -> bool:

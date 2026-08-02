@@ -48,8 +48,8 @@ class TestTaskReminderCooldown:
         assert any("[任务提醒]" in str(m.content) for m in loop._short_term.primary)
         assert loop._short_term.primary[-1].source == "task_reminder"
         content = str(loop._short_term.primary[-1].content)
-        assert "创建于" in content
-        assert "修改于" in content
+        # 简单提醒：不再注入任务全文
+        assert "做某件事" not in content
 
     @pytest.mark.asyncio
     async def test_injects_when_cooldown_passed_by_time(self, tmp_path):
@@ -141,7 +141,7 @@ class TestTaskReminderCooldown:
         assert kwargs.get("source") == "cycle" or ilog.log_task_reminder.call_args[0][1] == "cycle"
 
     @pytest.mark.asyncio
-    async def test_marks_details_without_injecting_content(self, tmp_path):
+    async def test_reminder_does_not_inject_task_details(self, tmp_path):
         store = TaskStore(tmp_path / "tasks.json")
         store.create("做某件事", details="SECRET TASK DETAILS")
         loop = _make_loop(store, interval=0, seconds=0)
@@ -149,8 +149,6 @@ class TestTaskReminderCooldown:
         await loop._task_reminder()
 
         content = str(loop._short_term.primary[-1].content)
-        assert "has_details=true" in content
-        assert "task_get" in content
         assert "SECRET TASK DETAILS" not in content
 
     @pytest.mark.asyncio
@@ -190,12 +188,11 @@ class TestTaskWatcher:
         loop._inbox.push.assert_called_once()
         event: IncomingEvent = loop._inbox.push.call_args[0][0]
         assert "任务提醒" in event.content
-        assert "创建于" in event.content
-        assert "修改于" in event.content
+        assert "待完成任务" not in event.content  # 简单唤醒，不注入任务全文
         assert event.source == "task_reminder"
 
     @pytest.mark.asyncio
-    async def test_marks_details_without_pushing_content(self, tmp_path):
+    async def test_wake_does_not_push_task_details(self, tmp_path):
         store = TaskStore(tmp_path / "tasks.json")
         store.create("待完成任务", details="SECRET TASK DETAILS")
         loop = self._make_watcher_loop(store, is_sleeping=True)
@@ -203,8 +200,7 @@ class TestTaskWatcher:
         await asyncio.wait_for(loop._task_watcher(), timeout=1.0)
 
         event: IncomingEvent = loop._inbox.push.call_args[0][0]
-        assert "has_details=true" in event.content
-        assert "task_get" in event.content
+        assert "任务提醒" in event.content
         assert "SECRET TASK DETAILS" not in event.content
 
     @pytest.mark.asyncio
@@ -262,3 +258,89 @@ class TestTaskWatcher:
         args = ilog.log_task_reminder.call_args
         source = args[0][1] if len(args[0]) > 1 else args[1].get("source")
         assert source == "sleep_interrupt"
+
+
+class TestTaskBoardSync:
+    def _board(self, loop):
+        return next(
+            (item for item in loop._short_term.pinned_items if item.pin_id == "task_board"), None
+        )
+
+    def test_pins_single_board(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        t = store.create("做某件事")
+        loop = _make_loop(store, interval=0, seconds=0)
+
+        loop._sync_task_pins()
+
+        board = self._board(loop)
+        assert board is not None
+        assert board.system_managed is True
+        assert board.content.startswith(f"- [{t.id}]")
+        assert "做某件事" in board.content
+
+    def test_board_marks_details_without_content(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        store.create("做某件事", details="SECRET TASK DETAILS")
+        loop = _make_loop(store, interval=0, seconds=0)
+
+        loop._sync_task_pins()
+
+        board = self._board(loop)
+        assert board is not None
+        assert "has_details=true" in board.content
+        assert "task_get" in board.content
+        assert "SECRET TASK DETAILS" not in board.content
+
+    def test_no_board_when_no_active_tasks(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        loop = _make_loop(store, interval=0, seconds=0)
+
+        loop._sync_task_pins()
+
+        assert self._board(loop) is None
+
+    def test_unpins_board_when_all_completed(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        t = store.create("做某件事")
+        loop = _make_loop(store, interval=0, seconds=0)
+        loop._sync_task_pins()
+        assert self._board(loop) is not None
+
+        store.update(t.id, status="completed")
+        loop._sync_task_pins()
+
+        assert self._board(loop) is None
+
+    def test_updates_board_on_description_change(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.json")
+        t = store.create("旧描述")
+        loop = _make_loop(store, interval=0, seconds=0)
+        loop._sync_task_pins()
+        assert "旧描述" in self._board(loop).content
+
+        store.update(t.id, description="新描述")
+        loop._sync_task_pins()
+
+        board = self._board(loop)
+        assert board is not None
+        assert "旧描述" not in board.content
+        assert "新描述" in board.content
+
+    def test_board_more_cap(self, tmp_path, monkeypatch):
+        from coworker.agent import loop as loop_module
+
+        monkeypatch.setattr(loop_module, "_TASK_BOARD_MAX_TASKS", 2)
+        store = TaskStore(tmp_path / "tasks.json")
+        for i in range(5):
+            store.create(f"任务{i}")
+        loop = _make_loop(store, interval=0, seconds=0)
+
+        loop._sync_task_pins()
+
+        board = self._board(loop)
+        assert board is not None
+        assert "任务0" in board.content
+        assert "任务1" in board.content
+        assert "任务2" not in board.content
+        assert "task_list" in board.content  # 折叠提示指向 task_list

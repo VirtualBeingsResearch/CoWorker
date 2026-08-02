@@ -117,6 +117,8 @@ list_title = "当前共 {{count}} 条 pin："
 source = "  来源：{{path}}"
 list_item = "- [{{id}}] {{label}}  约{{tokens}}tokens  {{time}}{{source}}"
 total = "合计约 {{tokens}} tokens"
+system_managed = "该 pin 由系统管理，不可修改或取消。"
+system_suffix = "（系统管理）"
 
 [tool_result.communicate]
 bound_participant = "此泡泡只能向已绑定的通信对象发送消息，不能改用其他 participant_id。"

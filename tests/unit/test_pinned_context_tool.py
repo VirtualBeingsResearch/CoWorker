@@ -87,6 +87,27 @@ class TestManagePinnedContextToolPin:
         assert "更新" in result.content
         assert len(mem.pinned_items) == 1
 
+    @pytest.mark.asyncio
+    async def test_pin_budget_excludes_system_pins(self, tool, mem):
+        # system_managed pin 不占模型手动 pin 预算：14k 系统 pin + 2k 文档应成功
+        # （若不排除，合计 16k 会超 15k 上限被拒）
+        mem.pin("task_board", "未完成任务", "word " * 14000, system_managed=True)
+        result = await tool.execute(
+            action="pin", pin_id="model_doc", label="文档", content="doc " * 2000
+        )
+        assert not result.is_error
+        assert len(mem.pinned_items) == 2
+
+    @pytest.mark.asyncio
+    async def test_pin_rejects_overwrite_system_pin(self, tool, mem):
+        mem.pin("task_board", "未完成任务", "系统内容", system_managed=True)
+        result = await tool.execute(
+            action="pin", pin_id="task_board", label="覆盖", content="新内容"
+        )
+        assert result.is_error
+        assert "系统管理" in result.content
+        assert mem.pinned_items[0].content == "系统内容"
+
 
 class TestManagePinnedContextToolUnpin:
     @pytest.mark.asyncio
@@ -114,6 +135,14 @@ class TestManagePinnedContextToolUnpin:
         assert result.is_error
         assert "pin_id" in result.content
 
+    @pytest.mark.asyncio
+    async def test_unpin_rejects_system_pin(self, tool, mem):
+        mem.pin("task_board", "未完成任务", "系统内容", system_managed=True)
+        result = await tool.execute(action="unpin", pin_id="task_board")
+        assert result.is_error
+        assert "系统管理" in result.content
+        assert len(mem.pinned_items) == 1
+
 
 class TestManagePinnedContextToolList:
     @pytest.mark.asyncio
@@ -139,6 +168,15 @@ class TestManagePinnedContextToolList:
         mem.pin("spec", "规格", "内容", file_path=str(f))
         result = await tool.execute(action="list")
         assert str(f) in result.content
+
+    @pytest.mark.asyncio
+    async def test_list_marks_system_pins(self, tool, mem):
+        mem.pin("task_board", "未完成任务", "系统内容", system_managed=True)
+        mem.pin("model", "模型pin", "模型内容")
+        result = await tool.execute(action="list")
+        assert not result.is_error
+        assert "系统管理" in result.content  # system_suffix 标记
+        assert "未完成任务" in result.content
 
 
 class TestManagePinnedContextToolUnknownAction:

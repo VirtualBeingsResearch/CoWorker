@@ -196,9 +196,11 @@ tool_parse_error = "工具参数 JSON 解析失败，请重新生成正确格式
 auto_recall_title = "[自动回忆] 以下长期记忆与当前对话相关："
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
 recent_activity_title = "[自动回忆·历史活动回放]"
-task_reminder = "[任务提醒] 当前有未完成任务："
-task_wakeup = "[任务提醒] 有未完成任务，中断睡眠："
+task_reminder = "[任务提醒] 还有 {{count}} 个未完成任务，可用 task_list / task_get 查看。"
+task_wakeup = "[任务提醒] 有 {{count}} 个未完成任务，中断睡眠。"
 task_details_hint = " has_details=true，请用 task_get 查看"
+task_pin_label = "未完成任务"
+task_board_more = "……以及另外 {{count}} 个，用 task_list 查看"
 
 [bubble]
 cancelled = "泡泡被手动取消"
