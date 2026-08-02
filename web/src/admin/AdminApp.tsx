@@ -1020,8 +1020,12 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
     if (node) tailStick.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
   };
   useEffect(() => {
-    // 实时观察：挂载期间持续刷新当前消息尾部；回溯重建时用更快的节奏。
-    const timer = window.setInterval(() => { void api<Json>('/api/admin/memory/short-term').then(setData).catch(() => undefined); }, data?.backfill?.running ? 1500 : 2000);
+    // 实时观察：挂载期间用轻量端点高频刷新当前消息尾部；完整快照在进入页面/手动刷新时拉取。
+    const timer = window.setInterval(() => {
+      void api<Json>('/api/admin/memory/short-term/messages')
+        .then(tail => setData(current => current ? { ...current, messages: tail.messages } : current))
+        .catch(() => undefined);
+    }, data?.backfill?.running ? 1500 : 2000);
     return () => window.clearInterval(timer);
   }, [data?.backfill?.running, setData]);
   if (loading || !data) return <Loading error={error} />;

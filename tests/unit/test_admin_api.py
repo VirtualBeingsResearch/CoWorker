@@ -1665,6 +1665,41 @@ def test_short_term_memory_returns_wecom_structured_text_without_attachment_byte
     assert "secret-image-bytes" not in response.text
 
 
+def test_short_term_messages_tail_is_lightweight_and_matches_full_snapshot(tmp_path):
+    client, config = _client(tmp_path)
+    short_term = ShortTermMemory(max_tokens=1_000)
+    short_term.primary.append(Message(role="user", content="first"))
+    short_term.primary.append(Message(role="assistant", content="second"))
+    agent = SimpleNamespace(
+        _identity=_Identity(),
+        _short_term=short_term,
+        state=SimpleNamespace(last_main_response_usage=None),
+    )
+    brain = SimpleNamespace(
+        active_provider=None,
+        current_provider_name="openai",
+        current_model="gpt-5.2",
+    )
+    admin.setup_admin(
+        agent=agent,
+        brain=brain,
+        config=config,
+        alarm_manager=None,
+        skill_loader=None,
+        palace_loader=None,
+        mode_loader=None,
+    )
+
+    headers = {"Authorization": "Bearer secret"}
+    full = client.get("/api/admin/memory/short-term", headers=headers).json()
+    tail = client.get("/api/admin/memory/short-term/messages", headers=headers)
+
+    assert tail.status_code == 200
+    body = tail.json()
+    assert set(body) == {"messages"}
+    assert body["messages"] == full["messages"]
+
+
 def test_content_registry_includes_parsed_metadata(tmp_path):
     client, config = _client(tmp_path)
     skills_dir = tmp_path / "skills"
