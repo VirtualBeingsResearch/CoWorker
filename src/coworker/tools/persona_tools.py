@@ -1,4 +1,4 @@
-"""The standalone ``persona`` tool: bind addresses, maintain cards, merge people.
+"""The standalone ``persona`` tool: bind addresses, record notes, merge people.
 
 Kept separate from ``manage_memory`` so the persona mechanism can be validated
 on its own before (optionally) being folded into the memory tools.
@@ -10,12 +10,12 @@ from typing import Any
 
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
-from coworker.persona.person import PersonaCard, PersonAlias, PersonStore
+from coworker.persona import PersonaCard, PersonAlias, PersonStore
 from coworker.tools.base import Tool, ToolDefinition
 
 
 class PersonaTool(Tool):
-    """Bind addresses to persons, read/rewrite persona cards, merge persons."""
+    """Bind addresses to persons, record notes, render cards, merge persons."""
 
     def __init__(self, store: PersonStore, cards: PersonaCard) -> None:
         self._store = store

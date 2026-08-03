@@ -64,7 +64,6 @@ from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
 from coworker.persona import PersonaCard, PersonStore
-from coworker.persona.tools import PersonaTool
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
@@ -103,6 +102,7 @@ from coworker.tools.file_tools import (
     WriteFileTool,
 )
 from coworker.tools.memory_tools import ManageMemoryTool, QueryMemoryTool
+from coworker.tools.persona_tools import PersonaTool
 from coworker.tools.pinned_context_tool import ManagePinnedContextTool
 from coworker.tools.reasoning_tools import (
     TaskCreateTool,

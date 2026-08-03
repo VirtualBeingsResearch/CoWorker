@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from coworker.persona import PersonaCard, PersonAlias, PersonStore
-from coworker.persona.tools import PersonaTool
+from coworker.tools.persona_tools import PersonaTool
 
 
 def _tool(tmp_path) -> tuple[PersonaTool, PersonStore, PersonaCard]:
