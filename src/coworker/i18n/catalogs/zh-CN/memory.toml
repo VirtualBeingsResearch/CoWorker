@@ -157,3 +157,6 @@ associate_needs_tags = "associate 操作需要提供要追加的 tags"
 associated = "已关联标签 {{tags}}（id: {{id}}）"
 delete_needs_id = "delete 操作需要提供 memory_id"
 deleted = "已删除记忆（id: {{id}}）"
+
+[persona]
+card_header = "[人物画像：{{name}} ({{person_id}})]"

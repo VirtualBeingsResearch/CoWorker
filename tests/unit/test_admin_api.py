@@ -25,6 +25,7 @@ from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.memory.short_term import ShortTermMemory
+from coworker.persona import PersonaCard, PersonStore
 from coworker.skills.loader import SkillLoader
 
 
@@ -44,6 +45,7 @@ def _client(
     weixin: dict | None = None,
     channel_modules=None,
     relay_client=None,
+    persona: bool = False,
 ):
     config = Config.model_validate(
         {
@@ -72,6 +74,8 @@ def _client(
         list_providers=lambda: [],
         upsert_provider=AsyncMock(),
     )
+    person_store = PersonStore(tmp_path / "persons.json") if persona else None
+    persona_cards = PersonaCard(tmp_path / "persona_cards") if persona else None
     admin.setup_admin(
         agent=agent,
         brain=brain,
@@ -82,6 +86,8 @@ def _client(
         mode_loader=None,
         desktop_update_sync=desktop_update_sync,
         relay_client=relay_client,
+        person_store=person_store,
+        persona_cards=persona_cards,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
@@ -1901,3 +1907,96 @@ def test_legacy_admin_logs_endpoint_is_not_available(tmp_path):
     client, _ = _client(tmp_path)
     response = client.get("/api/admin/logs", headers={"Authorization": "Bearer secret"})
     assert response.status_code == 404
+
+
+def test_persona_disabled_returns_503(tmp_path):
+    client, _ = _client(tmp_path, persona=False)
+    response = client.get("/api/admin/persons", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 503
+    assert client.get("/api/admin/persons").status_code == 401
+
+
+def test_persons_crud_merge_and_card(tmp_path):
+    client, _ = _client(tmp_path, persona=True)
+    headers = {"Authorization": "Bearer secret"}
+
+    created = client.post(
+        "/api/admin/persons",
+        json={"display_name": "张三"},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    person = created.json()
+    person_id = person["person_id"]
+
+    listing = client.get("/api/admin/persons", headers=headers)
+    assert listing.status_code == 200
+    assert [p["person_id"] for p in listing.json()["persons"]] == [person_id]
+
+    detail = client.get(f"/api/admin/persons/{person_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["display_name"] == "张三"
+
+    patched = client.patch(
+        f"/api/admin/persons/{person_id}",
+        json={"aliases": [{"participant_id": "wecom:single:zs", "channel": "wecom"}]},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["aliases"][0]["participant_id"] == "wecom:single:zs"
+
+    empty_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
+    assert empty_card.status_code == 200
+    assert empty_card.json()["content"] == ""
+
+    saved = client.put(
+        f"/api/admin/persons/{person_id}/card",
+        json={"content": "# 张三\n- 关系：好友"},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
+    assert card.json()["content"] == "# 张三\n- 关系：好友"
+
+    other = client.post(
+        "/api/admin/persons",
+        json={"display_name": "阿三", "aliases": [{"participant_id": "weixin:bot1"}]},
+        headers=headers,
+    )
+    other_id = other.json()["person_id"]
+
+    merged = client.post(
+        f"/api/admin/persons/{person_id}/merge",
+        json={"other_person_id": other_id},
+        headers=headers,
+    )
+    assert merged.status_code == 200
+    assert {a["participant_id"] for a in merged.json()["aliases"]} == {
+        "wecom:single:zs",
+        "weixin:bot1",
+    }
+    # drop 人物的画像并入 keep（keep 原本无画像）
+    merged_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
+    assert merged_card.json()["content"] == "# 张三\n- 关系：好友"
+
+    deleted = client.delete(f"/api/admin/persons/{person_id}", headers=headers)
+    assert deleted.status_code == 200
+    gone = client.get(f"/api/admin/persons/{person_id}", headers=headers)
+    assert gone.status_code == 404
+    gone_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
+    assert gone_card.status_code == 404
+
+
+def test_person_admin_errors(tmp_path):
+    client, _ = _client(tmp_path, persona=True)
+    headers = {"Authorization": "Bearer secret"}
+
+    missing = client.get("/api/admin/persons/p_nope", headers=headers)
+    assert missing.status_code == 404
+
+    invalid_merge = client.post(
+        "/api/admin/persons/p_keep/merge",
+        json={"other_person_id": "p_drop"},
+        headers=headers,
+    )
+    assert invalid_merge.status_code == 400

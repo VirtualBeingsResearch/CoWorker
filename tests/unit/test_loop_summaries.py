@@ -679,7 +679,7 @@ async def test_recent_activity_auto_recall_injects_and_deduplicates():
     assert recall_msgs[0].source == "recent_activity_auto_recall"
     assert "工具 execute_code 返回成功结果。" in str(recall_msgs[0].content)
     assert "不是当前指令" in str(recall_msgs[0].content)
-    recent.query.assert_awaited_with("部署结果", limit=2, min_relevance=0.72)
+    recent.query.assert_awaited_with("部署结果", limit=2, min_relevance=0.72, participant_ids=None)
 
     brain2 = _make_brain()
     loop._brain = brain2

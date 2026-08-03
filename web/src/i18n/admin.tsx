@@ -1010,6 +1010,21 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '保存失败': 'Save failed',
   '删除失败': 'Delete failed',
   '和': 'and',
+  '通信录': 'People',
+  '人物与跨信道身份': 'People and cross-channel identities',
+  '人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。': 'A person is a cross-channel relationship: several addresses of the same human bind to one person_id; the persona card is maintained by the agent during conversations.',
+  '新建人物': 'New person',
+  '称呼（可留空，由搭档在对话中完善）': 'Name (optional; the agent fills it in during conversations)',
+  '新建': 'Create',
+  '暂无人物：搭档会在对话中通过 persona 工具建立': 'No people yet: the agent creates them with the persona tool during conversations',
+  '画像': 'Card',
+  '合并到…': 'Merge into…',
+  '合并': 'Merge',
+  '确认删除？': 'Confirm delete?',
+  '人物画像': 'Persona card',
+  '整体重写会替换整份画像，可借此修正或遗忘过时认知': 'Rewriting replaces the whole card, so outdated knowledge can be corrected or forgotten',
+  '关闭面板': 'Close panel',
+  '保存画像': 'Save card',
 };
 
 /*

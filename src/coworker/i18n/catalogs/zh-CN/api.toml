@@ -22,6 +22,9 @@ bearer_token_invalid = "bearer token 无效"
 
 [api.admin]
 invalid_config_path = "配置路径无效：{{path}}"
+persona_disabled = "Person 机制未启用"
+person_missing = "人物 {{person_id}} 不存在"
+person_merge_invalid = "合并失败：人物不存在，或不能把人物并入自身"
 unnamed = "未命名"
 confirm_name = "请输入 Coworker 名称“{{name}}”以确认"
 invalid_log_cursor = "日志游标无效"

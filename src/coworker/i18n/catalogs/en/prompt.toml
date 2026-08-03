@@ -56,4 +56,11 @@ weixin = '''Personal Weixin Claw:
 - Choose a recipient and make a separate `communicate` call with `qrcode_path` as an image attachment. To show status in the identity-card chat, also pass `extra={"connection_status":{"channel":"weixin","status":"wait","session_id":"..."}}`.
 - Pairing is polled automatically in the background; do not repeatedly call `list_connections`. Send `extra={"action":"status"}` only when status is needed. If the phone requests a code, send `extra={"action":"verify","session_id":"...","verify_code":"..."}`.
 - Remove a connection only after the user explicitly requests and confirms it: send `extra={"action":"remove","bot_instance_id":"...","confirm":true}` to `weixin:control`. This deletes Coworker's local credentials but does not remotely revoke Weixin-side authorization.
-- To communicate with a connected Weixin account, use the complete `weixin:<bot_instance_id>` returned by `list_connections`.'''
+- To communicate with a connected Weixin account, use the complete `weixin:<bot_instance_id>` returned by `list_connections`.
+- Inbound messages carry `conversation_id` as the 1:1 session id; the human lives at session granularity. When binding a person with the persona tool, include `conversation_id`.'''
+wecom = '''WeCom:
+- `wecom:single:{userid}` is a person; `wecom:group:{chatid}` is a group chat. Group messages prefix the sender as `[_sender_prefix]`.
+- Reach a person with the full `wecom:single:{userid}` (a group with `wecom:group:{chatid}`). `conversation_id` is optional, only to target a specific sub-conversation under the same address.'''
+stream = '''Stream / desktop:
+- participant_id is a registered client or desktop actor address (e.g. `coworker-desktop:d:{actor}:{random}`) or a client-chosen id.
+- `conversation_id`, when present, names a specific conversation under that participant. A person may use several participant_ids across sessions.'''

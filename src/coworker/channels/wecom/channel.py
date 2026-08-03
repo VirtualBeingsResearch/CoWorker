@@ -67,6 +67,9 @@ class WeComChannel(BaseChannel):
                 is_error=True,
             )
 
+    def agent_instructions(self) -> str:
+        return tr("prompt.channel.wecom")
+
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
         self._runner.set_inbound_handler(handler)

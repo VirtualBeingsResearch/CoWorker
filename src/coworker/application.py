@@ -63,6 +63,8 @@ from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
 from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
+from coworker.persona import PersonaCard, PersonStore
+from coworker.persona.tools import PersonaTool
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
@@ -753,6 +755,11 @@ async def _main() -> bool:
     )
     alarm_manager = AlarmManager(inbox_watcher, persist_path=alarm_persist_path)
     restored_alarms = await alarm_manager.restore()
+    person_store: PersonStore | None = None
+    persona_cards: PersonaCard | None = None
+    if config.memory.persona_enabled:
+        person_store = PersonStore(config.memory.persona_store_path)
+        persona_cards = PersonaCard(config.memory.persona_cards_dir)
     registry.register_many(
         [
             SetAlarmTool(alarm_manager),
@@ -764,6 +771,11 @@ async def _main() -> bool:
             GetContextTool(brain, short_term, agent_state),
             ManagePinnedContextTool(short_term),
             RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path),
+            *(  # 可选的 Person 子机制：绑定地址、维护画像、合并人物。
+                [PersonaTool(person_store, persona_cards)]
+                if person_store is not None and persona_cards is not None
+                else []
+            ),
         ]
     )
 
@@ -911,6 +923,8 @@ async def _main() -> bool:
         bubble_store=bubble_store,
         subconscious=subconscious,
         recent_activity=recent_activity,
+        person_store=person_store,
+        persona_cards=persona_cards,
     )
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)
@@ -961,6 +975,8 @@ async def _main() -> bool:
         desktop_update_sync=desktop_update_sync,
         inherited_config=inherited_config,
         relay_client=relay_client,
+        person_store=person_store,
+        persona_cards=persona_cards,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(

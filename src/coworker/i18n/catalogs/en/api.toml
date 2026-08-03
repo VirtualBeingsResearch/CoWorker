@@ -22,6 +22,9 @@ bearer_token_invalid = "Bearer token is invalid"
 
 [api.admin]
 invalid_config_path = "Invalid configuration path: {{path}}"
+persona_disabled = "The persona mechanism is not enabled"
+person_missing = "Person {{person_id}} not found"
+person_merge_invalid = "Merge failed: a person is missing, or you cannot merge a person into itself"
 unnamed = "unnamed"
 confirm_name = "Enter the Coworker name “{{name}}” to confirm"
 invalid_log_cursor = "Invalid log cursor"

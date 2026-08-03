@@ -45,6 +45,7 @@ from coworker.core.startup_intent import (
 )
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
+from coworker.persona import Person, PersonAlias
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
     from coworker.desktop_updates import SyncService
     from coworker.memory.short_term import ShortTermMemory
     from coworker.palaces.loader import Palace, PalaceLoader
+    from coworker.persona import PersonaCard, PersonStore
     from coworker.relay import RelayClient
     from coworker.skills.loader import Skill, SkillLoader
     from coworker.tools.alarm_tools import AlarmManager
@@ -81,6 +83,8 @@ _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
+_person_store: PersonStore | None = None
+_persona_cards: PersonaCard | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
@@ -97,6 +101,28 @@ class IdentityPatch(BaseModel):
     name: str | None = None
     personality: str | None = None
     current_location: str | None = None
+
+
+class PersonAliasPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    participant_id: str = Field(min_length=1, max_length=400)
+    conversation_id: str | None = None
+    channel: str = Field(default="", max_length=80)
+    note: str = Field(default="", max_length=400)
+
+
+class PersonPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, max_length=120)
+    aliases: list[PersonAliasPatch] | None = None
+
+
+class PersonMergePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    other_person_id: str = Field(min_length=1, max_length=120)
 
 
 class BootstrapPayload(BaseModel):
@@ -193,6 +219,8 @@ def setup_admin(
     desktop_update_sync: SyncService | None = None,
     inherited_config: Config | None = None,
     relay_client: RelayClient | None = None,
+    person_store: PersonStore | None = None,
+    persona_cards: PersonaCard | None = None,
 ) -> None:
     global \
         _agent, \
@@ -205,7 +233,9 @@ def setup_admin(
         _mode_loader, \
         _desktop_update_sync, \
         _admin_config_service, \
-        _relay_client
+        _relay_client, \
+        _person_store, \
+        _persona_cards
     _agent = agent
     _brain = brain
     _config = config
@@ -216,6 +246,8 @@ def setup_admin(
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
     _relay_client = relay_client
+    _person_store = person_store
+    _persona_cards = persona_cards
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -245,6 +277,12 @@ def _require_brain() -> Brain:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.brain_not_ready"))
     return _brain
+
+
+def _require_persona() -> tuple[PersonStore, PersonaCard]:
+    if _person_store is None or _persona_cards is None:
+        raise HTTPException(status_code=503, detail=tr("api.admin.persona_disabled"))
+    return _person_store, _persona_cards
 
 
 def _require_relay_client() -> RelayClient:
@@ -1964,6 +2002,166 @@ async def put_identity(
     agent.refresh_system_prompt()
     _audit(request, "identity.update", identity.name or "unnamed")
     return await get_identity()
+
+
+def _person_payload(person: Person) -> dict[str, object]:
+    return {
+        "person_id": person.person_id,
+        "display_name": person.display_name,
+        "aliases": [alias.to_dict() for alias in person.aliases],
+        "created_at": person.created_at,
+        "updated_at": person.updated_at,
+    }
+
+
+def _aliases_from_patch(aliases: list[PersonAliasPatch]) -> list[PersonAlias]:
+    return [
+        PersonAlias(
+            participant_id=a.participant_id,
+            conversation_id=a.conversation_id,
+            channel=a.channel,
+            note=a.note,
+        )
+        for a in aliases
+    ]
+
+
+@router.get("/persons")
+async def list_persons(_: None = Depends(require_admin)) -> ApiResponse:
+    store, _cards = _require_persona()
+    return {"persons": [_person_payload(p) for p in store.all_persons()]}
+
+
+@router.post("/persons")
+async def create_person(
+    payload: PersonPatch,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, _cards = _require_persona()
+    person = store.create(
+        display_name=payload.display_name or "",
+        aliases=_aliases_from_patch(payload.aliases or []),
+    )
+    _audit(request, "person.create", person.person_id)
+    return _person_payload(person)
+
+
+@router.get("/persons/{person_id}")
+async def get_person(
+    person_id: str,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, _cards = _require_persona()
+    person = store.get(person_id)
+    if person is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    return _person_payload(person)
+
+
+@router.patch("/persons/{person_id}")
+async def patch_person(
+    person_id: str,
+    payload: PersonPatch,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, _cards = _require_persona()
+    if store.get(person_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    updated = store.update(
+        person_id,
+        display_name=payload.display_name,
+        aliases=_aliases_from_patch(payload.aliases) if payload.aliases is not None else None,
+    )
+    _audit(request, "person.update", person_id)
+    return _person_payload(updated)  # type: ignore[arg-type]
+
+
+@router.delete("/persons/{person_id}")
+async def delete_person(
+    person_id: str,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, cards = _require_persona()
+    if not store.delete(person_id):
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    cards.delete(person_id)
+    _audit(request, "person.delete", person_id)
+    return {"deleted": True}
+
+
+@router.post("/persons/{person_id}/merge")
+async def merge_person(
+    person_id: str,
+    payload: PersonMergePayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, cards = _require_persona()
+    keep = store.get(person_id)
+    drop = store.get(payload.other_person_id)
+    if keep is None or drop is None or person_id == payload.other_person_id:
+        raise HTTPException(status_code=400, detail=tr("api.admin.person_merge_invalid"))
+    merged = store.merge(person_id, payload.other_person_id)
+    if merged is None:
+        raise HTTPException(status_code=400, detail=tr("api.admin.person_merge_invalid"))
+    # drop 人物的画像并入 keep（仅当 keep 尚无画像），再删除 drop 的画像文件。
+    if not cards.load(person_id):
+        drop_card = cards.load(payload.other_person_id)
+        if drop_card:
+            cards.save(person_id, drop_card)
+    cards.delete(payload.other_person_id)
+    _audit(request, "person.merge", person_id, detail=payload.other_person_id)
+    return _person_payload(merged)
+
+
+class PersonCardPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(max_length=64_000)
+
+
+@router.get("/persons/{person_id}/card")
+async def get_person_card(
+    person_id: str,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, cards = _require_persona()
+    if store.get(person_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    return {"person_id": person_id, "content": cards.load(person_id)}
+
+
+@router.put("/persons/{person_id}/card")
+async def put_person_card(
+    person_id: str,
+    payload: PersonCardPatch,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store, cards = _require_persona()
+    if store.get(person_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    cards.save(person_id, payload.content)
+    _audit(request, "person.card", person_id)
+    return {"person_id": person_id, "content": cards.load(person_id)}
 
 
 def _content_loader(kind: str) -> ContentLoader:

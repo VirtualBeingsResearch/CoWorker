@@ -929,6 +929,39 @@ async def test_query_time_filter_and_evidence_dedup():
 
 
 @pytest.mark.asyncio
+async def test_query_filters_by_participant_ids():
+    collection = _Collection()
+    mem = _memory(collection)
+    now = datetime(2026, 7, 8, 12)
+
+    await mem._index_entries(
+        [
+            _entry(
+                1,
+                now - timedelta(hours=1),
+                "message_in",
+                participant_id="alice",
+                content="alpha" * 20,
+            ),
+            _entry(
+                2,
+                now - timedelta(hours=1),
+                "message_in",
+                participant_id="bob",
+                content="alpha" * 20,
+            ),
+        ],
+        now=now,
+    )
+
+    filtered = await mem.query("alpha", limit=10, participant_ids=["alice"])
+    assert [r["participant_id"] for r in filtered] == ["alice"]
+
+    unfiltered = await mem.query("alpha", limit=10)
+    assert {r["participant_id"] for r in unfiltered} == {"alice", "bob"}
+
+
+@pytest.mark.asyncio
 async def test_sync_compressed_from_log_indexes_only_before_primary_boundary(tmp_path):
     collection = _Collection()
     now = datetime(2026, 7, 8, 12)

@@ -58,6 +58,7 @@ prompt 不复制、不 monkey-patch。
 - 系统工具：`sleep`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
 - 通信工具：`communicate`、`list_connections`
+- 人物工具（可选子机制，`MEMORY__PERSONA_ENABLED=false` 关闭）：`persona`（`bind` 把通信地址绑定到已知或新建人物、`card` 读写搭档维护的人物画像、`merge` 合并重复人物）
 - 技能与任务：`get_skill`、`task_board`
 
 `visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：
@@ -85,6 +86,7 @@ coworker/
 │   ├── identity/            # 身份加载
 │   ├── memory/              # 短期记忆、长期记忆、向量嵌入
 │   ├── palaces/             # 记忆宫殿扫描与读取
+│   ├── persona/             # 可选 Person 子机制：人物、地址绑定与画像
 │   ├── prompts/             # System Prompt 构建
 │   ├── skills/              # 技能文件扫描与读取
 │   └── tools/               # 工具实现与注册
@@ -93,6 +95,7 @@ coworker/
     ├── inbox/               # 文件消息输入
     ├── outbox/              # 文件消息输出
     ├── memory/              # mem0/ChromaDB 持久化 + short_term_snapshot.json
+    ├── persona/             # persons.json + cards/{person_id}.md（Person 子机制）
     ├── identity/            # name.txt、personality.md 等
     ├── logs/                # 日志和 interactions*.jsonl 分片
     └── task_board.md        # 任务板工具使用的文件
