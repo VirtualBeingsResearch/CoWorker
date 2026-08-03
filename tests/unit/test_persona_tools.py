@@ -25,6 +25,27 @@ async def test_bind_creates_new_person(tmp_path) -> None:
     assert person.aliases[0].participant_id == "wecom:single:zs"
 
 
+async def test_bind_appends_notes_to_same_address(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    first = await tool.execute(
+        action="bind",
+        participant_id="wecom:single:zs",
+        name="张三",
+        note="工作伙伴",
+    )
+    assert not first.is_error
+    second = await tool.execute(
+        action="bind",
+        participant_id="wecom:single:zs",
+        name="张三",
+        note="周末常联系",
+    )
+    assert not second.is_error
+    person = store.all_persons()[0]
+    assert person.aliases[0].notes == ["工作伙伴", "周末常联系"]
+    assert len(person.aliases) == 1  # 同一地址不重复建别名
+
+
 async def test_bind_to_existing_person_by_id(tmp_path) -> None:
     tool, store, _ = _tool(tmp_path)
     person = store.create(display_name="张三")

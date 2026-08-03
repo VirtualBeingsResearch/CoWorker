@@ -28,13 +28,13 @@
 
 ### ① 记住谁是谁 —— PersonStore 与画像文件
 
-- `data/persons.json`：`Person`（`person_id`、`display_name`、`aliases[]`）。
-- 每个地址是 `{participant_id, conversation_id?, channel, note}`。`conversation_id` 仅在信道需要它定位具体会话/真人时记录（如微信的 session）；`wecom:single:*` 这类靠地址唯一路由的不带。
-- `data/persona/cards/{person_id}.md`：搭档维护的画像，整体重写而非追加。
+- `data/memory/persons.json`：`Person`（`person_id`、`display_name`、`aliases[]`）。
+- 每个地址是 `{participant_id, conversation_id?, channel, notes[]}`。`conversation_id` 仅在信道需要它定位具体会话/真人时记录（如微信的 session）；`wecom:single:*` 这类靠地址唯一路由的不带。`notes` 按地址累积——同一信道可以有多个备注，模型 `bind` 时可多次追加。
+- `data/memory/cards/{person_id}.md`：搭档维护的画像，整体重写而非追加。
 
 ### ② 模型维护认知 —— `persona` 工具
 
-- `persona(action="bind", participant_id, conversation_id?, person_id?/name?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；
+- `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；`note` 会追加到该地址的备注列表；
 - `persona(action="card", person_id, content?)`：空 `content` 读画像；传 `content` 整体重写画像。画像**何时建立、怎么写由模型自行把握**；
 - `persona(action="merge", keep_person_id, drop_person_id)`：地址并入主人物、删除另一实体；relationship 记忆留在单桶不转移。
 
@@ -54,8 +54,8 @@
 
 ```env
 MEMORY__PERSONA_ENABLED=true        # 关闭后与现状完全一致
-MEMORY__PERSONA_STORE_PATH=data/persons.json
-MEMORY__PERSONA_CARDS_DIR=data/persona/cards
+MEMORY__PERSONA_STORE_PATH=data/memory/persons.json
+MEMORY__PERSONA_CARDS_DIR=data/memory/cards
 ```
 
 管理端提供 `GET/POST /api/admin/persons`、`GET/PATCH/DELETE /api/admin/persons/{id}`、`POST /api/admin/persons/{id}/merge`、`GET/PUT /api/admin/persons/{id}/card`（需管理员令牌；DELETE 同步删除画像；merge 后 drop 人物的画像并入 keep）。

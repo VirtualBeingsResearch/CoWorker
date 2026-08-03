@@ -1939,11 +1939,12 @@ def test_persons_crud_merge_and_card(tmp_path):
 
     patched = client.patch(
         f"/api/admin/persons/{person_id}",
-        json={"aliases": [{"participant_id": "wecom:single:zs", "channel": "wecom"}]},
+        json={"aliases": [{"participant_id": "wecom:single:zs", "channel": "wecom", "notes": ["工作伙伴"]}]},
         headers=headers,
     )
     assert patched.status_code == 200
     assert patched.json()["aliases"][0]["participant_id"] == "wecom:single:zs"
+    assert patched.json()["aliases"][0]["notes"] == ["工作伙伴"]
 
     empty_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
     assert empty_card.status_code == 200

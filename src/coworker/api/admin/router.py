@@ -109,7 +109,7 @@ class PersonAliasPatch(BaseModel):
     participant_id: str = Field(min_length=1, max_length=400)
     conversation_id: str | None = None
     channel: str = Field(default="", max_length=80)
-    note: str = Field(default="", max_length=400)
+    notes: list[str] = Field(default_factory=list, max_length=20)
 
 
 class PersonPatch(BaseModel):
@@ -2020,7 +2020,7 @@ def _aliases_from_patch(aliases: list[PersonAliasPatch]) -> list[PersonAlias]:
             participant_id=a.participant_id,
             conversation_id=a.conversation_id,
             channel=a.channel,
-            note=a.note,
+            notes=list(a.notes),
         )
         for a in aliases
     ]

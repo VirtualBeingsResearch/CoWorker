@@ -52,28 +52,35 @@ class PersonAlias:
     ``conversation_id`` is only set when the channel needs it to locate the
     specific conversation or human (e.g. a WeChat session); channels that are
     uniquely routable by ``participant_id`` alone leave it ``None``.
+    ``notes`` accumulate per address — the same channel may carry several
+    notes (added over time by the agent when binding).
     """
 
     participant_id: str
     conversation_id: str | None = None
     channel: str = ""
-    note: str = ""
+    notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, str | None]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "participant_id": self.participant_id,
             "conversation_id": self.conversation_id,
             "channel": self.channel,
-            "note": self.note,
+            "notes": list(self.notes),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> PersonAlias:
+        notes = data.get("notes")
+        if not isinstance(notes, list):
+            # 兼容旧格式：单条字符串 note。
+            legacy = data.get("note")
+            notes = [str(legacy)] if legacy else []
         return cls(
             participant_id=str(data.get("participant_id") or ""),
             conversation_id=data.get("conversation_id") or None,
             channel=str(data.get("channel") or ""),
-            note=str(data.get("note") or ""),
+            notes=[str(n) for n in notes if str(n).strip()],
         )
 
 
@@ -119,7 +126,7 @@ class PersonStore:
     after load, so inbound-time lookups are cheap.
     """
 
-    def __init__(self, store_path: str | Path = "data/persons.json") -> None:
+    def __init__(self, store_path: str | Path = "data/memory/persons.json") -> None:
         self._path = Path(store_path)
         self._persons: dict[str, Person] = {}
         self._load()
@@ -227,13 +234,26 @@ class PersonStore:
         return True
 
     def bind_alias(self, person_id: str, alias: PersonAlias) -> Person | None:
-        """Idempotently attach an address to a person."""
+        """Idempotently attach an address to a person.
+
+        When the address already exists, the new alias's notes are merged into
+        the existing notes (deduplicated) — so the same channel can accumulate
+        several notes over time.
+        """
         person = self._persons.get(person_id)
         if person is None:
             return None
         key = (alias.participant_id, alias.conversation_id)
         for existing in person.aliases:
             if (existing.participant_id, existing.conversation_id) == key:
+                merged = False
+                for note in alias.notes:
+                    if note not in existing.notes:
+                        existing.notes.append(note)
+                        merged = True
+                if merged:
+                    person.updated_at = _now_iso()
+                    self._save()
                 return person
         person.aliases.append(alias)
         person.updated_at = _now_iso()
@@ -268,7 +288,7 @@ class PersonStore:
 class PersonaCard:
     """Per-person markdown card files, maintained by the agent (like thinking.md)."""
 
-    def __init__(self, cards_dir: str | Path = "data/persona/cards") -> None:
+    def __init__(self, cards_dir: str | Path = "data/memory/cards") -> None:
         self._dir = Path(cards_dir)
 
     def path_for(self, person_id: str) -> Path:

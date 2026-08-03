@@ -100,8 +100,7 @@ coworker/
 └── data/                    # Runtime data, created or written after startup
     ├── inbox/               # Incoming file messages
     ├── outbox/              # Outgoing file messages
-    ├── memory/              # mem0/ChromaDB persistence + short_term_snapshot.json
-    ├── persona/             # persons.json + cards/{person_id}.md (Person sub-mechanism)
+    ├── memory/              # mem0/ChromaDB persistence + short_term_snapshot.json + persons.json/cards (Person sub-mechanism)
     ├── identity/            # name.txt, personality.md, and related files
     ├── logs/                # Logs and interactions*.jsonl shards
     └── task_board.md        # File used by the task-board tool

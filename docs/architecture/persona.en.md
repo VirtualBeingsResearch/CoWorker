@@ -28,13 +28,13 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 
 ### ① Remembering who is who — PersonStore and card files
 
-- `data/persons.json`: `Person` (`person_id`, `display_name`, `aliases[]`).
-- Each address is `{participant_id, conversation_id?, channel, note}`. `conversation_id` is recorded only when the channel needs it to locate a specific conversation or human (e.g. a Weixin session); addresses uniquely routable by `participant_id` alone (e.g. `wecom:single:*`) omit it.
-- `data/persona/cards/{person_id}.md`: the agent-maintained card, rewritten wholesale rather than appended.
+- `data/memory/persons.json`: `Person` (`person_id`, `display_name`, `aliases[]`).
+- Each address is `{participant_id, conversation_id?, channel, notes[]}`. `conversation_id` is recorded only when the channel needs it to locate a specific conversation or human (e.g. a Weixin session); addresses uniquely routable by `participant_id` alone (e.g. `wecom:single:*`) omit it. `notes` accumulate per address — the same channel can carry several notes, appended by the agent across `bind` calls.
+- `data/memory/cards/{person_id}.md`: the agent-maintained card, rewritten wholesale rather than appended.
 
 ### ② Maintaining knowledge — the `persona` tool
 
-- `persona(action="bind", participant_id, conversation_id?, person_id?/name?)`: bind an address to a known person (by `person_id` or name) or create a new one;
+- `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`: bind an address to a known person (by `person_id` or name) or create a new one; `note` is appended to the address's notes;
 - `persona(action="card", person_id, content?)`: empty `content` reads the card; non-empty `content` rewrites it wholesale. When and how a card is created is the model's own judgment;
 - `persona(action="merge", keep_person_id, drop_person_id)`: union addresses into the kept person and delete the other entity; `relationship` memories stay in the single bucket, unmoved.
 
@@ -54,8 +54,8 @@ By default memory/card lookup targets only the current conversation person (the 
 
 ```env
 MEMORY__PERSONA_ENABLED=true        # disabled behavior is identical to today
-MEMORY__PERSONA_STORE_PATH=data/persons.json
-MEMORY__PERSONA_CARDS_DIR=data/persona/cards
+MEMORY__PERSONA_STORE_PATH=data/memory/persons.json
+MEMORY__PERSONA_CARDS_DIR=data/memory/cards
 ```
 
 The admin API exposes `GET/POST /api/admin/persons`, `GET/PATCH/DELETE /api/admin/persons/{id}`, `POST /api/admin/persons/{id}/merge`, `GET/PUT /api/admin/persons/{id}/card` (admin token required; DELETE also removes the card file; merging moves the dropped person's card into the kept person).

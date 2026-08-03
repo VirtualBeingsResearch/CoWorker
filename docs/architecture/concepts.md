@@ -94,8 +94,7 @@ coworker/
 └── data/                    # 运行时数据，启动后自动创建或写入
     ├── inbox/               # 文件消息输入
     ├── outbox/              # 文件消息输出
-    ├── memory/              # mem0/ChromaDB 持久化 + short_term_snapshot.json
-    ├── persona/             # persons.json + cards/{person_id}.md（Person 子机制）
+    ├── memory/              # mem0/ChromaDB 持久化 + short_term_snapshot.json + persons.json/cards（Person 子机制）
     ├── identity/            # name.txt、personality.md 等
     ├── logs/                # 日志和 interactions*.jsonl 分片
     └── task_board.md        # 任务板工具使用的文件

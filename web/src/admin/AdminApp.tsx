@@ -1591,7 +1591,7 @@ type PersonAliasView = {
   participant_id: string;
   conversation_id?: string | null;
   channel: string;
-  note: string;
+  notes: string[];
 };
 type PersonView = {
   person_id: string;
@@ -1692,7 +1692,7 @@ function PeopleView() {
             <input className="person-name-input" value={names[person.person_id] ?? ''} onChange={event => setNames({ ...names, [person.person_id]: event.target.value })} onBlur={() => void rename(person)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
             <code className="person-id">{person.person_id}</code>
           </div>
-          {person.aliases.length > 0 && <div className="person-aliases">{person.aliases.map((alias, index) => <span className="alias-chip" key={index} title={alias.conversation_id ? `conversation: ${alias.conversation_id}` : ''}>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</span>)}</div>}
+          {person.aliases.length > 0 && <div className="person-aliases">{person.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</span>)}</div>}
           <div className="person-actions">
             <button className="ghost mini" disabled={busy} onClick={() => void openCard(person)}><FileText size={14} />{t('画像')}</button>
             {others(person).length > 0 && <>

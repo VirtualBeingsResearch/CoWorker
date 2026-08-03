@@ -50,6 +50,10 @@ class PersonaTool(Tool):
                         "type": "string",
                         "description": "人物称呼（bind 且未指定 person_id 时：用于新建人物或按名匹配已有）",
                     },
+                    "note": {
+                        "type": "string",
+                        "description": "该地址的备注（bind 时可选；同一地址可多次 bind 追加多条备注）",
+                    },
                     "content": {
                         "type": "string",
                         "description": "画像内容（card 时：空 = 读画像；非空 = 整体重写画像）",
@@ -118,9 +122,11 @@ class PersonaTool(Tool):
             person = self._store.create()
             created = True
 
+        note = kwargs.get("note")
         alias = PersonAlias(
             participant_id=participant_id,
             conversation_id=conversation_id,
+            notes=[str(note).strip()] if note and str(note).strip() else [],
         )
         bound = self._store.bind_alias(person.person_id, alias)
         if bound is None:

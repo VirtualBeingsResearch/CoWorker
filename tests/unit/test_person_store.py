@@ -94,6 +94,35 @@ def test_merge_keeps_display_name_when_keep_empty(tmp_path) -> None:
     assert store.get(keep.person_id).display_name == "老王"
 
 
+def test_alias_notes_round_trip_and_legacy_note_compat(tmp_path) -> None:
+    path = tmp_path / "persons.json"
+    store = PersonStore(path)
+    person = store.create(aliases=[PersonAlias("wecom:single:zs", notes=["工作伙伴"])])
+    assert person.aliases[0].notes == ["工作伙伴"]
+
+    reloaded = PersonStore(path).get(person.person_id)
+    assert reloaded.aliases[0].notes == ["工作伙伴"]
+
+    # 旧格式：单条字符串 note 读取为单元素列表。
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["persons"][0]["aliases"][0]["note"] = "旧备注"
+    del data["persons"][0]["aliases"][0]["notes"]
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    legacy = PersonStore(path).get(person.person_id)
+    assert legacy.aliases[0].notes == ["旧备注"]
+
+
+def test_bind_alias_merges_notes(tmp_path) -> None:
+    store = PersonStore(tmp_path / "persons.json")
+    person = store.create()
+    store.bind_alias(person.person_id, PersonAlias("wecom:single:zs", notes=["工作伙伴"]))
+    store.bind_alias(person.person_id, PersonAlias("wecom:single:zs", notes=["周末常联系"]))
+    store.bind_alias(person.person_id, PersonAlias("wecom:single:zs", notes=["工作伙伴"]))
+    assert person.aliases[0].notes == ["工作伙伴", "周末常联系"]
+
+
 def test_load_ignores_corrupt_file(tmp_path) -> None:
     path = tmp_path / "persons.json"
     path.write_text("{not json", encoding="utf-8")
