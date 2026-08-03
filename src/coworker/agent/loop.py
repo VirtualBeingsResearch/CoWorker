@@ -565,18 +565,13 @@ class AgentLoop:
             resolved.add(event.participant_id)
             if self._persona_card_present(person.person_id):
                 continue
-            card = persona_cards.load(person.person_id)
+            card = persona_cards.render(person)
             if not card:
                 continue
-            header = tr(
-                "persona.card_header",
-                name=person.display_name or person.person_id,
-                person_id=person.person_id,
-            )
             self._short_term.primary.append(
                 Message(
                     role="user",
-                    content=f"{header}\n{card}",
+                    content=card,
                     source=f"persona_card:{person.person_id}",
                 )
             )

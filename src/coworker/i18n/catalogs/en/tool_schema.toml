@@ -195,13 +195,13 @@ category = "Memory category; required for write."
 tags = "Tags; initial tags for write or tags to add for associate."
 
 [tool_schema.parameter.persona]
-action = "Operation: bind, card, or merge."
+action = "Operation: bind, card, note, or merge."
 participant_id = "Communication address; required for bind."
 conversation_id = "Session id under the address; optional for bind, include when the channel routes people by session (e.g. Weixin)."
-person_id = "Person id; required for card, or the target person for bind."
+person_id = "Person id; required for card and note, or the target person for bind."
 name = "Person display name; used to create or match a person when bind has no person_id."
-note = "Note for the address; optional for bind, may be appended multiple times to the same address."
-content = "Card content; empty reads the card, non-empty rewrites it wholesale."
+note = "Note content: address note for bind (appended to the same address), or a person-level personalized note for note."
+remove = "Optional for note: true removes the note (forgetting outdated knowledge); default appends."
 keep_person_id = "Person id to keep; required for merge."
 drop_person_id = "Person id to merge away and delete; required for merge."
 

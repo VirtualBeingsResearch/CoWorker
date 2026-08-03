@@ -1596,6 +1596,7 @@ type PersonAliasView = {
 type PersonView = {
   person_id: string;
   display_name: string;
+  notes: string[];
   aliases: PersonAliasView[];
   created_at: string;
   updated_at: string;
@@ -1608,7 +1609,8 @@ function PeopleView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<PersonView | null>(null);
-  const [cardDraft, setCardDraft] = useState('');
+  const [renderedCard, setRenderedCard] = useState('');
+  const [notesDraft, setNotesDraft] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
 
@@ -1664,17 +1666,20 @@ function PeopleView() {
     setError(null);
     try {
       const card = await api<{ content: string }>(`/api/admin/persons/${person.person_id}/card`);
-      setCardDraft(card.content);
+      setRenderedCard(card.content);
+      setNotesDraft((person.notes ?? []).join('\n'));
       setEditingCard(person);
     } catch (e) { setError(String(e)); }
   };
 
-  const saveCard = async () => {
+  const saveNotes = async () => {
     if (!editingCard) return;
     setBusy(true); setError(null);
     try {
-      await api<Json>(`/api/admin/persons/${editingCard.person_id}/card`, { method: 'PUT', body: JSON.stringify({ content: cardDraft }) });
+      const notes = notesDraft.split('\n').map(s => s.trim()).filter(Boolean);
+      await api<Json>(`/api/admin/persons/${editingCard.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
       setEditingCard(null);
+      await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
@@ -1706,9 +1711,10 @@ function PeopleView() {
           </div>
         </div>)}</div>}
     </Panel>
-    {editingCard && <Panel title="人物画像" note={t('整体重写会替换整份画像，可借此修正或遗忘过时认知')} action={<button className="ghost mini" onClick={() => setEditingCard(null)}><X size={14} />{t('关闭面板')}</button>}>
-      <Field label={`${editingCard.display_name || editingCard.person_id} · ${editingCard.person_id}`}><textarea rows={10} value={cardDraft} onChange={event => setCardDraft(event.target.value)} /></Field>
-      <div className="panel-actions"><button className="primary" disabled={busy} onClick={() => void saveCard()}><Save size={15} />{t('保存画像')}</button></div>
+    {editingCard && <Panel title="人物画像" note={t('画像是一个框架：个性化信息通过备注记录')} action={<button className="ghost mini" onClick={() => setEditingCard(null)}><X size={14} />{t('关闭面板')}</button>}>
+      <div className="person-card-preview"><pre>{renderedCard || t('暂无记录')}</pre></div>
+      <Field label={t('个性化备注（每行一条）')}><textarea rows={8} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+      <div className="panel-actions"><button className="primary" disabled={busy} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
     </Panel>}
   </div>;
 }

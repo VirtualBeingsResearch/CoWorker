@@ -8,7 +8,7 @@ from coworker.persona.tools import PersonaTool
 
 def _tool(tmp_path) -> tuple[PersonaTool, PersonStore, PersonaCard]:
     store = PersonStore(tmp_path / "persons.json")
-    cards = PersonaCard(tmp_path / "cards")
+    cards = PersonaCard()
     return PersonaTool(store, cards), store, cards
 
 
@@ -85,20 +85,14 @@ async def test_bind_errors(tmp_path) -> None:
     assert bad_id.is_error
 
 
-async def test_card_write_then_read(tmp_path) -> None:
+async def test_card_read_renders_framework_from_notes(tmp_path) -> None:
     tool, store, cards = _tool(tmp_path)
-    person = store.create(display_name="张三")
-    updated = await tool.execute(
-        action="card",
-        person_id=person.person_id,
-        content="# 张三\n- 关系：好友",
-    )
-    assert not updated.is_error
-    assert cards.load(person.person_id).startswith("# 张三")
-
+    person = store.create(display_name="张三", notes=["关系：好友"])
     read = await tool.execute(action="card", person_id=person.person_id)
     assert not read.is_error
+    assert "张三" in read.content
     assert "关系：好友" in read.content
+    assert cards.render(person) == read.content
 
 
 async def test_card_empty_and_missing_person(tmp_path) -> None:
@@ -106,10 +100,44 @@ async def test_card_empty_and_missing_person(tmp_path) -> None:
     person = store.create()
     empty = await tool.execute(action="card", person_id=person.person_id)
     assert not empty.is_error
-    assert "暂无画像" in empty.content or "no persona card" in empty.content
+    assert "暂无记录" in empty.content or "no recorded notes" in empty.content
 
     missing = await tool.execute(action="card", person_id="p_nope")
     assert missing.is_error
+
+
+async def test_note_add_and_remove(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    added = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        note="习惯用中文",
+    )
+    assert not added.is_error
+    assert person.notes == ["习惯用中文"]
+
+    duplicate = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        note="习惯用中文",
+    )
+    assert not duplicate.is_error
+    assert person.notes == ["习惯用中文"]  # 去重
+
+    removed = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        note="习惯用中文",
+        remove=True,
+    )
+    assert not removed.is_error
+    assert person.notes == []
+
+    missing = await tool.execute(action="note", person_id="p_nope", note="x")
+    assert missing.is_error
+    needs_content = await tool.execute(action="note", person_id=person.person_id)
+    assert needs_content.is_error
 
 
 async def test_merge_unions_people(tmp_path) -> None:

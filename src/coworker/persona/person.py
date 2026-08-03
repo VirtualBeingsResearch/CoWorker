@@ -19,6 +19,7 @@ from pathlib import Path
 from loguru import logger
 
 from coworker.core.ids import new_compact_id
+from coworker.i18n import tr
 
 
 def _now_iso() -> str:
@@ -89,12 +90,14 @@ class Person:
     """A relationship the agent maintains across channels.
 
     ``person_id`` is opaque and stable — the future seam for an account system.
-    The persona card file holds the model-maintained understanding of this
-    person; this object only carries identity and addresses.
+    Personalized information lives in ``notes``: person-level notes recorded by
+    the agent through the persona tool, plus per-address notes on each alias.
+    The persona card is a framework rendered from this structured data.
     """
 
     person_id: str
     display_name: str = ""
+    notes: list[str] = field(default_factory=list)
     aliases: list[PersonAlias] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
@@ -103,6 +106,7 @@ class Person:
         return {
             "person_id": self.person_id,
             "display_name": self.display_name,
+            "notes": list(self.notes),
             "aliases": [alias.to_dict() for alias in self.aliases],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -110,9 +114,13 @@ class Person:
 
     @classmethod
     def from_dict(cls, data: dict) -> Person:
+        notes = data.get("notes")
+        if not isinstance(notes, list):
+            notes = []
         return cls(
             person_id=str(data.get("person_id") or ""),
             display_name=str(data.get("display_name") or ""),
+            notes=[str(n) for n in notes if str(n).strip()],
             aliases=[PersonAlias.from_dict(a) for a in data.get("aliases") or []],
             created_at=str(data.get("created_at") or ""),
             updated_at=str(data.get("updated_at") or ""),
@@ -194,12 +202,14 @@ class PersonStore:
         self,
         *,
         display_name: str = "",
+        notes: list[str] | None = None,
         aliases: list[PersonAlias] | None = None,
     ) -> Person:
         now = _now_iso()
         person = Person(
             person_id=new_compact_id(prefix="p"),
             display_name=display_name,
+            notes=list(notes or []),
             aliases=list(aliases or []),
             created_at=now,
             updated_at=now,
@@ -213,6 +223,7 @@ class PersonStore:
         person_id: str,
         *,
         display_name: str | None = None,
+        notes: list[str] | None = None,
         aliases: list[PersonAlias] | None = None,
     ) -> Person | None:
         person = self._persons.get(person_id)
@@ -220,6 +231,8 @@ class PersonStore:
             return None
         if display_name is not None:
             person.display_name = display_name
+        if notes is not None:
+            person.notes = list(notes)
         if aliases is not None:
             person.aliases = list(aliases)
         person.updated_at = _now_iso()
@@ -260,6 +273,29 @@ class PersonStore:
         self._save()
         return person
 
+    def add_note(self, person_id: str, note: str) -> Person | None:
+        """Append a person-level note (deduplicated)."""
+        person = self._persons.get(person_id)
+        if person is None:
+            return None
+        note = note.strip()
+        if note and note not in person.notes:
+            person.notes.append(note)
+            person.updated_at = _now_iso()
+            self._save()
+        return person
+
+    def remove_note(self, person_id: str, note: str) -> Person | None:
+        """Remove a person-level note (forgetting outdated knowledge)."""
+        person = self._persons.get(person_id)
+        if person is None:
+            return None
+        if note in person.notes:
+            person.notes.remove(note)
+            person.updated_at = _now_iso()
+            self._save()
+        return person
+
     def merge(self, keep_id: str, drop_id: str) -> Person | None:
         """Merge ``drop_id`` into ``keep_id`` (aliases union); remove ``drop_id``.
 
@@ -277,6 +313,9 @@ class PersonStore:
             key = (alias.participant_id, alias.conversation_id)
             if key not in existing_keys:
                 keep.aliases.append(alias)
+        for note in drop.notes:
+            if note not in keep.notes:
+                keep.notes.append(note)
         if not keep.display_name and drop.display_name:
             keep.display_name = drop.display_name
         keep.updated_at = _now_iso()
@@ -286,22 +325,56 @@ class PersonStore:
 
 
 class PersonaCard:
-    """Per-person markdown card files, maintained by the agent (like thinking.md)."""
+    """Render the persona card framework from a Person's structured data.
 
-    def __init__(self, cards_dir: str | Path = "data/memory/cards") -> None:
-        self._dir = Path(cards_dir)
+    The card is a framework: the layout is provided by the system, while the
+    personalized content lives in the person's ``notes`` and each address's
+    notes, recorded by the agent through the persona tool. There is no
+    free-form card file — the card is derived data.
+    """
 
-    def path_for(self, person_id: str) -> Path:
-        return self._dir / f"{person_id}.md"
+    def render(self, person: Person) -> str:
+        """Render the framework card, or ``""`` when nothing is recorded.
 
-    def load(self, person_id: str) -> str:
-        path = self.path_for(person_id)
-        if not path.is_file():
+        The framework layout: a header with the display name, a person-level
+        notes section, and an address-notes section. Only sections with
+        content are emitted.
+        """
+        has_content = bool(
+            person.display_name
+            or person.notes
+            or any(alias.notes for alias in person.aliases)
+        )
+        if not has_content:
             return ""
-        return path.read_text(encoding="utf-8").strip()
-
-    def save(self, person_id: str, content: str) -> None:
-        _atomic_write_text(self.path_for(person_id), content)
-
-    def delete(self, person_id: str) -> None:
-        self.path_for(person_id).unlink(missing_ok=True)
+        lines: list[str] = [
+            tr(
+                "persona.card_header",
+                name=person.display_name or person.person_id,
+                person_id=person.person_id,
+            )
+        ]
+        if person.notes:
+            lines.append(tr("persona.card_notes_title"))
+            lines.extend(tr("persona.card_note_item", note=n) for n in person.notes)
+        addressed = [a for a in person.aliases if a.notes]
+        if addressed:
+            lines.append(tr("persona.card_aliases_title"))
+            for alias in addressed:
+                conversation = (
+                    tr(
+                        "persona.card_alias_conversation",
+                        conversation_id=alias.conversation_id,
+                    )
+                    if alias.conversation_id
+                    else ""
+                )
+                lines.append(
+                    tr(
+                        "persona.card_alias_line",
+                        participant=alias.participant_id,
+                        conversation=conversation,
+                        notes=tr("persona.card_alias_sep").join(alias.notes),
+                    )
+                )
+        return "\n".join(lines)

@@ -75,7 +75,7 @@ def _client(
         upsert_provider=AsyncMock(),
     )
     person_store = PersonStore(tmp_path / "persons.json") if persona else None
-    persona_cards = PersonaCard(tmp_path / "persona_cards") if persona else None
+    persona_cards = PersonaCard() if persona else None
     admin.setup_admin(
         agent=agent,
         brain=brain,
@@ -1922,7 +1922,7 @@ def test_persons_crud_merge_and_card(tmp_path):
 
     created = client.post(
         "/api/admin/persons",
-        json={"display_name": "张三"},
+        json={},
         headers=headers,
     )
     assert created.status_code == 200
@@ -1933,9 +1933,18 @@ def test_persons_crud_merge_and_card(tmp_path):
     assert listing.status_code == 200
     assert [p["person_id"] for p in listing.json()["persons"]] == [person_id]
 
-    detail = client.get(f"/api/admin/persons/{person_id}", headers=headers)
-    assert detail.status_code == 200
-    assert detail.json()["display_name"] == "张三"
+    # 未命名且无备注 → 画像框架为空
+    empty_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
+    assert empty_card.status_code == 200
+    assert empty_card.json()["content"] == ""
+
+    named = client.patch(
+        f"/api/admin/persons/{person_id}",
+        json={"display_name": "张三"},
+        headers=headers,
+    )
+    assert named.status_code == 200
+    assert named.json()["display_name"] == "张三"
 
     patched = client.patch(
         f"/api/admin/persons/{person_id}",
@@ -1946,22 +1955,24 @@ def test_persons_crud_merge_and_card(tmp_path):
     assert patched.json()["aliases"][0]["participant_id"] == "wecom:single:zs"
     assert patched.json()["aliases"][0]["notes"] == ["工作伙伴"]
 
-    empty_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
-    assert empty_card.status_code == 200
-    assert empty_card.json()["content"] == ""
-
-    saved = client.put(
-        f"/api/admin/persons/{person_id}/card",
-        json={"content": "# 张三\n- 关系：好友"},
+    notes_saved = client.patch(
+        f"/api/admin/persons/{person_id}",
+        json={"notes": ["关系：好友", "工作日下午沟通顺畅"]},
         headers=headers,
     )
-    assert saved.status_code == 200
+    assert notes_saved.status_code == 200
+    assert notes_saved.json()["notes"] == ["关系：好友", "工作日下午沟通顺畅"]
     card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
-    assert card.json()["content"] == "# 张三\n- 关系：好友"
+    assert "关系：好友" in card.json()["content"]
+    assert "工作日下午沟通顺畅" in card.json()["content"]
 
     other = client.post(
         "/api/admin/persons",
-        json={"display_name": "阿三", "aliases": [{"participant_id": "weixin:bot1"}]},
+        json={
+            "display_name": "阿三",
+            "notes": ["微信主号"],
+            "aliases": [{"participant_id": "weixin:bot1", "notes": ["微信渠道"]}],
+        },
         headers=headers,
     )
     other_id = other.json()["person_id"]
@@ -1976,9 +1987,10 @@ def test_persons_crud_merge_and_card(tmp_path):
         "wecom:single:zs",
         "weixin:bot1",
     }
-    # drop 人物的画像并入 keep（keep 原本无画像）
+    # drop 人物的备注并入 keep
+    assert set(merged.json()["notes"]) == {"关系：好友", "工作日下午沟通顺畅", "微信主号"}
     merged_card = client.get(f"/api/admin/persons/{person_id}/card", headers=headers)
-    assert merged_card.json()["content"] == "# 张三\n- 关系：好友"
+    assert "微信渠道" in merged_card.json()["content"]
 
     deleted = client.delete(f"/api/admin/persons/{person_id}", headers=headers)
     assert deleted.status_code == 200

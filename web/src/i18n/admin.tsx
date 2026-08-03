@@ -1022,9 +1022,12 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '合并': 'Merge',
   '确认删除？': 'Confirm delete?',
   '人物画像': 'Persona card',
-  '整体重写会替换整份画像，可借此修正或遗忘过时认知': 'Rewriting replaces the whole card, so outdated knowledge can be corrected or forgotten',
+  '画像是一个框架：个性化信息通过备注记录': 'The card is a framework: personalized information is recorded in notes',
+  '个性化备注（每行一条）': 'Notes (one per line)',
+  '每行一条备注：称呼、关系、背景、偏好…': 'One note per line: name, relationship, background, preferences…',
+  '保存备注': 'Save notes',
+  '暂无记录': 'Nothing recorded yet',
   '关闭面板': 'Close panel',
-  '保存画像': 'Save card',
 };
 
 /*

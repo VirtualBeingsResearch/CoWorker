@@ -6,15 +6,15 @@
 
 > Person 是**可选的、轻量的子机制**：它给模型一个"人"的抽象，用来识别同一真人跨渠道的多个地址、维护对这个人的画像认知、合并重复人物。它嵌入系统既有机制，由 `MEMORY__PERSONA_ENABLED=false` 整体关闭——关闭时行为与现状完全一致。
 
-在生命哲学中，"关系"是构成持续 Coworker 的生命概念之一（见[虚拟生命理念](lifeform-philosophy.md)）。Person 承载的正是这种关系：`person_id` 是稳定锚点，跨渠道的地址绑定、搭档维护的画像都围绕它组织，并随 `data/persons.json` 与画像文件跨重启存活。
+在生命哲学中，"关系"是构成持续 Coworker 的生命概念之一（见[虚拟生命理念](lifeform-philosophy.md)）。Person 承载的正是这种关系：`person_id` 是稳定锚点，跨渠道的地址绑定与搭档维护的备注都围绕它组织，并随 `data/memory/persons.json` 跨重启存活。
 
 ## 它做什么、不做什么
 
 **做**：
 
 - **跨渠道归并**：把多个 `participant_id`（可含 `conversation_id`）绑定到同一个 Person；
-- **搭档维护画像**：每个 Person 一份 markdown 画像，由主模型在对话中通过 `persona` 工具整体重写（可修正、可遗忘），在活跃人物本会话首条消息前注入上下文；
-- **合并重复人物**：模型或照看者可以把两个 Person 实体合并为一个。
+- **框架 + 备注的画像**：画像是一个**框架**（结构由系统提供），个性化信息通过**备注**记录——人物级备注（`note` 操作）与地址级备注（`bind(note=...)`），在活跃人物本会话首条消息前注入渲染结果；
+- **合并重复人物**：模型或照看者可以把两个 Person 实体合并为一个（备注与地址并入）。
 
 **不做**：
 
@@ -26,21 +26,22 @@
 
 ## 工作机制
 
-### ① 记住谁是谁 —— PersonStore 与画像文件
+### ① 记住谁是谁 —— PersonStore 与备注
 
-- `data/memory/persons.json`：`Person`（`person_id`、`display_name`、`aliases[]`）。
-- 每个地址是 `{participant_id, conversation_id?, channel, notes[]}`。`conversation_id` 仅在信道需要它定位具体会话/真人时记录（如微信的 session）；`wecom:single:*` 这类靠地址唯一路由的不带。`notes` 按地址累积——同一信道可以有多个备注，模型 `bind` 时可多次追加。
-- `data/memory/cards/{person_id}.md`：搭档维护的画像，整体重写而非追加。
+- `data/memory/persons.json`：`Person`（`person_id`、`display_name`、`notes[]`、`aliases[]`）。**没有独立的画像文件**——画像是从这份结构化数据渲染出来的框架。
+- `notes` 有两层：人物级（`Person.notes`，个性化信息）与地址级（`PersonAlias.notes`，同一信道可以有多个备注）。
+- 每个地址是 `{participant_id, conversation_id?, channel, notes[]}`。`conversation_id` 仅在信道需要它定位具体会话/真人时记录（如微信的 session）；`wecom:single:*` 这类靠地址唯一路由的不带。
 
-### ② 模型维护认知 —— `persona` 工具
+### ② 模型记录认知 —— `persona` 工具
 
-- `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；`note` 会追加到该地址的备注列表；
-- `persona(action="card", person_id, content?)`：空 `content` 读画像；传 `content` 整体重写画像。画像**何时建立、怎么写由模型自行把握**；
-- `persona(action="merge", keep_person_id, drop_person_id)`：地址并入主人物、删除另一实体；relationship 记忆留在单桶不转移。
+- `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；`note` 追加到该地址的备注列表；
+- `persona(action="note", person_id, note, remove?)`：记录/移除**人物级**个性化备注（`remove=true` 遗忘过时信息）；
+- `persona(action="card", person_id)`：读**画像框架**——系统按固定结构（称呼、个性化备注、地址与备注）渲染，个性化内容全部来自备注；
+- `persona(action="merge", keep_person_id, drop_person_id)`：地址与备注并入主人物、删除另一实体；relationship 记忆留在单桶不转移。
 
 ### ③ 让认知进上下文 —— 首消息前置注入
 
-主循环处理入站消息时，按 `participant_id`（可含 `conversation_id`）查找绑定：查到且该画像本会话未出现过（`source="persona_card:{person_id}"` 标记去重）→ 在该人**本会话首条消息之前**注入画像。无绑定、群、系统消息 → 不注入，照常处理。画像携带 `person_id`，供模型后续 `bind`/`card` 引用。
+主循环处理入站消息时，按 `participant_id`（可含 `conversation_id`）查找绑定：查到且该人**有已记录的内容**（备注或称呼）且本会话未出现过（`source="persona_card:{person_id}"` 标记去重）→ 在该人**本会话首条消息之前**注入渲染的画像框架。无绑定、群、系统消息 → 不注入，照常处理。画像携带 `person_id`，供模型后续操作引用。
 
 ### ④ 信道提供语义 —— [CHANNELS] 提示词
 
@@ -55,10 +56,9 @@
 ```env
 MEMORY__PERSONA_ENABLED=true        # 关闭后与现状完全一致
 MEMORY__PERSONA_STORE_PATH=data/memory/persons.json
-MEMORY__PERSONA_CARDS_DIR=data/memory/cards
 ```
 
-管理端提供 `GET/POST /api/admin/persons`、`GET/PATCH/DELETE /api/admin/persons/{id}`、`POST /api/admin/persons/{id}/merge`、`GET/PUT /api/admin/persons/{id}/card`（需管理员令牌；DELETE 同步删除画像；merge 后 drop 人物的画像并入 keep）。
+管理端提供 `GET/POST /api/admin/persons`、`GET/PATCH/DELETE /api/admin/persons/{id}`（`PATCH` 可整体替换 `display_name`/`notes`/`aliases`）、`POST /api/admin/persons/{id}/merge`、`GET /api/admin/persons/{id}/card`（只读渲染框架；需管理员令牌）。
 
 ## 边界与注意事项
 

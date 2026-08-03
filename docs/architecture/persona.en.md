@@ -13,8 +13,8 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 **Does**:
 
 - **Cross-channel merging**: bind multiple `participant_id` values (optionally with `conversation_id`) to one Person;
-- **Agent-maintained cards**: one markdown card per Person, rewritten wholesale by the main model during conversations through the `persona` tool (so knowledge can be corrected or forgotten), injected before the person's first message of the session;
-- **Merge duplicate people**: the model or a caretaker can merge two Person entities into one.
+- **Framework-plus-notes cards**: the card is a **framework** (structure provided by the system); personalized information is recorded in **notes** — person-level notes (the `note` action) and per-address notes (`bind(note=...)`) — and the rendered result is injected before the person's first message of the session;
+- **Merge duplicate people**: the model or a caretaker can merge two Person entities into one (notes and addresses are merged).
 
 **Does not**:
 
@@ -26,21 +26,22 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 
 ## How it works
 
-### ① Remembering who is who — PersonStore and card files
+### ① Remembering who is who — PersonStore and notes
 
-- `data/memory/persons.json`: `Person` (`person_id`, `display_name`, `aliases[]`).
-- Each address is `{participant_id, conversation_id?, channel, notes[]}`. `conversation_id` is recorded only when the channel needs it to locate a specific conversation or human (e.g. a Weixin session); addresses uniquely routable by `participant_id` alone (e.g. `wecom:single:*`) omit it. `notes` accumulate per address — the same channel can carry several notes, appended by the agent across `bind` calls.
-- `data/memory/cards/{person_id}.md`: the agent-maintained card, rewritten wholesale rather than appended.
+- `data/memory/persons.json`: `Person` (`person_id`, `display_name`, `notes[]`, `aliases[]`). **There is no separate card file** — the card is a framework rendered from this structured data.
+- Notes exist at two levels: person-level (`Person.notes`, personalized information) and address-level (`PersonAlias.notes`, the same channel can carry several notes).
+- Each address is `{participant_id, conversation_id?, channel, notes[]}`. `conversation_id` is recorded only when the channel needs it to locate a specific conversation or human (e.g. a Weixin session); addresses uniquely routable by `participant_id` alone (e.g. `wecom:single:*`) omit it.
 
-### ② Maintaining knowledge — the `persona` tool
+### ② Recording knowledge — the `persona` tool
 
 - `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`: bind an address to a known person (by `person_id` or name) or create a new one; `note` is appended to the address's notes;
-- `persona(action="card", person_id, content?)`: empty `content` reads the card; non-empty `content` rewrites it wholesale. When and how a card is created is the model's own judgment;
-- `persona(action="merge", keep_person_id, drop_person_id)`: union addresses into the kept person and delete the other entity; `relationship` memories stay in the single bucket, unmoved.
+- `persona(action="note", person_id, note, remove?)`: record or remove a **person-level** personalized note (`remove=true` forgets outdated knowledge);
+- `persona(action="card", person_id)`: read the **card framework** — the system renders a fixed structure (name, personalized notes, address notes); all personalized content comes from notes;
+- `persona(action="merge", keep_person_id, drop_person_id)`: union addresses and notes into the kept person and delete the other entity; `relationship` memories stay in the single bucket, unmoved.
 
 ### ③ Bringing knowledge into context — first-message injection
 
-When the main loop processes inbound messages it looks up a binding by `participant_id` (optionally with `conversation_id`): if found and the card has not appeared in this session (dedup via `source="persona_card:{person_id}"`), the card is injected **before the person's first message of the session**. Unbound, group and system messages get no card and are handled as usual. The injected card carries `person_id` so the model can reference it in later `bind`/`card` calls.
+When the main loop processes inbound messages it looks up a binding by `participant_id` (optionally with `conversation_id`): if found, the person has recorded content (notes or a name), and the card has not appeared in this session (dedup via `source="persona_card:{person_id}"`), the rendered framework card is injected **before the person's first message of the session**. Unbound, group and system messages get no card and are handled as usual. The injected card carries `person_id` so the model can reference it in later calls.
 
 ### ④ Channel-provided semantics — the `[CHANNELS]` prompt
 
@@ -55,10 +56,9 @@ By default memory/card lookup targets only the current conversation person (the 
 ```env
 MEMORY__PERSONA_ENABLED=true        # disabled behavior is identical to today
 MEMORY__PERSONA_STORE_PATH=data/memory/persons.json
-MEMORY__PERSONA_CARDS_DIR=data/memory/cards
 ```
 
-The admin API exposes `GET/POST /api/admin/persons`, `GET/PATCH/DELETE /api/admin/persons/{id}`, `POST /api/admin/persons/{id}/merge`, `GET/PUT /api/admin/persons/{id}/card` (admin token required; DELETE also removes the card file; merging moves the dropped person's card into the kept person).
+The admin API exposes `GET/POST /api/admin/persons`, `GET/PATCH/DELETE /api/admin/persons/{id}` (`PATCH` replaces `display_name`/`notes`/`aliases` wholesale), `POST /api/admin/persons/{id}/merge`, `GET /api/admin/persons/{id}/card` (read-only rendered framework; admin token required).
 
 ## Boundaries and notes
 

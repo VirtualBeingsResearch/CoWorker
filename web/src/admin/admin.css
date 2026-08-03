@@ -2566,3 +2566,5 @@ html:has(.admin-login),
 .alias-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--admin-line); color: var(--admin-text, inherit); }
 .person-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .person-merge-select { font-size: 13px; padding: 3px 6px; }
+.person-card-preview { border: 1px solid var(--admin-line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--admin-bg, transparent); }
+.person-card-preview pre { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }

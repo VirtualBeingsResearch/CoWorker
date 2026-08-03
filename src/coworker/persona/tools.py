@@ -25,14 +25,14 @@ class PersonaTool(Tool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="persona",
-            description="管理「人物」：把通信地址绑定到已知人物或新建人物（bind）、读写人物画像（card）、合并重复人物（merge）",
+            description="管理「人物」：绑定通信地址与备注（bind）、记录个性化备注（note）、读人物画像框架（card）、合并重复人物（merge）",
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["bind", "card", "merge"],
-                        "description": "操作类型：bind（绑定地址到人物）、card（读/更新人物画像）、merge（合并人物）",
+                        "enum": ["bind", "card", "note", "merge"],
+                        "description": "操作类型：bind（绑定地址/地址备注）、card（读画像框架）、note（记录人物个性化备注）、merge（合并人物）",
                     },
                     "participant_id": {
                         "type": "string",
@@ -44,7 +44,7 @@ class PersonaTool(Tool):
                     },
                     "person_id": {
                         "type": "string",
-                        "description": "人物 ID（card 时必填；bind 时指定要绑定到的已知人物）",
+                        "description": "人物 ID（card/note 时必填；bind 时指定要绑定到的已知人物）",
                     },
                     "name": {
                         "type": "string",
@@ -52,11 +52,11 @@ class PersonaTool(Tool):
                     },
                     "note": {
                         "type": "string",
-                        "description": "该地址的备注（bind 时可选；同一地址可多次 bind 追加多条备注）",
+                        "description": "备注内容：bind 时为该地址的备注（可多次追加）；note 时为人物级个性化备注",
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "画像内容（card 时：空 = 读画像；非空 = 整体重写画像）",
+                    "remove": {
+                        "type": "boolean",
+                        "description": "note 时可选：true = 移除该条备注（遗忘过时信息），缺省 = 追加",
                     },
                     "keep_person_id": {
                         "type": "string",
@@ -78,6 +78,8 @@ class PersonaTool(Tool):
                 return self._bind(kwargs)
             if action == "card":
                 return self._card(kwargs)
+            if action == "note":
+                return self._note(kwargs)
             if action == "merge":
                 return self._merge(kwargs)
         except Exception as e:
@@ -167,31 +169,58 @@ class PersonaTool(Tool):
                 content=tr("tool_result.persona.person_missing", person_id=person_id),
                 is_error=True,
             )
-        content = kwargs.get("content")
-        if content is None or str(content).strip() == "":
-            card = self._cards.load(person_id)
-            if not card:
-                return ToolResult(
-                    tool_call_id="",
-                    content=tr(
-                        "tool_result.persona.card_empty",
-                        name=person.display_name or person.person_id,
-                        person_id=person_id,
-                    ),
-                )
-            return ToolResult(tool_call_id="", content=card)
+        card = self._cards.render(person)
+        if not card:
+            return ToolResult(
+                tool_call_id="",
+                content=tr(
+                    "tool_result.persona.card_empty",
+                    name=person.display_name or person.person_id,
+                    person_id=person_id,
+                ),
+            )
+        return ToolResult(tool_call_id="", content=card)
 
-        card_text = str(content)
-        self._cards.save(person_id, card_text)
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.persona.card_updated",
+    def _note(self, kwargs: dict[str, Any]) -> ToolResult:
+        person_id = str(kwargs.get("person_id") or "").strip()
+        note = str(kwargs.get("note") or "").strip()
+        if not person_id:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.note_needs_person"),
+                is_error=True,
+            )
+        if not note:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.note_needs_content"),
+                is_error=True,
+            )
+        person = self._store.get(person_id)
+        if person is None:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.person_missing", person_id=person_id),
+                is_error=True,
+            )
+        remove = bool(kwargs.get("remove"))
+        if remove:
+            self._store.remove_note(person_id, note)
+            content = tr(
+                "tool_result.persona.note_removed",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                lines=card_text.count("\n") + 1,
-            ),
-        )
+                note=note,
+            )
+        else:
+            self._store.add_note(person_id, note)
+            content = tr(
+                "tool_result.persona.note_added",
+                name=person.display_name or person.person_id,
+                person_id=person_id,
+                note=note,
+            )
+        return ToolResult(tool_call_id="", content=content)
 
     def _merge(self, kwargs: dict[str, Any]) -> ToolResult:
         keep_id = str(kwargs.get("keep_person_id") or "").strip()

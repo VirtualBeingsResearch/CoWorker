@@ -759,7 +759,7 @@ async def _main() -> bool:
     persona_cards: PersonaCard | None = None
     if config.memory.persona_enabled:
         person_store = PersonStore(config.memory.persona_store_path)
-        persona_cards = PersonaCard(config.memory.persona_cards_dir)
+        persona_cards = PersonaCard()
     registry.register_many(
         [
             SetAlarmTool(alarm_manager),

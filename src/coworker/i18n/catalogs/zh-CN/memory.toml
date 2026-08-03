@@ -160,3 +160,9 @@ deleted = "已删除记忆（id: {{id}}）"
 
 [persona]
 card_header = "[人物画像：{{name}} ({{person_id}})]"
+card_notes_title = "个性化："
+card_note_item = "- {{note}}"
+card_aliases_title = "地址与备注："
+card_alias_conversation = "（{{conversation_id}}）"
+card_alias_line = "- {{participant}}{{conversation}} — {{notes}}"
+card_alias_sep = "；"

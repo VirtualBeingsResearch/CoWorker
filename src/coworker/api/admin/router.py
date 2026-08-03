@@ -116,6 +116,7 @@ class PersonPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = Field(default=None, max_length=120)
+    notes: list[str] | None = None
     aliases: list[PersonAliasPatch] | None = None
 
 
@@ -2008,6 +2009,7 @@ def _person_payload(person: Person) -> dict[str, object]:
     return {
         "person_id": person.person_id,
         "display_name": person.display_name,
+        "notes": list(person.notes),
         "aliases": [alias.to_dict() for alias in person.aliases],
         "created_at": person.created_at,
         "updated_at": person.updated_at,
@@ -2041,6 +2043,7 @@ async def create_person(
     store, _cards = _require_persona()
     person = store.create(
         display_name=payload.display_name or "",
+        notes=payload.notes or [],
         aliases=_aliases_from_patch(payload.aliases or []),
     )
     _audit(request, "person.create", person.person_id)
@@ -2078,6 +2081,7 @@ async def patch_person(
     updated = store.update(
         person_id,
         display_name=payload.display_name,
+        notes=payload.notes,
         aliases=_aliases_from_patch(payload.aliases) if payload.aliases is not None else None,
     )
     _audit(request, "person.update", person_id)
@@ -2090,13 +2094,12 @@ async def delete_person(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    store, cards = _require_persona()
+    store, _cards = _require_persona()
     if not store.delete(person_id):
         raise HTTPException(
             status_code=404,
             detail=tr("api.admin.person_missing", person_id=person_id),
         )
-    cards.delete(person_id)
     _audit(request, "person.delete", person_id)
     return {"deleted": True}
 
@@ -2108,7 +2111,7 @@ async def merge_person(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    store, cards = _require_persona()
+    store, _cards = _require_persona()
     keep = store.get(person_id)
     drop = store.get(payload.other_person_id)
     if keep is None or drop is None or person_id == payload.other_person_id:
@@ -2116,20 +2119,8 @@ async def merge_person(
     merged = store.merge(person_id, payload.other_person_id)
     if merged is None:
         raise HTTPException(status_code=400, detail=tr("api.admin.person_merge_invalid"))
-    # drop 人物的画像并入 keep（仅当 keep 尚无画像），再删除 drop 的画像文件。
-    if not cards.load(person_id):
-        drop_card = cards.load(payload.other_person_id)
-        if drop_card:
-            cards.save(person_id, drop_card)
-    cards.delete(payload.other_person_id)
     _audit(request, "person.merge", person_id, detail=payload.other_person_id)
     return _person_payload(merged)
-
-
-class PersonCardPatch(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    content: str = Field(max_length=64_000)
 
 
 @router.get("/persons/{person_id}/card")
@@ -2138,30 +2129,13 @@ async def get_person_card(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     store, cards = _require_persona()
-    if store.get(person_id) is None:
+    person = store.get(person_id)
+    if person is None:
         raise HTTPException(
             status_code=404,
             detail=tr("api.admin.person_missing", person_id=person_id),
         )
-    return {"person_id": person_id, "content": cards.load(person_id)}
-
-
-@router.put("/persons/{person_id}/card")
-async def put_person_card(
-    person_id: str,
-    payload: PersonCardPatch,
-    request: Request,
-    _: None = Depends(require_admin),
-) -> ApiResponse:
-    store, cards = _require_persona()
-    if store.get(person_id) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=tr("api.admin.person_missing", person_id=person_id),
-        )
-    cards.save(person_id, payload.content)
-    _audit(request, "person.card", person_id)
-    return {"person_id": person_id, "content": cards.load(person_id)}
+    return {"person_id": person_id, "content": cards.render(person)}
 
 
 def _content_loader(kind: str) -> ContentLoader:
