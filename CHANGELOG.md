@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.3.6 - Unreleased
+
+- docs(release): finalize v0.3.5 changelog (#112)
+- docs: require reading project contribution guidance (#113)
+- feat(dev): add Linux dev container (#115)
+- fix(alarm): prevent duplicate restored triggers (#117)
+- chore(lint): enable high-signal correctness checks (#118)
+- fix(ui): refine desktop interface details (#119)
+- feat(scripts): add Coworker notification helper (#120)
+- fix(container): unify runtime and agent workspace (#122)
+- fix(agent): keep passive startup asleep (#123)
+- feat(relay): add end-to-end encrypted path relay (#116)
+- chore(ci): upgrade Node.js to 24 (#126)
+- Bump the "all-dependencies" group with 6 updates across multiple ecosystems (#127)
+- docs: complete user and operations guides (#125)
+- fix(subconscious): persist Bubble model metadata (#128)
+- fix(memory): unify automatic compression budget (#129)
+- fix(logging): raise interaction log rotation threshold (#130)
+- feat(task): pin active-task overview and simplify reminders (#131)
+- fix(admin): default memory tail panel to latest messages (#133)
+- fix(vision): return analysis results inside bubbles (#135)
+- fix(admin): live-refresh the current memory message tail (#134)
+
 ## 0.3.5 - 2026-07-26
 
 - fix(desktop): apply onboarding update URL default (#107)
