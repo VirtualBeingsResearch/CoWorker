@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.6 - Unreleased
+## 0.3.6 - 2026-08-03
 
 - docs(release): finalize v0.3.5 changelog (#112)
 - docs: require reading project contribution guidance (#113)
