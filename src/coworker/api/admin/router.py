@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
+    from coworker.memory.short_term import ShortTermMemory
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.relay import RelayClient
     from coworker.skills.loader import Skill, SkillLoader
@@ -1527,30 +1528,13 @@ async def cancel_bubble(
     return _bubble_dict(bubble)
 
 
-@router.get("/memory/short-term")
-async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse:
-    agent = _require_agent()
-    brain = _require_brain()
-    stm = agent._short_term
-    primary_tokens = stm.estimate_tokens(brain)
-    tree_tokens = sum(node.token_estimate for node in stm.tree.nodes)
-    estimated_tokens = primary_tokens + tree_tokens
-    capacity = stm._max_tokens
-    latest = getattr(agent.state, "last_main_response_usage", None)
-    exact_tokens = int(latest.get("input_tokens", 0) or 0) if isinstance(latest, dict) else 0
-    source = "provider" if exact_tokens > 0 else "estimated"
-    tokens = exact_tokens if exact_tokens > 0 else estimated_tokens
-    provider = (
-        str(latest.get("provider") or brain.current_provider_name)
-        if isinstance(latest, dict)
-        else brain.current_provider_name
-    )
-    model = (
-        str(latest.get("model") or brain.current_model)
-        if isinstance(latest, dict)
-        else brain.current_model
-    )
+def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
+    """Serialize the current short-term message tail for admin observation.
 
+    Mirrors the ``messages`` section of ``/memory/short-term`` so the lightweight
+    polling endpoint can stay in sync without re-serializing the tree, watermark, or
+    pinned items on every refresh.
+    """
     tool_results = {
         message.tool_call_id: message.content
         for message in stm.primary
@@ -1586,6 +1570,34 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
         if message.usage:
             item["usage"] = dict(message.usage)
         messages.append(item)
+    return messages
+
+
+@router.get("/memory/short-term")
+async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse:
+    agent = _require_agent()
+    brain = _require_brain()
+    stm = agent._short_term
+    primary_tokens = stm.estimate_tokens(brain)
+    tree_tokens = sum(node.token_estimate for node in stm.tree.nodes)
+    estimated_tokens = primary_tokens + tree_tokens
+    capacity = stm._max_tokens
+    latest = getattr(agent.state, "last_main_response_usage", None)
+    exact_tokens = int(latest.get("input_tokens", 0) or 0) if isinstance(latest, dict) else 0
+    source = "provider" if exact_tokens > 0 else "estimated"
+    tokens = exact_tokens if exact_tokens > 0 else estimated_tokens
+    provider = (
+        str(latest.get("provider") or brain.current_provider_name)
+        if isinstance(latest, dict)
+        else brain.current_provider_name
+    )
+    model = (
+        str(latest.get("model") or brain.current_model)
+        if isinstance(latest, dict)
+        else brain.current_model
+    )
+
+    messages = _short_term_messages(stm)
 
     return {
         "token_watermark": {
@@ -1617,6 +1629,18 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
         "backfill": dict(stm.backfill_progress),
         "active_model": {"provider": brain.current_provider_name, "model": brain.current_model},
     }
+
+
+@router.get("/memory/short-term/messages")
+async def get_short_term_messages(_: None = Depends(require_admin)) -> ApiResponse:
+    """Lightweight real-time view of the current short-term message tail.
+
+    Intended for high-frequency observation polling: returns only the messages
+    (no tree, token watermark, or pinned items), so the admin UI can refresh the
+    tail in real time without re-serializing the full memory snapshot.
+    """
+    stm = _require_agent()._short_term
+    return {"messages": _short_term_messages(stm)}
 
 
 @router.post("/memory/pinned", status_code=201)
