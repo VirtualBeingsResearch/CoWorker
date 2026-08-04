@@ -51,6 +51,56 @@ async def test_bind_multiline_note_rejected(tmp_path) -> None:
     assert store.all_persons() == []  # 未创建人物/别名
 
 
+async def test_note_adds_multiple_notes_in_one_call(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    result = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        notes=["习惯用中文", "工作日下午沟通更顺畅"],
+    )
+    assert not result.is_error
+    assert person.notes == ["习惯用中文", "工作日下午沟通更顺畅"]
+
+
+async def test_note_multiple_with_multiline_rejected_atomically(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    result = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        notes=["习惯用中文", "工作日下午\n沟通更顺畅"],
+    )
+    assert result.is_error
+    assert "单行" in result.content or "single line" in result.content
+    assert person.notes == []  # 全部不写入，无部分成功
+
+
+async def test_note_accepts_notes_as_single_string(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    result = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        notes="习惯用中文",
+    )
+    assert not result.is_error
+    assert person.notes == ["习惯用中文"]
+
+
+async def test_note_removes_multiple_notes_in_one_call(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三", notes=["习惯用中文", "工作日下午沟通更顺畅"])
+    result = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        notes=["习惯用中文", "工作日下午沟通更顺畅"],
+        remove=True,
+    )
+    assert not result.is_error
+    assert person.notes == []
+
+
 async def test_bind_trailing_newline_is_fine(tmp_path) -> None:
     """仅末尾换行属于空白，strip 后仍是单行，不应报错。"""
     tool, store, _ = _tool(tmp_path)

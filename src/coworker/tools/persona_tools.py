@@ -57,7 +57,12 @@ class PersonaTool(Tool):
                     },
                     "note": {
                         "type": "string",
-                        "description": "备注内容：bind 时为该地址的备注（可多次追加）；note 时为人物级个性化备注。必须为单行文本，不能包含换行",
+                        "description": "备注内容：bind 时为该地址的备注（可多次追加）；note 时为单条人物级个性化备注。必须为单行文本，不能包含换行；多条备注请用 notes 参数",
+                    },
+                    "notes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "多条人物级备注列表（note 时可选）：一次添加多条，每条必须为单行文本，不能包含换行",
                     },
                     "remove": {
                         "type": "boolean",
@@ -203,25 +208,45 @@ class PersonaTool(Tool):
             )
         return ToolResult(tool_call_id="", content=card)
 
+    def _collect_notes(self, kwargs: dict[str, Any]) -> tuple[list[str], str | None]:
+        """Collect notes from the ``notes`` (list) or ``note`` (string) parameter.
+
+        Returns ``(notes, error_key)``: ``error_key`` is a tr key when any note
+        is multi-line — nothing is written in that case.
+        """
+        raw: list[str] = []
+        notes_param = kwargs.get("notes")
+        if isinstance(notes_param, list):
+            raw = [str(n) for n in notes_param]
+        elif notes_param:
+            raw = [str(notes_param)]
+        elif kwargs.get("note"):
+            raw = [str(kwargs["note"])]
+        cleaned = [n.strip() for n in raw if n and n.strip()]
+        for n in cleaned:
+            if _note_is_multiline(n):
+                return [], "tool_result.persona.note_must_be_single_line"
+        return cleaned, None
+
     def _note(self, kwargs: dict[str, Any]) -> ToolResult:
         person_id = str(kwargs.get("person_id") or "").strip()
-        note = str(kwargs.get("note") or "").strip()
         if not person_id:
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.persona.note_needs_person"),
                 is_error=True,
             )
-        if not note:
+        notes, error_key = self._collect_notes(kwargs)
+        if error_key:
+            return ToolResult(
+                tool_call_id="",
+                content=tr(error_key),
+                is_error=True,
+            )
+        if not notes:
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.persona.note_needs_content"),
-                is_error=True,
-            )
-        if _note_is_multiline(note):
-            return ToolResult(
-                tool_call_id="",
-                content=tr("tool_result.persona.note_must_be_single_line"),
                 is_error=True,
             )
         person = self._store.get(person_id)
@@ -231,22 +256,25 @@ class PersonaTool(Tool):
                 content=tr("tool_result.persona.person_missing", person_id=person_id),
                 is_error=True,
             )
+        joined = tr("tool_result.persona.notes_join").join(notes)
         remove = bool(kwargs.get("remove"))
         if remove:
-            self._store.remove_note(person_id, note)
+            for note in notes:
+                self._store.remove_note(person_id, note)
             content = tr(
                 "tool_result.persona.note_removed",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=note,
+                note=joined,
             )
         else:
-            self._store.add_note(person_id, note)
+            for note in notes:
+                self._store.add_note(person_id, note)
             content = tr(
                 "tool_result.persona.note_added",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=note,
+                note=joined,
             )
         return ToolResult(tool_call_id="", content=content)
 
