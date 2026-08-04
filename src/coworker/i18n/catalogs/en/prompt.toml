@@ -59,8 +59,8 @@ weixin = '''Personal Weixin Claw:
 - To communicate with a connected Weixin account, use the complete `weixin:<bot_instance_id>` returned by `list_connections`.
 - Inbound messages carry `conversation_id` as the 1:1 session id; the human lives at session granularity. When binding a person with the persona tool, include `conversation_id`.'''
 wecom = '''WeCom:
-- `wecom:single:{userid}` is a person; `wecom:group:{chatid}` is a group chat. Group messages prefix the sender as `[_sender_prefix]`.
-- Reach a person with the full `wecom:single:{userid}` (a group with `wecom:group:{chatid}`). `conversation_id` is optional, only to target a specific sub-conversation under the same address.'''
+- `wecom:single:{userid}` is a person; `wecom:group:{chatid}` is a group chat. Group messages prefix the sender in the content as `[sender userid=...]` — the raw WeCom user id, which is informational only and not a replyable address by itself.
+- Reach a person with the full `wecom:single:{userid}` (a group with `wecom:group:{chatid}`); replying to a group reaches the whole group. `conversation_id` is optional, only to target a specific sub-conversation under the same address.'''
 stream = '''Stream / desktop:
 - participant_id is a registered client or desktop actor address (e.g. `coworker-desktop:d:{actor}:{random}`) or a client-chosen id.
 - `conversation_id`, when present, names a specific conversation under that participant. A person may use several participant_ids across sessions.'''
