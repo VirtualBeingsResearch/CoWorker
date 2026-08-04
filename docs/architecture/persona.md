@@ -36,14 +36,14 @@
 
 - `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；`note` 追加到该地址的备注列表；
 - `persona(action="note", person_id, note, remove?)`：记录/移除**人物级**个性化备注（`remove=true` 遗忘过时信息）；
-- `persona(action="card", person_id)`：读**画像框架**——系统按固定结构（称呼、个性化备注、地址与备注）渲染，个性化内容全部来自备注；
+- `persona(action="card", person_id)`：读**画像框架**——系统按固定结构（称呼、个性化备注、全部绑定地址与备注、更新时间）渲染，个性化内容全部来自备注；
 - `persona(action="unbind", person_id, participant_id, conversation_id?)`：解除地址绑定（关系中的地址不再有效时）；
 - `persona(action="delete", person_id)`：删除人物（关系结束；relationship 记忆留在单桶不转移）；
 - `persona(action="merge", keep_person_id, drop_person_id)`：地址与备注并入主人物、删除另一实体；relationship 记忆留在单桶不转移。
 
 ### ③ 让认知进上下文 —— 首消息前置注入
 
-主循环处理入站消息时，按 `participant_id`（可含 `conversation_id`）查找绑定：查到且该人**有已记录的内容**（备注或称呼）且本会话未出现过（`source="persona_card:{person_id}"` 标记去重）→ 在该人**本会话首条消息之前**注入渲染的画像框架。无绑定、群、系统消息 → 不注入，照常处理。画像携带 `person_id`，供模型后续操作引用。
+主循环处理入站消息时，按 `participant_id`（可含 `conversation_id`）查找绑定：查到且该人**已有绑定内容**（称呼、备注或地址，绑定本身即算）且本会话未出现过（`source="persona_card:{person_id}"` 标记去重）→ 在该人**本会话首条消息之前**注入渲染的画像框架——地址段列出全部绑定地址，让模型看到此人的其他渠道。无绑定、群、系统消息 → 不注入，照常处理。画像携带 `person_id`，供模型后续操作引用。
 
 ### ④ 信道提供语义 —— [CHANNELS] 提示词
 

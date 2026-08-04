@@ -366,13 +366,11 @@ class PersonaCard:
         """Render the framework card, or ``""`` when nothing is recorded.
 
         The framework layout: a header with the display name, a person-level
-        notes section, and an address-notes section. Only sections with
-        content are emitted.
+        notes section, and an address section listing every bound address
+        (with its notes when present). Only sections with content are emitted.
         """
         has_content = bool(
-            person.display_name
-            or person.notes
-            or any(alias.notes for alias in person.aliases)
+            person.display_name or person.notes or person.aliases
         )
         if not has_content:
             return ""
@@ -386,10 +384,9 @@ class PersonaCard:
         if person.notes:
             lines.append(tr("persona.card_notes_title"))
             lines.extend(tr("persona.card_note_item", note=n) for n in person.notes)
-        addressed = [a for a in person.aliases if a.notes]
-        if addressed:
+        if person.aliases:
             lines.append(tr("persona.card_aliases_title"))
-            for alias in addressed:
+            for alias in person.aliases:
                 conversation = (
                     tr(
                         "persona.card_alias_conversation",
@@ -398,12 +395,21 @@ class PersonaCard:
                     if alias.conversation_id
                     else ""
                 )
-                lines.append(
-                    tr(
+                if alias.notes:
+                    line = tr(
                         "persona.card_alias_line",
                         participant=alias.participant_id,
                         conversation=conversation,
                         notes=tr("persona.card_alias_sep").join(alias.notes),
                     )
-                )
+                else:
+                    line = tr(
+                        "persona.card_alias_plain",
+                        participant=alias.participant_id,
+                        conversation=conversation,
+                    )
+                lines.append(line)
+        if person.updated_at:
+            # 新鲜度信号：让模型知道这份认知多久没被维护，据此决定是否补充/修正。
+            lines.append(tr("persona.card_updated_at", ts=person.updated_at))
         return "\n".join(lines)

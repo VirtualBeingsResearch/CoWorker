@@ -26,8 +26,9 @@ def test_render_person_notes_and_alias_notes() -> None:
         aliases=[
             PersonAlias("wecom:single:zs", channel="wecom", notes=["企业微信主号"]),
             PersonAlias("weixin:bot1", conversation_id="s9", channel="weixin", notes=["微信"]),
-            PersonAlias("wecom:group:room1", channel="wecom"),  # 无备注不出现
+            PersonAlias("wecom:group:room1", channel="wecom"),  # 无备注也显示
         ],
+        updated_at="2026-08-03T14:30:00",
     )
     rendered = cards.render(person)
     assert "工作日下午沟通更顺畅" in rendered
@@ -35,7 +36,28 @@ def test_render_person_notes_and_alias_notes() -> None:
     assert "wecom:single:zs" in rendered
     assert "企业微信主号" in rendered
     assert "s9" in rendered
-    assert "wecom:group:room1" not in rendered  # 无备注的地址不进框架
+    assert "wecom:group:room1" in rendered  # 所有绑定地址都显示
+    assert "2026-08-03" in rendered  # 更新时间（新鲜度信号）
+    # 无备注的地址行不带「— 」分隔
+    plain_line = next(
+        line for line in rendered.splitlines() if "wecom:group:room1" in line
+    )
+    assert "—" not in plain_line
+
+
+def test_render_bare_addresses_only() -> None:
+    cards = PersonaCard()
+    person = Person(
+        person_id="p_abc",
+        aliases=[
+            PersonAlias("wecom:single:zs", channel="wecom"),
+            PersonAlias("weixin:bot1", conversation_id="s9", channel="weixin"),
+        ],
+    )
+    rendered = cards.render(person)
+    assert "wecom:single:zs" in rendered
+    assert "weixin:bot1" in rendered
+    assert "s9" in rendered
 
 
 def test_render_person_without_name_uses_id() -> None:
