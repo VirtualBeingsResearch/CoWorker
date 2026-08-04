@@ -27,7 +27,7 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 
 ### ③ Bringing knowledge into context — first-message injection
 
-When the main loop processes inbound messages it looks up a binding by `participant_id` (optionally with `conversation_id`): if found, the person has bound content (a name, notes, or addresses — a binding alone counts), and the card has not appeared in this session (dedup via `source="persona_card:{person_id}"`), the rendered framework card is injected **before the person's first message of the session** — the address section lists every bound address so the model sees the person's other channels. Unbound, group and system messages get no card and are handled as usual. The injected card carries `person_id` so the model can reference it in later calls.
+When the main loop processes inbound messages it looks up a binding by `participant_id` (optionally with `conversation_id`): if found, the person has bound content (a name, notes, or addresses — a binding alone counts), and the card has not appeared in this session (injected messages are deduplicated by `source="persona"` plus a `person_id` marker that survives snapshots), the rendered framework card is injected **before the person's first message of the session** — the address section lists every bound address so the model sees the person's other channels. Unbound, group and system messages get no card and are handled as usual. The injected card carries `person_id` so the model can reference it in later calls.
 
 ### ④ Channel-provided semantics — the `[CHANNELS]` prompt
 

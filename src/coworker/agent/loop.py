@@ -558,15 +558,16 @@ class AgentLoop:
                 Message(
                     role="user",
                     content=card,
-                    source=f"persona_card:{person.person_id}",
+                    source="persona",
+                    person_id=person.person_id,
                 )
             )
             logger.debug(f"Injected persona card for {person.person_id}")
 
     def _persona_card_present(self, person_id: str) -> bool:
-        marker = f"persona_card:{person_id}"
         return any(
-            getattr(message, "source", "") == marker
+            getattr(message, "source", "") == "persona"
+            and getattr(message, "person_id", None) == person_id
             for message in self._short_term.primary
         )
 

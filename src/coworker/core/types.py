@@ -30,6 +30,7 @@ class Message:
     recalled_memory_ids: list[str] = field(default_factory=list)
     pin_id: str | None = None
     source: str | None = None
+    person_id: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +45,8 @@ class Message:
             d["recalled_memory_ids"] = self.recalled_memory_ids
         if self.pin_id:
             d["pin_id"] = self.pin_id
+        if self.person_id:
+            d["person_id"] = self.person_id
         return d
 
     def content_text(self) -> str:
