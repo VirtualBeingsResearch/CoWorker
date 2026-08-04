@@ -395,20 +395,16 @@ class PersonaCard:
                     if alias.conversation_id
                     else ""
                 )
-                if alias.notes:
-                    line = tr(
-                        "persona.card_alias_line",
-                        participant=alias.participant_id,
-                        conversation=conversation,
-                        notes=tr("persona.card_alias_sep").join(alias.notes),
-                    )
-                else:
-                    line = tr(
+                lines.append(
+                    tr(
                         "persona.card_alias_plain",
                         participant=alias.participant_id,
                         conversation=conversation,
                     )
-                lines.append(line)
+                )
+                # 每条备注独占一行（与人物级备注同构），多条备注清晰可辨。
+                for note in alias.notes:
+                    lines.append(tr("persona.card_alias_note_item", note=note))
         if person.updated_at:
             # 新鲜度信号：让模型知道这份认知多久没被维护，据此决定是否补充/修正。
             lines.append(tr("persona.card_updated_at", ts=person.updated_at))

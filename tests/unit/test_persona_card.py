@@ -38,11 +38,27 @@ def test_render_person_notes_and_alias_notes() -> None:
     assert "s9" in rendered
     assert "wecom:group:room1" in rendered  # 所有绑定地址都显示
     assert "2026-08-03" in rendered  # 更新时间（新鲜度信号）
-    # 无备注的地址行不带「— 」分隔
-    plain_line = next(
-        line for line in rendered.splitlines() if "wecom:group:room1" in line
+
+
+def test_render_multiple_notes_per_address_on_own_lines() -> None:
+    cards = PersonaCard()
+    person = Person(
+        person_id="p_abc",
+        aliases=[
+            PersonAlias(
+                "wecom:single:zs",
+                channel="wecom",
+                notes=["企业微信主号", "周末常联系"],
+            )
+        ],
     )
-    assert "—" not in plain_line
+    rendered = cards.render(person)
+    lines = rendered.splitlines()
+    address_index = next(i for i, line in enumerate(lines) if "wecom:single:zs" in line)
+    # 地址独占一行，两条备注各自缩进成行
+    assert lines[address_index].strip() == "- wecom:single:zs"
+    assert lines[address_index + 1] == "  - 企业微信主号"
+    assert lines[address_index + 2] == "  - 周末常联系"
 
 
 def test_render_bare_addresses_only() -> None:
