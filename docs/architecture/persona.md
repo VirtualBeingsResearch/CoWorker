@@ -8,10 +8,6 @@
 
 在生命哲学中，"关系"是构成持续 Coworker 的生命概念之一（见[虚拟生命理念](lifeform-philosophy.md)）。Person 承载的正是这种关系：`person_id` 是稳定锚点，跨渠道的地址绑定与搭档维护的备注都围绕它组织，并随 `data/memory/persons.json` 跨重启存活。
 
-## 边界
-
-Person 只做三件事：跨渠道归并地址、记录并渲染画像（框架 + 备注）、合并重复人物。它**不做**：多租户/账号系统（`person_id` 只是将来账号的接缝）、participant 分类（谁是可绑定的人由模型依据 `[CHANNELS]` 信道语义判断）、改写 guidelines / 注入通信录、碰 mem0（长期记忆保持单桶）、后台任务与自动创建人物（Person 只由 `bind` 显式建立）。
-
 ## 工作机制
 
 ### ① 记住谁是谁 —— PersonStore 与备注

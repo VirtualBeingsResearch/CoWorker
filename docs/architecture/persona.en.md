@@ -8,10 +8,6 @@ English · [中文](persona.md)
 
 In the lifeform philosophy, "relationship" is one of the life concepts that constitute the persistent Coworker (see [virtual-life philosophy](lifeform-philosophy.en.md)). Person carries that relationship: `person_id` is the stable anchor; cross-channel address bindings and the agent-maintained card are organized around it and survive restarts through `data/persons.json` and the card files.
 
-## Boundaries
-
-Person does exactly three things: merge addresses across channels, record and render a card (framework plus notes), and merge duplicate people. It does **not**: build a multi-tenant/account system (`person_id` is only the future seam), classify participants (whether an address is a person is judged by the model from the `[CHANNELS]` channel semantics), rewrite guidelines or inject a roster, touch mem0 (long-term memory stays in its single bucket), or run background tasks and auto-create people (people are only created explicitly via `bind`).
-
 ## How it works
 
 ### ① Remembering who is who — PersonStore and notes
