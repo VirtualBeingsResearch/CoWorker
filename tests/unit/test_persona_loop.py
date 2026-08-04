@@ -79,7 +79,8 @@ def test_unbound_and_group_participants_get_no_card(tmp_path) -> None:
     assert _primary_sources(loop) == []
 
 
-def test_bound_person_without_notes_injects_nothing(tmp_path) -> None:
+def test_bound_person_with_bare_address_injects_address_card(tmp_path) -> None:
+    """绑定地址本身就会渲染进画像框架（无需备注/称呼）。"""
     store = PersonStore(tmp_path / "persons.json")
     person = store.create()
     store.bind_alias(person.person_id, PersonAlias("wecom:single:zs"))
@@ -88,8 +89,9 @@ def test_bound_person_without_notes_injects_nothing(tmp_path) -> None:
     loop = _make_loop(store, cards)
     resolved = loop._inject_persona_cards([_event("wecom:single:zs")])
 
-    assert resolved == {"wecom:single:zs"}  # still resolves for recall scoping
-    assert _primary_sources(loop) == []
+    assert resolved == {"wecom:single:zs"}
+    assert _primary_sources(loop) == [f"persona_card:{person.person_id}"]
+    assert "wecom:single:zs" in loop._short_term.primary[0].content
 
 
 def test_persona_disabled_no_injection(tmp_path) -> None:
