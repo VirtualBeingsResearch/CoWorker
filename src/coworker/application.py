@@ -63,7 +63,7 @@ from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
 from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
-from coworker.persona import PersonaCard, PersonStore
+from coworker.persona import PersonaCard, PersonaContext, PersonStore
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
@@ -757,9 +757,11 @@ async def _main() -> bool:
     restored_alarms = await alarm_manager.restore()
     person_store: PersonStore | None = None
     persona_cards: PersonaCard | None = None
+    persona_context: PersonaContext | None = None
     if config.memory.persona_enabled:
         person_store = PersonStore(config.memory.persona_store_path)
         persona_cards = PersonaCard()
+        persona_context = PersonaContext(store=person_store, cards=persona_cards)
     registry.register_many(
         [
             SetAlarmTool(alarm_manager),
@@ -923,8 +925,7 @@ async def _main() -> bool:
         bubble_store=bubble_store,
         subconscious=subconscious,
         recent_activity=recent_activity,
-        person_store=person_store,
-        persona_cards=persona_cards,
+        persona=persona_context,
     )
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)

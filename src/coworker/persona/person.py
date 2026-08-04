@@ -409,3 +409,11 @@ class PersonaCard:
             # 新鲜度信号：让模型知道这份认知多久没被维护，据此决定是否补充/修正。
             lines.append(tr("persona.card_updated_at", ts=person.updated_at))
         return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
+class PersonaContext:
+    """Bundles the persona store and card renderer as one injection unit."""
+
+    store: PersonStore
+    cards: PersonaCard

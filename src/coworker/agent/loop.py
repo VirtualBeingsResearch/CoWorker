@@ -15,7 +15,7 @@ from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import tr
 from coworker.memory.recent_activity import render_recent_activity_replay
-from coworker.persona import PersonaCard, PersonStore
+from coworker.persona import PersonaContext
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import BubbleStore
@@ -63,8 +63,7 @@ class AgentLoop:
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
         recent_activity: RecentActivityMemory | None = None,
-        person_store: PersonStore | None = None,
-        persona_cards: PersonaCard | None = None,
+        persona: PersonaContext | None = None,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -86,8 +85,7 @@ class AgentLoop:
         self._bubble_store = bubble_store
         self._subconscious = subconscious
         self._recent_activity = recent_activity
-        self._person_store = person_store
-        self._persona_cards = persona_cards
+        self._persona = persona
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -538,12 +536,11 @@ class AgentLoop:
         restarts). Unbound addresses, groups and system notifications resolve
         to no person and are left untouched.
         """
-        person_store = getattr(self, "_person_store", None)
-        persona_cards = getattr(self, "_persona_cards", None)
-        if person_store is None or persona_cards is None:
+        persona = getattr(self, "_persona", None)
+        if persona is None:
             return
         for event in batch:
-            person = person_store.find_by_participant(
+            person = persona.store.find_by_participant(
                 event.participant_id,
                 event.conversation_id,
             )
@@ -551,7 +548,7 @@ class AgentLoop:
                 continue
             if self._persona_card_present(person.person_id):
                 continue
-            card = persona_cards.render(person)
+            card = persona.cards.render(person)
             if not card:
                 continue
             self._short_term.primary.append(

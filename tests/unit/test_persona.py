@@ -4,7 +4,7 @@
 from coworker.agent.loop import AgentLoop
 from coworker.core.types import IncomingEvent
 from coworker.memory.short_term import ShortTermMemory
-from coworker.persona import Person, PersonaCard, PersonAlias, PersonStore
+from coworker.persona import Person, PersonaCard, PersonaContext, PersonAlias, PersonStore
 from coworker.tools.persona_tools import PersonaTool
 
 
@@ -218,10 +218,9 @@ def test_render_person_without_name_uses_id() -> None:
 
 
 
-def _make_loop(store: PersonStore, cards: PersonaCard) -> AgentLoop:
+def _make_loop(context: PersonaContext | None) -> AgentLoop:
     loop = AgentLoop.__new__(AgentLoop)
-    loop._person_store = store
-    loop._persona_cards = cards
+    loop._persona = context
     loop._short_term = ShortTermMemory(max_tokens=10_000, tree_enabled=False)
     return loop
 
@@ -249,7 +248,7 @@ def test_inject_card_before_first_message(tmp_path) -> None:
     person = _bound_person(store, notes=["关系：好友"])
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards([_event("wecom:single:zs", "hello")])
     assert _primary_sources(loop) == ["persona"]
     injected = loop._short_term.primary[0]
@@ -264,7 +263,7 @@ def test_persona_card_marker_survives_snapshot_round_trip(tmp_path) -> None:
     person = _bound_person(store)
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards([_event("wecom:single:zs")])
 
     restored = ShortTermMemory.parse_primary(loop._short_term.serialize())
@@ -277,7 +276,7 @@ def test_card_injected_only_once_per_session(tmp_path) -> None:
     _bound_person(store)
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards([_event("wecom:single:zs")])
     loop._inject_persona_cards([_event("wecom:single:zs")])
 
@@ -289,7 +288,7 @@ def test_unbound_and_group_participants_get_no_card(tmp_path) -> None:
     _bound_person(store)
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards(
         [
             _event("wecom:group:room1"),
@@ -307,7 +306,7 @@ def test_bound_person_with_bare_address_injects_address_card(tmp_path) -> None:
     store.bind_alias(person.person_id, PersonAlias("wecom:single:zs"))
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards([_event("wecom:single:zs")])
     assert _primary_sources(loop) == ["persona"]
     assert "wecom:single:zs" in loop._short_term.primary[0].content
@@ -317,7 +316,7 @@ def test_persona_disabled_no_injection(tmp_path) -> None:
     store = PersonStore(tmp_path / "persons.json")
     _bound_person(store)
 
-    loop = _make_loop(None, None)
+    loop = _make_loop(None)
     loop._inject_persona_cards([_event("wecom:single:zs")])
     assert _primary_sources(loop) == []
 
@@ -331,7 +330,7 @@ def test_conversation_specific_alias(tmp_path) -> None:
     )
     cards = PersonaCard()
 
-    loop = _make_loop(store, cards)
+    loop = _make_loop(PersonaContext(store=store, cards=cards))
     loop._inject_persona_cards(
         [
             IncomingEvent(
