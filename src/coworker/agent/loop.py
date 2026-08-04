@@ -15,6 +15,7 @@ from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import tr
 from coworker.memory.recent_activity import render_recent_activity_replay
+from coworker.persona import PersonaContext
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import BubbleStore
@@ -62,6 +63,7 @@ class AgentLoop:
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
         recent_activity: RecentActivityMemory | None = None,
+        persona: PersonaContext | None = None,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -83,6 +85,7 @@ class AgentLoop:
         self._bubble_store = bubble_store
         self._subconscious = subconscious
         self._recent_activity = recent_activity
+        self._persona = persona
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -258,6 +261,7 @@ class AgentLoop:
             batch = events[:max_batch]
             for extra in events[max_batch:]:
                 await self._inbox.push(extra)
+            self._inject_persona_cards(batch)
             content = self._build_content_blocks(batch)
             self._short_term.primary.append(
                 Message(
@@ -521,6 +525,48 @@ class AgentLoop:
 
     def _get_recalled_ids(self) -> set[str]:
         return {mid for m in self._short_term.primary for mid in m.recalled_memory_ids}
+
+    def _inject_persona_cards(self, batch: list[IncomingEvent]) -> None:
+        """Inject persona cards before each person's first message of this session.
+
+        A bound person whose card renders non-empty and has not been injected
+        into the current short-term context yet gets one card message appended
+        to ``primary`` right before the batch message (``source`` carries the
+        person id so the marker survives snapshots and dedup works across
+        restarts). Unbound addresses, groups and system notifications resolve
+        to no person and are left untouched.
+        """
+        persona = getattr(self, "_persona", None)
+        if persona is None:
+            return
+        for event in batch:
+            person = persona.store.find_by_participant(
+                event.participant_id,
+                event.conversation_id,
+            )
+            if person is None:
+                continue
+            if self._persona_card_present(person.person_id):
+                continue
+            card = persona.cards.render(person)
+            if not card:
+                continue
+            self._short_term.primary.append(
+                Message(
+                    role="user",
+                    content=card,
+                    source="persona",
+                    person_id=person.person_id,
+                )
+            )
+            logger.debug(f"Injected persona card for {person.person_id}")
+
+    def _persona_card_present(self, person_id: str) -> bool:
+        return any(
+            getattr(message, "source", "") == "persona"
+            and getattr(message, "person_id", None) == person_id
+            for message in self._short_term.primary
+        )
 
     async def _auto_recall(self, query_text: str) -> None:
         if not query_text.strip():

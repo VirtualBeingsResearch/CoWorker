@@ -56,4 +56,11 @@ weixin = '''个人微信 Claw：
 - 选择接收者后，另行调用 `communicate`，将 `qrcode_path` 作为 image 附件发送。需要在身份证卡片聊天中显示状态时，可同时传入 `extra={"connection_status":{"channel":"weixin","status":"wait","session_id":"..."}}`。
 - 配对状态由信道在后台自动轮询，不要重复调用 `list_connections`。需要查看时发送 `extra={"action":"status"}`；手机要求验证码时发送 `extra={"action":"verify","session_id":"...","verify_code":"..."}`。
 - 仅在用户明确要求并确认后移除连接：向 `weixin:control` 发送 `extra={"action":"remove","bot_instance_id":"...","confirm":true}`。这会删除 Coworker 本地凭证，但不会远程注销微信侧授权。
-- 与已连接微信账号通信时，使用 `list_connections` 返回的完整 `weixin:<bot_instance_id>`。'''
+- 与已连接微信账号通信时，使用 `list_connections` 返回的完整 `weixin:<bot_instance_id>`。
+- 入站消息的 `conversation_id` 是 1:1 会话的 session；真人在 session 粒度。用 persona 工具绑定人物时带上 `conversation_id`。'''
+wecom = '''企业微信：
+- `wecom:single:{userid}` 是一个人；`wecom:group:{chatid}` 是群聊。群消息会在内容前标注发送者（`[发送者 userid=...]`）——userid 是企微原始 ID，仅作提示，本身不是可回复的地址。
+- 联系真人使用完整 `wecom:single:{userid}`（群则用 `wecom:group:{chatid}`）；回复群消息即回复整个群。群消息的 `conversation_id` 只在**首次使用**时有效：带上它，消息会以**引用**对应入站消息的形式发出（接收方看到它挂在原消息之下）；此后同一 `conversation_id` 不再生效，退化为普通消息。'''
+stream = '''Stream / 桌面：
+- participant_id 是注册客户端或桌面 actor 的地址（如 `coworker-desktop:d:{actor}:{random}`），也可能是客户端自选的 id。
+- 存在 `conversation_id` 时表示该 participant 下的某个会话。一个人可能跨多个会话使用多个地址。'''

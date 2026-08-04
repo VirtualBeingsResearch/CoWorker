@@ -2551,3 +2551,20 @@ html:has(.admin-login),
   .relay-health-grid article, .relay-health-grid article:nth-child(3n), .relay-health-grid article:nth-child(2n), .relay-health-grid article:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--admin-line); }
   .relay-health-grid article:last-child { border-bottom: 0; }
 }
+
+/* ── 通信录（People） ── */
+.person-create { margin-bottom: 14px; }
+.person-create-row { display: flex; gap: 8px; align-items: center; }
+.person-create-row input { flex: 1; }
+.person-create-row button { white-space: nowrap; }
+.person-list { display: flex; flex-direction: column; gap: 10px; }
+.person-row { border: 1px solid var(--admin-line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.person-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.person-name-input { font-weight: 600; min-width: 180px; }
+.person-id { color: var(--admin-muted, #8a8a8e); font-size: 12px; }
+.person-aliases { display: flex; flex-wrap: wrap; gap: 6px; }
+.alias-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--admin-line); color: var(--admin-text, inherit); }
+.person-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.person-merge-select { font-size: 13px; padding: 3px 6px; }
+.person-card-preview { border: 1px solid var(--admin-line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--admin-bg, transparent); }
+.person-card-preview pre { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }

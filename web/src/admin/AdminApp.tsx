@@ -3,7 +3,7 @@ import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
-  Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw,
+  Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
@@ -14,7 +14,7 @@ import { loadInteractionHistoryPage } from './interactionHistory';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'content' | 'relay' | 'releases' | 'audit';
+type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
 type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
@@ -26,6 +26,7 @@ const NAV: Array<{ id: Section; label: string; description: string; group: NavGr
   { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', group: '塑形', icon: Brain },
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
   { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
+  { id: 'people', label: '通信录', description: '人物与跨信道身份', group: '塑形', icon: Users },
   { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
   { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', group: '扩展', icon: CloudUpload },
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
@@ -1586,6 +1587,138 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   </div>;
 }
 
+type PersonAliasView = {
+  participant_id: string;
+  conversation_id?: string | null;
+  channel: string;
+  notes: string[];
+};
+type PersonView = {
+  person_id: string;
+  display_name: string;
+  notes: string[];
+  aliases: PersonAliasView[];
+  created_at: string;
+  updated_at: string;
+};
+
+function PeopleView() {
+  const people = useLoad(() => api<{ persons: PersonView[] }>('/api/admin/persons'), []);
+  const [draftName, setDraftName] = useState('');
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editingCard, setEditingCard] = useState<PersonView | null>(null);
+  const [renderedCard, setRenderedCard] = useState('');
+  const [notesDraft, setNotesDraft] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (people.data) {
+      setNames(Object.fromEntries(people.data.persons.map(p => [p.person_id, p.display_name])));
+    }
+  }, [people.data]);
+
+  if (people.loading || !people.data) return <Loading error={people.error} />;
+
+  const create = async () => {
+    const name = draftName.trim();
+    if (!name) return;
+    setBusy(true); setError(null);
+    try {
+      await api<Json>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
+      setDraftName('');
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const rename = async (person: PersonView) => {
+    const name = (names[person.person_id] ?? '').trim();
+    if (name === person.display_name) return;
+    setBusy(true); setError(null);
+    try {
+      await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'PATCH', body: JSON.stringify({ display_name: name }) });
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const remove = async (person: PersonView) => {
+    setBusy(true); setError(null);
+    try {
+      await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'DELETE' });
+      setDeletingId(null);
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const merge = async (keep: PersonView) => {
+    const dropId = mergeTargets[keep.person_id];
+    if (!dropId) return;
+    setBusy(true); setError(null);
+    try {
+      await api<Json>(`/api/admin/persons/${keep.person_id}/merge`, { method: 'POST', body: JSON.stringify({ other_person_id: dropId }) });
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const openCard = async (person: PersonView) => {
+    setError(null);
+    try {
+      const card = await api<{ content: string }>(`/api/admin/persons/${person.person_id}/card`);
+      setRenderedCard(card.content);
+      setNotesDraft((person.notes ?? []).join('\n'));
+      setEditingCard(person);
+    } catch (e) { setError(String(e)); }
+  };
+
+  const saveNotes = async () => {
+    if (!editingCard) return;
+    setBusy(true); setError(null);
+    try {
+      const notes = notesDraft.split('\n').map(s => s.trim()).filter(Boolean);
+      await api<Json>(`/api/admin/persons/${editingCard.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
+      setEditingCard(null);
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const others = (person: PersonView) => people.data?.persons.filter(p => p.person_id !== person.person_id) ?? [];
+
+  return <div className="page-stack">
+    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
+      <div className="person-create">
+        <Field label="新建人物"><div className="person-create-row"><input value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); }} placeholder={t('称呼（可留空，由搭档在对话中完善）')} /><button className="primary" disabled={busy} onClick={() => void create()}><Plus size={15} />{t('新建')}</button></div></Field>
+      </div>
+      {error && <div className="notice error">{error}</div>}
+      {people.data.persons.length === 0 ? <div className="notice">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> :
+        <div className="person-list">{people.data.persons.map(person => <div className="person-row" key={person.person_id}>
+          <div className="person-head">
+            <input className="person-name-input" value={names[person.person_id] ?? ''} onChange={event => setNames({ ...names, [person.person_id]: event.target.value })} onBlur={() => void rename(person)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+            <code className="person-id">{person.person_id}</code>
+          </div>
+          {person.aliases.length > 0 && <div className="person-aliases">{person.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</span>)}</div>}
+          <div className="person-actions">
+            <button className="ghost mini" disabled={busy} onClick={() => void openCard(person)}><FileText size={14} />{t('画像')}</button>
+            {others(person).length > 0 && <>
+              <select className="person-merge-select" value={mergeTargets[person.person_id] ?? ''} onChange={event => setMergeTargets({ ...mergeTargets, [person.person_id]: event.target.value })}>
+                <option value="">{t('合并到…')}</option>
+                {others(person).map(other => <option key={other.person_id} value={other.person_id}>{other.display_name || other.person_id}</option>)}
+              </select>
+              <button className="ghost mini" disabled={busy || !mergeTargets[person.person_id]} onClick={() => void merge(person)}>{t('合并')}</button>
+            </>}
+            <button className={deletingId === person.person_id ? 'danger-solid mini' : 'ghost mini'} disabled={busy} onClick={() => { if (deletingId === person.person_id) void remove(person); else setDeletingId(person.person_id); }}><Trash2 size={14} />{deletingId === person.person_id ? t('确认删除？') : t('删除')}</button>
+          </div>
+        </div>)}</div>}
+    </Panel>
+    {editingCard && <Panel title="人物画像" note={t('画像是一个框架：个性化信息通过备注记录')} action={<button className="ghost mini" onClick={() => setEditingCard(null)}><X size={14} />{t('关闭面板')}</button>}>
+      <div className="person-card-preview"><pre>{renderedCard || t('暂无记录')}</pre></div>
+      <Field label={t('个性化备注（每行一条）')}><textarea rows={8} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+      <div className="panel-actions"><button className="primary" disabled={busy} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
+    </Panel>}
+  </div>;
+}
+
 type ContentKind = 'skills' | 'palaces' | 'subconscious';
 const CONTENT_KIND: Record<ContentKind, { label: string; filename: string; description: string }> = {
   skills: { label: 'Skill', filename: 'SKILL.md', description: '可调用的工作方法与操作流程' },
@@ -2519,6 +2652,7 @@ export default function AdminApp() {
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
         {section === 'runtime' && <Runtime confirmationName={confirmationName} />}
         {section === 'identity' && <Identity onIdentity={setIdentity} />}
+        {section === 'people' && <PeopleView />}
         {section === 'content' && <ContentManager />}
         {section === 'relay' && <RelayAccess />}
         {section === 'releases' && <DesktopReleases />}

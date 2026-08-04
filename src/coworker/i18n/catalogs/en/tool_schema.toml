@@ -47,6 +47,7 @@ view_image = "Load an image directly into the vision model context."
 visual_analyze = "Analyze an image or video with the vision model; the result is delivered to the calling thread."
 search_web = "Search the internet and return summarized results."
 fetch_url = "Fetch the main content of a URL."
+persona = "Manage people: bind a communication address and notes to a known or new person (bind), record personalized notes (note), read the rendered card framework (card), unbind an address (unbind), delete a person (delete), merge duplicate people (merge)."
 
 [tool_schema.parameter.set_alarm]
 trigger_at = "First trigger time in YYYY-MM-DD HH:MM:SS format."
@@ -192,6 +193,18 @@ content = "Memory content; required for write and update."
 memory_id = "Memory ID; required for update, associate, and delete."
 category = "Memory category; required for write."
 tags = "Tags; initial tags for write or tags to add for associate."
+
+[tool_schema.parameter.persona]
+action = "Operation: bind, card, note, unbind, delete, or merge."
+participant_id = "Communication address; required for bind."
+conversation_id = "Session id under the address; optional for bind, include when the channel routes people by session (e.g. Weixin)."
+person_id = "Person id; required for card and note, or the target person for bind."
+name = "Person display name; used to create or match a person when bind has no person_id."
+note = "Address note for bind (optional; may be appended to the same address across binds). Must be a single line without line breaks."
+notes = "Person-level notes for note (required): add or remove several notes in one call; each must be a single line without line breaks."
+remove = "Optional for note: true removes the note (forgetting outdated knowledge); default appends."
+keep_person_id = "Person id to keep; required for merge."
+drop_person_id = "Person id to merge away and delete; required for merge."
 
 [tool_schema.parameter.manage_pinned_context]
 action = "Operation: pin (add or update), unpin (remove), or list."

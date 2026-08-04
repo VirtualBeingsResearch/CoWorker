@@ -993,6 +993,7 @@ class ShortTermMemory:
                 recalled_memory_ids=m.get("recalled_memory_ids", []),
                 pin_id=m.get("pin_id"),
                 source=m.get("source"),
+                person_id=m.get("person_id"),
                 usage=m.get("usage", {}),
             )
             if "timestamp" in m:

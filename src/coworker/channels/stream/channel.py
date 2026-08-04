@@ -11,6 +11,7 @@ from coworker.channels.stream.profile import StreamProfile
 from coworker.channels.stream.runtime import StreamRuntime
 from coworker.core.registration import RegistrationError
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
+from coworker.i18n import tr
 
 
 class StreamChannel(BaseChannel):
@@ -30,6 +31,9 @@ class StreamChannel(BaseChannel):
 
     def resolve(self, participant_id: str) -> str | None:
         return None
+
+    def agent_instructions(self) -> str:
+        return tr("prompt.channel.stream")
 
     def register_profile(self, profile: StreamProfile) -> None:
         issues = self._profile_registration_issues(profile)

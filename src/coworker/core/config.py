@@ -193,6 +193,10 @@ class MemoryConfig(_EnvSettings):
     mem0_llm_model: str = "deepseek-v4-flash"
     mem0_embedder_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
+    # 可选的 Person 子机制：关闭时与现状完全一致。状态与其他记忆状态同放 data/memory。
+    persona_enabled: bool = True
+    persona_store_path: str = "data/memory/persons.json"
+
 
 class APIConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="API__", env_file=".env", extra="ignore")

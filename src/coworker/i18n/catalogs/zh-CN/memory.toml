@@ -157,3 +157,13 @@ associate_needs_tags = "associate 操作需要提供要追加的 tags"
 associated = "已关联标签 {{tags}}（id: {{id}}）"
 delete_needs_id = "delete 操作需要提供 memory_id"
 deleted = "已删除记忆（id: {{id}}）"
+
+[persona]
+card_header = "[人物画像：{{name}} ({{person_id}})]"
+card_notes_title = "个性化："
+card_note_item = "- {{note}}"
+card_aliases_title = "地址与备注："
+card_alias_conversation = "（{{conversation_id}}）"
+card_alias_plain = "- {{participant}}{{conversation}}"
+card_alias_note_item = "  - {{note}}"
+card_updated_at = "更新于：{{ts}}"

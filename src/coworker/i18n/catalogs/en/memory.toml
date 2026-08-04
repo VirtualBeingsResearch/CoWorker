@@ -157,3 +157,13 @@ associate_needs_tags = "The associate action requires tags to append"
 associated = "Associated tags {{tags}} (id: {{id}})"
 delete_needs_id = "The delete action requires memory_id"
 deleted = "Memory deleted (id: {{id}})"
+
+[persona]
+card_header = "[Persona: {{name}} ({{person_id}})]"
+card_notes_title = "Notes:"
+card_note_item = "- {{note}}"
+card_aliases_title = "Addresses:"
+card_alias_conversation = " ({{conversation_id}})"
+card_alias_plain = "- {{participant}}{{conversation}}"
+card_alias_note_item = "  - {{note}}"
+card_updated_at = "Updated: {{ts}}"
