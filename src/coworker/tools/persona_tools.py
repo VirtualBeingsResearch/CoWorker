@@ -57,12 +57,12 @@ class PersonaTool(Tool):
                     },
                     "note": {
                         "type": "string",
-                        "description": "备注内容：bind 时为该地址的备注（可多次追加）；note 时为单条人物级个性化备注。必须为单行文本，不能包含换行；多条备注请用 notes 参数",
+                        "description": "该地址的备注（bind 时可选；同一地址可多次 bind 追加多条备注）。必须为单行文本，不能包含换行",
                     },
                     "notes": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "多条人物级备注列表（note 时可选）：一次添加多条，每条必须为单行文本，不能包含换行",
+                        "description": "人物级备注列表（note 时必填）：一次添加或移除多条，每条必须为单行文本，不能包含换行",
                     },
                     "remove": {
                         "type": "boolean",
@@ -209,19 +209,18 @@ class PersonaTool(Tool):
         return ToolResult(tool_call_id="", content=card)
 
     def _collect_notes(self, kwargs: dict[str, Any]) -> tuple[list[str], str | None]:
-        """Collect notes from the ``notes`` (list) or ``note`` (string) parameter.
+        """Collect notes from the ``notes`` parameter (a list, or a single string).
 
         Returns ``(notes, error_key)``: ``error_key`` is a tr key when any note
         is multi-line — nothing is written in that case.
         """
-        raw: list[str] = []
         notes_param = kwargs.get("notes")
         if isinstance(notes_param, list):
             raw = [str(n) for n in notes_param]
         elif notes_param:
             raw = [str(notes_param)]
-        elif kwargs.get("note"):
-            raw = [str(kwargs["note"])]
+        else:
+            raw = []
         cleaned = [n.strip() for n in raw if n and n.strip()]
         for n in cleaned:
             if _note_is_multiline(n):
@@ -256,7 +255,6 @@ class PersonaTool(Tool):
                 content=tr("tool_result.persona.person_missing", person_id=person_id),
                 is_error=True,
             )
-        joined = tr("tool_result.persona.notes_join").join(notes)
         remove = bool(kwargs.get("remove"))
         if remove:
             for note in notes:
@@ -265,7 +263,7 @@ class PersonaTool(Tool):
                 "tool_result.persona.note_removed",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=joined,
+                count=len(notes),
             )
         else:
             for note in notes:
@@ -274,7 +272,7 @@ class PersonaTool(Tool):
                 "tool_result.persona.note_added",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=joined,
+                count=len(notes),
             )
         return ToolResult(tool_call_id="", content=content)
 

@@ -31,7 +31,7 @@ async def test_multiline_note_rejected_with_error(tmp_path) -> None:
     result = await tool.execute(
         action="note",
         person_id=person.person_id,
-        note="工作日下午\n沟通更顺畅",
+        notes=["工作日下午\n沟通更顺畅"],
     )
     assert result.is_error
     assert "单行" in result.content or "single line" in result.content  # 错误信息说明单行要求
@@ -202,7 +202,7 @@ async def test_note_add_and_remove(tmp_path) -> None:
     added = await tool.execute(
         action="note",
         person_id=person.person_id,
-        note="习惯用中文",
+        notes=["习惯用中文"],
     )
     assert not added.is_error
     assert person.notes == ["习惯用中文"]
@@ -210,7 +210,7 @@ async def test_note_add_and_remove(tmp_path) -> None:
     duplicate = await tool.execute(
         action="note",
         person_id=person.person_id,
-        note="习惯用中文",
+        notes=["习惯用中文"],
     )
     assert not duplicate.is_error
     assert person.notes == ["习惯用中文"]  # 去重
@@ -218,13 +218,13 @@ async def test_note_add_and_remove(tmp_path) -> None:
     removed = await tool.execute(
         action="note",
         person_id=person.person_id,
-        note="习惯用中文",
+        notes=["习惯用中文"],
         remove=True,
     )
     assert not removed.is_error
     assert person.notes == []
 
-    missing = await tool.execute(action="note", person_id="p_nope", note="x")
+    missing = await tool.execute(action="note", person_id="p_nope", notes=["x"])
     assert missing.is_error
     needs_content = await tool.execute(action="note", person_id=person.person_id)
     assert needs_content.is_error

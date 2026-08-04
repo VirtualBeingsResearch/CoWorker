@@ -19,7 +19,7 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 ### ② Recording knowledge — the `persona` tool
 
 - `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`: bind an address to a known person (by `person_id` or name) or create a new one; `note` is appended to the address's notes;
-- `persona(action="note", person_id, note, remove?)`: record or remove a **person-level** personalized note (`remove=true` forgets outdated knowledge);
+- `persona(action="note", person_id, notes, remove?)`: record or remove **person-level** personalized notes in bulk (each must be a single line; `remove=true` forgets outdated knowledge);
 - `persona(action="card", person_id)`: read the **card framework** — the system renders a fixed structure (name, personalized notes, all bound addresses with their notes, last-updated time); all personalized content comes from notes;
 - `persona(action="unbind", person_id, participant_id, conversation_id?)`: unbind an address (when the address is no longer valid for the relationship);
 - `persona(action="delete", person_id)`: delete a person (when the relationship ends; `relationship` memories stay in the single bucket, unmoved);
