@@ -30,8 +30,8 @@ Palace 或潜意识模式时使用[能力内容创作](capability-authoring.md)�
 mode 设置后保存，Coworker 会重启。详细步骤见[首次运行](../getting-started/README.md)。
 
 初始化完成后，导航按“总览、运行与记忆、配置与身份、能力与服务”组织 11 个功能页。桌面
-端展开当前工作区的页面，窄屏则保留四个工作区入口，并在顶部选择工作区内页面。原有的
-`?section=` 深链接继续有效。
+端和窄侧栏始终提供全部页面的单击直达入口，工作区只负责视觉分组。手机端保留四个工作区
+底栏，并可从顶部选择全部 11 个页面。原有的 `?section=` 深链接继续有效。
 
 ![Coworker Web 管理后台的生命总览](../assets/screenshots/admin-overview-zh.png)
 

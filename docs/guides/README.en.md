@@ -38,9 +38,10 @@ restarts. See [First Run](../getting-started/README.en.md) for the complete path
 
 After initialization, navigation organizes 11 feature pages under four
 workspaces: Overview, Runtime & Memory, Configuration & Identity, and
-Capabilities & Services. Desktop navigation expands the current workspace;
-narrow screens retain the same four workspace entries and use the top bar to
-select a page within one. Existing `?section=` deep links remain valid.
+Capabilities & Services. Desktop and compact side rails keep every page one
+click away; workspaces provide visual grouping only. Phones retain four
+workspace entries in the bottom bar and can select any of the 11 pages from the
+top bar. Existing `?section=` deep links remain valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
