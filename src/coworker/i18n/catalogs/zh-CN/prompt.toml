@@ -60,7 +60,7 @@ weixin = '''个人微信 Claw：
 - 入站消息的 `conversation_id` 是 1:1 会话的 session；真人在 session 粒度。用 persona 工具绑定人物时带上 `conversation_id`。'''
 wecom = '''企业微信：
 - `wecom:single:{userid}` 是一个人；`wecom:group:{chatid}` 是群聊。群消息会在内容前标注发送者（`[发送者 userid=...]`）——userid 是企微原始 ID，仅作提示，本身不是可回复的地址。
-- 联系真人使用完整 `wecom:single:{userid}`（群则用 `wecom:group:{chatid}`）；回复群消息即回复整个群。`conversation_id` 可选，仅在需要定位同一地址下的具体会话时使用。'''
+- 联系真人使用完整 `wecom:single:{userid}`（群则用 `wecom:group:{chatid}`）；回复群消息即回复整个群。群消息的 `conversation_id` 只在**首次使用**时有效：带上它会把消息作为对对应入站消息的回复发出，此后同一 `conversation_id` 不再生效、退化为普通消息。'''
 stream = '''Stream / 桌面：
 - participant_id 是注册客户端或桌面 actor 的地址（如 `coworker-desktop:d:{actor}:{random}`），也可能是客户端自选的 id。
 - 存在 `conversation_id` 时表示该 participant 下的某个会话。一个人可能跨多个会话使用多个地址。'''
