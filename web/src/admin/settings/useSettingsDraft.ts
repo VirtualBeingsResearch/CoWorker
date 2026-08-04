@@ -49,6 +49,17 @@ export function useSettingsDraft({
     return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
   }, [dirtyGroups]);
 
+  useEffect(() => {
+    const syncGroupFromLocation = () => {
+      if (new URLSearchParams(window.location.search).get('section') !== 'settings') return;
+      setGroup(new URLSearchParams(window.location.search).get('group') || 'llm');
+      setInvalidJsonPaths(new Set());
+      setMessage(null);
+    };
+    window.addEventListener('popstate', syncGroupFromLocation);
+    return () => window.removeEventListener('popstate', syncGroupFromLocation);
+  }, []);
+
   const setJsonValidity = useCallback((path: string, valid: boolean) => {
     setInvalidJsonPaths(current => {
       const next = new Set(current);

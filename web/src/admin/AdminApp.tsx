@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -11,32 +11,66 @@ import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
+import { AdminUsageOverview } from './UsageOverview';
+import type { UsageStats } from '../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
-type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
+type Workspace = 'overview' | 'operations' | 'configuration' | 'extensions';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 
-const NAV: Array<{ id: Section; label: string; description: string; group: NavGroup; icon: typeof Activity }> = [
-  { id: 'overview', label: '生命总览', description: '状态、上下文和当前驻留情况', group: '观察', icon: HeartPulse },
-  { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', group: '观察', icon: Database },
-  { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', group: '观察', icon: Activity },
-  { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', group: '塑形', icon: Brain },
-  { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
-  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
-  { id: 'people', label: '通信录', description: '人物与跨信道身份', group: '塑形', icon: Users },
-  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
-  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', group: '扩展', icon: CloudUpload },
-  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
-  { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
+const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
+  { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
+  { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', workspace: 'operations', icon: Activity },
+  { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', workspace: 'operations', icon: Database },
+  { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', workspace: 'operations', icon: ShieldCheck },
+  { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', workspace: 'configuration', icon: Brain },
+  { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', workspace: 'configuration', icon: Settings2 },
+  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', workspace: 'configuration', icon: Fingerprint },
+  { id: 'people', label: '通信录', description: '人物与跨信道身份', workspace: 'configuration', icon: Users },
+  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', workspace: 'extensions', icon: FileCog },
+  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', workspace: 'extensions', icon: CloudUpload },
+  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'extensions', icon: PackageOpen },
 ];
-const NAV_GROUPS: NavGroup[] = ['观察', '塑形', '扩展', '追溯'];
+const WORKSPACES: Array<{ id: Workspace; label: string; mobileLabel: string; description: string; icon: typeof Activity; sections: Section[] }> = [
+  { id: 'overview', label: '总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview'] },
+  { id: 'operations', label: '运行与记忆', mobileLabel: '运维', description: '任务、记忆、日志与诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
+  { id: 'configuration', label: '配置与身份', mobileLabel: '配置', description: '模型、运行参数与关系', icon: SlidersHorizontal, sections: ['models', 'settings', 'identity', 'people'] },
+  { id: 'extensions', label: '能力与服务', mobileLabel: '能力', description: '能力内容、远程接入与发布', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
+];
+
+const NavigationGuardContext = createContext<(owner: string, dirty: boolean) => void>(() => undefined);
+
+function useNavigationGuard(owner: string, dirty: boolean) {
+  const report = useContext(NavigationGuardContext);
+  useEffect(() => {
+    report(owner, dirty);
+    return () => report(owner, false);
+  }, [dirty, owner, report]);
+}
 
 function sectionFromLocation(): Section {
   const requested = new URLSearchParams(window.location.search).get('section');
   return NAV.some(item => item.id === requested) ? requested as Section : 'overview';
+}
+
+function workspaceForSection(section: Section) {
+  const navItem = NAV.find(item => item.id === section) || NAV[0];
+  return WORKSPACES.find(workspace => workspace.id === navItem.workspace) || WORKSPACES[0];
+}
+
+function sectionHref(next: Section) {
+  const url = new URL(window.location.href);
+  const current = sectionFromLocation();
+  if (next === 'overview') url.searchParams.delete('section');
+  else url.searchParams.set('section', next);
+  if (next !== 'settings' || current !== 'settings') {
+    url.searchParams.delete('group');
+    url.searchParams.delete('source');
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
@@ -356,10 +390,12 @@ function runtimeWakePolicy(status: Json) {
   return t('每 {{seconds}} 秒自唤醒', { seconds: status.idle_sleep_seconds });
 }
 
-function Overview({ name }: { name: string }) {
+function Overview({ name, onNavigate }: { name: string; onNavigate: (event: ReactMouseEvent<HTMLAnchorElement>, section: Section) => void }) {
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/overview'), []);
+  const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState('');
+  const reloadAll = async () => { await Promise.all([reload(), usage.reload()]); };
   const resume = async () => {
     setResuming(true);
     setResumeError('');
@@ -380,42 +416,43 @@ function Overview({ name }: { name: string }) {
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
   const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return <div className="page-stack">
-    <section className={`presence-hero ${presenceState}`}>
-      <div className="presence-copy">
-        <p className="eyebrow">{t('状态采样')}</p>
-        <h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span>{resting && <button type="button" className="primary mini presence-resume" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}</h1>
-        <div className="presence-readout">
-          <div><span>{t('主线模型')}</span><strong>{status.provider}/{status.model}</strong></div>
-          <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
-          <div><span>{t('唤醒方式')}</span><strong>{wakePolicy}</strong></div>
-          <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
-        </div>
+  const operations: Array<{ label: string; value: number; note: string; icon: typeof Activity; section: Section }> = [
+    { label: t('活跃任务'), value: counts.active_tasks, note: t('{{count}} 项总计', { count: counts.tasks }), icon: ListTodo, section: 'runtime' },
+    { label: t('运行 Bubble'), value: counts.active_bubbles, note: t('并行思考分支'), icon: Orbit, section: 'memory' },
+    { label: t('短期上下文'), value: counts.short_term_messages, note: t('{{count}} 个树节点', { count: data.memory.tree_nodes }), icon: MessagesSquare, section: 'memory' },
+    { label: t('长期记忆'), value: counts.long_term_memories, note: t('可语义检索'), icon: Database, section: 'memory' },
+    { label: t('待触发闹钟'), value: counts.alarms, note: t('后台守候中'), icon: AlarmClock, section: 'runtime' },
+    { label: t('上下文容量'), value: data.memory.max_tokens, note: 'Token', icon: CircleGauge, section: 'memory' },
+  ];
+  return <div className="page-stack overview-dashboard">
+    <section className={`overview-status-strip ${presenceState}`}>
+      <div className="overview-status-lead">
+        <div className="overview-mini-signal" aria-hidden="true">{[22, 58, 92, 46, 72].map((height, index) => <i style={{ '--h': `${height}%`, '--d': `${index * .08}s` } as React.CSSProperties} key={height + '-' + index} />)}</div>
+        <div><p className="eyebrow">{t('当前状态')}</p><h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1></div>
       </div>
-      <div className="pulse-organ" aria-label={presenceLabel}>
-        <span className="organ-line" aria-hidden="true" />
-        {[22, 42, 66, 92, 56, 38, 74, 48, 26].map((h, i) => <i key={i} style={{ '--h': `${h}%`, '--d': `${i * .08}s` } as React.CSSProperties} />)}
-        <small>{t('生命信号')} · {presenceLabel}</small>
+      <div className="overview-status-facts">
+        <div><span>{t('主线模型')}</span><strong title={`${status.provider}/${status.model}`}>{status.provider}/{status.model}</strong></div>
+        <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
+        <div><span>{t('唤醒方式')}</span><strong title={wakePolicy}>{wakePolicy}</strong></div>
+        <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
-      <button className="icon-btn" onClick={() => void reload()} title={t('刷新生命迹象')} aria-label={t('刷新生命迹象')}><RefreshCw size={16} /></button>
+      <div className="overview-status-actions">
+        {resting && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
+        <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
+      </div>
     </section>
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
-    <div className="vital-grid">
-      {[
-        [t('活跃任务'), counts.active_tasks, t('{{count}} 项总计', { count: counts.tasks }), ListTodo],
-        [t('运行 Bubble'), counts.active_bubbles, t('并行思考分支'), Orbit],
-        [t('长期记忆'), counts.long_term_memories, t('可语义检索'), Database],
-        [t('短期上下文'), counts.short_term_messages, t('{{count}} 个树节点', { count: data.memory.tree_nodes }), MessagesSquare],
-        [t('待触发闹钟'), counts.alarms, t('后台守候中'), AlarmClock],
-      ].map(([label, value, note, Icon]: any) => <article className="vital" key={label}><Icon size={18} /><span>{t(label)}</span><strong>{Number(value).toLocaleString()}</strong><small>{t(note)}</small></article>)}
-    </div>
-    <div className="two-col">
-      <Panel title="上下文水位" note="短期消息与记忆树的当前结构">
-        <div className="memory-meter"><div><span>{t('消息')}</span><b>{data.memory.messages}</b></div><div><span>{t('容量')}</span><b>{Number(data.memory.max_tokens).toLocaleString()} token</b></div><div><span>{t('回溯')}</span><b>{data.memory.backfill?.running ? `${data.memory.backfill.done}/${data.memory.backfill.total}` : t('空闲')}</b></div></div>
-      </Panel>
-      <Panel title="进程驻留" note="当前实例的连续运行时间">
-        <div className="runtime-clock"><CircleGauge size={34} /><div><b>{new Date(status.started_at).toLocaleString()}</b><span>{t('本轮启动时间')}</span></div></div>
+    <div className="overview-main-grid">
+      <AdminUsageOverview stats={usage.data} loading={usage.loading} error={usage.error} />
+      <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
+        <div className="overview-operation-grid">
+          {operations.map(item => <a className="overview-operation" href={sectionHref(item.section)} onClick={event => onNavigate(event, item.section)} key={item.label}><item.icon size={16} /><span>{item.label}</span><strong>{Number(item.value).toLocaleString()}</strong><small>{item.note}</small></a>)}
+        </div>
+        <footer className="overview-runtime-footer">
+          <span><b>{t('回溯状态')}</b>{data.memory.backfill?.running ? `${data.memory.backfill.done}/${data.memory.backfill.total}` : t('空闲')}</span>
+          <span><b>{t('本轮启动')}</b>{new Date(status.started_at).toLocaleString()}</span>
+        </footer>
       </Panel>
     </div>
   </div>;
@@ -428,6 +465,8 @@ function Models() {
   const [switching, setSwitching] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks }));
+  useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
     const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision }) });
@@ -705,6 +744,14 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
     if (current && sources.some(source => source.id === current)) { setSelectedSourceId(current); return; }
     if (selectedSourceId && !sources.some(source => source.id === selectedSourceId)) setSelectedSourceId(active || sources[0]?.id || '');
   }, [active, selectedSourceId, sources]);
+  useEffect(() => {
+    const syncSourceFromLocation = () => {
+      const current = new URLSearchParams(window.location.search).get('source') || '';
+      setSelectedSourceId(current && sources.some(source => source.id === current) ? current : active || sources[0]?.id || '');
+    };
+    window.addEventListener('popstate', syncSourceFromLocation);
+    return () => window.removeEventListener('popstate', syncSourceFromLocation);
+  }, [active, sources]);
   const feedStatus = secretStatus['desktop_updates.feed_token'];
   const activeConfigured = isSourceConfigured(activeSource || undefined);
   return <div className="desktop-update-settings">
@@ -795,6 +842,7 @@ function Settings() {
     setSecretInputs,
     toggleClearOverride,
   } = settings;
+  useNavigationGuard('settings', dirtyGroups.size > 0);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -1571,6 +1619,8 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  const identityDirty = Boolean(identity.data && draft && ['name', 'current_location', 'personality'].some(key => (draft[key] || '') !== (identity.data?.[key] || '')));
+  useNavigationGuard('identity', identityDirty);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
@@ -1761,6 +1811,7 @@ function ContentManager() {
   const [addingFile, setAddingFile] = useState(false);
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/content/' + kind), [kind]);
   const dirty = raw !== originalRaw;
+  useNavigationGuard('content', dirty);
   const meta = useMemo(() => draftMeta(raw), [raw]);
   const items = useMemo(() => (data?.items || []).filter((item: Json) => (item.id + ' ' + item.name + ' ' + item.summary).toLowerCase().includes(query.trim().toLowerCase())), [data, query]);
   const kindLabel = t(CONTENT_KIND[kind].label);
@@ -2570,6 +2621,16 @@ export default function AdminApp() {
   const [identity, setIdentity] = useState<AdminIdentity>({ name: '', confirmation_name: '' });
   const [section, setSection] = useState<Section>(sectionFromLocation);
   const [lifeState, setLifeState] = useState<LifeState>('quiet');
+  const dirtyOwners = useRef(new Set<string>());
+  const sectionRef = useRef(section);
+  const acceptedLocation = useRef(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+  const reportNavigationDirty = useCallback((owner: string, dirty: boolean) => {
+    if (dirty) dirtyOwners.current.add(owner);
+    else dirtyOwners.current.delete(owner);
+  }, []);
+  const confirmNavigation = useCallback(() => (
+    dirtyOwners.current.size === 0 || window.confirm(t('当前页面有未保存修改，确定离开？'))
+  ), []);
   useEffect(() => {
     if (!storedToken()) { setSessionChecked(true); return; }
     api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' })
@@ -2582,9 +2643,25 @@ export default function AdminApp() {
     api<Json>('/api/admin/bootstrap').then(setBootstrap).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {
-    const syncSection = () => setSection(sectionFromLocation());
+    const syncSection = () => {
+      const next = sectionFromLocation();
+      if (next !== sectionRef.current && !confirmNavigation()) {
+        window.history.pushState({}, '', acceptedLocation.current);
+        return;
+      }
+      sectionRef.current = next;
+      acceptedLocation.current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      setSection(next);
+    };
     window.addEventListener('popstate', syncSection);
     return () => window.removeEventListener('popstate', syncSection);
+  }, [confirmNavigation]);
+  useEffect(() => {
+    const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
+      if (dirtyOwners.current.size > 0) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+    return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
   }, []);
   useEffect(() => {
     if (!ready) return;
@@ -2604,14 +2681,20 @@ export default function AdminApp() {
     return () => { active = false; window.clearInterval(timer); };
   }, [ready]);
   const current = useMemo(() => NAV.find(x => x.id === section) || NAV[0], [section]);
-  const navigate = (next: Section) => {
-    if (next === section) return;
-    const url = new URL(window.location.href);
-    if (next === 'overview') url.searchParams.delete('section');
-    else url.searchParams.set('section', next);
-    window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  const currentWorkspace = useMemo(() => workspaceForSection(section), [section]);
+  const navigate = useCallback((next: Section) => {
+    if (next === sectionRef.current || !confirmNavigation()) return;
+    const href = sectionHref(next);
+    window.history.pushState({}, '', href);
+    sectionRef.current = next;
+    acceptedLocation.current = href;
     setSection(next);
-  };
+  }, [confirmNavigation]);
+  const onSectionLinkClick = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, next: Section) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(next);
+  }, [navigate]);
   const name = identity.name || '';
   const confirmationName = identity.confirmation_name || '';
   const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : '等待生命信号');
@@ -2619,34 +2702,46 @@ export default function AdminApp() {
   if (!ready) return <Login onReady={result => { setIdentity(result); setReady(true); }} />;
   if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在读取初始化状态…')}</span></div></main></>;
   if (bootstrap.required) return <FirstRun data={bootstrap} onComplete={() => { setBootstrap({ required: false }); location.reload(); }} />;
-  return <main className={`admin-shell life-${lifeState}`} data-language={language}>
+  return <NavigationGuardContext.Provider value={reportNavigationDirty}><main className={`admin-shell life-${lifeState}`} data-language={language}>
     <aside className="admin-sidebar">
       <a className="admin-brand" href="/">
         <div className="brand-mark"><Orbit size={22} /><i /></div>
         <div><b>{name || 'Coworker'}</b><span>{t('生命值守台')}</span></div>
       </a>
       <nav aria-label={t('照看室导航')}>
-        {NAV_GROUPS.map(group => <div className="nav-group" key={group}>
-          <p>{t(group)}</p>
-          {NAV.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} title={t(item.description)} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{t(item.label)}</span><ChevronRight className="nav-chevron" size={14} /></button>)}
-        </div>)}
+        {WORKSPACES.map(workspace => {
+          const active = workspace.id === current.workspace;
+          const target = active ? section : workspace.sections[0];
+          const WorkspaceIcon = workspace.icon;
+          return <div className={`workspace-group${active ? ' active' : ''}`} key={workspace.id}>
+            <a className="workspace-link" href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} title={t(workspace.description)} aria-label={t(workspace.label)} aria-current={active && workspace.sections.length === 1 ? 'page' : undefined} aria-expanded={active && workspace.sections.length > 1 ? true : undefined}>
+              <WorkspaceIcon size={18} />
+              <span className="workspace-copy"><b>{t(workspace.label)}</b><em>{t(workspace.mobileLabel)}</em><small>{t(workspace.description)}</small></span>
+              <ChevronRight className="nav-chevron" size={14} />
+            </a>
+            {active && workspace.sections.length > 1 && <div className="workspace-children">{workspace.sections.map(childId => {
+              const item = NAV.find(candidate => candidate.id === childId)!;
+              return <a href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} title={t(item.description)} key={item.id}><item.icon size={15} /><span>{t(item.label)}</span></a>;
+            })}</div>}
+          </div>;
+        })}
       </nav>
       <div className="sidebar-foot">
         <span className="sidebar-presence"><i />{lifeLabel}</span>
-        <button type="button" onClick={() => { sessionStorage.removeItem('coworker-admin-token'); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
+        <button type="button" onClick={() => { if (!confirmNavigation()) return; dirtyOwners.current.clear(); sessionStorage.removeItem('coworker-admin-token'); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
       </div>
     </aside>
     <section className="admin-main">
       <header className="admin-topbar">
-        <div className="topbar-title"><p className="eyebrow">{t('值守控制台')}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span></div>
+        <div className="topbar-title"><p className="eyebrow">{t(currentWorkspace.label)}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span>{currentWorkspace.sections.length > 1 && <label className="workspace-picker"><span className="sr-only">{t('当前工作区页面')}</span><select aria-label={t('当前工作区页面')} value={section} onChange={event => navigate(event.target.value as Section)}>{currentWorkspace.sections.map(sectionId => <option value={sectionId} key={sectionId}>{t(NAV.find(item => item.id === sectionId)?.label || sectionId)}</option>)}</select></label>}</div>
         <div className="topbar-actions">
           <AdminLanguageSwitch />
-          <div className="shell-life" aria-label={lifeLabel}><div className="life-trace" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div><span><i />{lifeLabel}</span></div>
+          <div className="shell-life" aria-label={lifeLabel}><span><i />{lifeLabel}</span></div>
           <a href="/">{t('查看生命体主页')} <ChevronRight size={14} /></a>
         </div>
       </header>
       <div className="admin-content">
-        {section === 'overview' && <Overview name={name} />}
+        {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
@@ -2659,5 +2754,5 @@ export default function AdminApp() {
         {section === 'audit' && <Audit />}
       </div>
     </section>
-  </main>;
+  </main></NavigationGuardContext.Provider>;
 }

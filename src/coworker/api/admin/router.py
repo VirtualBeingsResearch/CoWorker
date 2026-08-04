@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+    from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
@@ -85,6 +86,7 @@ _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
 _person_store: PersonStore | None = None
 _persona_cards: PersonaCard | None = None
+_usage_stats: UsageStatsCollector | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
@@ -222,6 +224,7 @@ def setup_admin(
     relay_client: RelayClient | None = None,
     person_store: PersonStore | None = None,
     persona_cards: PersonaCard | None = None,
+    usage_stats: UsageStatsCollector | None = None,
 ) -> None:
     global \
         _agent, \
@@ -236,7 +239,8 @@ def setup_admin(
         _admin_config_service, \
         _relay_client, \
         _person_store, \
-        _persona_cards
+        _persona_cards, \
+        _usage_stats
     _agent = agent
     _brain = brain
     _config = config
@@ -249,6 +253,7 @@ def setup_admin(
     _relay_client = relay_client
     _person_store = person_store
     _persona_cards = persona_cards
+    _usage_stats = usage_stats
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -278,6 +283,15 @@ def _require_brain() -> Brain:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.brain_not_ready"))
     return _brain
+
+
+def _require_usage_stats() -> UsageStatsCollector:
+    if _usage_stats is None:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.state.usage_stats_not_ready"),
+        )
+    return _usage_stats
 
 
 def _require_persona() -> tuple[PersonStore, PersonaCard]:
@@ -1053,6 +1067,11 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
         },
         "pending_restart": _require_admin_config_service().pending_restart,
     }
+
+
+@router.get("/usage")
+async def usage(_: None = Depends(require_admin)) -> ApiResponse:
+    return _require_usage_stats().snapshot()
 
 
 @router.get("/config")

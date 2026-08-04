@@ -46,6 +46,7 @@ def _client(
     channel_modules=None,
     relay_client=None,
     persona: bool = False,
+    usage_stats=None,
 ):
     config = Config.model_validate(
         {
@@ -88,6 +89,7 @@ def _client(
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,
+        usage_stats=usage_stats,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
@@ -178,6 +180,49 @@ def test_admin_requires_bearer_token(tmp_path):
     assert response.status_code == 200
     assert response.json()["name"] == "Luna"
     assert response.json()["confirmation_name"] == "Luna"
+
+
+def test_admin_usage_requires_admin_and_returns_shared_snapshot(tmp_path):
+    snapshot = {
+        "today": {"llm_calls": 2, "total_tokens": 34},
+        "last_7_days": {"llm_calls": 5, "total_tokens": 89},
+        "lifetime": {"llm_calls": 8, "total_tokens": 144},
+    }
+    usage_stats = SimpleNamespace(snapshot=MagicMock(return_value=snapshot))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    assert client.get("/api/admin/usage").status_code == 401
+    assert (
+        client.get(
+            "/api/admin/usage", headers={"Authorization": "Bearer wrong"}
+        ).status_code
+        == 403
+    )
+    usage_stats.snapshot.assert_not_called()
+
+    response = client.get(
+        "/api/admin/usage", headers={"Authorization": "Bearer secret"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == snapshot
+    usage_stats.snapshot.assert_called_once_with()
+
+
+def test_admin_usage_collector_is_cleared_for_the_next_runtime(tmp_path):
+    usage_stats = SimpleNamespace(
+        snapshot=MagicMock(return_value={"today": {}, "last_7_days": {}, "lifetime": {}})
+    )
+    first_client, _ = _client(tmp_path / "first", usage_stats=usage_stats)
+    headers = {"Authorization": "Bearer secret"}
+    assert first_client.get("/api/admin/usage", headers=headers).status_code == 200
+
+    second_client, _ = _client(tmp_path / "second")
+    with locale_context("zh-CN"):
+        response = second_client.get("/api/admin/usage", headers=headers)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "用量统计尚未就绪"
 
 
 def test_admin_session_provides_stable_unnamed_confirmation(tmp_path):

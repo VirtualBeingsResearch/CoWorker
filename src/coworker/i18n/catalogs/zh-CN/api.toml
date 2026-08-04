@@ -8,6 +8,7 @@ bubble_store_not_ready = "Bubble 存储尚未就绪"
 channel_runtime_not_ready = "通信运行时尚未就绪"
 desktop_update_sync_not_ready = "桌面更新同步服务尚未就绪"
 channel_modules_not_ready = "信道模块管理接口尚未就绪"
+usage_stats_not_ready = "用量统计尚未就绪"
 loader_not_ready = "{{kind}} loader 尚未就绪"
 
 [api.auth]

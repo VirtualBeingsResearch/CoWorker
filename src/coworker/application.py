@@ -978,6 +978,7 @@ async def _main() -> bool:
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,
+        usage_stats=usage_stats,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(

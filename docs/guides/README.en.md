@@ -6,9 +6,9 @@
 
 The Web management console is available at
 <http://127.0.0.1:8000/admin> by default. It manages Coworker's runtime,
-memory, tasks, models, identity, capability content, remote access, and
-diagnostics. It is an administration surface, not a public multi-tenant control
-plane.
+memory, tasks, models, identity, people and relationships, capability content,
+remote access, and diagnostics. It is an administration surface, not a public
+multi-tenant control plane.
 
 To start from an outcome instead of page structure, see [Common Use Cases](use-cases.en.md).
 Use [Authoring Capability Content](capability-authoring.en.md) when creating a Skill, Palace, or
@@ -36,27 +36,38 @@ Before initialization, the console shows only first-time setup. After language,
 output-token, Provider, model, and Passive mode settings are saved, Coworker
 restarts. See [First Run](../getting-started/README.en.md) for the complete path.
 
-After initialization, the sidebar organizes ten areas under Observe, Shape,
-Extend, and Trace.
+After initialization, navigation organizes 11 feature pages under four
+workspaces: Overview, Runtime & Memory, Configuration & Identity, and
+Capabilities & Services. Desktop navigation expands the current workspace;
+narrow screens retain the same four workspace entries and use the top bar to
+select a page within one. Existing `?section=` deep links remain valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
-<p align="center"><sub>Life Overview · Review current state, context pressure, model, and runtime metrics.</sub></p>
+<p align="center"><sub>Life Overview · Review current state, model-token usage, and key runtime metrics in one view.</sub></p>
 
-## Observe: understand the current state
+## Overview: start with state, usage, and key metrics
 
 ### Life Overview
 
 Life Overview shows current state rather than full history:
 
 - whether the Agent is active, resting, or waiting for an event;
-- current short-context pressure and memory-tree structure;
-- process uptime, current model, and important runtime indicators;
+- model tokens, input, output, cache, calls, and source breakdowns for today,
+  the last 7 days, and all time;
+- current tasks, alarms, short context, long-term memory, and context capacity;
+- current model, wake policy, cycle count, and current start time;
 - state shown on the public Web identity page.
+
+Usage here is collected locally by the current Coworker process and is not a
+Provider bill. If model calls exist but the Provider did not return token data,
+the page says so instead of reporting those calls as zero usage.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
 and the last successful activity when deciding whether there is a failure.
+
+## Runtime & Memory: care for work in progress
 
 ### Memory Center
 
@@ -103,7 +114,24 @@ These are not disaster backups for all of `data/`, `.coworker/`, or Docker
 volumes. Record the current state before a full restore and prefer summary
 restore when it can recover enough context.
 
-## Shape: change models, runtime, and identity
+### Diagnostics & Audit
+
+Event-loop diagnostics shows background-task state and recent failures.
+Administrator Operation Timeline records management-operation metadata without
+tokens, secrets, or complete message bodies.
+
+When diagnosing a problem:
+
+1. record when it happened;
+2. check whether a background task is failing repeatedly;
+3. compare lifetime interaction history and process logs;
+4. check whether a recent administrator action changed configuration;
+5. restart or restore only after identifying the likely cause.
+
+See [Troubleshooting](../operations/troubleshooting.en.md) for the common
+diagnostic order and recovery paths.
+
+## Configuration & Identity: adjust models, parameters, and relationships
 
 ### Model Orchestration
 
@@ -148,7 +176,15 @@ It excludes tool schemas, short-term context, and the current message. Use it
 to verify that identity and system settings entered the prompt, not as a full
 request audit.
 
-## Extend: add capabilities and remote entry points
+### People
+
+People binds one real person’s addresses across channels into a single
+relationship. You can create, rename, or merge people, inspect the profile
+framework, and maintain personalized notes. Verify both sets of addresses
+before a merge. Deleting a person removes the relationship record and cannot be
+undone from the ordinary page.
+
+## Capabilities & Services: manage extensions, remote access, and releases
 
 ### Capability Content
 
@@ -191,23 +227,6 @@ Creating or synchronizing a draft does not notify clients. Only an explicit
 Publish changes the update manifest. An online push asks a client to check a
 signed update and does not bypass user confirmation. Ordinary users do not need
 this page.
-
-## Trace: diagnostics and audit
-
-Event-loop diagnostics shows background-task state and recent failures.
-Administrator Operation Timeline records management-operation metadata without
-tokens, secrets, or complete message bodies.
-
-When diagnosing a problem:
-
-1. record when it happened;
-2. check whether a background task is failing repeatedly;
-3. compare lifetime interaction history and process logs;
-4. check whether a recent administrator action changed configuration;
-5. restart or restore only after identifying the likely cause.
-
-See [Troubleshooting](../operations/troubleshooting.en.md) for the common
-diagnostic order and recovery paths.
 
 ## Suggested routine checks
 

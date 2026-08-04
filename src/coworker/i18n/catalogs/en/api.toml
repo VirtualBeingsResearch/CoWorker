@@ -8,6 +8,7 @@ bubble_store_not_ready = "Bubble store is not ready"
 channel_runtime_not_ready = "Communication runtime is not ready"
 desktop_update_sync_not_ready = "Desktop update sync service is not ready"
 channel_modules_not_ready = "Channel module management is not ready"
+usage_stats_not_ready = "Usage statistics are not ready"
 loader_not_ready = "{{kind}} loader is not ready"
 
 [api.auth]
