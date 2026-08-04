@@ -263,7 +263,7 @@ class AgentLoop:
             batch = events[:max_batch]
             for extra in events[max_batch:]:
                 await self._inbox.push(extra)
-            resolved_participants = self._inject_persona_cards(batch)
+            self._inject_persona_cards(batch)
             content = self._build_content_blocks(batch)
             self._short_term.primary.append(
                 Message(
@@ -291,15 +291,7 @@ class AgentLoop:
                     )
             combined_text = " ".join(e.content for e in batch if e.content)
             self.state.last_active = datetime.now()
-            await self._auto_recall(
-                combined_text,
-                # 软边界：同一 batch 只解析出一个人物时，近期活动召回限定该人。
-                participant_id=(
-                    next(iter(resolved_participants))
-                    if len(resolved_participants) == 1
-                    else None
-                ),
-            )
+            await self._auto_recall(combined_text)
             await self._task_reminder()
         else:
             await self._task_reminder()
@@ -536,25 +528,20 @@ class AgentLoop:
     def _get_recalled_ids(self) -> set[str]:
         return {mid for m in self._short_term.primary for mid in m.recalled_memory_ids}
 
-    def _inject_persona_cards(self, batch: list[IncomingEvent]) -> set[str]:
+    def _inject_persona_cards(self, batch: list[IncomingEvent]) -> None:
         """Inject persona cards before each person's first message of this session.
 
-        A bound person whose card file exists and has not been injected into the
-        current short-term context yet gets one card message appended to
-        ``primary`` right before the batch message (``source`` carries the
+        A bound person whose card renders non-empty and has not been injected
+        into the current short-term context yet gets one card message appended
+        to ``primary`` right before the batch message (``source`` carries the
         person id so the marker survives snapshots and dedup works across
         restarts). Unbound addresses, groups and system notifications resolve
         to no person and are left untouched.
-
-        Returns the set of ``participant_id`` values that resolved to a bound
-        person, used to scope recent-activity auto-recall to the current
-        conversation partner (soft boundary).
         """
         person_store = getattr(self, "_person_store", None)
         persona_cards = getattr(self, "_persona_cards", None)
         if person_store is None or persona_cards is None:
-            return set()
-        resolved: set[str] = set()
+            return
         for event in batch:
             person = person_store.find_by_participant(
                 event.participant_id,
@@ -562,7 +549,6 @@ class AgentLoop:
             )
             if person is None:
                 continue
-            resolved.add(event.participant_id)
             if self._persona_card_present(person.person_id):
                 continue
             card = persona_cards.render(person)
@@ -576,7 +562,6 @@ class AgentLoop:
                 )
             )
             logger.debug(f"Injected persona card for {person.person_id}")
-        return resolved
 
     def _persona_card_present(self, person_id: str) -> bool:
         marker = f"persona_card:{person_id}"
@@ -585,12 +570,7 @@ class AgentLoop:
             for message in self._short_term.primary
         )
 
-    async def _auto_recall(
-        self,
-        query_text: str,
-        *,
-        participant_id: str | None = None,
-    ) -> None:
+    async def _auto_recall(self, query_text: str) -> None:
         if not query_text.strip():
             return
         cfg = self._config.memory
@@ -642,7 +622,6 @@ class AgentLoop:
                 query_text,
                 limit=getattr(cfg, "recent_activity_auto_recall_limit", 2),
                 min_relevance=getattr(cfg, "recent_activity_auto_recall_relevance_threshold", 0.72),
-                participant_ids=[participant_id] if participant_id else None,
             )
         except Exception:
             logger.debug("Recent activity auto-recall query failed, skipping")

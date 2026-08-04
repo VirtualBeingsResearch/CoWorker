@@ -35,7 +35,7 @@ Each channel describes address semantics in its existing `agent_instructions()` 
 
 ### Soft boundary
 
-By default memory/card lookup targets only the current conversation person (the model copies `participant_id` from the message header); cross-person reads require explicit parameters. In shared deployments, recent-activity auto-recall is filtered by the resolved participant so other people's recent events are not fed to the current conversation.
+A card is injected only after the current conversation partner resolves to a bound person; cross-person knowledge requires an explicit `persona(action="card", ...)` read. **Persona does not change the memory/recall pipeline** — auto-recall and long-term memory stay as they are; per-person knowledge is maintained by the model through notes and the card during conversations.
 
 ## Configuration and data
 

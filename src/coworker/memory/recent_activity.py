@@ -429,7 +429,6 @@ class RecentActivityMemory:
         start: datetime | None = None,
         end: datetime | None = None,
         min_relevance: float | None = None,
-        participant_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         if not self.enabled or not query_text.strip():
             return []
@@ -442,7 +441,6 @@ class RecentActivityMemory:
             start=start,
             end=end,
             min_relevance=min_relevance,
-            participant_ids=participant_ids,
         )
 
     def _query_sync(
@@ -453,12 +451,10 @@ class RecentActivityMemory:
         start: datetime | None,
         end: datetime | None,
         min_relevance: float | None,
-        participant_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         try:
             query_embedding = self._encode([query_text])[0]
-            # 按人过滤会筛掉一部分，预取更多以保证过滤后仍有足量结果。
-            n_results = max(limit * 6, 30) if participant_ids else max(limit * 4, 20)
+            n_results = max(limit * 4, 20)
             raw = self._require_collection().query(
                 query_embeddings=[query_embedding],
                 n_results=n_results,
@@ -474,8 +470,6 @@ class RecentActivityMemory:
         best_by_evidence: dict[str, dict[str, Any]] = {}
         for doc, meta, distance in zip(docs, metas, distances, strict=False):
             if not isinstance(meta, dict):
-                continue
-            if participant_ids and str(meta.get("participant_id") or "") not in participant_ids:
                 continue
             ts = str(meta.get("ts") or "")
             if not self._in_time_range(ts, start, end):
