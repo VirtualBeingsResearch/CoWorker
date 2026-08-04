@@ -14,6 +14,17 @@ from coworker.persona import PersonaCard, PersonAlias, PersonStore
 from coworker.tools.base import Tool, ToolDefinition
 
 
+def _normalize_note(note: str) -> tuple[str, bool]:
+    """Collapse whitespace runs (including newlines) into single spaces.
+
+    Notes are single-line by design — the card renders one note per line, so a
+    multi-line note would break the framework. Returns the cleaned note and
+    whether it changed.
+    """
+    cleaned = " ".join(note.split())
+    return cleaned, cleaned != note
+
+
 class PersonaTool(Tool):
     """Bind addresses to persons, record notes, render cards, merge persons."""
 
@@ -129,10 +140,16 @@ class PersonaTool(Tool):
             created = True
 
         note = kwargs.get("note")
+        if note and str(note).strip():
+            cleaned, collapsed = _normalize_note(str(note))
+            notes = [cleaned] if cleaned else []
+        else:
+            cleaned, collapsed = "", False
+            notes = []
         alias = PersonAlias(
             participant_id=participant_id,
             conversation_id=conversation_id,
-            notes=[str(note).strip()] if note and str(note).strip() else [],
+            notes=notes,
         )
         bound = self._store.bind_alias(person.person_id, alias)
         if bound is None:
@@ -156,6 +173,8 @@ class PersonaTool(Tool):
                 name=display,
                 person_id=person.person_id,
             )
+        if collapsed:
+            content = f"{content}\n{tr('tool_result.persona.note_single_line')}"
         return ToolResult(tool_call_id="", content=content)
 
     def _card(self, kwargs: dict[str, Any]) -> ToolResult:
@@ -200,6 +219,13 @@ class PersonaTool(Tool):
                 content=tr("tool_result.persona.note_needs_content"),
                 is_error=True,
             )
+        cleaned, collapsed = _normalize_note(note)
+        if not cleaned:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.note_needs_content"),
+                is_error=True,
+            )
         person = self._store.get(person_id)
         if person is None:
             return ToolResult(
@@ -209,21 +235,23 @@ class PersonaTool(Tool):
             )
         remove = bool(kwargs.get("remove"))
         if remove:
-            self._store.remove_note(person_id, note)
+            self._store.remove_note(person_id, cleaned)
             content = tr(
                 "tool_result.persona.note_removed",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=note,
+                note=cleaned,
             )
         else:
-            self._store.add_note(person_id, note)
+            self._store.add_note(person_id, cleaned)
             content = tr(
                 "tool_result.persona.note_added",
                 name=person.display_name or person.person_id,
                 person_id=person_id,
-                note=note,
+                note=cleaned,
             )
+        if collapsed:
+            content = f"{content}\n{tr('tool_result.persona.note_single_line')}"
         return ToolResult(tool_call_id="", content=content)
 
     def _unbind(self, kwargs: dict[str, Any]) -> ToolResult:

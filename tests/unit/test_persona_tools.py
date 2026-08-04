@@ -25,6 +25,43 @@ async def test_bind_creates_new_person(tmp_path) -> None:
     assert person.aliases[0].participant_id == "wecom:single:zs"
 
 
+async def test_multiline_note_normalized_and_reminded(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    result = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        note="工作日下午\n沟通更顺畅\n\n保持联系",
+    )
+    assert not result.is_error
+    assert person.notes == ["工作日下午 沟通更顺畅 保持联系"]  # 归一为单行
+    assert "单行" in result.content or "single line" in result.content  # 提醒
+
+    # 多行备注用于移除时同样归一，能匹配到已存备注
+    removed = await tool.execute(
+        action="note",
+        person_id=person.person_id,
+        note="工作日下午\n沟通更顺畅\n保持联系",
+        remove=True,
+    )
+    assert not removed.is_error
+    assert person.notes == []
+
+
+async def test_bind_multiline_note_normalized(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    result = await tool.execute(
+        action="bind",
+        participant_id="wecom:single:zs",
+        name="张三",
+        note="企业微信主号\n周末常联系",
+    )
+    assert not result.is_error
+    person = store.all_persons()[0]
+    assert person.aliases[0].notes == ["企业微信主号 周末常联系"]
+    assert "单行" in result.content or "single line" in result.content
+
+
 async def test_bind_appends_notes_to_same_address(tmp_path) -> None:
     tool, store, _ = _tool(tmp_path)
     first = await tool.execute(
