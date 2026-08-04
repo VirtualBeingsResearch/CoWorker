@@ -25,14 +25,14 @@ class PersonaTool(Tool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="persona",
-            description="管理「人物」：绑定通信地址与备注（bind）、记录个性化备注（note）、读人物画像框架（card）、合并重复人物（merge）",
+            description="管理「人物」：绑定通信地址与备注（bind）、记录个性化备注（note）、读人物画像框架（card）、解绑地址（unbind）、删除人物（delete）、合并重复人物（merge）",
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["bind", "card", "note", "merge"],
-                        "description": "操作类型：bind（绑定地址/地址备注）、card（读画像框架）、note（记录人物个性化备注）、merge（合并人物）",
+                        "enum": ["bind", "card", "note", "unbind", "delete", "merge"],
+                        "description": "操作类型：bind（绑定地址/地址备注）、card（读画像框架）、note（记录/移除人物备注）、unbind（解除地址绑定）、delete（删除人物）、merge（合并人物）",
                     },
                     "participant_id": {
                         "type": "string",
@@ -80,6 +80,10 @@ class PersonaTool(Tool):
                 return self._card(kwargs)
             if action == "note":
                 return self._note(kwargs)
+            if action == "unbind":
+                return self._unbind(kwargs)
+            if action == "delete":
+                return self._delete(kwargs)
             if action == "merge":
                 return self._merge(kwargs)
         except Exception as e:
@@ -221,6 +225,76 @@ class PersonaTool(Tool):
                 note=note,
             )
         return ToolResult(tool_call_id="", content=content)
+
+    def _unbind(self, kwargs: dict[str, Any]) -> ToolResult:
+        person_id = str(kwargs.get("person_id") or "").strip()
+        participant_id = str(kwargs.get("participant_id") or "").strip()
+        if not person_id:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.unbind_needs_person"),
+                is_error=True,
+            )
+        if not participant_id:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.unbind_needs_address"),
+                is_error=True,
+            )
+        person = self._store.get(person_id)
+        if person is None:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.person_missing", person_id=person_id),
+                is_error=True,
+            )
+        conversation_id = kwargs.get("conversation_id") or None
+        if conversation_id is not None:
+            conversation_id = str(conversation_id).strip() or None
+        if not self._store.unbind_alias(person_id, participant_id, conversation_id):
+            return ToolResult(
+                tool_call_id="",
+                content=tr(
+                    "tool_result.persona.unbind_not_found",
+                    participant_id=participant_id,
+                ),
+                is_error=True,
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.persona.unbound",
+                participant_id=participant_id,
+                name=person.display_name or person.person_id,
+                person_id=person.person_id,
+            ),
+        )
+
+    def _delete(self, kwargs: dict[str, Any]) -> ToolResult:
+        person_id = str(kwargs.get("person_id") or "").strip()
+        if not person_id:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.delete_needs_person"),
+                is_error=True,
+            )
+        person = self._store.get(person_id)
+        if person is None:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.person_missing", person_id=person_id),
+                is_error=True,
+            )
+        display = person.display_name or person.person_id
+        self._store.delete(person_id)
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.persona.deleted",
+                name=display,
+                person_id=person_id,
+            ),
+        )
 
     def _merge(self, kwargs: dict[str, Any]) -> ToolResult:
         keep_id = str(kwargs.get("keep_person_id") or "").strip()

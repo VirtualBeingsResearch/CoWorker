@@ -273,6 +273,35 @@ class PersonStore:
         self._save()
         return person
 
+    def unbind_alias(
+        self,
+        person_id: str,
+        participant_id: str,
+        conversation_id: str | None = None,
+    ) -> bool:
+        """Remove an address from a person; returns whether it was removed.
+
+        Matching follows the same rule as :meth:`find_by_participant`: a
+        generic alias (no ``conversation_id``) matches any conversation; a
+        conversation-specific alias only matches that conversation.
+        """
+        person = self._persons.get(person_id)
+        if person is None:
+            return False
+        for index, alias in enumerate(person.aliases):
+            if alias.participant_id != participant_id:
+                continue
+            if conversation_id:
+                if alias.conversation_id and alias.conversation_id != conversation_id:
+                    continue
+            elif alias.conversation_id:
+                continue
+            del person.aliases[index]
+            person.updated_at = _now_iso()
+            self._save()
+            return True
+        return False
+
     def add_note(self, person_id: str, note: str) -> Person | None:
         """Append a person-level note (deduplicated)."""
         person = self._persons.get(person_id)

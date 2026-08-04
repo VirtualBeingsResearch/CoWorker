@@ -37,6 +37,8 @@
 - `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`：把地址绑定到已知人物（按 `person_id` 或名字匹配）或新建人物；`note` 追加到该地址的备注列表；
 - `persona(action="note", person_id, note, remove?)`：记录/移除**人物级**个性化备注（`remove=true` 遗忘过时信息）；
 - `persona(action="card", person_id)`：读**画像框架**——系统按固定结构（称呼、个性化备注、地址与备注）渲染，个性化内容全部来自备注；
+- `persona(action="unbind", person_id, participant_id, conversation_id?)`：解除地址绑定（关系中的地址不再有效时）；
+- `persona(action="delete", person_id)`：删除人物（关系结束；relationship 记忆留在单桶不转移）；
 - `persona(action="merge", keep_person_id, drop_person_id)`：地址与备注并入主人物、删除另一实体；relationship 记忆留在单桶不转移。
 
 ### ③ 让认知进上下文 —— 首消息前置注入

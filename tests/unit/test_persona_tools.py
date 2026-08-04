@@ -140,6 +140,67 @@ async def test_note_add_and_remove(tmp_path) -> None:
     assert needs_content.is_error
 
 
+async def test_unbind_removes_address(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三")
+    store.bind_alias(person.person_id, PersonAlias("wecom:single:zs"))
+    store.bind_alias(person.person_id, PersonAlias("weixin:bot1", conversation_id="s9"))
+
+    result = await tool.execute(
+        action="unbind",
+        person_id=person.person_id,
+        participant_id="wecom:single:zs",
+    )
+    assert not result.is_error
+    assert store.find_by_participant("wecom:single:zs") is None
+    assert store.find_by_participant("weixin:bot1", "s9") is person  # 其他地址保留
+
+    # 会话专属地址需带 conversation_id 才能解绑
+    stays = await tool.execute(
+        action="unbind",
+        person_id=person.person_id,
+        participant_id="weixin:bot1",
+    )
+    assert stays.is_error
+    assert store.find_by_participant("weixin:bot1", "s9") is person
+    exact = await tool.execute(
+        action="unbind",
+        person_id=person.person_id,
+        participant_id="weixin:bot1",
+        conversation_id="s9",
+    )
+    assert not exact.is_error
+    assert store.find_by_participant("weixin:bot1", "s9") is None
+
+
+async def test_unbind_errors(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create()
+    needs_person = await tool.execute(action="unbind", participant_id="x")
+    assert needs_person.is_error
+    needs_address = await tool.execute(action="unbind", person_id=person.person_id)
+    assert needs_address.is_error
+    not_bound = await tool.execute(
+        action="unbind",
+        person_id=person.person_id,
+        participant_id="wecom:single:unknown",
+    )
+    assert not_bound.is_error
+
+
+async def test_delete_removes_person(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    person = store.create(display_name="张三", notes=["关系：好友"])
+    result = await tool.execute(action="delete", person_id=person.person_id)
+    assert not result.is_error
+    assert store.get(person.person_id) is None
+
+    missing = await tool.execute(action="delete", person_id=person.person_id)
+    assert missing.is_error
+    needs_person = await tool.execute(action="delete")
+    assert needs_person.is_error
+
+
 async def test_merge_unions_people(tmp_path) -> None:
     tool, store, _ = _tool(tmp_path)
     keep = store.create(display_name="张三")

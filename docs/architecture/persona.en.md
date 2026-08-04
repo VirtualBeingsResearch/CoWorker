@@ -37,6 +37,8 @@ In the lifeform philosophy, "relationship" is one of the life concepts that cons
 - `persona(action="bind", participant_id, conversation_id?, person_id?/name?, note?)`: bind an address to a known person (by `person_id` or name) or create a new one; `note` is appended to the address's notes;
 - `persona(action="note", person_id, note, remove?)`: record or remove a **person-level** personalized note (`remove=true` forgets outdated knowledge);
 - `persona(action="card", person_id)`: read the **card framework** — the system renders a fixed structure (name, personalized notes, address notes); all personalized content comes from notes;
+- `persona(action="unbind", person_id, participant_id, conversation_id?)`: unbind an address (when the address is no longer valid for the relationship);
+- `persona(action="delete", person_id)`: delete a person (when the relationship ends; `relationship` memories stay in the single bucket, unmoved);
 - `persona(action="merge", keep_person_id, drop_person_id)`: union addresses and notes into the kept person and delete the other entity; `relationship` memories stay in the single bucket, unmoved.
 
 ### ③ Bringing knowledge into context — first-message injection
