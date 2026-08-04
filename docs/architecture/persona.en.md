@@ -8,21 +8,9 @@ English · [中文](persona.md)
 
 In the lifeform philosophy, "relationship" is one of the life concepts that constitute the persistent Coworker (see [virtual-life philosophy](lifeform-philosophy.en.md)). Person carries that relationship: `person_id` is the stable anchor; cross-channel address bindings and the agent-maintained card are organized around it and survive restarts through `data/persons.json` and the card files.
 
-## What it does and does not do
+## Boundaries
 
-**Does**:
-
-- **Cross-channel merging**: bind multiple `participant_id` values (optionally with `conversation_id`) to one Person;
-- **Framework-plus-notes cards**: the card is a **framework** (structure provided by the system); personalized information is recorded in **notes** — person-level notes (the `note` action) and per-address notes (`bind(note=...)`) — and the rendered result is injected before the person's first message of the session;
-- **Merge duplicate people**: the model or a caretaker can merge two Person entities into one (notes and addresses are merged).
-
-**Does not**:
-
-- No multi-tenant/account system (`person_id` is the future seam for one, but no accounts are built in);
-- No participant-kind classification — whether an address is a person is judged by the model from the `[CHANNELS]` channel semantics;
-- No system-prompt guideline rewrites, no roster injection (the people list is queried on demand through the `persona` tool);
-- No mem0 changes (long-term memory stays in its single bucket; per-person knowledge is carried by the card plus `relationship` memories tagged with participant ids);
-- No background tasks, no automatic person creation (people are only created explicitly via `bind`).
+Person does exactly three things: merge addresses across channels, record and render a card (framework plus notes), and merge duplicate people. It does **not**: build a multi-tenant/account system (`person_id` is only the future seam), classify participants (whether an address is a person is judged by the model from the `[CHANNELS]` channel semantics), rewrite guidelines or inject a roster, touch mem0 (long-term memory stays in its single bucket), or run background tasks and auto-create people (people are only created explicitly via `bind`).
 
 ## How it works
 
