@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from loguru import logger
+
 from coworker.core.ids import new_compact_id
 from coworker.core.types import Message, SummaryResult, ToolResult
 from coworker.i18n import tr
@@ -782,4 +784,10 @@ class ManageMemoryTool(Tool):
                     is_error=True,
                 )
         except Exception as e:
+            context = f"action={action!r}"
+            if memory_id:
+                context += f", memory_id={memory_id!r}"
+            if action == "write":
+                context += f", category={category!r}"
+            logger.exception(f"manage_memory failed ({context}): {e}")
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
