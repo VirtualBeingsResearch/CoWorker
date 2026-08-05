@@ -2742,13 +2742,25 @@ export default function AdminApp() {
       </a>
       <nav className="workspace-nav" aria-label={t('照看室导航')}>
         {WORKSPACES.map(workspace => {
-          const active = workspace.id === currentWorkspace.id;
-          const target = active ? section : lastSectionByWorkspace.current[workspace.id];
           const WorkspaceIcon = workspace.icon;
-          return <a className={`workspace-link${active ? ' active' : ''}`} href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} aria-current={active ? 'page' : undefined} title={t(workspace.description)} key={workspace.id}>
-            <WorkspaceIcon size={18} />
-            <span className="workspace-copy"><b>{t(workspace.label)}</b><small>{t(workspace.description)}</small></span>
-          </a>;
+          const active = workspace.id === currentWorkspace.id;
+          return <div className={`workspace-group${active ? ' active' : ''}`} role="group" aria-label={t(workspace.label)} key={workspace.id}>
+            <div className="workspace-group-label" title={t(workspace.description)}>
+              <WorkspaceIcon size={13} />
+              <span>{t(workspace.label)}</span>
+            </div>
+            <div className="workspace-section-list">
+              {workspace.sections.map(sectionId => {
+                const item = NAV.find(candidate => candidate.id === sectionId)!;
+                const ItemIcon = item.icon;
+                const selected = section === item.id;
+                return <a className={`workspace-section-link${selected ? ' active' : ''}`} href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} aria-current={selected ? 'page' : undefined} title={t(item.description)} key={item.id}>
+                  <ItemIcon size={15} />
+                  <span>{t(item.label)}</span>
+                </a>;
+              })}
+            </div>
+          </div>;
         })}
       </nav>
       <nav className="mobile-workspace-nav" aria-label={t('照看室导航')}>
@@ -2770,10 +2782,6 @@ export default function AdminApp() {
     <section className="admin-main">
       <header className="admin-topbar">
         <div className="topbar-title"><p className="eyebrow">{t(currentWorkspace.label)}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span><label className="workspace-picker"><span className="sr-only">{t('切换管理页面')}</span><select aria-label={t('切换管理页面')} value={section} onChange={event => navigate(event.target.value as Section)}>{WORKSPACES.map(workspace => <optgroup label={t(workspace.label)} key={workspace.id}>{workspace.sections.map(sectionId => <option value={sectionId} key={sectionId}>{t(NAV.find(item => item.id === sectionId)?.label || sectionId)}</option>)}</optgroup>)}</select></label></div>
-        {currentWorkspace.sections.length > 1 && <nav className="workspace-tabs" aria-label={t('当前工作台页面')}>{currentWorkspace.sections.map(sectionId => {
-          const item = NAV.find(candidate => candidate.id === sectionId)!;
-          return <a href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} title={t(item.description)} key={item.id}><item.icon size={14} /><span>{t(item.label)}</span></a>;
-        })}</nav>}
         <div className="topbar-actions">
           <AdminLanguageSwitch />
           <div className="shell-life" aria-label={lifeLabel}><span><i />{lifeLabel}</span></div>

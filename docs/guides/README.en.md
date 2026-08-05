@@ -36,13 +36,14 @@ Before initialization, the console shows only first-time setup. After language,
 output-token, Provider, model, and Passive mode settings are saved, Coworker
 restarts. See [First Run](../getting-started/README.en.md) for the complete path.
 
-After initialization, global navigation contracts to five workbenches: Life
-Overview, Operations, Configuration, People & Identity, and Advanced. Desktop
-and compact side rails open a workbench directly, while related functions use
-compact top-bar tabs. Returning to a workbench restores the tab last used in
-the current session. Phones use five bottom-bar entries and can select any of
-the 12 feature pages from the top bar. Existing `?section=` deep links remain
-valid.
+After initialization, the management pages are organized into five
+responsibility groups: Life Overview, Operations, Configuration, People &
+Identity, and Advanced. On desktop, the left navigation lists all 12 feature
+pages under those groups. Group labels aid scanning without adding another
+click, so every page remains directly reachable. Phones use five bottom-bar
+entries to return to the most recently visited page in each group and can
+select any of the 12 pages from the top bar. Existing `?section=` deep links
+remain valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
@@ -55,8 +56,10 @@ valid.
 Life Overview shows current state rather than full history:
 
 - whether the Agent is active, resting, or waiting for an event;
-- model tokens, input, output, cache, calls, and source breakdowns for today,
-  the last 7 days, and all time;
+- model tokens, input, output, cached-token share, and data confidence for
+  today, the last 7 days, and all time;
+- tool, skill, and autonomous-execution alerts plus a direct route into full
+  runtime analytics;
 - current tasks, alarms, short context, long-term memory, and context capacity;
 - current model, wake policy, cycle count, and current start time;
 - state shown on the public Web identity page.
@@ -65,23 +68,26 @@ Usage here is collected locally by the current Coworker process and is not a
 Provider bill. If model calls exist but the Provider did not return token data,
 the page says so instead of reporting those calls as zero usage.
 
-### Usage Analytics
+### Runtime Analytics
 
-Usage Analytics is the second tab inside the Life Overview workbench. It
-continues from the summary without adding another global sidebar entry. It
-provides:
+Runtime Analytics is a dedicated left-navigation entry in the Life Overview
+group. It continues from the summary and provides:
 
 - Today, 7-day, 30-day, and all-time windows;
 - equal-length comparisons for today versus yesterday, 7 days versus the
   preceding 7 days, and 30 days versus the preceding 30 days;
 - daily input- and output-token trends for the latest 30 days;
-- token-tracking coverage, missing-call, and locally estimated-call notices;
-- Provider/model, responsibility-source, and tool-call breakdowns;
+- exact, estimated, and untracked token confidence breakdowns;
+- Provider/model and main, Bubble, and other responsibility-source drivers;
+- successful, errored, and unsettled tool outcomes plus explicit and Palace
+  automatic skill loads;
+- technical Bubble and subconscious outcomes such as completion, errors,
+  timeouts, cycles, and resumes;
 - JSON for the current admin report and CSV for daily aggregates.
 
-![Coworker Web management console Usage Analytics](../assets/screenshots/admin-usage-en.png)
+![Coworker Web management console Runtime Analytics](../assets/screenshots/admin-usage-en.png)
 
-<p align="center"><sub>Usage Analytics · Compare period trends and locate models, responsibility sources, and untracked calls.</sub></p>
+<p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical execution outcomes together.</sub></p>
 
 The public status page continues to use a compact snapshot without daily
 details. The 30-day trend and exports are available only through the
@@ -97,7 +103,7 @@ and the last successful activity when deciding whether there is a failure.
 
 ![Coworker Web management console Operations workbench](../assets/screenshots/admin-operations-en.png)
 
-<p align="center"><sub>Operations · Switch among tasks, memory, and diagnostics without leaving the workbench context.</sub></p>
+<p align="center"><sub>Operations · Switch directly among tasks, memory, and diagnostics from the grouped left navigation.</sub></p>
 
 ### Memory Center
 

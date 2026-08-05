@@ -38,7 +38,6 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '人物': 'People',
   '高级': 'Advanced',
   '切换管理页面': 'Switch management page',
-  '当前工作台页面': 'Current workbench page',
   '当前页面有未保存修改，确定离开？': 'This page has unsaved changes. Leave anyway?',
   '状态、上下文和当前驻留情况': 'Status, context, and current presence',
   '记忆中心': 'Memory center',
