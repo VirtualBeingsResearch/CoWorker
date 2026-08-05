@@ -24,7 +24,7 @@ type AdminIdentity = { name: string; confirmation_name: string };
 
 const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
   { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
-  { id: 'usage', label: '用量分析', description: 'Token 趋势、覆盖率与模型调用拆分', workspace: 'overview', icon: BarChart3 },
+  { id: 'usage', label: '运行分析', description: 'Token、工具、技能与自主执行结果', workspace: 'overview', icon: BarChart3 },
   { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', workspace: 'operations', icon: Activity },
   { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', workspace: 'operations', icon: Database },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', workspace: 'operations', icon: ShieldCheck },
@@ -454,7 +454,13 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
     <div className="overview-main-grid">
-      <AdminUsageOverview stats={usage.data} loading={usage.loading} error={usage.error} />
+      <AdminUsageOverview
+        stats={usage.data}
+        loading={usage.loading}
+        error={usage.error}
+        analyticsHref={sectionHref('usage')}
+        onOpenAnalytics={event => onNavigate(event, 'usage')}
+      />
       <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
         <div className="overview-operation-grid">
           {operations.map(item => <a className="overview-operation" href={sectionHref(item.section)} onClick={event => onNavigate(event, item.section)} key={item.label}><item.icon size={16} /><span>{item.label}</span><strong>{Number(item.value).toLocaleString()}</strong><small>{item.note}</small></a>)}

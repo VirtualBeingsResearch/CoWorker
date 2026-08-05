@@ -96,9 +96,11 @@ export type FullStatus = {
 export type UsageModelStats = {
   llm_calls?: number;
   tracked_calls?: number;
+  exact_calls?: number;
   untracked_calls?: number;
   estimated_calls?: number;
   tracking_coverage?: number | null;
+  exact_coverage?: number | null;
   input_tokens?: number;
   output_tokens?: number;
   cached_tokens?: number;
@@ -114,12 +116,46 @@ export type UsageProviderModelStats = UsageModelStats & {
 
 export type UsageWindowStats = UsageModelStats & {
   tool_calls?: number;
+  tool_successes?: number;
+  tool_errors?: number;
+  tool_incomplete?: number;
+  tool_success_rate?: number | null;
+  skill_load_attempts?: number;
+  skill_load_successes?: number;
+  skill_load_errors?: number;
+  skill_load_incomplete?: number;
+  automatic_skill_loads?: number;
+  bubble_runs?: number;
+  bubble_done?: number;
+  bubble_errors?: number;
+  bubble_timeouts?: number;
+  bubble_cancelled?: number;
+  bubble_cycles?: number;
+  bubble_elapsed_seconds?: number;
+  avg_bubble_cycles?: number | null;
+  avg_bubble_seconds?: number | null;
+  bubble_resumes?: number;
+  bubble_max_cycles_reached?: number;
   thinking_calls?: number;
   thinking_seconds?: number;
   avg_thinking_seconds?: number | null;
   by_model?: Record<string, UsageModelStats>;
   by_provider_model?: Record<string, UsageProviderModelStats>;
   tools?: Record<string, number>;
+  tool_outcomes?: Record<string, {
+    calls?: number;
+    successes?: number;
+    errors?: number;
+    incomplete?: number;
+    success_rate?: number | null;
+  }>;
+  skills?: Record<string, {
+    explicit_attempts?: number;
+    explicit_successes?: number;
+    explicit_errors?: number;
+    explicit_incomplete?: number;
+    automatic_loads?: number;
+  }>;
   by_scope?: Record<string, UsageWindowStats>;
 };
 

@@ -20,16 +20,32 @@ _METRIC_KEYS = (
     "output_tokens",
     "cached_tokens",
     "tool_calls",
+    "tool_successes",
+    "tool_errors",
+    "skill_load_attempts",
+    "skill_load_successes",
+    "skill_load_errors",
+    "automatic_skill_loads",
+    "bubble_runs",
+    "bubble_done",
+    "bubble_errors",
+    "bubble_timeouts",
+    "bubble_cancelled",
+    "bubble_cycles",
+    "bubble_resumes",
+    "bubble_max_cycles_reached",
     "thinking_calls",
 )
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 _REPORT_DAYS = 30
 _SUMMARY_KEYS = (
     "llm_calls",
     "tracked_calls",
+    "exact_calls",
     "untracked_calls",
     "estimated_calls",
     "tracking_coverage",
+    "exact_coverage",
     "input_tokens",
     "output_tokens",
     "cached_tokens",
@@ -37,6 +53,23 @@ _SUMMARY_KEYS = (
     "avg_tokens_per_call",
     "cache_rate",
     "tool_calls",
+    "tool_successes",
+    "tool_errors",
+    "tool_incomplete",
+    "skill_load_attempts",
+    "skill_load_successes",
+    "skill_load_errors",
+    "skill_load_incomplete",
+    "automatic_skill_loads",
+    "bubble_runs",
+    "bubble_done",
+    "bubble_errors",
+    "bubble_timeouts",
+    "bubble_cancelled",
+    "bubble_cycles",
+    "bubble_elapsed_seconds",
+    "bubble_resumes",
+    "bubble_max_cycles_reached",
     "thinking_calls",
     "thinking_seconds",
     "avg_thinking_seconds",
@@ -59,6 +92,30 @@ _DEFAULT_SCOPES = (
 )
 _UNKNOWN_PROVIDER = "unknown"
 _UNKNOWN_MODEL = "unknown"
+_ADMIN_WINDOW_KEYS = {
+    "tool_successes",
+    "tool_errors",
+    "tool_incomplete",
+    "tool_success_rate",
+    "skill_load_attempts",
+    "skill_load_successes",
+    "skill_load_errors",
+    "skill_load_incomplete",
+    "automatic_skill_loads",
+    "bubble_runs",
+    "bubble_done",
+    "bubble_errors",
+    "bubble_timeouts",
+    "bubble_cancelled",
+    "bubble_cycles",
+    "bubble_elapsed_seconds",
+    "avg_bubble_cycles",
+    "avg_bubble_seconds",
+    "bubble_resumes",
+    "bubble_max_cycles_reached",
+    "tool_outcomes",
+    "skills",
+}
 
 
 def _new_model_bucket() -> dict[str, int]:
@@ -85,6 +142,23 @@ def _new_provider_model_bucket(provider: str, model: str) -> dict[str, Any]:
     }
 
 
+def _new_tool_outcome_bucket() -> dict[str, int]:
+    return {
+        "calls": 0,
+        "successes": 0,
+        "errors": 0,
+    }
+
+
+def _new_skill_bucket() -> dict[str, int]:
+    return {
+        "explicit_attempts": 0,
+        "explicit_successes": 0,
+        "explicit_errors": 0,
+        "automatic_loads": 0,
+    }
+
+
 def _new_bucket() -> dict[str, Any]:
     return {
         "llm_calls": 0,
@@ -94,11 +168,28 @@ def _new_bucket() -> dict[str, Any]:
         "output_tokens": 0,
         "cached_tokens": 0,
         "tool_calls": 0,
+        "tool_successes": 0,
+        "tool_errors": 0,
+        "skill_load_attempts": 0,
+        "skill_load_successes": 0,
+        "skill_load_errors": 0,
+        "automatic_skill_loads": 0,
+        "bubble_runs": 0,
+        "bubble_done": 0,
+        "bubble_errors": 0,
+        "bubble_timeouts": 0,
+        "bubble_cancelled": 0,
+        "bubble_cycles": 0,
+        "bubble_elapsed_seconds": 0.0,
+        "bubble_resumes": 0,
+        "bubble_max_cycles_reached": 0,
         "thinking_calls": 0,
         "thinking_seconds": 0.0,
         "by_model": {},
         "by_provider_model": {},
         "tools": {},
+        "tool_outcomes": {},
+        "skills": {},
     }
 
 
@@ -174,6 +265,55 @@ def _add_usage(
 def _add_tool_call(bucket: dict[str, Any], tool_name: str) -> None:
     bucket["tool_calls"] += 1
     bucket["tools"][tool_name] = bucket["tools"].get(tool_name, 0) + 1
+    outcome = bucket["tool_outcomes"].setdefault(tool_name, _new_tool_outcome_bucket())
+    outcome["calls"] += 1
+
+
+def _add_tool_result(bucket: dict[str, Any], tool_name: str, is_error: bool) -> None:
+    outcome = bucket["tool_outcomes"].setdefault(tool_name, _new_tool_outcome_bucket())
+    key = "errors" if is_error else "successes"
+    outcome[key] += 1
+    bucket[f"tool_{key}"] += 1
+
+
+def _add_skill_attempt(bucket: dict[str, Any], skill_name: str) -> None:
+    bucket["skill_load_attempts"] += 1
+    skill = bucket["skills"].setdefault(skill_name, _new_skill_bucket())
+    skill["explicit_attempts"] += 1
+
+
+def _add_skill_result(bucket: dict[str, Any], skill_name: str, is_error: bool) -> None:
+    key = "errors" if is_error else "successes"
+    bucket[f"skill_load_{key}"] += 1
+    skill = bucket["skills"].setdefault(skill_name, _new_skill_bucket())
+    skill[f"explicit_{key}"] += 1
+
+
+def _add_automatic_skill_load(bucket: dict[str, Any], skill_name: str) -> None:
+    bucket["automatic_skill_loads"] += 1
+    skill = bucket["skills"].setdefault(skill_name, _new_skill_bucket())
+    skill["automatic_loads"] += 1
+
+
+def _add_bubble_outcome(bucket: dict[str, Any], entry: dict[str, Any]) -> None:
+    status = str(entry.get("status") or "")
+    status_key = {
+        "done": "bubble_done",
+        "error": "bubble_errors",
+        "timeout": "bubble_timeouts",
+        "cancelled": "bubble_cancelled",
+    }.get(status)
+    if status_key is None:
+        return
+    cycles = _int_value(entry.get("cycles_used"))
+    max_cycles = _int_value(entry.get("max_cycles"))
+    bucket["bubble_runs"] += 1
+    bucket[status_key] += 1
+    bucket["bubble_cycles"] += cycles
+    bucket["bubble_elapsed_seconds"] += _float_value(entry.get("elapsed_seconds"))
+    bucket["bubble_resumes"] += _int_value(entry.get("resume_count"))
+    if max_cycles and cycles >= max_cycles:
+        bucket["bubble_max_cycles_reached"] += 1
 
 
 def _add_thinking_duration(bucket: dict[str, Any], seconds: float) -> None:
@@ -197,6 +337,7 @@ def _merge_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
     for key in _METRIC_KEYS:
         dst[key] += _int_value(src.get(key))
     dst["thinking_seconds"] += _float_value(src.get("thinking_seconds"))
+    dst["bubble_elapsed_seconds"] += _float_value(src.get("bubble_elapsed_seconds"))
     for model, model_bucket in src.get("by_model", {}).items():
         model = _norm_part(model, _UNKNOWN_MODEL)
         _merge_model_bucket(dst["by_model"].setdefault(model, _new_model_bucket()), model_bucket)
@@ -227,6 +368,28 @@ def _merge_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
             )
     for tool, count in src.get("tools", {}).items():
         dst["tools"][tool] = dst["tools"].get(tool, 0) + _int_value(count)
+    for tool, outcome in src.get("tool_outcomes", {}).items():
+        if not isinstance(outcome, dict):
+            continue
+        tool_name = _norm_part(tool, "unknown")
+        dst_outcome = dst["tool_outcomes"].setdefault(
+            tool_name,
+            _new_tool_outcome_bucket(),
+        )
+        for key in ("calls", "successes", "errors"):
+            dst_outcome[key] += _int_value(outcome.get(key))
+    for skill, item in src.get("skills", {}).items():
+        if not isinstance(item, dict):
+            continue
+        skill_name = _norm_part(skill, "unknown")
+        dst_skill = dst["skills"].setdefault(skill_name, _new_skill_bucket())
+        for key in (
+            "explicit_attempts",
+            "explicit_successes",
+            "explicit_errors",
+            "automatic_loads",
+        ):
+            dst_skill[key] += _int_value(item.get(key))
 
 
 def _bucket_has_data(bucket: dict[str, Any]) -> bool:
@@ -240,12 +403,15 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
     llm_calls = _int_value(bucket.get("llm_calls"))
     tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
     estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
+    exact_calls = max(0, tracked_calls - estimated_calls)
     return {
         "llm_calls": llm_calls,
         "tracked_calls": tracked_calls,
+        "exact_calls": exact_calls,
         "untracked_calls": max(0, llm_calls - tracked_calls),
         "estimated_calls": estimated_calls,
         "tracking_coverage": tracked_calls / llm_calls if llm_calls else None,
+        "exact_coverage": exact_calls / llm_calls if llm_calls else None,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
@@ -282,6 +448,52 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
             key=lambda item: (-_int_value(item[1]), str(item[0])),
         )
     }
+    tool_outcomes = {}
+    for name, outcome in sorted(
+        bucket.get("tool_outcomes", {}).items(),
+        key=lambda item: (
+            -_int_value(item[1].get("calls")) if isinstance(item[1], dict) else 0,
+            str(item[0]),
+        ),
+    ):
+        if not isinstance(outcome, dict):
+            continue
+        calls = _int_value(outcome.get("calls"))
+        successes = min(calls, _int_value(outcome.get("successes")))
+        errors = min(max(0, calls - successes), _int_value(outcome.get("errors")))
+        settled = successes + errors
+        tool_outcomes[str(name)] = {
+            "calls": calls,
+            "successes": successes,
+            "errors": errors,
+            "incomplete": max(0, calls - settled),
+            "success_rate": successes / settled if settled else None,
+        }
+    skills = {}
+    for name, item in sorted(
+        bucket.get("skills", {}).items(),
+        key=lambda pair: (
+            -(
+                _int_value(pair[1].get("explicit_attempts"))
+                + _int_value(pair[1].get("automatic_loads"))
+            )
+            if isinstance(pair[1], dict)
+            else 0,
+            str(pair[0]),
+        ),
+    ):
+        if not isinstance(item, dict):
+            continue
+        attempts = _int_value(item.get("explicit_attempts"))
+        successes = min(attempts, _int_value(item.get("explicit_successes")))
+        errors = min(max(0, attempts - successes), _int_value(item.get("explicit_errors")))
+        skills[str(name)] = {
+            "explicit_attempts": attempts,
+            "explicit_successes": successes,
+            "explicit_errors": errors,
+            "explicit_incomplete": max(0, attempts - successes - errors),
+            "automatic_loads": _int_value(item.get("automatic_loads")),
+        }
     by_model = {
         model: _finalize_model_bucket(model_bucket)
         for model, model_bucket in sorted(bucket.get("by_model", {}).items())
@@ -293,12 +505,34 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
     llm_calls = _int_value(bucket.get("llm_calls"))
     tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
     estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
+    exact_calls = max(0, tracked_calls - estimated_calls)
+    tool_calls = _int_value(bucket.get("tool_calls"))
+    tool_successes = min(tool_calls, _int_value(bucket.get("tool_successes")))
+    tool_errors = min(
+        max(0, tool_calls - tool_successes),
+        _int_value(bucket.get("tool_errors")),
+    )
+    settled_tool_calls = tool_successes + tool_errors
+    skill_load_attempts = _int_value(bucket.get("skill_load_attempts"))
+    skill_load_successes = min(
+        skill_load_attempts,
+        _int_value(bucket.get("skill_load_successes")),
+    )
+    skill_load_errors = min(
+        max(0, skill_load_attempts - skill_load_successes),
+        _int_value(bucket.get("skill_load_errors")),
+    )
+    bubble_runs = _int_value(bucket.get("bubble_runs"))
+    bubble_elapsed_seconds = _float_value(bucket.get("bubble_elapsed_seconds"))
+    bubble_cycles = _int_value(bucket.get("bubble_cycles"))
     return {
         "llm_calls": llm_calls,
         "tracked_calls": tracked_calls,
+        "exact_calls": exact_calls,
         "untracked_calls": max(0, llm_calls - tracked_calls),
         "estimated_calls": estimated_calls,
         "tracking_coverage": tracked_calls / llm_calls if llm_calls else None,
+        "exact_coverage": exact_calls / llm_calls if llm_calls else None,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
@@ -307,7 +541,34 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
         ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
-        "tool_calls": _int_value(bucket.get("tool_calls")),
+        "tool_calls": tool_calls,
+        "tool_successes": tool_successes,
+        "tool_errors": tool_errors,
+        "tool_incomplete": max(0, tool_calls - settled_tool_calls),
+        "tool_success_rate": (
+            tool_successes / settled_tool_calls if settled_tool_calls else None
+        ),
+        "skill_load_attempts": skill_load_attempts,
+        "skill_load_successes": skill_load_successes,
+        "skill_load_errors": skill_load_errors,
+        "skill_load_incomplete": max(
+            0,
+            skill_load_attempts - skill_load_successes - skill_load_errors,
+        ),
+        "automatic_skill_loads": _int_value(bucket.get("automatic_skill_loads")),
+        "bubble_runs": bubble_runs,
+        "bubble_done": min(bubble_runs, _int_value(bucket.get("bubble_done"))),
+        "bubble_errors": min(bubble_runs, _int_value(bucket.get("bubble_errors"))),
+        "bubble_timeouts": min(bubble_runs, _int_value(bucket.get("bubble_timeouts"))),
+        "bubble_cancelled": min(bubble_runs, _int_value(bucket.get("bubble_cancelled"))),
+        "bubble_cycles": bubble_cycles,
+        "bubble_elapsed_seconds": round(bubble_elapsed_seconds, 3),
+        "avg_bubble_cycles": bubble_cycles / bubble_runs if bubble_runs else None,
+        "avg_bubble_seconds": bubble_elapsed_seconds / bubble_runs if bubble_runs else None,
+        "bubble_resumes": _int_value(bucket.get("bubble_resumes")),
+        "bubble_max_cycles_reached": _int_value(
+            bucket.get("bubble_max_cycles_reached")
+        ),
         "thinking_calls": thinking_calls,
         "thinking_seconds": round(thinking_seconds, 3),
         "avg_thinking_seconds": (
@@ -316,6 +577,8 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         "by_model": by_model,
         "by_provider_model": by_provider_model,
         "tools": tools,
+        "tool_outcomes": tool_outcomes,
+        "skills": skills,
     }
 
 
@@ -325,7 +588,7 @@ def _summary_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
 
 
 class UsageStatsCollector:
-    """Aggregate token and call statistics from interaction log entries."""
+    """Aggregate privacy-safe resource usage and execution statistics."""
 
     def __init__(
         self,
@@ -341,6 +604,7 @@ class UsageStatsCollector:
         self._state_path = Path(state_path) if state_path is not None else None
         self._last_seq_by_stream: dict[str, int] = {}
         self._pending_thinking_starts: dict[str, tuple[datetime, date]] = {}
+        self._pending_tool_calls: dict[str, dict[str, str]] = {}
         self._bubble_history_key: tuple[int, str] | None = None
         self._bubble_history_scanned = False
         self._loading_history = False
@@ -403,6 +667,7 @@ class UsageStatsCollector:
                 for stream_id in processed_streams:
                     self._last_seq_by_stream.pop(stream_id, None)
                     self._pending_thinking_starts.pop(stream_id, None)
+                    self._discard_pending_tool_calls(stream_id)
             self._bubble_history_scanned = True
         except Exception as e:
             logger.warning(f"Failed to load usage stats from bubble logs: {e}")
@@ -419,6 +684,7 @@ class UsageStatsCollector:
         stream_id = self.bubble_stream_id(root, path)
         self._last_seq_by_stream.pop(stream_id, None)
         self._pending_thinking_starts.pop(stream_id, None)
+        self._discard_pending_tool_calls(stream_id)
         self._persist_state()
 
     def on_entry(
@@ -471,15 +737,33 @@ class UsageStatsCollector:
                 str(entry.get("usage_source") or ""),
             )
         elif t == "tool_call":
-            tool_name = str(entry.get("name") or "unknown")
-            self._record_tool_call(self._entry_date(entry), tool_name, stream_id)
+            tool_name = _norm_part(entry.get("name"), "unknown")
+            day = self._entry_date(entry)
+            self._record_tool_call(day, tool_name, stream_id)
+            skill_name = self._skill_name_from_call(entry) if tool_name == "get_skill" else ""
+            if tool_name == "get_skill":
+                self._record_skill_attempt(day, skill_name, stream_id)
+            self._remember_tool_call(entry, day, tool_name, skill_name, stream_id)
+        elif t == "tool_result":
+            self._record_tool_result(entry, stream_id)
+        elif t == "palace_injection":
+            critical_skills = entry.get("critical_skills")
+            if isinstance(critical_skills, list):
+                for skill_name in critical_skills:
+                    self._record_automatic_skill_load(
+                        self._entry_date(entry),
+                        _norm_part(skill_name, "unknown"),
+                        stream_id,
+                    )
+        elif entry.get("__meta__"):
+            self._record_bubble_outcome(self._entry_date(entry), entry, stream_id)
         if persist and not self._loading_history:
             self._persist_state()
 
     def snapshot(self) -> dict[str, Any]:
-        return self._snapshot_for_date(self._now_fn().date())
+        return self._snapshot_for_date(self._now_fn().date(), detailed=False)
 
-    def _snapshot_for_date(self, today: date) -> dict[str, Any]:
+    def _snapshot_for_date(self, today: date, *, detailed: bool) -> dict[str, Any]:
         last_7_start = today - timedelta(days=6)
         today_bucket = deepcopy(self._days.get(today, _new_bucket()))
         today_scopes = deepcopy(self._days_by_scope.get(today, _new_scope_buckets()))
@@ -491,7 +775,7 @@ class UsageStatsCollector:
         for day, scopes in self._days_by_scope.items():
             if last_7_start <= day <= today:
                 self._merge_scope_buckets(last_7_scopes, scopes)
-        return {
+        payload = {
             "today": self._finalize_window(today_bucket, today_scopes),
             "last_7_days": self._finalize_window(last_7_bucket, last_7_scopes),
             "lifetime": self._finalize_window(
@@ -499,6 +783,9 @@ class UsageStatsCollector:
                 deepcopy(self._lifetime_by_scope),
             ),
         }
+        if detailed:
+            return payload
+        return {key: self._compact_window(value) for key, value in payload.items()}
 
     def report(self) -> dict[str, Any]:
         """Return the authenticated management report without expanding public status."""
@@ -513,7 +800,7 @@ class UsageStatsCollector:
         }
         tracked_days = [day for day, bucket in self._days.items() if _bucket_has_data(bucket)]
         payload = {
-            **self._snapshot_for_date(today),
+            **self._snapshot_for_date(today, detailed=True),
             "last_30_days": self._finalize_window(last_30_bucket, last_30_scopes),
             "previous": {
                 key: _summary_bucket(self._aggregate_range(start, end)[0])
@@ -533,6 +820,22 @@ class UsageStatsCollector:
             "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
         }
         return payload
+
+    @classmethod
+    def _compact_window(cls, window: dict[str, Any]) -> dict[str, Any]:
+        compact = {key: value for key, value in window.items() if key not in _ADMIN_WINDOW_KEYS}
+        scopes = window.get("by_scope")
+        if isinstance(scopes, dict):
+            compact["by_scope"] = {
+                str(name): {
+                    key: value
+                    for key, value in scope.items()
+                    if key not in _ADMIN_WINDOW_KEYS
+                }
+                for name, scope in scopes.items()
+                if isinstance(scope, dict)
+            }
+        return compact
 
     def _aggregate_range(
         self,
@@ -609,6 +912,112 @@ class UsageStatsCollector:
         scope = self._scope_for_stream_id(stream_id)
         _add_tool_call(self._scope_bucket_for_day(day, scope), tool_name)
         _add_tool_call(self._scope_bucket_for_lifetime(scope), tool_name)
+
+    def _record_tool_result(self, entry: dict[str, Any], stream_id: str) -> None:
+        call_id = str(entry.get("id") or "")
+        if not call_id:
+            return
+        pending = self._pending_tool_calls.pop(self._pending_tool_key(stream_id, call_id), None)
+        if pending is None:
+            return
+        try:
+            day = date.fromisoformat(pending["day"])
+        except (KeyError, TypeError, ValueError):
+            day = self._entry_date(entry)
+        tool_name = _norm_part(pending.get("tool_name"), "unknown")
+        is_error = bool(entry.get("is_error"))
+        self._add_tool_result_for_day(day, tool_name, stream_id, is_error)
+        skill_name = str(pending.get("skill_name") or "")
+        if tool_name == "get_skill":
+            self._add_skill_result_for_day(day, skill_name, stream_id, is_error)
+
+    def _add_tool_result_for_day(
+        self,
+        day: date,
+        tool_name: str,
+        stream_id: str,
+        is_error: bool,
+    ) -> None:
+        _add_tool_result(self._days.setdefault(day, _new_bucket()), tool_name, is_error)
+        _add_tool_result(self._lifetime, tool_name, is_error)
+        scope = self._scope_for_stream_id(stream_id)
+        _add_tool_result(self._scope_bucket_for_day(day, scope), tool_name, is_error)
+        _add_tool_result(self._scope_bucket_for_lifetime(scope), tool_name, is_error)
+
+    def _record_skill_attempt(self, day: date, skill_name: str, stream_id: str) -> None:
+        _add_skill_attempt(self._days.setdefault(day, _new_bucket()), skill_name)
+        _add_skill_attempt(self._lifetime, skill_name)
+        scope = self._scope_for_stream_id(stream_id)
+        _add_skill_attempt(self._scope_bucket_for_day(day, scope), skill_name)
+        _add_skill_attempt(self._scope_bucket_for_lifetime(scope), skill_name)
+
+    def _add_skill_result_for_day(
+        self,
+        day: date,
+        skill_name: str,
+        stream_id: str,
+        is_error: bool,
+    ) -> None:
+        _add_skill_result(self._days.setdefault(day, _new_bucket()), skill_name, is_error)
+        _add_skill_result(self._lifetime, skill_name, is_error)
+        scope = self._scope_for_stream_id(stream_id)
+        _add_skill_result(self._scope_bucket_for_day(day, scope), skill_name, is_error)
+        _add_skill_result(self._scope_bucket_for_lifetime(scope), skill_name, is_error)
+
+    def _record_automatic_skill_load(
+        self,
+        day: date,
+        skill_name: str,
+        stream_id: str,
+    ) -> None:
+        _add_automatic_skill_load(self._days.setdefault(day, _new_bucket()), skill_name)
+        _add_automatic_skill_load(self._lifetime, skill_name)
+        scope = self._scope_for_stream_id(stream_id)
+        _add_automatic_skill_load(self._scope_bucket_for_day(day, scope), skill_name)
+        _add_automatic_skill_load(self._scope_bucket_for_lifetime(scope), skill_name)
+
+    def _record_bubble_outcome(
+        self,
+        day: date,
+        entry: dict[str, Any],
+        stream_id: str,
+    ) -> None:
+        scope = self._scope_for_stream_id(stream_id)
+        if scope not in (_BUBBLE_SCOPE, _SUBCONSCIOUS_SCOPE):
+            return
+        _add_bubble_outcome(self._days.setdefault(day, _new_bucket()), entry)
+        _add_bubble_outcome(self._lifetime, entry)
+        _add_bubble_outcome(self._scope_bucket_for_day(day, scope), entry)
+        _add_bubble_outcome(self._scope_bucket_for_lifetime(scope), entry)
+
+    def _remember_tool_call(
+        self,
+        entry: dict[str, Any],
+        day: date,
+        tool_name: str,
+        skill_name: str,
+        stream_id: str,
+    ) -> None:
+        call_id = str(entry.get("id") or "")
+        if not call_id:
+            return
+        self._pending_tool_calls[self._pending_tool_key(stream_id, call_id)] = {
+            "stream_id": stream_id,
+            "day": day.isoformat(),
+            "tool_name": tool_name,
+            "skill_name": skill_name,
+        }
+
+    @staticmethod
+    def _pending_tool_key(stream_id: str, call_id: str) -> str:
+        return f"{stream_id}\u001f{call_id}"
+
+    @staticmethod
+    def _skill_name_from_call(entry: dict[str, Any]) -> str:
+        arguments = entry.get("arguments")
+        if not isinstance(arguments, dict):
+            return "unknown"
+        return _norm_part(arguments.get("skill_name"), "unknown")
 
     def _record_thinking_start(self, entry: dict[str, Any], stream_id: str) -> None:
         started_at = self._entry_datetime(entry)
@@ -788,6 +1197,9 @@ class UsageStatsCollector:
             self._pending_thinking_starts = self._load_pending_thinking_starts(
                 data.get("pending_thinking_starts", {})
             )
+            self._pending_tool_calls = self._load_pending_tool_calls(
+                data.get("pending_tool_calls", {})
+            )
             bubble_history = data.get("bubble_history", {})
             if isinstance(bubble_history, dict):
                 mtime_ns = int(bubble_history.get("mtime_ns", -1))
@@ -805,6 +1217,7 @@ class UsageStatsCollector:
             self._lifetime_by_scope = _new_scope_buckets()
             self._last_seq_by_stream = {}
             self._pending_thinking_starts = {}
+            self._pending_tool_calls = {}
             return False
         return True
 
@@ -844,6 +1257,7 @@ class UsageStatsCollector:
             "checkpoint": checkpoints.get(_MAIN_STREAM_ID, {"seq": -1}),
             "checkpoints": checkpoints,
             "pending_thinking_starts": self._format_pending_thinking_starts(),
+            "pending_tool_calls": self._pending_tool_calls,
             "bubble_history": self._format_bubble_history(),
             "lifetime": self._lifetime,
             "days": {day.isoformat(): bucket for day, bucket in sorted(self._days.items())},
@@ -866,6 +1280,40 @@ class UsageStatsCollector:
             stream_id: {"ts": started_at.isoformat(), "day": day.isoformat()}
             for stream_id, (started_at, day) in sorted(self._pending_thinking_starts.items())
         }
+
+    @staticmethod
+    def _load_pending_tool_calls(data: Any) -> dict[str, dict[str, str]]:
+        pending: dict[str, dict[str, str]] = {}
+        if not isinstance(data, dict):
+            return pending
+        for key, item in data.items():
+            if not isinstance(item, dict):
+                continue
+            stream_id = str(item.get("stream_id") or "")
+            day = str(item.get("day") or "")
+            tool_name = str(item.get("tool_name") or "")
+            if not stream_id or not day or not tool_name:
+                continue
+            try:
+                date.fromisoformat(day)
+            except ValueError:
+                continue
+            pending[str(key)] = {
+                "stream_id": stream_id,
+                "day": day,
+                "tool_name": tool_name,
+                "skill_name": str(item.get("skill_name") or ""),
+            }
+        return pending
+
+    def _discard_pending_tool_calls(self, stream_id: str) -> None:
+        stale = [
+            key
+            for key, item in self._pending_tool_calls.items()
+            if item.get("stream_id") == stream_id
+        ]
+        for key in stale:
+            self._pending_tool_calls.pop(key, None)
 
     @staticmethod
     def bubble_stream_id(root: Path, path: Path) -> str:
@@ -906,6 +1354,7 @@ class UsageStatsCollector:
                 if saw_meta:
                     self._last_seq_by_stream.pop(stream_id, None)
                     self._pending_thinking_starts.pop(stream_id, None)
+                    self._discard_pending_tool_calls(stream_id)
                     self._advance_bubble_history(self._bubble_file_key(root, path))
         except Exception as e:
             logger.warning(f"Failed to load pending bubble usage streams: {e}")

@@ -1,32 +1,19 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useState, type MouseEvent } from 'react';
 import {
   Activity,
+  ArrowUpRight,
   Bot,
-  ChevronDown,
-  ChevronUp,
   Database,
-  Hammer,
-  Timer,
   TriangleAlert,
 } from 'lucide-react';
 
-import type {
-  UsageModelStats,
-  UsageProviderModelStats,
-  UsageStats,
-} from '../api/types';
+import type { UsageStats } from '../api/types';
 import { t } from '../i18n/admin';
 import {
-  USAGE_SCOPE_LABELS,
   USAGE_WINDOWS,
-  clampPercent,
   formatCacheRate,
   formatCount,
   formatTokenUnits,
-  totalFromModelStats,
-  usageModelLabel,
-  usageScopeClassName,
-  usageScopeEntries,
   type UsageWindowKey,
 } from '../lib/usageStats';
 
@@ -34,66 +21,30 @@ type AdminUsageOverviewProps = {
   stats: UsageStats | null;
   loading: boolean;
   error: string;
+  analyticsHref: string;
+  onOpenAnalytics: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
-function formatDurationSeconds(value?: number | null): string {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
-  const rounded = Math.round(value);
-  if (rounded >= 60) {
-    const minutes = Math.floor(rounded / 60);
-    const seconds = rounded % 60;
-    return t('{{minutes}}分 {{seconds}}秒', {
-      minutes,
-      seconds: String(seconds).padStart(2, '0'),
-    });
-  }
-  if (value < 10 && Math.abs(value - rounded) >= 0.05) {
-    return t('{{seconds}}秒', { seconds: value.toFixed(1) });
-  }
-  return t('{{seconds}}秒', { seconds: rounded });
-}
-
-export function AdminUsageOverview({ stats, loading, error }: AdminUsageOverviewProps) {
+export function AdminUsageOverview({
+  stats,
+  loading,
+  error,
+  analyticsHref,
+  onOpenAnalytics,
+}: AdminUsageOverviewProps) {
   const [windowKey, setWindowKey] = useState<UsageWindowKey>('today');
-  const [expanded, setExpanded] = useState(false);
   const windowStats = stats?.[windowKey];
-  const sourceEntries = useMemo(
-    () => windowStats
-      ? usageScopeEntries(windowStats).filter(([, item]) => (
-        Number(item.total_tokens || 0) > 0 || Number(item.llm_calls || 0) > 0
-      ))
-      : [],
-    [windowStats],
-  );
-  const modelEntries = useMemo(() => {
-    if (!windowStats) return [];
-    const buckets: Record<string, UsageModelStats | UsageProviderModelStats> =
-      windowStats.by_provider_model || windowStats.by_model || {};
-    return Object.entries(buckets)
-      .filter(([, item]) => Number(item.llm_calls || 0) > 0 || totalFromModelStats(item) > 0)
-      .sort(([, left], [, right]) => (
-        totalFromModelStats(right) - totalFromModelStats(left)
-        || Number(right.llm_calls || 0) - Number(left.llm_calls || 0)
-      ))
-      .slice(0, 4);
-  }, [windowStats]);
   const hasCalls = Number(windowStats?.llm_calls || 0) > 0;
-  const hasTokens = Number(windowStats?.total_tokens || 0) > 0;
-  const sourceTokenTotal = sourceEntries.reduce(
-    (sum, [, item]) => sum + Number(item.total_tokens || 0),
-    0,
-  );
-  const maxModelValue = Math.max(
-    1,
-    ...modelEntries.map(([, item]) => (
-      hasTokens ? totalFromModelStats(item) : Number(item.llm_calls || 0)
-    )),
-  );
-  const detailsId = 'admin-usage-details';
+  const untracked = Number(windowStats?.untracked_calls || 0);
+  const estimated = Number(windowStats?.estimated_calls || 0);
+  const executionIssues = Number(windowStats?.tool_errors || 0)
+    + Number(windowStats?.skill_load_errors || 0)
+    + Number(windowStats?.bubble_errors || 0)
+    + Number(windowStats?.bubble_timeouts || 0);
 
-  return <section className="admin-panel admin-usage-panel" aria-label={t('模型 Token 用量')}>
+  return <section className="admin-panel admin-usage-panel" aria-label={t('运行数据概览')}>
     <header>
-      <div><h2>{t('模型 Token 用量')}</h2><p>{t('本地运行统计，不等同于 Provider 账单。')}</p></div>
+      <div><h2>{t('运行数据概览')}</h2><p>{t('资源消耗、执行结果与数据可信度')}</p></div>
       <div className="admin-usage-windows" aria-label={t('统计窗口')}>
         {USAGE_WINDOWS.map(item => <button
           type="button"
@@ -104,66 +55,32 @@ export function AdminUsageOverview({ stats, loading, error }: AdminUsageOverview
         >{t(item.label)}</button>)}
       </div>
     </header>
-    {loading && !stats ? <div className="admin-usage-state" role="status"><Activity size={18} />{t('正在读取模型用量…')}</div>
+    {loading && !stats ? <div className="admin-usage-state" role="status"><Activity size={18} />{t('正在读取运行分析…')}</div>
       : error && !stats ? <div className="admin-usage-state error" role="alert"><TriangleAlert size={18} />{error}</div>
-        : !windowStats ? <div className="admin-usage-state error" role="alert"><TriangleAlert size={18} />{t('用量统计暂不可用')}</div>
+        : !windowStats ? <div className="admin-usage-state error" role="alert"><TriangleAlert size={18} />{t('运行分析暂不可用')}</div>
           : <>
-            <div className="admin-usage-metrics">
+            <div className="admin-usage-metrics compact">
               <article className="total"><Database size={17} /><span>{t('总 Token')}</span><strong>{formatTokenUnits(windowStats.total_tokens)}</strong><small>{t('{{count}} 次模型响应', { count: formatCount(windowStats.llm_calls) })}</small></article>
               <article><span>{t('输入 Token')}</span><strong>{formatTokenUnits(windowStats.input_tokens)}</strong><small>{t('已记录输入')}</small></article>
               <article><span>{t('输出 Token')}</span><strong>{formatTokenUnits(windowStats.output_tokens)}</strong><small>{t('已记录输出')}</small></article>
-              <article><span>{t('缓存 Token')}</span><strong>{formatTokenUnits(windowStats.cached_tokens)}</strong><small>{t('命中率 {{rate}}', { rate: formatCacheRate(windowStats.cache_rate) })}</small></article>
-              <article><Bot size={16} /><span>{t('调用与工具')}</span><strong>{formatCount(windowStats.llm_calls)}</strong><small>{t('{{count}} 次工具调用', { count: formatCount(windowStats.tool_calls) })}</small></article>
+              <article><Bot size={16} /><span>{t('缓存 Token 占比')}</span><strong>{formatCacheRate(windowStats.cache_rate)}</strong><small>{t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })}</small></article>
             </div>
             {!hasCalls && <div className="admin-usage-notice"><Activity size={16} /><span>{t('这个统计窗口尚未采集到模型调用。')}</span></div>}
-            {hasCalls && !hasTokens && <div className="admin-usage-notice amber"><TriangleAlert size={16} /><span>{t('已有模型调用，但 Provider 没有返回可记录的 Token。')}</span></div>}
-            <div className="admin-usage-glance">
-              <div className="admin-usage-source-glance">
-                <span>{t('来源拆分')}</span>
-                <div className="admin-usage-source-track" aria-hidden="true">
-                  {hasTokens && sourceEntries.length ? sourceEntries.map(([name, item]) => <i
-                    className={usageScopeClassName(name)}
-                    style={{ '--w': clampPercent((Number(item.total_tokens || 0) / Math.max(1, sourceTokenTotal)) * 100) } as CSSProperties}
-                    key={name}
-                  />) : <i className="scope-empty" style={{ '--w': '100%' } as CSSProperties} />}
-                </div>
-                <small>{sourceEntries.length
-                  ? sourceEntries.slice(0, 3).map(([name]) => t(USAGE_SCOPE_LABELS[name] || name)).join(' · ')
-                  : t('尚无来源用量')}</small>
+            <div className="admin-usage-quality">
+              <div>
+                <span>{t('数据可信度')}</span>
+                <strong>{t('{{exact}} 精确 · {{estimated}} 估算 · {{unknown}} 未追踪', {
+                  exact: formatCount(windowStats.exact_calls),
+                  estimated: formatCount(estimated),
+                  unknown: formatCount(untracked),
+                })}</strong>
               </div>
-              <div className="admin-usage-glance-fact"><Hammer size={15} /><span>{t('工具')}</span><b>{formatCount(windowStats.tool_calls)}</b></div>
-              <div className="admin-usage-glance-fact"><Timer size={15} /><span>{t('平均思考')}</span><b>{formatDurationSeconds(windowStats.avg_thinking_seconds)}</b></div>
-              <button
-                type="button"
-                className="admin-usage-expand"
-                aria-expanded={expanded}
-                aria-controls={detailsId}
-                onClick={() => setExpanded(value => !value)}
-              >{t(expanded ? '收起详情' : '查看拆分')}{expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</button>
+              <div className={executionIssues ? 'attention' : ''}>
+                <span>{t('执行关注项')}</span>
+                <strong>{executionIssues ? t('{{count}} 项需检查', { count: formatCount(executionIssues) }) : t('暂无异常')}</strong>
+              </div>
+              <a className="admin-usage-open" href={analyticsHref} onClick={onOpenAnalytics}>{t('打开运行分析')}<ArrowUpRight size={13} /></a>
             </div>
-            {expanded && <div className="admin-usage-details" id={detailsId}>
-              <section>
-                <header><span>{t('模型用量')}</span><b>{t(hasTokens ? '按 Token' : '按调用')}</b></header>
-                <div className="admin-usage-model-list">{modelEntries.length ? modelEntries.map(([key, item]) => {
-                  const value = hasTokens ? totalFromModelStats(item) : Number(item.llm_calls || 0);
-                  const label = usageModelLabel(key, item);
-                  return <article key={key} title={label}>
-                    <div><span>{label}</span><b>{hasTokens ? formatTokenUnits(item.total_tokens) : formatCount(item.llm_calls)}</b></div>
-                    <div className="admin-usage-model-track"><i style={{ '--w': clampPercent((value / maxModelValue) * 100) } as CSSProperties} /></div>
-                    <small>{t('{{calls}} 次调用 · 缓存 {{rate}}', { calls: formatCount(item.llm_calls), rate: formatCacheRate(item.cache_rate) })}</small>
-                  </article>;
-                }) : <p>{t('暂无模型调用')}</p>}</div>
-              </section>
-              <section>
-                <header><span>{t('来源用量')}</span><b>{t('按职责')}</b></header>
-                <div className="admin-usage-source-list">{sourceEntries.length ? sourceEntries.map(([name, item]) => <article key={name}>
-                  <i className={usageScopeClassName(name)} />
-                  <span>{t(USAGE_SCOPE_LABELS[name] || name)}</span>
-                  <b>{formatTokenUnits(item.total_tokens)}</b>
-                  <small>{t('{{count}} 次调用', { count: formatCount(item.llm_calls) })}</small>
-                </article>) : <p>{t('尚无来源用量')}</p>}</div>
-              </section>
-            </div>}
           </>}
   </section>;
 }

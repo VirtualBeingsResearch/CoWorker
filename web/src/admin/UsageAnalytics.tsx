@@ -3,13 +3,15 @@ import {
   Activity,
   BarChart3,
   Bot,
+  CheckCircle2,
+  CircleAlert,
   Database,
   Download,
   FileJson,
-  Gauge,
   Hammer,
+  Orbit,
   RefreshCw,
-  Timer,
+  Sparkles,
   TriangleAlert,
 } from 'lucide-react';
 
@@ -41,10 +43,10 @@ type AdminUsageAnalyticsProps = {
   onReload: () => void | Promise<void>;
 };
 
-type Comparison = {
-  label: string;
+type AttentionItem = {
+  tone: 'danger' | 'amber' | 'info';
+  title: string;
   detail: string;
-  tone: 'up' | 'down' | 'flat';
 };
 
 function finite(value?: number | null): number {
@@ -71,19 +73,18 @@ function formatOptionalTokenUnits(value?: number | null): string {
   return typeof value === 'number' && Number.isFinite(value) ? formatTokenUnits(value) : '—';
 }
 
-function comparisonFor(current: number, previous?: number | null): Comparison {
+function comparisonFor(current: number, previous?: number | null) {
   if (typeof previous !== 'number' || !Number.isFinite(previous)) {
-    return { label: '—', detail: t('暂无可比基线'), tone: 'flat' };
+    return { label: '—', detail: t('暂无可比基线') };
   }
   if (previous === 0) {
-    if (current === 0) return { label: '0%', detail: t('与上一周期持平'), tone: 'flat' };
-    return { label: t('新增'), detail: t('上一周期为零'), tone: 'up' };
+    if (current === 0) return { label: '0%', detail: t('与上一周期持平') };
+    return { label: t('新增'), detail: t('上一周期为零') };
   }
   const rate = ((current - previous) / previous) * 100;
   return {
     label: `${rate > 0 ? '+' : ''}${rate.toFixed(1)}%`,
     detail: t('上一周期 {{count}} Token', { count: formatTokenUnits(previous) }),
-    tone: rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat',
   };
 }
 
@@ -112,23 +113,31 @@ function exportCsv(stats: UsageStats) {
     'cached_tokens',
     'total_tokens',
     'llm_calls',
-    'tracked_calls',
-    'untracked_calls',
+    'exact_calls',
     'estimated_calls',
+    'untracked_calls',
     'tool_calls',
-    'thinking_seconds',
+    'tool_successes',
+    'tool_errors',
+    'skill_load_attempts',
+    'skill_load_errors',
+    'automatic_skill_loads',
+    'bubble_runs',
+    'bubble_done',
+    'bubble_errors',
+    'bubble_timeouts',
   ];
   const rows = (stats.daily || []).map(item => columns.map(column => (
     csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
   )).join(','));
   const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
-  downloadText(`coworker-usage-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
+  downloadText(`coworker-runtime-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
 }
 
 function exportJson(stats: UsageStats) {
   const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
   downloadText(
-    `coworker-usage-${stamp}.json`,
+    `coworker-runtime-${stamp}.json`,
     `${JSON.stringify(stats, null, 2)}\n`,
     'application/json;charset=utf-8',
   );
@@ -139,20 +148,57 @@ function MetricCard({
   value,
   detail,
   icon: Icon,
-  tone,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: typeof Database;
-  tone?: Comparison['tone'];
 }) {
-  return <article className={`usage-analytics-metric${tone ? ` ${tone}` : ''}`}>
+  return <article className="usage-analytics-metric">
     <Icon size={16} />
     <span>{label}</span>
     <strong>{value}</strong>
     <small>{detail}</small>
   </article>;
+}
+
+function attentionItems(stats: UsageWindowStats): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  const untracked = finite(stats.untracked_calls);
+  const estimated = finite(stats.estimated_calls);
+  const toolErrors = finite(stats.tool_errors);
+  const skillErrors = finite(stats.skill_load_errors);
+  const bubbleErrors = finite(stats.bubble_errors);
+  const bubbleTimeouts = finite(stats.bubble_timeouts);
+  if (untracked > 0) items.push({
+    tone: 'amber',
+    title: t('Token 数据不完整'),
+    detail: t('{{count}} 次模型调用没有可记录的 Token。', { count: formatCount(untracked) }),
+  });
+  if (estimated > 0) items.push({
+    tone: 'info',
+    title: t('包含本地估算'),
+    detail: t('{{count}} 次调用使用估算 Token，已与精确值分开。', { count: formatCount(estimated) }),
+  });
+  if (toolErrors > 0) items.push({
+    tone: 'danger',
+    title: t('工具返回错误'),
+    detail: t('{{count}} 次工具调用返回错误。', { count: formatCount(toolErrors) }),
+  });
+  if (skillErrors > 0) items.push({
+    tone: 'danger',
+    title: t('技能加载失败'),
+    detail: t('{{count}} 次显式技能加载失败。', { count: formatCount(skillErrors) }),
+  });
+  if (bubbleErrors + bubbleTimeouts > 0) items.push({
+    tone: 'danger',
+    title: t('自主执行未正常完成'),
+    detail: t('{{errors}} 次错误 · {{timeouts}} 次超时', {
+      errors: formatCount(bubbleErrors),
+      timeouts: formatCount(bubbleTimeouts),
+    }),
+  });
+  return items;
 }
 
 export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUsageAnalyticsProps) {
@@ -189,36 +235,46 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
       ))
       .slice(0, 8);
   }, [windowStats]);
-  const toolEntries = useMemo(() => Object.entries(windowStats?.tools || {})
-    .sort(([, left], [, right]) => finite(right) - finite(left))
+  const toolEntries = useMemo(() => Object.entries(windowStats?.tool_outcomes || {})
+    .sort(([, left], [, right]) => finite(right.calls) - finite(left.calls))
     .slice(0, 8), [windowStats]);
-  const maxToolCalls = Math.max(1, ...toolEntries.map(([, count]) => finite(count)));
+  const skillEntries = useMemo(() => Object.entries(windowStats?.skills || {})
+    .sort(([, left], [, right]) => (
+      finite(right.explicit_attempts) + finite(right.automatic_loads)
+      - finite(left.explicit_attempts) - finite(left.automatic_loads)
+    ))
+    .slice(0, 8), [windowStats]);
 
-  if (loading && !stats) return <div className="state-box"><span className="state-pulse" aria-hidden="true"><i /><i /><i /></span><span>{t('正在读取模型用量…')}</span></div>;
+  if (loading && !stats) return <div className="state-box"><span className="state-pulse" aria-hidden="true"><i /><i /><i /></span><span>{t('正在读取运行分析…')}</span></div>;
   if (error && !stats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{error}</span></div>;
-  if (!stats || !windowStats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{t('用量统计暂不可用')}</span></div>;
+  if (!stats || !windowStats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{t('运行分析暂不可用')}</span></div>;
 
   const totalTokens = finite(windowStats.total_tokens);
-  const trackedCalls = finite(windowStats.tracked_calls);
-  const untrackedCalls = finite(windowStats.untracked_calls);
+  const llmCalls = finite(windowStats.llm_calls);
+  const exactCalls = finite(windowStats.exact_calls);
   const estimatedCalls = finite(windowStats.estimated_calls);
-  const coverage = windowStats.tracking_coverage;
+  const untrackedCalls = finite(windowStats.untracked_calls);
+  const attention = attentionItems(windowStats);
   const generatedAt = stats.generated_at
     ? new Date(stats.generated_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
     : '—';
+  const bubbleScopes = [
+    ['bubble', windowStats.by_scope?.bubble],
+    ['subconscious', windowStats.by_scope?.subconscious],
+  ] as const;
 
   return <div className="page-stack usage-analytics-page">
     <section className="admin-panel usage-analytics-hero">
       <header>
         <div>
-          <p className="eyebrow">{t('用量分析')}</p>
-          <h2>{t('模型调用与 Token 趋势')}</h2>
-          <p>{t('本地运行统计，不等同于 Provider 账单。')}</p>
+          <p className="eyebrow">{t('运行分析')}</p>
+          <h2>{t('资源消耗与执行结果')}</h2>
+          <p>{t('本地脱敏聚合，不等同于 Provider 账单或结果质量评价。')}</p>
         </div>
         <div className="usage-analytics-actions">
           <button type="button" onClick={() => exportCsv(stats)}><Download size={14} />CSV</button>
           <button type="button" onClick={() => exportJson(stats)}><FileJson size={14} />JSON</button>
-          <button type="button" className="icon-btn" onClick={() => void onReload()} disabled={loading} title={t('刷新用量分析')} aria-label={t('刷新用量分析')}><RefreshCw size={15} /></button>
+          <button type="button" className="icon-btn" onClick={() => void onReload()} disabled={loading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
         </div>
       </header>
       <div className="usage-analytics-windows" aria-label={t('统计窗口')}>
@@ -230,18 +286,38 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           key={item.key}
         >{t(item.label)}</button>)}
       </div>
+      {attention.length > 0 && <div className="usage-attention" aria-label={t('需关注')}>
+        <header><CircleAlert size={15} /><span>{t('需关注')}</span><b>{attention.length}</b></header>
+        <div>{attention.map(item => <article className={item.tone} key={item.title}>
+          <strong>{item.title}</strong><small>{item.detail}</small>
+        </article>)}</div>
+      </div>}
       <div className="usage-analytics-metrics">
         <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} />
-        <MetricCard label={t('较上一周期')} value={comparison.label} detail={comparison.detail} icon={BarChart3} tone={comparison.tone} />
-        <MetricCard label={t('单次平均')} value={formatOptionalTokenUnits(windowStats.avg_tokens_per_call)} detail={t('按已追踪调用计算')} icon={Gauge} />
-        <MetricCard label={t('缓存命中')} value={formatCacheRate(windowStats.cache_rate)} detail={t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })} icon={Activity} />
-        <MetricCard label={t('Token 覆盖率')} value={formatCacheRate(coverage)} detail={t('{{tracked}} / {{total}} 次调用', { tracked: formatCount(trackedCalls), total: formatCount(windowStats.llm_calls) })} icon={Bot} />
-        <MetricCard label={t('调用活动')} value={formatCount(windowStats.llm_calls)} detail={t('{{tools}} 工具 · {{thinking}} 平均思考', { tools: formatCount(windowStats.tool_calls), thinking: formatDurationSeconds(windowStats.avg_thinking_seconds) })} icon={Timer} />
+        <MetricCard label={t('较上一周期')} value={comparison.label} detail={comparison.detail} icon={BarChart3} />
+        <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
+        <MetricCard label={t('缓存 Token 占比')} value={formatCacheRate(windowStats.cache_rate)} detail={t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })} icon={Activity} />
       </div>
-      {finite(windowStats.llm_calls) > 0 && (untrackedCalls > 0
-        ? <div className="admin-usage-notice amber"><TriangleAlert size={16} /><span>{t('{{count}} 次模型调用没有可记录的 Token；当前合计可能偏低。', { count: formatCount(untrackedCalls) })}</span></div>
-        : <div className="admin-usage-notice"><Activity size={16} /><span>{t('这个窗口内的模型调用都已记录 Token。')}</span></div>)}
-      {estimatedCalls > 0 && <div className="usage-analytics-estimate-note">{t('其中 {{count}} 次使用本地估算值。', { count: formatCount(estimatedCalls) })}</div>}
+      <div className="usage-quality">
+        <div className="usage-quality-copy">
+          <span>{t('数据可信度')}</span>
+          <strong>{llmCalls ? t('{{exact}} 精确 · {{estimated}} 估算 · {{unknown}} 未追踪', {
+            exact: formatCount(exactCalls),
+            estimated: formatCount(estimatedCalls),
+            unknown: formatCount(untrackedCalls),
+          }) : t('暂无模型调用')}</strong>
+        </div>
+        <div className="usage-quality-track" aria-hidden="true">
+          <i className="exact" style={{ '--w': clampPercent(llmCalls ? exactCalls / llmCalls * 100 : 0) } as CSSProperties} />
+          <i className="estimated" style={{ '--w': clampPercent(llmCalls ? estimatedCalls / llmCalls * 100 : 0) } as CSSProperties} />
+          <i className="unknown" style={{ '--w': clampPercent(llmCalls ? untrackedCalls / llmCalls * 100 : 100) } as CSSProperties} />
+        </div>
+        <div className="usage-quality-legend">
+          <span><i className="exact" />{t('精确')} {formatCacheRate(windowStats.exact_coverage)}</span>
+          <span><i className="estimated" />{t('本地估算')} {formatCacheRate(llmCalls ? estimatedCalls / llmCalls : null)}</span>
+          <span><i className="unknown" />{t('未追踪')} {formatCacheRate(llmCalls ? untrackedCalls / llmCalls : null)}</span>
+        </div>
+      </div>
     </section>
 
     <section className="admin-panel usage-trend-panel">
@@ -267,18 +343,18 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
       </div>
     </section>
 
-    <div className="usage-analytics-grid">
+    <div className="usage-resource-grid">
       <section className="admin-panel usage-model-table-panel">
-        <header><div><h2>{t('模型与 Provider')}</h2><p>{t('按当前窗口 Token 排序')}</p></div><b>{modelEntries.length}</b></header>
+        <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><b>{modelEntries.length}</b></header>
         <div className="usage-model-table-wrap"><table className="usage-model-table">
-          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('单次平均')}</th><th>{t('缓存')}</th><th>{t('覆盖率')}</th></tr></thead>
+          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('单次平均')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
           <tbody>{modelEntries.length ? modelEntries.map(([key, item]) => <tr key={key}>
             <td title={usageModelLabel(key, item)}>{usageModelLabel(key, item)}</td>
             <td>{formatCount(item.llm_calls)}</td>
             <td>{formatTokenUnits(item.total_tokens)}</td>
             <td>{formatOptionalTokenUnits(item.avg_tokens_per_call)}</td>
             <td>{formatCacheRate(item.cache_rate)}</td>
-            <td>{formatCacheRate(item.tracking_coverage)}</td>
+            <td>{formatCacheRate(item.exact_coverage)}</td>
           </tr>) : <tr><td colSpan={6}>{t('暂无模型调用')}</td></tr>}</tbody>
         </table></div>
       </section>
@@ -295,20 +371,92 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           </article>;
         }) : <p>{t('尚无来源用量')}</p>}</div>
       </section>
+    </div>
 
+    <div className="usage-execution-grid">
       <section className="admin-panel usage-tools-panel">
-        <header><div><h2>{t('工具排行')}</h2><p>{t('按当前窗口调用次数')}</p></div><Hammer size={16} /></header>
-        <div className="usage-tools-list">{toolEntries.length ? toolEntries.map(([name, count]) => <article key={name}>
-          <div><span title={name}>{name}</span><b>{formatCount(count)}</b></div>
-          <div><i style={{ '--w': clampPercent((finite(count) / maxToolCalls) * 100) } as CSSProperties} /></div>
-        </article>) : <p>{t('暂无工具调用')}</p>}</div>
+        <header>
+          <div><h2>{t('工具执行')}</h2><p>{t('按调用结果统计，不推断效率')}</p></div>
+          <span className="usage-panel-total"><Hammer size={15} />{formatCount(windowStats.tool_calls)}</span>
+        </header>
+        <div className="usage-outcome-summary">
+          <span className="success"><CheckCircle2 size={13} />{t('{{count}} 成功', { count: formatCount(windowStats.tool_successes) })}</span>
+          <span className="error"><TriangleAlert size={13} />{t('{{count}} 错误', { count: formatCount(windowStats.tool_errors) })}</span>
+          <span><CircleAlert size={13} />{t('{{count}} 未结算', { count: formatCount(windowStats.tool_incomplete) })}</span>
+        </div>
+        <div className="usage-execution-list">{toolEntries.length ? toolEntries.map(([name, item]) => {
+          const calls = Math.max(1, finite(item.calls));
+          return <article key={name}>
+            <div><strong title={name}>{name}</strong><b>{formatCount(item.calls)}</b></div>
+            <div className="usage-outcome-track" aria-hidden="true">
+              <i className="success" style={{ '--w': clampPercent(finite(item.successes) / calls * 100) } as CSSProperties} />
+              <i className="error" style={{ '--w': clampPercent(finite(item.errors) / calls * 100) } as CSSProperties} />
+              <i className="pending" style={{ '--w': clampPercent(finite(item.incomplete) / calls * 100) } as CSSProperties} />
+            </div>
+            <small>{t('{{success}} 成功 · {{errors}} 错误 · {{pending}} 未结算', {
+              success: formatCount(item.successes),
+              errors: formatCount(item.errors),
+              pending: formatCount(item.incomplete),
+            })}</small>
+          </article>;
+        }) : <p>{t('暂无工具调用')}</p>}</div>
+      </section>
+
+      <section className="admin-panel usage-skills-panel">
+        <header>
+          <div><h2>{t('技能加载')}</h2><p>{t('显式请求与 Palace 自动加载分开统计')}</p></div>
+          <span className="usage-panel-total"><Sparkles size={15} />{formatCount(finite(windowStats.skill_load_attempts) + finite(windowStats.automatic_skill_loads))}</span>
+        </header>
+        <div className="usage-outcome-summary">
+          <span className="success"><CheckCircle2 size={13} />{t('{{count}} 显式成功', { count: formatCount(windowStats.skill_load_successes) })}</span>
+          <span className="error"><TriangleAlert size={13} />{t('{{count}} 显式失败', { count: formatCount(windowStats.skill_load_errors) })}</span>
+          <span><Orbit size={13} />{t('{{count}} 自动加载', { count: formatCount(windowStats.automatic_skill_loads) })}</span>
+        </div>
+        <div className="usage-skill-list">{skillEntries.length ? skillEntries.map(([name, item]) => <article key={name}>
+          <strong title={name}>{name}</strong>
+          <span>{t('{{success}} / {{attempts}} 显式成功', {
+            success: formatCount(item.explicit_successes),
+            attempts: formatCount(item.explicit_attempts),
+          })}</span>
+          <b>{t('{{count}} 自动', { count: formatCount(item.automatic_loads) })}</b>
+          {(finite(item.explicit_errors) > 0 || finite(item.explicit_incomplete) > 0) && <small>{t('{{errors}} 失败 · {{pending}} 未结算', {
+            errors: formatCount(item.explicit_errors),
+            pending: formatCount(item.explicit_incomplete),
+          })}</small>}
+        </article>) : <p>{t('暂无技能加载记录')}</p>}</div>
       </section>
     </div>
+
+    <section className="admin-panel usage-bubble-panel">
+      <header>
+        <div><h2>{t('自主执行')}</h2><p>{t('Bubble 与潜意识的技术终态，不评价结果质量')}</p></div>
+        <span className="usage-panel-total"><Orbit size={15} />{formatCount(windowStats.bubble_runs)}</span>
+      </header>
+      <div className="usage-bubble-statuses">
+        <span className="success"><b>{formatCount(windowStats.bubble_done)}</b>{t('完成')}</span>
+        <span className="error"><b>{formatCount(windowStats.bubble_errors)}</b>{t('错误')}</span>
+        <span className="amber"><b>{formatCount(windowStats.bubble_timeouts)}</b>{t('超时')}</span>
+        <span><b>{formatCount(windowStats.bubble_cancelled)}</b>{t('取消')}</span>
+      </div>
+      <div className="usage-bubble-modes">{bubbleScopes.map(([name, item]) => <article key={name}>
+        <div><i className={usageScopeClassName(name)} /><strong>{t(USAGE_SCOPE_LABELS[name])}</strong><b>{formatCount(item?.bubble_runs)}</b></div>
+        <p>{t('{{done}} 完成 · {{errors}} 错误 · {{timeouts}} 超时', {
+          done: formatCount(item?.bubble_done),
+          errors: formatCount(item?.bubble_errors),
+          timeouts: formatCount(item?.bubble_timeouts),
+        })}</p>
+        <small>{t('平均 {{duration}} · {{cycles}} 轮 · {{resumes}} 次恢复', {
+          duration: formatDurationSeconds(item?.avg_bubble_seconds),
+          cycles: finite(item?.avg_bubble_cycles).toFixed(item?.avg_bubble_cycles ? 1 : 0),
+          resumes: formatCount(item?.bubble_resumes),
+        })}</small>
+      </article>)}</div>
+    </section>
 
     <footer className="usage-analytics-foot">
       <span>{t('开始追踪：{{date}}', { date: stats.tracking_since || '—' })}</span>
       <span>{t('生成时间：{{date}}', { date: generatedAt })}</span>
-      <span>{t('统计保存在本地运行目录中')}</span>
+      <span>{t('仅保存脱敏聚合，不向前端返回日志正文')}</span>
     </footer>
   </div>;
 }
