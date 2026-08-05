@@ -1,9 +1,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import {
   Activity,
-  BarChart3,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   Database,
   Download,
@@ -48,6 +49,8 @@ type AttentionItem = {
   title: string;
   detail: string;
 };
+
+const DETAIL_LIMIT = 8;
 
 function finite(value?: number | null): number {
   const numeric = Number(value ?? 0);
@@ -148,18 +151,41 @@ function MetricCard({
   value,
   detail,
   icon: Icon,
+  tone,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: typeof Database;
+  tone?: 'tool' | 'skill' | 'autonomy';
 }) {
-  return <article className="usage-analytics-metric">
+  return <article className={`usage-analytics-metric${tone ? ` metric-${tone}` : ''}`}>
     <Icon size={16} />
     <span>{label}</span>
     <strong>{value}</strong>
     <small>{detail}</small>
   </article>;
+}
+
+function DetailToggle({
+  expanded,
+  label,
+  total,
+  onToggle,
+}: {
+  expanded: boolean;
+  label: string;
+  total: number;
+  onToggle: () => void;
+}) {
+  if (total <= DETAIL_LIMIT) return null;
+  const accessibleLabel = expanded
+    ? t('{{section}}：收起', { section: label })
+    : t('{{section}}：查看全部 {{count}} 项', { section: label, count: formatCount(total) });
+  return <button type="button" className="usage-list-toggle" onClick={onToggle} aria-expanded={expanded} aria-label={accessibleLabel}>
+    {expanded ? t('收起') : t('查看全部 {{count}} 项', { count: formatCount(total) })}
+    {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+  </button>;
 }
 
 function attentionItems(stats: UsageWindowStats): AttentionItem[] {
@@ -204,6 +230,9 @@ function attentionItems(stats: UsageWindowStats): AttentionItem[] {
 export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<UsageWindowKey>('last_7_days');
+  const [expandedModels, setExpandedModels] = useState(false);
+  const [expandedTools, setExpandedTools] = useState(false);
+  const [expandedSkills, setExpandedSkills] = useState(false);
   const windowStats = stats?.[windowKey];
   const previousStats = windowKey === 'lifetime' ? undefined : stats?.previous?.[windowKey];
   const comparison = comparisonFor(
@@ -215,6 +244,9 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
     ? daily.slice(-7)
     : daily;
   const maxDailyTokens = Math.max(1, ...visibleDaily.map(item => finite(item.total_tokens)));
+  const peakDaily = visibleDaily.reduce<(UsageWindowStats & { date: string }) | null>((peak, item) => (
+    !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
+  ), null);
   const sourceEntries = useMemo(() => windowStats
     ? usageScopeEntries(windowStats)
       .filter(([, item]) => finite(item.total_tokens) > 0 || finite(item.llm_calls) > 0)
@@ -223,7 +255,7 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
         || finite(right.llm_calls) - finite(left.llm_calls)
       ))
     : [], [windowStats]);
-  const modelEntries = useMemo(() => {
+  const allModelEntries = useMemo(() => {
     if (!windowStats) return [];
     const buckets: Record<string, UsageModelStats | UsageProviderModelStats> =
       windowStats.by_provider_model || windowStats.by_model || {};
@@ -232,18 +264,18 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
       .sort(([, left], [, right]) => (
         totalFromModelStats(right) - totalFromModelStats(left)
         || finite(right.llm_calls) - finite(left.llm_calls)
-      ))
-      .slice(0, 8);
+      ));
   }, [windowStats]);
-  const toolEntries = useMemo(() => Object.entries(windowStats?.tool_outcomes || {})
-    .sort(([, left], [, right]) => finite(right.calls) - finite(left.calls))
-    .slice(0, 8), [windowStats]);
-  const skillEntries = useMemo(() => Object.entries(windowStats?.skills || {})
+  const allToolEntries = useMemo(() => Object.entries(windowStats?.tool_outcomes || {})
+    .sort(([, left], [, right]) => finite(right.calls) - finite(left.calls)), [windowStats]);
+  const allSkillEntries = useMemo(() => Object.entries(windowStats?.skills || {})
     .sort(([, left], [, right]) => (
       finite(right.explicit_attempts) + finite(right.automatic_loads)
       - finite(left.explicit_attempts) - finite(left.automatic_loads)
-    ))
-    .slice(0, 8), [windowStats]);
+    )), [windowStats]);
+  const modelEntries = expandedModels ? allModelEntries : allModelEntries.slice(0, DETAIL_LIMIT);
+  const toolEntries = expandedTools ? allToolEntries : allToolEntries.slice(0, DETAIL_LIMIT);
+  const skillEntries = expandedSkills ? allSkillEntries : allSkillEntries.slice(0, DETAIL_LIMIT);
 
   if (loading && !stats) return <div className="state-box"><span className="state-pulse" aria-hidden="true"><i /><i /><i /></span><span>{t('正在读取运行分析…')}</span></div>;
   if (error && !stats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{error}</span></div>;
@@ -277,26 +309,40 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           <button type="button" className="icon-btn" onClick={() => void onReload()} disabled={loading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
         </div>
       </header>
-      <div className="usage-analytics-windows" aria-label={t('统计窗口')}>
-        {ADMIN_USAGE_WINDOWS.map(item => <button
-          type="button"
-          className={windowKey === item.key ? 'active' : ''}
-          aria-pressed={windowKey === item.key}
-          onClick={() => setWindowKey(item.key)}
-          key={item.key}
-        >{t(item.label)}</button>)}
+      <div className="usage-analytics-toolbar">
+        <div className="usage-analytics-windows" aria-label={t('统计窗口')}>
+          {ADMIN_USAGE_WINDOWS.map(item => <button
+            type="button"
+            className={windowKey === item.key ? 'active' : ''}
+            aria-pressed={windowKey === item.key}
+            onClick={() => setWindowKey(item.key)}
+            key={item.key}
+          >{t(item.label)}</button>)}
+        </div>
+        <div className="usage-window-context">
+          <span title={comparison.detail}>{t('较上一周期')} <b>{comparison.label}</b></span>
+          <span>{t('缓存 Token 占比')} <b>{formatCacheRate(windowStats.cache_rate)}</b></span>
+        </div>
       </div>
-      {attention.length > 0 && <div className="usage-attention" aria-label={t('需关注')}>
-        <header><CircleAlert size={15} /><span>{t('需关注')}</span><b>{attention.length}</b></header>
-        <div>{attention.map(item => <article className={item.tone} key={item.title}>
-          <strong>{item.title}</strong><small>{item.detail}</small>
-        </article>)}</div>
-      </div>}
       <div className="usage-analytics-metrics">
         <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} />
-        <MetricCard label={t('较上一周期')} value={comparison.label} detail={comparison.detail} icon={BarChart3} />
         <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
-        <MetricCard label={t('缓存 Token 占比')} value={formatCacheRate(windowStats.cache_rate)} detail={t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })} icon={Activity} />
+        <MetricCard label={t('缓存 Token')} value={formatTokenUnits(windowStats.cached_tokens)} detail={t('命中率 {{rate}}', { rate: formatCacheRate(windowStats.cache_rate) })} icon={Activity} />
+        <MetricCard label={t('工具执行')} value={formatCount(windowStats.tool_calls)} detail={t('{{success}} 成功 · {{errors}} 错误 · {{pending}} 未结算', {
+          success: formatCount(windowStats.tool_successes),
+          errors: formatCount(windowStats.tool_errors),
+          pending: formatCount(windowStats.tool_incomplete),
+        })} icon={Hammer} tone="tool" />
+        <MetricCard label={t('技能加载')} value={formatCount(finite(windowStats.skill_load_attempts) + finite(windowStats.automatic_skill_loads))} detail={t('{{explicit}} 显式 · {{automatic}} 自动 · {{errors}} 失败', {
+          explicit: formatCount(windowStats.skill_load_attempts),
+          automatic: formatCount(windowStats.automatic_skill_loads),
+          errors: formatCount(windowStats.skill_load_errors),
+        })} icon={Sparkles} tone="skill" />
+        <MetricCard label={t('自主执行')} value={formatCount(windowStats.bubble_runs)} detail={t('{{done}} 完成 · {{errors}} 错误 · {{timeouts}} 超时', {
+          done: formatCount(windowStats.bubble_done),
+          errors: formatCount(windowStats.bubble_errors),
+          timeouts: formatCount(windowStats.bubble_timeouts),
+        })} icon={Orbit} tone="autonomy" />
       </div>
       <div className="usage-quality">
         <div className="usage-quality-copy">
@@ -318,12 +364,22 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           <span><i className="unknown" />{t('未追踪')} {formatCacheRate(llmCalls ? untrackedCalls / llmCalls : null)}</span>
         </div>
       </div>
+      <div className={`usage-attention${attention.length ? '' : ' clear'}`} aria-label={attention.length ? t('需关注') : t('暂无异常')}>
+        <header>{attention.length ? <CircleAlert size={15} /> : <CheckCircle2 size={15} />}<span>{attention.length ? t('需关注') : t('暂无异常')}</span>{attention.length > 0 && <b>{attention.length}</b>}</header>
+        {attention.length > 0 && <div>{attention.map(item => <article className={item.tone} key={item.title}>
+          <strong>{item.title}</strong><small>{item.detail}</small>
+        </article>)}</div>}
+      </div>
     </section>
 
-    <section className="admin-panel usage-trend-panel">
+    <div className="usage-resource-dashboard">
+      <section className="admin-panel usage-trend-panel">
       <header>
         <div><h2>{t('{{days}} 日趋势', { days: visibleDaily.length })}</h2><p>{t('按本地日期汇总输入与输出 Token')}</p></div>
-        <div className="usage-trend-legend"><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></div>
+        <div className="usage-trend-head-meta">
+          {peakDaily && <span>{t('峰值')} <b>{formatTokenUnits(peakDaily.total_tokens)}</b> · {peakDaily.date.slice(5).replace('-', '/')}</span>}
+          <div className="usage-trend-legend"><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></div>
+        </div>
       </header>
       <div className="usage-trend-chart" role="img" aria-label={t('{{days}} 日 Token 趋势', { days: visibleDaily.length })}>
         {visibleDaily.map((item, index) => {
@@ -341,17 +397,16 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           </article>;
         })}
       </div>
-    </section>
+      </section>
 
-    <div className="usage-resource-grid">
       <section className="admin-panel usage-model-table-panel">
-        <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><b>{modelEntries.length}</b></header>
+        <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><div className="usage-panel-actions"><b>{allModelEntries.length}</b><DetailToggle expanded={expandedModels} label={t('模型与 Provider')} total={allModelEntries.length} onToggle={() => setExpandedModels(value => !value)} /></div></header>
         <div className="usage-model-table-wrap"><table className="usage-model-table">
           <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('单次平均')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
           <tbody>{modelEntries.length ? modelEntries.map(([key, item]) => <tr key={key}>
             <td title={usageModelLabel(key, item)}>{usageModelLabel(key, item)}</td>
             <td>{formatCount(item.llm_calls)}</td>
-            <td>{formatTokenUnits(item.total_tokens)}</td>
+            <td className="usage-model-token"><span>{formatTokenUnits(item.total_tokens)}</span><i aria-hidden="true" style={{ '--w': clampPercent(totalTokens ? totalFromModelStats(item) / totalTokens * 100 : 0) } as CSSProperties} /></td>
             <td>{formatOptionalTokenUnits(item.avg_tokens_per_call)}</td>
             <td>{formatCacheRate(item.cache_rate)}</td>
             <td>{formatCacheRate(item.exact_coverage)}</td>
@@ -368,6 +423,7 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
             <span>{t(USAGE_SCOPE_LABELS[name] || name)}</span>
             <strong>{formatTokenUnits(item.total_tokens)}</strong>
             <small>{t('{{share}} · {{calls}} 次调用', { share: formatCacheRate(share), calls: formatCount(item.llm_calls) })}</small>
+            <div className="usage-source-track" aria-hidden="true"><span style={{ '--w': clampPercent(share * 100) } as CSSProperties} /></div>
           </article>;
         }) : <p>{t('尚无来源用量')}</p>}</div>
       </section>
@@ -377,7 +433,7 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
       <section className="admin-panel usage-tools-panel">
         <header>
           <div><h2>{t('工具执行')}</h2><p>{t('按调用结果统计，不推断效率')}</p></div>
-          <span className="usage-panel-total"><Hammer size={15} />{formatCount(windowStats.tool_calls)}</span>
+          <div className="usage-panel-actions"><span className="usage-panel-total"><Hammer size={15} />{formatCount(windowStats.tool_calls)}</span><DetailToggle expanded={expandedTools} label={t('工具执行')} total={allToolEntries.length} onToggle={() => setExpandedTools(value => !value)} /></div>
         </header>
         <div className="usage-outcome-summary">
           <span className="success"><CheckCircle2 size={13} />{t('{{count}} 成功', { count: formatCount(windowStats.tool_successes) })}</span>
@@ -386,7 +442,7 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
         </div>
         <div className="usage-execution-list">{toolEntries.length ? toolEntries.map(([name, item]) => {
           const calls = Math.max(1, finite(item.calls));
-          return <article key={name}>
+          return <article className={finite(item.errors) > 0 ? 'has-error' : finite(item.incomplete) > 0 ? 'has-pending' : ''} key={name}>
             <div><strong title={name}>{name}</strong><b>{formatCount(item.calls)}</b></div>
             <div className="usage-outcome-track" aria-hidden="true">
               <i className="success" style={{ '--w': clampPercent(finite(item.successes) / calls * 100) } as CSSProperties} />
@@ -405,14 +461,14 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
       <section className="admin-panel usage-skills-panel">
         <header>
           <div><h2>{t('技能加载')}</h2><p>{t('显式请求与 Palace 自动加载分开统计')}</p></div>
-          <span className="usage-panel-total"><Sparkles size={15} />{formatCount(finite(windowStats.skill_load_attempts) + finite(windowStats.automatic_skill_loads))}</span>
+          <div className="usage-panel-actions"><span className="usage-panel-total"><Sparkles size={15} />{formatCount(finite(windowStats.skill_load_attempts) + finite(windowStats.automatic_skill_loads))}</span><DetailToggle expanded={expandedSkills} label={t('技能加载')} total={allSkillEntries.length} onToggle={() => setExpandedSkills(value => !value)} /></div>
         </header>
         <div className="usage-outcome-summary">
           <span className="success"><CheckCircle2 size={13} />{t('{{count}} 显式成功', { count: formatCount(windowStats.skill_load_successes) })}</span>
           <span className="error"><TriangleAlert size={13} />{t('{{count}} 显式失败', { count: formatCount(windowStats.skill_load_errors) })}</span>
           <span><Orbit size={13} />{t('{{count}} 自动加载', { count: formatCount(windowStats.automatic_skill_loads) })}</span>
         </div>
-        <div className="usage-skill-list">{skillEntries.length ? skillEntries.map(([name, item]) => <article key={name}>
+        <div className="usage-skill-list">{skillEntries.length ? skillEntries.map(([name, item]) => <article className={finite(item.explicit_errors) > 0 ? 'has-error' : finite(item.explicit_incomplete) > 0 ? 'has-pending' : ''} key={name}>
           <strong title={name}>{name}</strong>
           <span>{t('{{success}} / {{attempts}} 显式成功', {
             success: formatCount(item.explicit_successes),

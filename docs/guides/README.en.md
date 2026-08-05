@@ -76,13 +76,18 @@ group. It continues from the summary and provides:
 - Today, 7-day, 30-day, and all-time windows;
 - equal-length comparisons for today versus yesterday, 7 days versus the
   preceding 7 days, and 30 days versus the preceding 30 days;
+- a first-screen summary of tokens, model calls, caching, tools, skill loads,
+  and autonomous runs next to data confidence and attention items;
 - daily input- and output-token trends for the latest 30 days;
 - exact, estimated, and untracked token confidence breakdowns;
-- Provider/model and main, Bubble, and other responsibility-source drivers;
+- Provider/model and main, Bubble, and other responsibility-source drivers,
+  with proportional bars highlighting the largest consumers;
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
 - technical Bubble and subconscious outcomes such as completion, errors,
   timeouts, cycles, and resumes;
+- the first eight ranked model, tool, and skill rows by default, with an
+  in-place control to reveal every remaining record;
 - JSON for the current admin report and CSV for daily aggregates.
 
 ![Coworker Web management console Runtime Analytics](../assets/screenshots/admin-usage-en.png)
