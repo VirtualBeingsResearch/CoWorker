@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from loguru import logger
 
 import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
@@ -536,6 +537,60 @@ async def test_auto_recall_skips_empty_query():
 
     # 不应有 [自动回忆] 消息
     assert not any("[自动回忆]" in str(m.content) for m in mem.primary)
+
+
+@pytest.mark.asyncio
+async def test_auto_recall_logs_long_term_query_exception_with_traceback():
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._long_term._mem = MagicMock()
+    loop._long_term.query = AsyncMock(side_effect=RuntimeError("primary index unavailable"))
+    loop._config.memory.auto_recall_enabled = True
+    loop._config.memory.auto_recall_limit = 5
+
+    records = []
+    sink_id = logger.add(lambda message: records.append(message.record.copy()), level="WARNING")
+    try:
+        await loop._auto_recall("deployment decision")
+    finally:
+        logger.remove(sink_id)
+
+    failure = next(
+        record
+        for record in records
+        if record["message"].startswith("Long-term auto-recall query failed")
+    )
+    assert failure["level"].name == "WARNING"
+    assert "primary index unavailable" in failure["message"]
+    assert failure["exception"] is not None
+    assert str(failure["exception"].value) == "primary index unavailable"
+
+
+@pytest.mark.asyncio
+async def test_auto_recall_logs_recent_activity_exception_with_traceback():
+    loop = _make_loop(_make_brain(), ShortTermMemory())
+    loop._config.memory.auto_recall_enabled = False
+    loop._config.memory.recent_activity_auto_recall_enabled = True
+    loop._recent_activity = MagicMock()
+    loop._recent_activity.query = AsyncMock(
+        side_effect=RuntimeError("recent activity worker stopped")
+    )
+
+    records = []
+    sink_id = logger.add(lambda message: records.append(message.record.copy()), level="WARNING")
+    try:
+        await loop._auto_recall("deployment decision")
+    finally:
+        logger.remove(sink_id)
+
+    failure = next(
+        record
+        for record in records
+        if record["message"].startswith("Recent activity auto-recall query failed")
+    )
+    assert failure["level"].name == "WARNING"
+    assert "recent activity worker stopped" in failure["message"]
+    assert failure["exception"] is not None
+    assert str(failure["exception"].value) == "recent activity worker stopped"
 
 
 @pytest.mark.asyncio

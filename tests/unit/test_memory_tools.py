@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from loguru import logger
 
 from coworker.memory.memory_tree import MemoryNode
 from coworker.memory.short_term import ShortTermMemory
@@ -468,10 +469,30 @@ class TestManageMemoryTool:
         assert "upsert" in result.content
 
     @pytest.mark.asyncio
-    async def test_exception_propagated(self):
+    async def test_exception_returned_and_logged_with_traceback(self):
         memory = _make_memory()
         memory.write = AsyncMock(side_effect=RuntimeError("storage full"))
         tool = ManageMemoryTool(memory)
-        result = await tool.execute(action="write", content="c", category="general")
+
+        records = []
+        sink_id = logger.add(lambda message: records.append(message.record.copy()), level="ERROR")
+        try:
+            result = await tool.execute(
+                action="write",
+                content="private memory content",
+                category="general",
+            )
+        finally:
+            logger.remove(sink_id)
+
         assert result.is_error
         assert "storage full" in result.content
+        failure = next(
+            record for record in records if record["message"].startswith("manage_memory failed")
+        )
+        assert failure["level"].name == "ERROR"
+        assert "action='write'" in failure["message"]
+        assert "category='general'" in failure["message"]
+        assert "private memory content" not in failure["message"]
+        assert failure["exception"] is not None
+        assert str(failure["exception"].value) == "storage full"

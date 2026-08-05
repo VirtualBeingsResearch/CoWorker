@@ -461,7 +461,7 @@ class RecentActivityMemory:
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
-            logger.warning(f"Recent activity query failed: {e}")
+            logger.opt(exception=True).warning(f"Recent activity query failed: {e}")
             return []
 
         docs = (raw.get("documents") or [[]])[0]

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from coworker.i18n import locale_context
 from coworker.memory import recent_activity as recent_activity_module
@@ -344,6 +345,30 @@ async def test_query_moves_embedding_and_chroma_off_event_loop():
 
     assert embedder.thread_id != main_thread_id
     assert collection.thread_id != main_thread_id
+
+
+@pytest.mark.asyncio
+async def test_query_failure_logs_exception_with_traceback():
+    class _FailingCollection(_Collection):
+        def query(self, query_embeddings, n_results, include):
+            raise RuntimeError("metadata segment unavailable")
+
+    mem = _memory(_FailingCollection())
+    records = []
+    sink_id = logger.add(lambda message: records.append(message.record.copy()), level="WARNING")
+    try:
+        result = await mem.query("needle")
+    finally:
+        logger.remove(sink_id)
+
+    assert result == []
+    failure = next(
+        record for record in records if record["message"].startswith("Recent activity query failed")
+    )
+    assert failure["level"].name == "WARNING"
+    assert "metadata segment unavailable" in failure["message"]
+    assert failure["exception"] is not None
+    assert str(failure["exception"].value) == "metadata segment unavailable"
 
 
 @pytest.mark.asyncio

@@ -577,8 +577,10 @@ class AgentLoop:
             logger.debug("Starting long-term auto-recall")
             try:
                 results = await self._long_term.query(query_text, limit=cfg.auto_recall_limit)
-            except Exception:
-                logger.debug("Long-term auto-recall query failed, skipping")
+            except Exception as e:
+                logger.opt(exception=True).warning(
+                    f"Long-term auto-recall query failed, skipping: {e}"
+                )
                 results = []
             new = [
                 m
@@ -621,8 +623,10 @@ class AgentLoop:
                 limit=getattr(cfg, "recent_activity_auto_recall_limit", 2),
                 min_relevance=getattr(cfg, "recent_activity_auto_recall_relevance_threshold", 0.72),
             )
-        except Exception:
-            logger.debug("Recent activity auto-recall query failed, skipping")
+        except Exception as e:
+            logger.opt(exception=True).warning(
+                f"Recent activity auto-recall query failed, skipping: {e}"
+            )
             return
         fresh = [m for m in recent if m.get("id") not in excluded]
         if not fresh:
