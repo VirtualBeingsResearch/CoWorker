@@ -36,12 +36,13 @@ Before initialization, the console shows only first-time setup. After language,
 output-token, Provider, model, and Passive mode settings are saved, Coworker
 restarts. See [First Run](../getting-started/README.en.md) for the complete path.
 
-After initialization, navigation organizes 11 feature pages under four
-workspaces: Overview, Runtime & Memory, Configuration & Identity, and
-Capabilities & Services. Desktop and compact side rails keep every page one
-click away; workspaces provide visual grouping only. Phones retain four
-workspace entries in the bottom bar and can select any of the 11 pages from the
-top bar. Existing `?section=` deep links remain valid.
+After initialization, global navigation contracts to five workbenches: Life
+Overview, Operations, Configuration, People & Identity, and Advanced. Desktop
+and compact side rails open a workbench directly, while related functions use
+compact top-bar tabs. Returning to a workbench restores the tab last used in
+the current session. Phones use five bottom-bar entries and can select any of
+the 11 feature pages from the top bar. Existing `?section=` deep links remain
+valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
@@ -68,7 +69,11 @@ A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
 and the last successful activity when deciding whether there is a failure.
 
-## Runtime & Memory: care for work in progress
+## Operations: care for work in progress
+
+![Coworker Web management console Operations workbench](../assets/screenshots/admin-operations-en.png)
+
+<p align="center"><sub>Operations · Switch among tasks, memory, and diagnostics without leaving the workbench context.</sub></p>
 
 ### Memory Center
 
@@ -132,7 +137,7 @@ When diagnosing a problem:
 See [Troubleshooting](../operations/troubleshooting.en.md) for the common
 diagnostic order and recovery paths.
 
-## Configuration & Identity: adjust models, parameters, and relationships
+## Configuration: adjust models and runtime parameters
 
 ### Model Orchestration
 
@@ -166,6 +171,8 @@ Do not use development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 
+## People & Identity: maintain the companion identity and relationships
+
 ### Identity Profile
 
 Identity Profile manages name, current location, and personality. Saving writes
@@ -185,7 +192,7 @@ framework, and maintain personalized notes. Verify both sets of addresses
 before a merge. Deleting a person removes the relationship record and cannot be
 undone from the ordinary page.
 
-## Capabilities & Services: manage extensions, remote access, and releases
+## Advanced: manage extensions, remote access, and releases
 
 ### Capability Content
 

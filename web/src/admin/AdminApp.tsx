@@ -17,7 +17,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
-type Workspace = 'overview' | 'operations' | 'configuration' | 'extensions';
+type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' | 'advanced';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 
@@ -28,18 +28,26 @@ const NAV: Array<{ id: Section; label: string; description: string; workspace: W
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', workspace: 'operations', icon: ShieldCheck },
   { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', workspace: 'configuration', icon: Brain },
   { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', workspace: 'configuration', icon: Settings2 },
-  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', workspace: 'configuration', icon: Fingerprint },
-  { id: 'people', label: '通信录', description: '人物与跨信道身份', workspace: 'configuration', icon: Users },
-  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', workspace: 'extensions', icon: FileCog },
-  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', workspace: 'extensions', icon: CloudUpload },
-  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'extensions', icon: PackageOpen },
+  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', workspace: 'relationships', icon: Fingerprint },
+  { id: 'people', label: '通信录', description: '人物与跨信道身份', workspace: 'relationships', icon: Users },
+  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', workspace: 'advanced', icon: FileCog },
+  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', workspace: 'advanced', icon: CloudUpload },
+  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'advanced', icon: PackageOpen },
 ];
 const WORKSPACES: Array<{ id: Workspace; label: string; mobileLabel: string; description: string; icon: typeof Activity; sections: Section[] }> = [
-  { id: 'overview', label: '总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview'] },
-  { id: 'operations', label: '运行与记忆', mobileLabel: '运维', description: '任务、记忆、日志与诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
-  { id: 'configuration', label: '配置与身份', mobileLabel: '配置', description: '模型、运行参数与关系', icon: SlidersHorizontal, sections: ['models', 'settings', 'identity', 'people'] },
-  { id: 'extensions', label: '能力与服务', mobileLabel: '能力', description: '能力内容、远程接入与发布', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
+  { id: 'overview', label: '生命总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview'] },
+  { id: 'operations', label: '运行工作台', mobileLabel: '运维', description: '任务、记忆与运行诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
+  { id: 'configuration', label: '配置工作台', mobileLabel: '配置', description: '模型连接与运行参数', icon: SlidersHorizontal, sections: ['models', 'settings'] },
+  { id: 'relationships', label: '人物与身份', mobileLabel: '人物', description: '身份与跨信道人物关系', icon: Users, sections: ['identity', 'people'] },
+  { id: 'advanced', label: '高级管理', mobileLabel: '高级', description: '能力、远程接入与发布维护', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
 ];
+const DEFAULT_SECTION_BY_WORKSPACE: Record<Workspace, Section> = {
+  overview: 'overview',
+  operations: 'runtime',
+  configuration: 'models',
+  relationships: 'identity',
+  advanced: 'content',
+};
 
 const NavigationGuardContext = createContext<(owner: string, dirty: boolean) => void>(() => undefined);
 
@@ -2623,6 +2631,7 @@ export default function AdminApp() {
   const [lifeState, setLifeState] = useState<LifeState>('quiet');
   const dirtyOwners = useRef(new Set<string>());
   const sectionRef = useRef(section);
+  const lastSectionByWorkspace = useRef<Record<Workspace, Section>>({ ...DEFAULT_SECTION_BY_WORKSPACE });
   const acceptedLocation = useRef(`${window.location.pathname}${window.location.search}${window.location.hash}`);
   const reportNavigationDirty = useCallback((owner: string, dirty: boolean) => {
     if (dirty) dirtyOwners.current.add(owner);
@@ -2682,13 +2691,18 @@ export default function AdminApp() {
   }, [ready]);
   const current = useMemo(() => NAV.find(x => x.id === section) || NAV[0], [section]);
   const currentWorkspace = useMemo(() => workspaceForSection(section), [section]);
+  useEffect(() => {
+    lastSectionByWorkspace.current[currentWorkspace.id] = section;
+  }, [currentWorkspace.id, section]);
   const navigate = useCallback((next: Section) => {
     if (next === sectionRef.current || !confirmNavigation()) return;
     const href = sectionHref(next);
     window.history.pushState({}, '', href);
     sectionRef.current = next;
+    lastSectionByWorkspace.current[workspaceForSection(next).id] = next;
     acceptedLocation.current = href;
     setSection(next);
+    window.scrollTo(0, 0);
   }, [confirmNavigation]);
   const onSectionLinkClick = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, next: Section) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -2710,22 +2724,21 @@ export default function AdminApp() {
       </a>
       <nav className="workspace-nav" aria-label={t('照看室导航')}>
         {WORKSPACES.map(workspace => {
-          const active = workspace.id === current.workspace;
-          return <div className={`workspace-group${active ? ' active' : ''}`} key={workspace.id}>
-            <div className="workspace-heading"><span>{t(workspace.label)}</span></div>
-            <div className="workspace-sections">{workspace.sections.map(childId => {
-              const item = NAV.find(candidate => candidate.id === childId)!;
-              return <a href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} className={`workspace-section-link${section === item.id ? ' active' : ''}`} aria-current={section === item.id ? 'page' : undefined} title={`${t(item.label)} · ${t(item.description)}`} key={item.id}><item.icon size={16} /><span>{t(item.label)}</span></a>;
-            })}</div>
-          </div>;
+          const active = workspace.id === currentWorkspace.id;
+          const target = active ? section : lastSectionByWorkspace.current[workspace.id];
+          const WorkspaceIcon = workspace.icon;
+          return <a className={`workspace-link${active ? ' active' : ''}`} href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} aria-current={active ? 'page' : undefined} title={t(workspace.description)} key={workspace.id}>
+            <WorkspaceIcon size={18} />
+            <span className="workspace-copy"><b>{t(workspace.label)}</b><small>{t(workspace.description)}</small></span>
+          </a>;
         })}
       </nav>
       <nav className="mobile-workspace-nav" aria-label={t('照看室导航')}>
         {WORKSPACES.map(workspace => {
-          const active = workspace.id === current.workspace;
-          const target = active ? section : workspace.sections[0];
+          const active = workspace.id === currentWorkspace.id;
+          const target = active ? section : lastSectionByWorkspace.current[workspace.id];
           const WorkspaceIcon = workspace.icon;
-          return <a className={`mobile-workspace-link${active ? ' active' : ''}`} href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} title={t(workspace.description)} aria-label={t(workspace.label)} aria-current={active && workspace.sections.length === 1 ? 'page' : undefined} key={workspace.id}>
+          return <a className={`mobile-workspace-link${active ? ' active' : ''}`} href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} title={t(workspace.description)} aria-label={t(workspace.label)} aria-current={active ? 'page' : undefined} key={workspace.id}>
             <WorkspaceIcon size={18} />
             <span>{t(workspace.mobileLabel)}</span>
           </a>;
@@ -2739,6 +2752,10 @@ export default function AdminApp() {
     <section className="admin-main">
       <header className="admin-topbar">
         <div className="topbar-title"><p className="eyebrow">{t(currentWorkspace.label)}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span><label className="workspace-picker"><span className="sr-only">{t('切换管理页面')}</span><select aria-label={t('切换管理页面')} value={section} onChange={event => navigate(event.target.value as Section)}>{WORKSPACES.map(workspace => <optgroup label={t(workspace.label)} key={workspace.id}>{workspace.sections.map(sectionId => <option value={sectionId} key={sectionId}>{t(NAV.find(item => item.id === sectionId)?.label || sectionId)}</option>)}</optgroup>)}</select></label></div>
+        {currentWorkspace.sections.length > 1 && <nav className="workspace-tabs" aria-label={t('当前工作台页面')}>{currentWorkspace.sections.map(sectionId => {
+          const item = NAV.find(candidate => candidate.id === sectionId)!;
+          return <a href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} title={t(item.description)} key={item.id}><item.icon size={14} /><span>{t(item.label)}</span></a>;
+        })}</nav>}
         <div className="topbar-actions">
           <AdminLanguageSwitch />
           <div className="shell-life" aria-label={lifeLabel}><span><i />{lifeLabel}</span></div>

@@ -548,7 +548,7 @@ html:has(.admin-login),
 .admin-sidebar nav.workspace-nav {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 5px;
   overflow-y: auto;
   padding: 2px 4px 2px 0;
   scrollbar-gutter: stable;
@@ -557,49 +557,31 @@ html:has(.admin-login),
 .admin-sidebar nav.workspace-nav::-webkit-scrollbar { width: 6px; }
 .admin-sidebar nav.workspace-nav::-webkit-scrollbar-thumb { border-width: 1px; }
 .mobile-workspace-nav { display: none; }
-.workspace-group { display: grid; gap: 2px; }
-.workspace-heading {
-  display: flex;
-  align-items: center;
-  min-height: 18px;
-  padding: 0 8px;
-  color: color-mix(in oklch, var(--admin-paper) 34%, var(--admin-ink));
-  font-size: 8px;
-  font-weight: 680;
-  letter-spacing: .08em;
-  white-space: nowrap;
-}
-
-.workspace-heading::after {
-  content: '';
-  flex: 1;
-  margin-left: 8px;
-  border-top: 1px solid #ffffff10;
-}
-
-.workspace-group.active .workspace-heading { color: color-mix(in oklch, var(--admin-paper) 54%, var(--admin-ink)); }
-.workspace-sections { display: grid; gap: 2px; }
-.workspace-section-link {
+.workspace-link {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  min-height: 32px;
-  padding: 0 9px;
+  min-height: 48px;
+  padding: 6px 9px;
   border: 1px solid transparent;
-  border-radius: 8px;
-  color: color-mix(in oklch, var(--admin-paper) 52%, var(--admin-ink));
+  border-radius: 10px;
+  color: color-mix(in oklch, var(--admin-paper) 58%, var(--admin-ink));
   background: transparent;
-  font-size: 10px;
   text-align: left;
   text-decoration: none;
   transition: color .16s ease, background .16s ease, border-color .16s ease;
 }
 
-.workspace-section-link:hover { color: var(--admin-paper); background: #ffffff08; }
-.workspace-section-link.active { color: color-mix(in oklch, var(--admin-vital) 62%, white); border-color: #ffffff10; background: color-mix(in oklch, var(--admin-vital) 13%, transparent); font-weight: 680; }
-.workspace-section-link.active::before { content: ''; position: absolute; left: -14px; width: 3px; height: 20px; border-radius: 0 999px 999px 0; background: var(--admin-vital); }
+.workspace-link:hover { color: var(--admin-paper); background: #ffffff08; }
+.workspace-link.active { color: var(--admin-paper); border-color: #ffffff12; background: color-mix(in oklch, var(--admin-vital) 15%, transparent); }
+.workspace-link.active::before { content: ''; position: absolute; left: -14px; width: 3px; height: 24px; border-radius: 0 999px 999px 0; background: var(--admin-vital); }
+.workspace-copy { flex: 1; min-width: 0; }
+.workspace-copy b,
+.workspace-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-copy b { font-size: 11px; font-weight: 680; }
+.workspace-copy small { margin-top: 3px; color: color-mix(in oklch, currentColor 65%, transparent); font-size: 8px; }
 
 .sidebar-foot {
   display: grid;
@@ -644,11 +626,16 @@ html:has(.admin-login),
   backdrop-filter: blur(18px);
 }
 
-.topbar-title { min-width: 0; }
+.topbar-title { flex: 1 1 260px; min-width: 0; }
 .topbar-title .eyebrow { margin-bottom: 5px; font-size: 9px; }
 .topbar-title h1 { display: inline; margin: 0; font: 660 22px/1.2 var(--admin-display); letter-spacing: -.035em; }
 .topbar-title > span { margin-left: 14px; color: var(--admin-muted); font-size: 12px; }
-.topbar-actions { display: flex; align-items: center; gap: 22px; }
+.workspace-tabs { display: flex; flex: 0 1 auto; align-items: center; gap: 3px; max-width: 42vw; overflow-x: auto; padding: 4px; border: 1px solid var(--admin-line); border-radius: 11px; background: color-mix(in oklch, var(--admin-surface) 88%, var(--admin-paper)); scrollbar-width: none; }
+.workspace-tabs::-webkit-scrollbar { display: none; }
+.workspace-tabs a { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 9px; border-radius: 7px; color: var(--admin-muted); font-size: 10px; font-weight: 580; text-decoration: none; white-space: nowrap; transition: color .16s ease, background .16s ease, box-shadow .16s ease; }
+.workspace-tabs a:hover { color: var(--admin-ink); background: var(--admin-paper); }
+.workspace-tabs a.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 2px 8px color-mix(in oklch, var(--admin-ink) 8%, transparent); font-weight: 680; }
+.topbar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 18px; }
 .topbar-actions > a { display: inline-flex; align-items: center; gap: 5px; color: var(--admin-muted); font-size: 11px; text-decoration: none; white-space: nowrap; }
 .topbar-actions > a:hover { color: var(--admin-vital); }
 .workspace-picker { display: none; margin-left: 10px; vertical-align: 2px; }
@@ -2251,7 +2238,7 @@ html:has(.admin-login),
   .admin-shell { grid-template-columns: 240px minmax(0, 1fr); }
   .admin-sidebar { padding: 24px 16px 18px; }
   .admin-brand b { max-width: 150px; }
-  .workspace-section-link.active::before { left: -16px; }
+  .workspace-link.active::before { left: -16px; }
 
   .admin-topbar { min-height: 88px; padding-inline: clamp(40px, 2.4vw, 64px); }
   .topbar-title h1 { font-size: 24px; }
@@ -2299,6 +2286,13 @@ html:has(.admin-login),
   .vital { min-height: clamp(152px, 9dvh, 190px); }
 }
 
+@media (max-width: 1360px) {
+  .admin-topbar { gap: 18px; }
+  .topbar-title > span { display: none; }
+  .workspace-tabs a { padding-inline: 8px; }
+  .topbar-actions { gap: 14px; }
+}
+
 @media (max-width: 1120px) {
   .short-memory-grid { grid-template-columns: 1fr; }
   .short-tree,
@@ -2307,19 +2301,17 @@ html:has(.admin-login),
   .admin-sidebar { padding-inline: 10px; }
   .admin-brand { justify-content: center; padding-inline: 0; }
   .admin-brand > div:last-child,
-  .workspace-heading span,
-  .workspace-section-link span,
+  .workspace-copy,
   .sidebar-foot > span,
   .sidebar-foot button span { display: none; }
   .admin-sidebar nav.workspace-nav { gap: 4px; padding-right: 0; scrollbar-gutter: auto; }
-  .workspace-group { gap: 1px; }
-  .workspace-heading { min-height: 8px; padding: 0 8px; }
-  .workspace-heading::after { margin-left: 0; }
-  .workspace-section-link { justify-content: center; min-height: 36px; padding: 0; }
-  .workspace-section-link.active::before { left: -10px; }
+  .workspace-link { justify-content: center; min-height: 44px; padding: 0; }
+  .workspace-link.active::before { left: -10px; }
   .sidebar-foot button { justify-content: center; }
   .topbar-title > span { display: none; }
-  .workspace-picker { display: inline-flex; }
+  .workspace-tabs { max-width: 48vw; }
+  .topbar-actions > a,
+  .shell-life > span { display: none; }
   .presence-hero { grid-template-columns: minmax(0, 1fr) 280px; }
   .presence-readout > div { min-width: 120px; padding-inline: 16px; }
   .presence-readout > div:first-child { min-width: 200px; }
@@ -2350,7 +2342,7 @@ html:has(.admin-login),
   .admin-brand,
   .sidebar-foot { display: none; }
   .admin-sidebar nav.workspace-nav { display: none; }
-  .admin-sidebar nav.mobile-workspace-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; height: 100%; overflow: hidden; padding: 0; }
+  .admin-sidebar nav.mobile-workspace-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; height: 100%; overflow: hidden; padding: 0; }
   .mobile-workspace-link { position: relative; display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; min-height: 60px; padding: 0 4px; border-radius: 9px; color: color-mix(in oklch, var(--admin-paper) 62%, var(--admin-ink)); font-size: var(--admin-type-caption); font-weight: 650; text-align: center; text-decoration: none; }
   .mobile-workspace-link:hover { color: var(--admin-paper); background: #ffffff0a; }
   .mobile-workspace-link.active { color: var(--admin-paper); background: color-mix(in oklch, var(--admin-vital) 17%, transparent); }
@@ -2363,7 +2355,8 @@ html:has(.admin-login),
   .topbar-actions > a,
   .shell-life > span { display: none; }
   .topbar-title:has(.workspace-picker) > h1 { display: none; }
-  .workspace-picker { margin-left: 0; }
+  .workspace-tabs { display: none; }
+  .workspace-picker { display: inline-flex; margin-left: 0; }
   .workspace-picker select { max-width: min(180px, 52vw); }
   .admin-content { padding: 20px 16px 108px; }
   .presence-hero { grid-template-columns: 1fr; }
