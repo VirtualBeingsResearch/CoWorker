@@ -161,7 +161,7 @@ class AdminConfigService:
             overridden_fields=self._overridden_fields(overrides),
             hot_reloadable=sorted(
                 HOT_CONFIG_PATHS
-                | {"llm.managed_providers", "desktop_updates"}
+                | {"llm.managed_providers", "desktop_updates", "channel_access"}
                 | (
                     self._channel_modules.hot_reloadable_keys()
                     if self._channel_modules is not None
@@ -337,9 +337,15 @@ class AdminConfigService:
         next_overrides: JsonObject,
     ) -> tuple[Config, Config]:
         effective = self._dependencies.config.model_dump(mode="json")
+        desired_base = self._dependencies.config.model_dump(mode="json")
+        inherited = self._dependencies.inherited_config.model_dump(mode="json")
+        # A removed dynamic channel override must fall back to the inherited
+        # mapping instead of being reintroduced from the already-hot-applied
+        # running Config.
+        desired_base["channel_access"] = inherited["channel_access"]
         try:
             before = Config.model_validate(_deep_merge(effective, current_overrides))
-            desired = Config.model_validate(_deep_merge(effective, next_overrides))
+            desired = Config.model_validate(_deep_merge(desired_base, next_overrides))
         except ValidationError as error:
             raise ConfigUpdateError(422, json.loads(error.json())) from error
         return before, desired
@@ -354,6 +360,7 @@ class AdminConfigService:
         await self._apply_provider_changes(desired, changed_paths, applied, restart)
         await self._apply_desktop_changes(desired, changed_paths, applied)
         await self._apply_channel_changes(desired, changed_paths, applied)
+        self._apply_channel_access_changes(desired, changed_paths, applied)
         self._apply_scalar_changes(desired, changed_paths, applied)
         return sorted(set(applied)), restart
 
@@ -430,6 +437,25 @@ class AdminConfigService:
             setattr(self._dependencies.config, settings.config_key, desired_settings)
             applied.append(settings.config_key)
 
+    def _apply_channel_access_changes(
+        self,
+        desired: Config,
+        changed_paths: set[str],
+        applied: list[str],
+    ) -> None:
+        if not any(
+            path == "channel_access" or path.startswith("channel_access.")
+            for path in changed_paths
+        ):
+            return
+        # ChannelAccessController retains this root model instance. Replacing its
+        # mapping makes the new immutable rule objects visible to every Channel
+        # without re-registering transports or restarting their runtimes.
+        self._dependencies.config.channel_access.root = (
+            desired.channel_access.model_copy(deep=True).root
+        )
+        applied.append("channel_access")
+
     def _apply_scalar_changes(
         self,
         desired: Config,
@@ -479,6 +505,8 @@ class AdminConfigService:
             and not _is_desktop_hot(path)
             and not path.startswith("llm.managed_providers")
             and not path.startswith(channel_prefixes)
+            and not path.startswith("channel_access.")
+            and path != "channel_access"
         }
 
     def _channel_settings(self) -> list[tuple[str, ChannelSettings]]:
@@ -493,6 +521,8 @@ class AdminConfigService:
         section, field_name = parts
         inherited = self._dependencies.inherited_config.model_dump(mode="json")
         section_data = inherited.get(section)
+        if section == "channel_access":
+            return bool(field_name.strip())
         return isinstance(section_data, dict) and field_name in section_data
 
     def _masked_config(

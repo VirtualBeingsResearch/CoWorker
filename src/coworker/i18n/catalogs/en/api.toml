@@ -111,6 +111,8 @@ protocol_version = "protocol_version must be 1"
 message_id_required = "message_id is required"
 event_type_required = "Desktop event type is required"
 payload_required = "Desktop payload is required"
+channel_access_denied = "Channel access policy blocks inbound messages from participant_id='{{participant}}' through {{channel}}."
+channel_access_denied_websocket = "Channel access policy denied this inbound message"
 
 [api.relay]
 client_not_ready = "Relay client is not ready"

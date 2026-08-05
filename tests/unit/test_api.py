@@ -20,7 +20,7 @@ from coworker.channels.stream.connection_pool import ConnectionPool
 from coworker.channels.stream.desktop import DesktopDispatcher, DesktopProfile, DesktopRegistry
 from coworker.channels.stream.wire import serialize_outbound_message
 from coworker.channels.system import ChannelSystem, create_channel_system
-from coworker.core.config import APIConfig
+from coworker.core.config import APIConfig, ChannelAccessConfig
 from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
@@ -182,6 +182,77 @@ class TestPostMessages:
         assert body["sender_id"] == "alice"
         mock_inbox.push.assert_called_once()
 
+    def test_channel_access_returns_403_before_inbound_processing(
+        self,
+        client,
+        tmp_path,
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = create_channel_system(
+            tmp_path / "outbox",
+            access_config=ChannelAccessConfig.model_validate(
+                {"stream": {"inbound_deny": ["blocked"]}}
+            ),
+        )
+        communication.registry.set_inbound_handler(mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            channels=communication.registry,
+        )
+
+        response = client.post(
+            "/messages",
+            json={"sender_id": "blocked", "content": "hello"},
+        )
+
+        assert response.status_code == 403
+        assert "blocked" in response.json()["detail"]
+        mock_inbox.push.assert_not_awaited()
+
+    def test_denied_desktop_message_id_can_be_retried_after_policy_change(
+        self,
+        client,
+        tmp_path,
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _communication_with_desktop(tmp_path, mock_inbox.push)
+        communication.access.config.root = ChannelAccessConfig.model_validate(
+            {
+                "desktop": {
+                    "inbound_deny": [
+                        "coworker-desktop:desk:claude:cw:participant"
+                    ]
+                }
+            }
+        ).root
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            development_mode=True,
+            channels=communication.registry,
+        )
+        message = {
+            "sender_id": "coworker-desktop:desk:claude:cw:participant",
+            "protocol_version": 1,
+            "message_id": "desktop-policy-retry",
+            "created_at": "2026-08-05T00:00:00Z",
+            "type": "desktop.thread.event",
+            "payload": {"actor_id": "claude", "message": "hello"},
+        }
+
+        denied = client.post("/messages", json=message)
+        communication.access.config.root = {}
+        accepted = client.post("/messages", json=message)
+
+        assert denied.status_code == 403
+        assert accepted.status_code == 200
+        assert accepted.json()["duplicate"] is False
+        mock_inbox.push.assert_awaited_once()
 
     def test_attachment_filename_is_sanitized(self, client, tmp_path, monkeypatch):
         compact_id_with_separator = "abcde_fghijk"
@@ -551,6 +622,26 @@ class TestConnectionRejection:
         assert event.content == "hi"
         assert event.conversation_id == "thr_1"
         assert event.source == "websocket"
+
+    def test_websocket_closes_when_inbound_access_is_denied(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = create_channel_system(
+            tmp_path / "outbox",
+            access_config=ChannelAccessConfig.model_validate(
+                {"stream": {"inbound_deny": ["blocked"]}}
+            ),
+        )
+        communication.registry.set_inbound_handler(mock_inbox.push)
+        _setup_api_channels(communication)
+
+        with client.websocket_connect("/ws/blocked") as websocket:
+            websocket.send_text("hello")
+            with pytest.raises(WebSocketDisconnect) as error:
+                websocket.receive_text()
+
+        assert error.value.code == 1008
+        mock_inbox.push.assert_not_awaited()
 
     def test_websocket_duplicate_gets_rejection_message(self, client, tmp_path):
         mock_inbox = MagicMock()

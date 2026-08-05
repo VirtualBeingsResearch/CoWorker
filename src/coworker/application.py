@@ -684,6 +684,7 @@ async def _main() -> bool:
     channel_system = create_channel_system(
         config.agent.outbox_dir,
         Path(config.memory.db_path) / "channel_activity.json",
+        config.channel_access,
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None

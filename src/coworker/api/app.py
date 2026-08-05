@@ -36,6 +36,7 @@ from coworker.api.routes import (
     router,
     verify_communication_authorization,
 )
+from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
@@ -809,6 +810,11 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
                     payload={"text": text},
                 )
             )
+    except ChannelAccessDeniedError:
+        await ws.close(
+            code=1008,
+            reason=tr("api.message.channel_access_denied_websocket"),
+        )
     except WebSocketDisconnect:
         logger.info(f"WS client disconnected: {participant_id}")
     finally:

@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.wecom import adapter
 from coworker.channels.wecom.contacts import ContactsStore, normalize_chat_type
 from coworker.channels.wecom.sender import WeComSender
 from coworker.core.types import IncomingEvent
+from coworker.i18n import tr
 
 
 class _LoguruLogger:
@@ -82,9 +84,13 @@ class WeComRunner:
         self._connection_blocked = False
         self._reconfigure_lock = asyncio.Lock()
         self._inbound_handler: InboundHandler | None = None
+        self._access = ChannelAccessController()
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
+
+    def set_access_controller(self, access: ChannelAccessController) -> None:
+        self._access = access
 
     async def start(self) -> None:
         while not self._stop.is_set():
@@ -174,6 +180,9 @@ class WeComRunner:
 
     async def _on_text_like(self, frame: dict[str, Any]) -> None:
         try:
+            participant_id = adapter.participant_id_for(frame)
+            if not self._allows_inbound(participant_id):
+                return
             event = adapter.frame_to_event(frame, attachments=[])
             self._cache_frame(event.participant_id, event.conversation_id, frame)
             await self._publish_inbound(event)
@@ -182,6 +191,9 @@ class WeComRunner:
 
     async def _on_with_attachments(self, frame: dict[str, Any]) -> None:
         try:
+            participant_id = adapter.participant_id_for(frame)
+            if not self._allows_inbound(participant_id):
+                return
             atts = await adapter.collect_attachments(self._client, frame, self._attachments_dir)
             event = adapter.frame_to_event(frame, attachments=atts)
             self._cache_frame(event.participant_id, event.conversation_id, frame)
@@ -198,6 +210,18 @@ class WeComRunner:
             logger.warning("Dropping WeCom inbound event: no channel handler is configured")
             return
         await self._inbound_handler(event)
+
+    def _allows_inbound(self, participant_id: str) -> bool:
+        if self._access.allows("wecom", "inbound", participant_id):
+            return True
+        logger.info(
+            tr(
+                "channel.access.inbound_denied",
+                channel="wecom",
+                participant=participant_id,
+            )
+        )
+        return False
 
     async def _on_kicked(self, frame: dict[str, Any]) -> None:
         logger.warning("WeCom kicked by a newer connection; will not auto-reconnect")

@@ -7,12 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.channels.wecom.sender import split_markdown as _split_markdown
-from coworker.core.config import WeComConfig
+from coworker.core.config import ChannelAccessConfig, WeComConfig
 from coworker.core.types import CommunicateRequest
 
 
@@ -214,6 +215,38 @@ async def test_single_inbound_frame_supports_reply_without_conversation_id(tmp_p
     assert event.conversation_id is None
     assert event.content == "ping"
     assert runner._client.reply_stream.await_args.args[0] is frame
+
+
+@pytest.mark.asyncio
+async def test_inbound_access_is_checked_before_attachment_download_and_cache(
+    tmp_path,
+    monkeypatch,
+):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    collect_attachments = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "coworker.channels.wecom.adapter.collect_attachments",
+        collect_attachments,
+    )
+    runner.set_inbound_handler(handler)
+    runner.set_access_controller(
+        ChannelAccessController(
+            ChannelAccessConfig.model_validate(
+                {"wecom": {"inbound_deny": ["wecom:single:U123"]}}
+            )
+        )
+    )
+    frame = _frame_single()
+    frame["body"]["msgtype"] = "image"
+
+    await runner._on_with_attachments(frame)
+
+    collect_attachments.assert_not_awaited()
+    handler.assert_not_awaited()
+    assert runner._frame_cache == {}
+    assert runner._contacts == {}
+    assert runner.activity_for("wecom:single:U123") == (None, None)
 
 
 def test_channel_lists_latest_activity_times(tmp_path):

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.module import ChannelModuleRegistry
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
@@ -43,6 +44,7 @@ def _client(
     alarm_manager=None,
     wecom: dict | None = None,
     weixin: dict | None = None,
+    channel_access: dict | None = None,
     channel_modules=None,
     relay_client=None,
     persona: bool = False,
@@ -57,6 +59,7 @@ def _client(
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
             "weixin": weixin or {},
+            "channel_access": channel_access or {},
         }
     )
     agent = SimpleNamespace(
@@ -782,6 +785,63 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     applied = runner.reconfigure.await_args.args[0]
     assert applied.ws_url == "wss://wecom.example/ws"
     assert applied.secret == "existing"
+
+
+def test_channel_access_config_hot_applies_with_direct_channel_shape(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    access = ChannelAccessController(config.channel_access)
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert body["config"]["channel_access"] == {}
+    assert "channel_access" in body["hot_reloadable"]
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "channel_access": {
+                    "wecom": {
+                        "inbound_allow": ["wecom:single:*"],
+                        "inbound_deny": ["wecom:single:blocked"],
+                        "outbound_allow": [],
+                        "outbound_deny": ["wecom:group:test-*"],
+                    }
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["channel_access"]
+    assert response.json()["requires_restart"] == []
+    rules = config.channel_access.root["wecom"]
+    assert rules.inbound_allow == ["wecom:single:*"]
+    assert rules.outbound_deny == ["wecom:group:test-*"]
+    assert not access.allows("wecom", "outbound", "wecom:group:test-one")
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["channel_access"]["wecom"] == {
+        "inbound_allow": ["wecom:single:*"],
+        "inbound_deny": ["wecom:single:blocked"],
+        "outbound_allow": [],
+        "outbound_deny": ["wecom:group:test-*"],
+    }
+
+    cleared = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"clear_overrides": ["channel_access.wecom"]},
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["applied_now"] == ["channel_access"]
+    assert config.channel_access.root == {}
+    assert access.allows("wecom", "outbound", "wecom:group:test-one")
+    assert json.loads(
+        (tmp_path / "admin_config.json").read_text(encoding="utf-8")
+    ) == {}
 
 
 class _ChannelManagement:

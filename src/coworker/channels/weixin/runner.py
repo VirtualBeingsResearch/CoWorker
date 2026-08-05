@@ -11,6 +11,7 @@ from uuid import uuid4
 import qrcode
 from loguru import logger
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.weixin.client import (
@@ -79,6 +80,7 @@ class WeixinRunner:
         self._login_sessions: dict[str, _LoginSession] = {}
         self._login_lock = asyncio.Lock()
         self._polling_failures: set[str] = set()
+        self._access = ChannelAccessController()
 
     @property
     def config(self) -> WeixinConfig:
@@ -86,6 +88,9 @@ class WeixinRunner:
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
+
+    def set_access_controller(self, access: ChannelAccessController) -> None:
+        self._access = access
 
     async def start(self) -> None:
         while not self._stop.is_set():
@@ -320,10 +325,19 @@ class WeixinRunner:
         user_id = str(message.get("from_user_id") or "").strip()
         if not user_id:
             return
+        participant_id = self._participant_id(bot_instance_id)
+        if not self._access.allows("weixin", "inbound", participant_id):
+            logger.info(
+                tr(
+                    "channel.access.inbound_denied",
+                    channel="weixin",
+                    participant=participant_id,
+                )
+            )
+            return
         context_token = str(message.get("context_token") or "")
         if context_token:
             self._connection_state(bot_instance_id).context_tokens[user_id] = context_token
-        participant_id = self._participant_id(bot_instance_id)
         self._activity.record_received(participant_id)
         if self._inbound_handler is None:
             logger.warning(tr("channel.weixin.inbound_unhandled"))

@@ -140,6 +140,7 @@ fallback_saved = "当前没有可用的实时连接；message 已记录在本地
 failed = "消息发送失败: {{error}}"
 no_connections = "当前没有任何连接或已知通信对象。"
 no_channel = "没有可处理 participant_id='{{participant}}' 的通信信道。请先用 list_connections 获取可用对象并复制完整 ID。"
+channel_access_denied = "信道访问策略禁止通过 {{channel}} 向 participant_id='{{participant}}' 发送消息。请勿重试此目标。"
 participant_unknown = "participant_id='{{participant}}' 不存在。请先用 list_connections 获取可用对象并复制完整 ID。"
 participant_similar = '''participant_id='{{participant}}' 不存在。以下已知 ID 与其相差不超过 {{max_distance}} 个字符；系统不会自动纠正或发送，请复制正确的完整 ID 后重新调用：
 {{options}}'''

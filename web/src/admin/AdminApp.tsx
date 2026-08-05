@@ -880,7 +880,7 @@ function Settings() {
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
+      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>
   </div>;
 }

@@ -125,6 +125,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop 开发模式；关闭 Bearer/HTTPS 校验，仅应为本机 HTTP 调试显式开启 |
 | `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | Desktop 生产通信 Bearer 令牌；需要与管理权限隔离时单独配置 |
+| `CHANNEL_ACCESS` | `{}` | 按信道设置 participant 入站/出站访问列表的 JSON 对象；每项可含 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` |
 | `ADMIN__TOKEN` | 首次启动自动生成 | `/admin` 管理控制台和 `/api/admin/*` 的 Bearer 令牌；自动值会保存到管理端配置文件 |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | 管理页保存的 typed JSON 覆盖层，优先级高于 `.env`；非热更新配置重启后生效 |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Desktop 自动更新 release 与 asset 的存储目录 |
@@ -141,6 +142,10 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
+
+`CHANNEL_ACCESS` 的键是信道名，四类规则都是大小写敏感的整串 participant ID glob。deny
+优先；allow 非空时只允许命中项；未配置或四个列表都为空时允许全部。该配置可在管理端
+“信道访问”中热更新。内置键、拦截时机和示例见[信道访问列表](../channels/api-and-channels.md#信道访问列表)。
 
 主循环处于休息状态时，管理端「生命总览」会显示「继续运行」。该操作本身只发送内部
 唤醒信号，不创建新的 inbox 消息；模型从现有上下文继续，之前已静默排队的启动通知或

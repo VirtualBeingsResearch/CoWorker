@@ -13,11 +13,12 @@
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelAccessController, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None, access_config=None)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
 - `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
 - `activity`：记录 participant 最近成功发送与接收时间。传入 `activity_path` 时使用原子 JSON 持久化，应用重启后仍可恢复。
+- `access`：共享的 participant 入站/出站访问控制器；Registry、Channel 与 Stream profile 使用同一份配置。
 - `modules`：保存完整信道模块贡献的管理接口和热设置应用器。
 
 新增独立传输时继承 `BaseChannel`。只需要传输时可调用
@@ -58,6 +59,20 @@ channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 应用内置的 Stream、Desktop 与 WeCom 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
 
 Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments` 和 `extra`，默认仅支持 `message`。Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。
+
+## 信道访问列表
+
+`CHANNEL_ACCESS` 按信道配置 participant 的入站和出站白名单/黑名单；也可以在管理端“信道访问”中修改并立即生效：
+
+```env
+CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["wecom:trusted:blocked"],"outbound_allow":[],"outbound_deny":["wecom:external:*"]},"desktop":{"inbound_allow":[],"inbound_deny":[],"outbound_allow":["coworker-desktop:*:local:*"],"outbound_deny":[]}}
+```
+
+每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
+
+内置配置键是 `stream`、`desktop`、`wecom` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前；REST `/messages` 返回 `403`，WebSocket 以 `1008` 关闭，企业微信和微信 Claw 则静默丢弃并记录不含正文的日志。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+
+这些列表只表达“某个信道方向上是否允许某个规范 participant 地址”，不是身份认证、租户隔离或“哪些人可以唤醒 Agent”的权限模型。群聊、机器人实例等聚合 participant 也只按它们自己的 participant ID 判定，不会推导到真实人员身份。
 
 企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。群聊发送时不传 `conversation_id` 也始终视为主动消息，不会自动使用缓存的 frame。
 

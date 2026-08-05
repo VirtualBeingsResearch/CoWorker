@@ -13,11 +13,12 @@ When sending through the built-in Stream, Desktop, WeCom, or Weixin Claw channel
 
 ## Channel development model
 
-`from coworker.channels import BaseChannel, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None)` is the application's single communication composition root. It returns:
+`from coworker.channels import BaseChannel, ChannelAccessController, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` is the stable development entry point. `create_channel_system(outbox_dir, activity_path=None, access_config=None)` is the application's single communication composition root. It returns:
 
 - `registry`, which registers Channels, routes inbound and outbound traffic, and starts or stops each shared Runtime exactly once.
 - `stream_runtime`, which owns WS/SSE connections, participant registrations, attachment storage, and offline outbox delivery and provides Stream infrastructure to HTTP and WebSocket routes.
 - `activity`, which records each participant's latest successful send and receive times. When `activity_path` is provided, atomic JSON persistence restores them after an application restart.
+- `access`, the shared inbound/outbound participant-access controller used by the Registry, Channels, and Stream profiles.
 - `modules`, which stores management interfaces and hot-settings providers contributed by complete channel modules.
 
 To add an independent transport, subclass `BaseChannel`. A transport-only integration may call
@@ -58,6 +59,20 @@ channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 The built-in Stream, Desktop, and WeCom implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
 
 A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
+
+## Channel access lists
+
+`CHANNEL_ACCESS` configures inbound and outbound participant allowlists and denylists by channel. The same settings can be changed in **Channel Access** in the administration console and take effect immediately:
+
+```env
+CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["wecom:trusted:blocked"],"outbound_allow":[],"outbound_deny":["wecom:external:*"]},"desktop":{"inbound_allow":[],"inbound_deny":[],"outbound_allow":["coworker-desktop:*:local:*"],"outbound_deny":[]}}
+```
+
+Each channel has four lists: `inbound_allow`, `inbound_deny`, `outbound_allow`, and `outbound_deny`. Patterns match the complete participant ID case-sensitively and support `*`, `?`, and `[...]`; a value without wildcards is exact. Evaluation is: a matching deny rejects; otherwise a non-empty allow requires a match; otherwise access is allowed. An unconfigured channel, `{}`, or four empty lists therefore preserves the compatible allow-all behavior.
+
+Built-in configuration keys are `stream`, `desktop`, `wecom`, and `weixin`. A Stream profile uses its own channel name, so Desktop participants are governed by `desktop`, not `stream`. Extension Channels use their registered names. Inbound rejection happens before attachment download, reply-frame/context-token caching, activity recording, and Agent handling. REST `/messages` returns `403`, WebSocket closes with `1008`, and WeCom or Weixin Claw silently drops the event while logging no message body. The Registry enforces outbound rejection, and denied participants are hidden from the Agent's `list_connections` while their rules remain editable by administrators.
+
+These lists answer only whether a canonical participant address is allowed in one channel direction. They are not authentication, tenant isolation, or a policy for who may wake the Agent. Aggregate participants such as groups and bot instances are evaluated by their own participant IDs and are not resolved to real-person identities.
 
 WeCom direct messages do not expose a `conversation_id`; replies automatically use the user's latest fresh frame. Group-chat events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same group. A group send without `conversation_id` is also always proactive and never uses a cached frame automatically.
 

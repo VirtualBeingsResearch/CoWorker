@@ -77,7 +77,8 @@ An ordinary accepted message returns:
 
 `sender_id` contributes to the persistent conversation-isolation boundary. Keep it stable,
 auditable, and unique to the participant. Attachment `data` is Base64. HTTP success means queued,
-not that a model response has completed.
+not that a model response has completed. If the channel's inbound access lists reject `sender_id`,
+the server returns `403` before decoding attachments or queuing the message.
 
 ### Status and models
 
@@ -116,7 +117,7 @@ FastAPI errors usually have this form:
 | Status | Response |
 |---|---|
 | `400/422` | Correct request, model, or protocol fields; do not retry unchanged |
-| `401/403` | Check token and scope; never log the full Authorization value |
+| `401/403` | Check token, authentication scope, and channel access lists; never log the full Authorization value |
 | `404` | Check resource, version, or whether the feature is enabled |
 | `409` | A task or connection already exists; query its state first |
 | `503` | Agent, Channel, or token is not ready; retry with backoff |

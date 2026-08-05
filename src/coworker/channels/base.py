@@ -7,10 +7,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
+from loguru import logger
+
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import DEFAULT_RUNTIME, ChannelRuntime
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
+from coworker.i18n import tr
 
 InboundHandler = Callable[[IncomingEvent], Awaitable[Any]]
 
@@ -87,6 +91,7 @@ class BaseChannel(ABC):
         self._capabilities = capabilities or ChannelCapabilities()
         self._activity = activity or ChannelActivityStore()
         self._inbound_handler: InboundHandler | None = None
+        self._access = ChannelAccessController()
 
     @classmethod
     def from_sender(
@@ -128,9 +133,26 @@ class BaseChannel(ABC):
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
 
+    def set_access_controller(self, access: ChannelAccessController) -> None:
+        self._access = access
+
+    def access_channel_for(self, participant_id: str) -> str:
+        """Return the policy namespace for a participant handled by this Channel."""
+        return self.name
+
     async def publish_inbound(self, event: IncomingEvent) -> None:
         if self._inbound_handler is None:
             raise RuntimeError(f"channel {self.name} has no inbound handler")
+        access_channel = self.access_channel_for(event.participant_id)
+        if not self._access.allows(access_channel, "inbound", event.participant_id):
+            logger.info(
+                tr(
+                    "channel.access.inbound_denied",
+                    channel=access_channel,
+                    participant=event.participant_id,
+                )
+            )
+            return
         await self._inbound_handler(event)
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:

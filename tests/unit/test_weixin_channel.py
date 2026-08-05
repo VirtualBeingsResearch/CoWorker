@@ -10,6 +10,7 @@ import httpx
 import pytest
 from PIL import Image
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.weixin.channel import CONTROL_PARTICIPANT_ID, WeixinChannel
 from coworker.channels.weixin.client import (
     WeixinClient,
@@ -24,7 +25,7 @@ from coworker.channels.weixin.repository import (
     WeixinConnectionRepository,
 )
 from coworker.channels.weixin.runner import WeixinRunner
-from coworker.core.config import WeixinConfig
+from coworker.core.config import ChannelAccessConfig, WeixinConfig
 from coworker.core.types import CommunicateRequest
 
 
@@ -139,6 +140,37 @@ async def test_runner_uses_bot_instance_as_participant_and_state_key(
     assert events[0].participant_id == "weixin:bot-1"
     assert runner.participant_ids() == ["weixin:bot-1"]
     assert runner.resolve_participant("personal") == "weixin:bot-1"
+
+
+@pytest.mark.asyncio
+async def test_runner_checks_inbound_access_before_context_and_activity(
+    tmp_path: Path,
+) -> None:
+    runner = _runner(tmp_path)
+    collect = AsyncMock()
+    runner.set_inbound_handler(collect)
+    runner.set_access_controller(
+        ChannelAccessController(
+            ChannelAccessConfig.model_validate(
+                {"weixin": {"inbound_deny": ["weixin:bot-1"]}}
+            )
+        )
+    )
+
+    await runner._publish_message(  # noqa: SLF001
+        "bot-1",
+        {
+            "message_type": 1,
+            "from_user_id": "user-1",
+            "context_token": "blocked-context",
+            "message_id": "message-1",
+            "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
+        },
+    )
+
+    collect.assert_not_awaited()
+    assert runner._state.connections == {}  # noqa: SLF001
+    assert runner.activity_for("weixin:bot-1") == (None, None)
 
 
 @pytest.mark.asyncio

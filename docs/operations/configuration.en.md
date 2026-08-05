@@ -135,6 +135,7 @@ language-transition system notice when it detects a locale change.
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop development mode; disables Bearer/HTTPS checks and should be enabled explicitly only for local HTTP debugging |
 | `API__COMMUNICATION_TOKEN` | Empty (administrator-token fallback) | Bearer token for production Desktop communication; configure it separately to isolate permissions |
+| `CHANNEL_ACCESS` | `{}` | JSON object of per-channel inbound/outbound participant access lists; each entry may contain `inbound_allow`, `inbound_deny`, `outbound_allow`, and `outbound_deny` |
 | `ADMIN__TOKEN` | Generated on first startup | Bearer token for the `/admin` console and `/api/admin/*`; the generated value is saved in the administration configuration file |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | Typed JSON override layer saved by the administration page, with higher priority than `.env`; non-hot-reload settings take effect after a restart |
 | `DESKTOP_UPDATES__DIR` | `data/desktop_updates` | Storage directory for Desktop update releases and assets |
@@ -151,6 +152,12 @@ language-transition system notice when it detects a locale change.
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
+
+`CHANNEL_ACCESS` keys are channel names, and all four rule lists contain case-sensitive, full-ID
+participant globs. Deny takes precedence; a non-empty allow list admits only matches; an omitted
+channel or four empty lists allows everything. The administration console hot-applies this setting.
+See [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists) for built-in keys,
+enforcement timing, and examples.
 
 When the main loop is resting, the Overview page in the administration console shows **Continue**.
 The action itself sends only an internal wake signal and creates no new inbox message. The model

@@ -120,6 +120,16 @@ control_name = "Weixin Claw connection control"
 command_unknown = "Unknown channel management command: {{command}}"
 field_required = "Channel management field {{field}} is required"
 
+[channel.access]
+inbound_denied = "Channel access policy rejected an inbound {{channel}} message: participant_id={{participant}}"
+controller_setup_failed = "Failed to install the channel access controller: {{error}}"
+
+[config.channel_access]
+patterns_must_be_strings = "Channel access patterns must be strings"
+names_must_be_strings = "Channel access names must be strings"
+names_must_not_be_empty = "Channel access names must not be empty"
+duplicate_name = "Duplicate channel access name after trimming: {{channel}}"
+
 [channel.desktop]
 command_rejected = "Command was not accepted"
 reported_error = "Desktop reported an error"

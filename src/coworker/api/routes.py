@@ -11,6 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
+from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import IncomingEvent, SummaryResult
@@ -202,6 +203,7 @@ async def post_message(
             )
         if message.payload is None:
             raise HTTPException(status_code=422, detail=tr("api.message.payload_required"))
+        _ensure_inbound_allowed(message.sender_id)
         if not _remember_desktop_message_id(message.message_id):
             # bridge 出站重试导致的重复投递：对端已经处理过这条消息，直接 ack 且不再入队，
             # 让 bridge 把 outbox 行 acknowledge 掉，避免 agent 把同一条消息处理多次。
@@ -228,16 +230,28 @@ async def post_message(
     }
 
 
+def _ensure_inbound_allowed(participant_id: str) -> None:
+    if _channels is None:
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
+    try:
+        _channels.ensure_inbound_allowed(participant_id)
+    except ChannelAccessDeniedError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+
 async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> None:
     if _channels is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
-    await _channels.receive_raw(
-        InboundEnvelope(
-            participant_id=message.sender_id,
-            source="desktop" if source_is_desktop else "rest",
-            payload=message.model_dump(),
+    try:
+        await _channels.receive_raw(
+            InboundEnvelope(
+                participant_id=message.sender_id,
+                source="desktop" if source_is_desktop else "rest",
+                payload=message.model_dump(),
+            )
         )
-    )
+    except ChannelAccessDeniedError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.get("/status")
