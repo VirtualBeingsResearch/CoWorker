@@ -14,13 +14,33 @@ from coworker.agent.log_store import LogStore
 _TOKEN_KEYS = ("input_tokens", "output_tokens", "cached_tokens")
 _METRIC_KEYS = (
     "llm_calls",
+    "tracked_calls",
+    "estimated_calls",
     "input_tokens",
     "output_tokens",
     "cached_tokens",
     "tool_calls",
     "thinking_calls",
 )
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
+_REPORT_DAYS = 30
+_SUMMARY_KEYS = (
+    "llm_calls",
+    "tracked_calls",
+    "untracked_calls",
+    "estimated_calls",
+    "tracking_coverage",
+    "input_tokens",
+    "output_tokens",
+    "cached_tokens",
+    "total_tokens",
+    "avg_tokens_per_call",
+    "cache_rate",
+    "tool_calls",
+    "thinking_calls",
+    "thinking_seconds",
+    "avg_thinking_seconds",
+)
 _MAIN_STREAM_ID = "main"
 _MAIN_SCOPE = "main"
 _SUMMARY_SCOPE = "summary"
@@ -44,6 +64,8 @@ _UNKNOWN_MODEL = "unknown"
 def _new_model_bucket() -> dict[str, int]:
     return {
         "llm_calls": 0,
+        "tracked_calls": 0,
+        "estimated_calls": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
@@ -55,6 +77,8 @@ def _new_provider_model_bucket(provider: str, model: str) -> dict[str, Any]:
         "provider": provider,
         "model": model,
         "llm_calls": 0,
+        "tracked_calls": 0,
+        "estimated_calls": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
@@ -64,6 +88,8 @@ def _new_provider_model_bucket(provider: str, model: str) -> dict[str, Any]:
 def _new_bucket() -> dict[str, Any]:
     return {
         "llm_calls": 0,
+        "tracked_calls": 0,
+        "estimated_calls": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
@@ -110,7 +136,13 @@ def _split_provider_model_key(key: str) -> tuple[str, str]:
     return _norm_part(provider, _UNKNOWN_PROVIDER), _norm_part(model, _UNKNOWN_MODEL)
 
 
-def _add_usage(bucket: dict[str, Any], usage: dict[str, Any], provider: str, model: str) -> None:
+def _add_usage(
+    bucket: dict[str, Any],
+    usage: dict[str, Any],
+    provider: str,
+    model: str,
+    usage_source: str = "",
+) -> None:
     provider = _norm_part(provider, _UNKNOWN_PROVIDER)
     model = _norm_part(model, _UNKNOWN_MODEL)
     bucket["llm_calls"] += 1
@@ -122,6 +154,16 @@ def _add_usage(bucket: dict[str, Any], usage: dict[str, Any], provider: str, mod
     )
     model_bucket["llm_calls"] += 1
     provider_model_bucket["llm_calls"] += 1
+    tracked = any(key in usage and usage.get(key) is not None for key in _TOKEN_KEYS)
+    estimated = tracked and usage_source == "estimated"
+    if tracked:
+        bucket["tracked_calls"] += 1
+        model_bucket["tracked_calls"] += 1
+        provider_model_bucket["tracked_calls"] += 1
+    if estimated:
+        bucket["estimated_calls"] += 1
+        model_bucket["estimated_calls"] += 1
+        provider_model_bucket["estimated_calls"] += 1
     for key in _TOKEN_KEYS:
         value = _int_value(usage.get(key))
         bucket[key] += value
@@ -140,14 +182,14 @@ def _add_thinking_duration(bucket: dict[str, Any], seconds: float) -> None:
 
 
 def _merge_model_bucket(dst: dict[str, int], src: dict[str, int]) -> None:
-    for key in ("llm_calls", *_TOKEN_KEYS):
+    for key in ("llm_calls", "tracked_calls", "estimated_calls", *_TOKEN_KEYS):
         dst[key] = dst.get(key, 0) + _int_value(src.get(key))
 
 
 def _merge_provider_model_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
     dst["provider"] = _norm_part(dst.get("provider") or src.get("provider"), _UNKNOWN_PROVIDER)
     dst["model"] = _norm_part(dst.get("model") or src.get("model"), _UNKNOWN_MODEL)
-    for key in ("llm_calls", *_TOKEN_KEYS):
+    for key in ("llm_calls", "tracked_calls", "estimated_calls", *_TOKEN_KEYS):
         dst[key] = dst.get(key, 0) + _int_value(src.get(key))
 
 
@@ -195,12 +237,22 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
     input_tokens = _int_value(bucket.get("input_tokens"))
     output_tokens = _int_value(bucket.get("output_tokens"))
     cached_tokens = _int_value(bucket.get("cached_tokens"))
+    llm_calls = _int_value(bucket.get("llm_calls"))
+    tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
+    estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
     return {
-        "llm_calls": _int_value(bucket.get("llm_calls")),
+        "llm_calls": llm_calls,
+        "tracked_calls": tracked_calls,
+        "untracked_calls": max(0, llm_calls - tracked_calls),
+        "estimated_calls": estimated_calls,
+        "tracking_coverage": tracked_calls / llm_calls if llm_calls else None,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
         "total_tokens": input_tokens + output_tokens,
+        "avg_tokens_per_call": (
+            (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
+        ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
     }
 
@@ -238,12 +290,22 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         key: _finalize_provider_model_bucket(key, provider_model_bucket)
         for key, provider_model_bucket in sorted(bucket.get("by_provider_model", {}).items())
     }
+    llm_calls = _int_value(bucket.get("llm_calls"))
+    tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
+    estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
     return {
-        "llm_calls": _int_value(bucket.get("llm_calls")),
+        "llm_calls": llm_calls,
+        "tracked_calls": tracked_calls,
+        "untracked_calls": max(0, llm_calls - tracked_calls),
+        "estimated_calls": estimated_calls,
+        "tracking_coverage": tracked_calls / llm_calls if llm_calls else None,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
         "total_tokens": input_tokens + output_tokens,
+        "avg_tokens_per_call": (
+            (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
+        ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
         "tool_calls": _int_value(bucket.get("tool_calls")),
         "thinking_calls": thinking_calls,
@@ -255,6 +317,11 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         "by_provider_model": by_provider_model,
         "tools": tools,
     }
+
+
+def _summary_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
+    finalized = _finalize_bucket(bucket)
+    return {key: finalized[key] for key in _SUMMARY_KEYS}
 
 
 class UsageStatsCollector:
@@ -371,7 +438,14 @@ class UsageStatsCollector:
                 usage = {}
             provider = _norm_part(entry.get("provider"), _UNKNOWN_PROVIDER)
             model = _norm_part(entry.get("model"), _UNKNOWN_MODEL)
-            self._record_usage(self._entry_date(entry), usage, provider, model, stream_id)
+            self._record_usage(
+                self._entry_date(entry),
+                usage,
+                provider,
+                model,
+                stream_id,
+                str(entry.get("usage_source") or ""),
+            )
             self._record_thinking_finish(entry, stream_id)
         elif t in ("summary_llm_response", "vision_llm_response", "mem0_llm_response"):
             usage = entry.get("usage")
@@ -388,7 +462,14 @@ class UsageStatsCollector:
                 scope = _VISION_SCOPE
             else:
                 scope = _MEM0_SCOPE
-            self._record_usage_with_scope(self._entry_date(entry), usage, provider, model, scope)
+            self._record_usage_with_scope(
+                self._entry_date(entry),
+                usage,
+                provider,
+                model,
+                scope,
+                str(entry.get("usage_source") or ""),
+            )
         elif t == "tool_call":
             tool_name = str(entry.get("name") or "unknown")
             self._record_tool_call(self._entry_date(entry), tool_name, stream_id)
@@ -396,7 +477,9 @@ class UsageStatsCollector:
             self._persist_state()
 
     def snapshot(self) -> dict[str, Any]:
-        today = self._now_fn().date()
+        return self._snapshot_for_date(self._now_fn().date())
+
+    def _snapshot_for_date(self, today: date) -> dict[str, Any]:
         last_7_start = today - timedelta(days=6)
         today_bucket = deepcopy(self._days.get(today, _new_bucket()))
         today_scopes = deepcopy(self._days_by_scope.get(today, _new_scope_buckets()))
@@ -417,6 +500,55 @@ class UsageStatsCollector:
             ),
         }
 
+    def report(self) -> dict[str, Any]:
+        """Return the authenticated management report without expanding public status."""
+        now = self._now_fn()
+        today = now.date()
+        last_30_start = today - timedelta(days=_REPORT_DAYS - 1)
+        last_30_bucket, last_30_scopes = self._aggregate_range(last_30_start, today)
+        previous_ranges = {
+            "today": (today - timedelta(days=1), today - timedelta(days=1)),
+            "last_7_days": (today - timedelta(days=13), today - timedelta(days=7)),
+            "last_30_days": (today - timedelta(days=59), today - timedelta(days=30)),
+        }
+        tracked_days = [day for day, bucket in self._days.items() if _bucket_has_data(bucket)]
+        payload = {
+            **self._snapshot_for_date(today),
+            "last_30_days": self._finalize_window(last_30_bucket, last_30_scopes),
+            "previous": {
+                key: _summary_bucket(self._aggregate_range(start, end)[0])
+                for key, (start, end) in previous_ranges.items()
+            },
+            "daily": [
+                {
+                    "date": day.isoformat(),
+                    **_summary_bucket(deepcopy(self._days.get(day, _new_bucket()))),
+                }
+                for day in (
+                    last_30_start + timedelta(days=offset)
+                    for offset in range(_REPORT_DAYS)
+                )
+            ],
+            "generated_at": now.isoformat(),
+            "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
+        }
+        return payload
+
+    def _aggregate_range(
+        self,
+        start: date,
+        end: date,
+    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        bucket = _new_bucket()
+        scopes = _new_scope_buckets()
+        for day, day_bucket in self._days.items():
+            if start <= day <= end:
+                _merge_bucket(bucket, day_bucket)
+        for day, day_scopes in self._days_by_scope.items():
+            if start <= day <= end:
+                self._merge_scope_buckets(scopes, day_scopes)
+        return bucket, scopes
+
     def _record_usage(
         self,
         day: date,
@@ -424,12 +556,13 @@ class UsageStatsCollector:
         provider: str,
         model: str,
         stream_id: str,
+        usage_source: str,
     ) -> None:
         bucket = self._days.setdefault(day, _new_bucket())
-        _add_usage(bucket, usage, provider, model)
-        _add_usage(self._lifetime, usage, provider, model)
+        _add_usage(bucket, usage, provider, model, usage_source)
+        _add_usage(self._lifetime, usage, provider, model, usage_source)
         scope = self._scope_for_stream_id(stream_id)
-        self._record_usage_for_scope(day, usage, provider, model, scope)
+        self._record_usage_for_scope(day, usage, provider, model, scope, usage_source)
 
     def _record_usage_with_scope(
         self,
@@ -438,11 +571,12 @@ class UsageStatsCollector:
         provider: str,
         model: str,
         scope: str,
+        usage_source: str,
     ) -> None:
         bucket = self._days.setdefault(day, _new_bucket())
-        _add_usage(bucket, usage, provider, model)
-        _add_usage(self._lifetime, usage, provider, model)
-        self._record_usage_for_scope(day, usage, provider, model, scope)
+        _add_usage(bucket, usage, provider, model, usage_source)
+        _add_usage(self._lifetime, usage, provider, model, usage_source)
+        self._record_usage_for_scope(day, usage, provider, model, scope, usage_source)
 
     def _record_usage_for_scope(
         self,
@@ -451,9 +585,22 @@ class UsageStatsCollector:
         provider: str,
         model: str,
         scope: str,
+        usage_source: str,
     ) -> None:
-        _add_usage(self._scope_bucket_for_day(day, scope), usage, provider, model)
-        _add_usage(self._scope_bucket_for_lifetime(scope), usage, provider, model)
+        _add_usage(
+            self._scope_bucket_for_day(day, scope),
+            usage,
+            provider,
+            model,
+            usage_source,
+        )
+        _add_usage(
+            self._scope_bucket_for_lifetime(scope),
+            usage,
+            provider,
+            model,
+            usage_source,
+        )
 
     def _record_tool_call(self, day: date, tool_name: str, stream_id: str) -> None:
         bucket = self._days.setdefault(day, _new_bucket())

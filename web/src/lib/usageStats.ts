@@ -4,11 +4,18 @@ import type {
   UsageWindowStats,
 } from '../api/types';
 
-export type UsageWindowKey = 'today' | 'last_7_days' | 'lifetime';
+export type UsageWindowKey = 'today' | 'last_7_days' | 'last_30_days' | 'lifetime';
 
 export const USAGE_WINDOWS: Array<{ key: UsageWindowKey; label: string }> = [
   { key: 'today', label: '今日' },
   { key: 'last_7_days', label: '7日' },
+  { key: 'lifetime', label: '累计' },
+];
+
+export const ADMIN_USAGE_WINDOWS: Array<{ key: UsageWindowKey; label: string }> = [
+  { key: 'today', label: '今日' },
+  { key: 'last_7_days', label: '7日' },
+  { key: 'last_30_days', label: '30日' },
   { key: 'lifetime', label: '累计' },
 ];
 

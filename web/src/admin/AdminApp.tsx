@@ -1,6 +1,6 @@
 import { createContext, FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
+  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
@@ -12,17 +12,19 @@ import { useSettingsDraft } from './settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import { AdminUsageOverview } from './UsageOverview';
+import { AdminUsageAnalytics } from './UsageAnalytics';
 import type { UsageStats } from '../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
+type Section = 'overview' | 'usage' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
 type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' | 'advanced';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 
 const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
   { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
+  { id: 'usage', label: '用量分析', description: 'Token 趋势、覆盖率与模型调用拆分', workspace: 'overview', icon: BarChart3 },
   { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', workspace: 'operations', icon: Activity },
   { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', workspace: 'operations', icon: Database },
   { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', workspace: 'operations', icon: ShieldCheck },
@@ -35,7 +37,7 @@ const NAV: Array<{ id: Section; label: string; description: string; workspace: W
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'advanced', icon: PackageOpen },
 ];
 const WORKSPACES: Array<{ id: Workspace; label: string; mobileLabel: string; description: string; icon: typeof Activity; sections: Section[] }> = [
-  { id: 'overview', label: '生命总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview'] },
+  { id: 'overview', label: '生命总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview', 'usage'] },
   { id: 'operations', label: '运行工作台', mobileLabel: '运维', description: '任务、记忆与运行诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
   { id: 'configuration', label: '配置工作台', mobileLabel: '配置', description: '模型连接与运行参数', icon: SlidersHorizontal, sections: ['models', 'settings'] },
   { id: 'relationships', label: '人物与身份', mobileLabel: '人物', description: '身份与跨信道人物关系', icon: Users, sections: ['identity', 'people'] },
@@ -464,6 +466,16 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
       </Panel>
     </div>
   </div>;
+}
+
+function UsageAnalyticsPage() {
+  const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
+  return <AdminUsageAnalytics
+    stats={usage.data}
+    loading={usage.loading}
+    error={usage.error}
+    onReload={usage.reload}
+  />;
 }
 
 function Models() {
@@ -2764,6 +2776,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
+        {section === 'usage' && <UsageAnalyticsPage />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}

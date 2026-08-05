@@ -24,6 +24,9 @@ def test_empty_snapshot_returns_zeroes():
     stats = _collector().snapshot()
 
     assert stats["today"]["llm_calls"] == 0
+    assert stats["today"]["tracked_calls"] == 0
+    assert stats["today"]["untracked_calls"] == 0
+    assert stats["today"]["tracking_coverage"] is None
     assert stats["today"]["total_tokens"] == 0
     assert stats["today"]["cache_rate"] is None
     assert stats["today"]["thinking_calls"] == 0
@@ -68,6 +71,10 @@ def test_aggregates_llm_usage_and_cache_rate():
     today = collector.snapshot()["today"]
 
     assert today["llm_calls"] == 2
+    assert today["tracked_calls"] == 2
+    assert today["untracked_calls"] == 0
+    assert today["tracking_coverage"] == 1
+    assert today["avg_tokens_per_call"] == 925
     assert today["input_tokens"] == 1500
     assert today["output_tokens"] == 350
     assert today["cached_tokens"] == 450
@@ -143,6 +150,10 @@ def test_missing_usage_is_counted_as_call_with_zero_tokens():
     today = collector.snapshot()["today"]
 
     assert today["llm_calls"] == 1
+    assert today["tracked_calls"] == 0
+    assert today["untracked_calls"] == 1
+    assert today["tracking_coverage"] == 0
+    assert today["avg_tokens_per_call"] is None
     assert today["total_tokens"] == 0
     assert today["cache_rate"] is None
 
@@ -177,6 +188,104 @@ def test_windows_use_today_last_7_days_and_lifetime():
     assert snapshot["lifetime"]["input_tokens"] == 60
     assert snapshot["last_7_days"]["by_scope"]["main"]["input_tokens"] == 50
     assert snapshot["lifetime"]["by_scope"]["main"]["input_tokens"] == 60
+
+
+def test_admin_report_adds_30_day_trend_previous_periods_and_tracking_metadata():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "ts": "2026-05-30T08:00:00",
+            "provider": "archive",
+            "model": "old-model",
+            "usage": {"input_tokens": 90, "output_tokens": 9},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-05-31T08:00:00",
+            "provider": "archive",
+            "model": "recent-model",
+            "usage": {"input_tokens": 10, "output_tokens": 1},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-22T08:00:00",
+            "provider": "previous",
+            "model": "baseline",
+            "usage": {"input_tokens": 40, "output_tokens": 4},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-28T08:00:00",
+            "provider": "openai",
+            "model": "gpt-4o",
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-29T08:00:00",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "usage": {"input_tokens": 100, "output_tokens": 20, "cached_tokens": 10},
+        },
+        {
+            "type": "mem0_llm_response",
+            "ts": "2026-06-29T09:00:00",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "usage": {"input_tokens": 30, "output_tokens": 5},
+            "usage_source": "estimated",
+        },
+    ])
+
+    report = collector.report()
+
+    assert report["last_30_days"]["total_tokens"] == 210
+    assert report["last_30_days"]["llm_calls"] == 5
+    assert report["last_30_days"]["tracked_calls"] == 4
+    assert report["last_30_days"]["untracked_calls"] == 1
+    assert report["last_30_days"]["estimated_calls"] == 1
+    assert report["last_30_days"]["tracking_coverage"] == 0.8
+    assert report["previous"]["today"]["llm_calls"] == 1
+    assert report["previous"]["today"]["total_tokens"] == 0
+    assert report["previous"]["last_7_days"]["total_tokens"] == 44
+    assert report["previous"]["last_30_days"]["total_tokens"] == 99
+    assert len(report["daily"]) == 30
+    assert report["daily"][0]["date"] == "2026-05-31"
+    assert report["daily"][0]["total_tokens"] == 11
+    assert report["daily"][-1]["date"] == "2026-06-29"
+    assert report["daily"][-1]["total_tokens"] == 155
+    assert report["daily"][-1]["estimated_calls"] == 1
+    assert report["tracking_since"] == "2026-05-30"
+    assert report["generated_at"] == "2026-06-29T12:00:00"
+
+
+def test_public_snapshot_stays_compact_when_admin_report_is_available():
+    collector = _collector()
+
+    snapshot = collector.snapshot()
+
+    assert "last_30_days" not in snapshot
+    assert "previous" not in snapshot
+    assert "daily" not in snapshot
+
+
+def test_admin_report_uses_one_date_across_a_midnight_boundary():
+    moments = iter([
+        datetime(2026, 6, 29, 23, 59, 59),
+        datetime(2026, 6, 30, 0, 0, 0),
+    ])
+    collector = UsageStatsCollector(now_fn=lambda: next(moments))
+    collector.load_entries([{
+        "type": "llm_response",
+        "ts": "2026-06-29T20:00:00",
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    }])
+
+    report = collector.report()
+
+    assert report["generated_at"] == "2026-06-29T23:59:59"
+    assert report["today"]["total_tokens"] == 12
+    assert report["daily"][-1]["date"] == "2026-06-29"
 
 
 def test_thinking_start_and_llm_response_measure_average_thinking_time():
@@ -507,7 +616,7 @@ def test_runtime_entry_persists_seq_checkpoint(tmp_path):
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["checkpoint"] == {"seq": 9}
     assert state["checkpoints"]["main"] == {"seq": 9}
-    assert state["schema_version"] == 6
+    assert state["schema_version"] == 7
     assert state["lifetime_by_scope"]["main"]["tool_calls"] == 1
 
 
@@ -804,22 +913,26 @@ def test_old_state_schema_is_rebuilt_from_logs_for_scope_split(tmp_path):
     assert lifetime["by_provider_model"]["unknown/bubble-model"]["total_tokens"] == 5
     assert lifetime["by_scope"]["main"]["total_tokens"] == 5
     assert lifetime["by_scope"]["bubble"]["total_tokens"] == 5
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert migrated["checkpoint"] == {"seq": 0}
     assert "bubble:bubbles/bbl_a.jsonl" not in migrated["checkpoints"]
     assert migrated["bubble_history"]["path"] == "bubbles/bbl_a.jsonl"
 
 
-def test_v6_state_loads_provider_model_scope_and_thinking_buckets(tmp_path):
+def test_v7_state_loads_provider_model_scope_thinking_and_tracking_buckets(tmp_path):
     state_path = tmp_path / "usage_stats.json"
     model_bucket = {
         "llm_calls": 2,
+        "tracked_calls": 2,
+        "estimated_calls": 0,
         "input_tokens": 20,
         "output_tokens": 5,
         "cached_tokens": 4,
     }
     old_bucket = {
         "llm_calls": 2,
+        "tracked_calls": 2,
+        "estimated_calls": 0,
         "input_tokens": 20,
         "output_tokens": 5,
         "cached_tokens": 4,
@@ -830,7 +943,7 @@ def test_v6_state_loads_provider_model_scope_and_thinking_buckets(tmp_path):
         "tools": {},
     }
     state_path.write_text(json.dumps({
-        "schema_version": 6,
+        "schema_version": 7,
         "updated_at": "2026-06-29T08:00:00",
         "checkpoint": {"seq": -1},
         "checkpoints": {"main": {"seq": -1}},
@@ -859,8 +972,9 @@ def test_v6_state_loads_provider_model_scope_and_thinking_buckets(tmp_path):
     assert lifetime["thinking_calls"] == 2
     assert lifetime["thinking_seconds"] == 12
     assert lifetime["avg_thinking_seconds"] == 6
+    assert lifetime["tracking_coverage"] == 1
     assert lifetime["by_scope"]["main"]["by_provider_model"]["unknown/legacy-model"]["total_tokens"] == 25
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
 
 
 def test_v5_state_is_rebuilt_from_logs_for_thinking_time(tmp_path):
@@ -905,7 +1019,7 @@ def test_v5_state_is_rebuilt_from_logs_for_thinking_time(tmp_path):
     assert lifetime["total_tokens"] == 5
     assert lifetime["thinking_calls"] == 1
     assert lifetime["avg_thinking_seconds"] == 6
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
 
 
 def test_mark_bubble_log_complete_compacts_stream_checkpoint(tmp_path):
@@ -995,7 +1109,7 @@ def test_empty_bubble_history_marks_scanned(tmp_path):
 def test_scanned_history_loads_pending_stream_without_glob(tmp_path):
     state_path = tmp_path / "usage_stats.json"
     state_path.write_text(json.dumps({
-        "schema_version": 6,
+        "schema_version": 7,
         "updated_at": "2026-06-29T08:00:00",
         "checkpoint": {"seq": -1},
         "checkpoints": {
@@ -1044,6 +1158,8 @@ def test_scanned_history_loads_pending_stream_without_glob(tmp_path):
 def _new_empty_test_bucket():
     return {
         "llm_calls": 0,
+        "tracked_calls": 0,
+        "estimated_calls": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,

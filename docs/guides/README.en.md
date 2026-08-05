@@ -41,7 +41,7 @@ Overview, Operations, Configuration, People & Identity, and Advanced. Desktop
 and compact side rails open a workbench directly, while related functions use
 compact top-bar tabs. Returning to a workbench restores the tab last used in
 the current session. Phones use five bottom-bar entries and can select any of
-the 11 feature pages from the top bar. Existing `?section=` deep links remain
+the 12 feature pages from the top bar. Existing `?section=` deep links remain
 valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
@@ -64,6 +64,30 @@ Life Overview shows current state rather than full history:
 Usage here is collected locally by the current Coworker process and is not a
 Provider bill. If model calls exist but the Provider did not return token data,
 the page says so instead of reporting those calls as zero usage.
+
+### Usage Analytics
+
+Usage Analytics is the second tab inside the Life Overview workbench. It
+continues from the summary without adding another global sidebar entry. It
+provides:
+
+- Today, 7-day, 30-day, and all-time windows;
+- equal-length comparisons for today versus yesterday, 7 days versus the
+  preceding 7 days, and 30 days versus the preceding 30 days;
+- daily input- and output-token trends for the latest 30 days;
+- token-tracking coverage, missing-call, and locally estimated-call notices;
+- Provider/model, responsibility-source, and tool-call breakdowns;
+- JSON for the current admin report and CSV for daily aggregates.
+
+![Coworker Web management console Usage Analytics](../assets/screenshots/admin-usage-en.png)
+
+<p align="center"><sub>Usage Analytics · Compare period trends and locate models, responsibility sources, and untracked calls.</sub></p>
+
+The public status page continues to use a compact snapshot without daily
+details. The 30-day trend and exports are available only through the
+authenticated administrator endpoint. Statistics come from local logs, so a
+low coverage rate can understate totals; the console does not convert them into
+Provider cost estimates.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,

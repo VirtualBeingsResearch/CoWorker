@@ -95,10 +95,15 @@ export type FullStatus = {
 
 export type UsageModelStats = {
   llm_calls?: number;
+  tracked_calls?: number;
+  untracked_calls?: number;
+  estimated_calls?: number;
+  tracking_coverage?: number | null;
   input_tokens?: number;
   output_tokens?: number;
   cached_tokens?: number;
   total_tokens?: number;
+  avg_tokens_per_call?: number | null;
   cache_rate?: number | null;
 };
 
@@ -121,7 +126,16 @@ export type UsageWindowStats = UsageModelStats & {
 export type UsageStats = {
   today?: UsageWindowStats;
   last_7_days?: UsageWindowStats;
+  last_30_days?: UsageWindowStats;
   lifetime?: UsageWindowStats;
+  previous?: {
+    today?: UsageWindowStats;
+    last_7_days?: UsageWindowStats;
+    last_30_days?: UsageWindowStats;
+  };
+  daily?: Array<UsageWindowStats & { date: string }>;
+  generated_at?: string;
+  tracking_since?: string | null;
 };
 
 export type ShortTermMemoryInfo = {
@@ -196,4 +210,3 @@ export type RuntimeLogEvent = {
   // tool_result
   is_error?: boolean;
 };
-

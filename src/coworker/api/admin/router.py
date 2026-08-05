@@ -1071,7 +1071,7 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
 
 @router.get("/usage")
 async def usage(_: None = Depends(require_admin)) -> ApiResponse:
-    return _require_usage_stats().snapshot()
+    return _require_usage_stats().report()
 
 
 @router.get("/config")

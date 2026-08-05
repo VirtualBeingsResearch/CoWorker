@@ -182,13 +182,15 @@ def test_admin_requires_bearer_token(tmp_path):
     assert response.json()["confirmation_name"] == "Luna"
 
 
-def test_admin_usage_requires_admin_and_returns_shared_snapshot(tmp_path):
-    snapshot = {
+def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
+    report = {
         "today": {"llm_calls": 2, "total_tokens": 34},
         "last_7_days": {"llm_calls": 5, "total_tokens": 89},
+        "last_30_days": {"llm_calls": 7, "total_tokens": 120},
         "lifetime": {"llm_calls": 8, "total_tokens": 144},
+        "daily": [{"date": "2026-06-29", "total_tokens": 34}],
     }
-    usage_stats = SimpleNamespace(snapshot=MagicMock(return_value=snapshot))
+    usage_stats = SimpleNamespace(report=MagicMock(return_value=report))
     client, _ = _client(tmp_path, usage_stats=usage_stats)
 
     assert client.get("/api/admin/usage").status_code == 401
@@ -198,20 +200,28 @@ def test_admin_usage_requires_admin_and_returns_shared_snapshot(tmp_path):
         ).status_code
         == 403
     )
-    usage_stats.snapshot.assert_not_called()
+    usage_stats.report.assert_not_called()
 
     response = client.get(
         "/api/admin/usage", headers={"Authorization": "Bearer secret"}
     )
 
     assert response.status_code == 200
-    assert response.json() == snapshot
-    usage_stats.snapshot.assert_called_once_with()
+    assert response.json() == report
+    usage_stats.report.assert_called_once_with()
 
 
 def test_admin_usage_collector_is_cleared_for_the_next_runtime(tmp_path):
     usage_stats = SimpleNamespace(
-        snapshot=MagicMock(return_value={"today": {}, "last_7_days": {}, "lifetime": {}})
+        report=MagicMock(
+            return_value={
+                "today": {},
+                "last_7_days": {},
+                "last_30_days": {},
+                "lifetime": {},
+                "daily": [],
+            }
+        )
     )
     first_client, _ = _client(tmp_path / "first", usage_stats=usage_stats)
     headers = {"Authorization": "Bearer secret"}
