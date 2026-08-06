@@ -31,6 +31,7 @@ import { t, useAdminI18n } from '../i18n/admin';
 import {
   ADMIN_USAGE_WINDOWS,
   USAGE_SCOPE_LABELS,
+  USAGE_SCOPE_ORDER,
   clampPercent,
   formatCacheRate,
   formatCount,
@@ -61,6 +62,8 @@ const DETAIL_LIMIT = 8;
 
 type AnalyticsWindowKey = UsageWindowKey | 'custom';
 type DateSelectionMode = 'single' | 'range';
+type UsageScopeKey = 'all' | string;
+type UsageDailyStats = UsageWindowStats & { date: string };
 
 function finite(value?: number | null): number {
   const numeric = Number(value ?? 0);
@@ -94,6 +97,31 @@ function shiftIsoDate(value: string, days: number): string {
 
 function latestReportDate(stats: UsageStats): string {
   return stats.generated_at?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+}
+
+function scopedWindow(
+  stats: UsageWindowStats | undefined,
+  scope: UsageScopeKey,
+): UsageWindowStats | undefined {
+  if (!stats || scope === 'all') return stats;
+  return stats.by_scope?.[scope] || {};
+}
+
+function scopedDaily(items: UsageDailyStats[], scope: UsageScopeKey): UsageDailyStats[] {
+  if (scope === 'all') return items;
+  return items.map(item => ({ date: item.date, ...(item.by_scope?.[scope] || {}) }));
+}
+
+function scopedIntraday(
+  items: UsageIntradayStats[],
+  scope: UsageScopeKey,
+): UsageIntradayStats[] {
+  if (scope === 'all') return items;
+  return items.map(item => ({
+    start_time: item.start_time,
+    end_time: item.end_time,
+    ...(item.by_scope?.[scope] || {}),
+  }));
 }
 
 function comparisonFor(current: number, previous?: number | null) {
@@ -131,6 +159,7 @@ function downloadText(filename: string, content: string, type: string) {
 function exportCsv(
   stats: UsageStats,
   daily: Array<UsageWindowStats & { date: string }> = stats.daily || [],
+  scope: UsageScopeKey = 'all',
 ) {
   const columns = [
     'date',
@@ -161,14 +190,30 @@ function exportCsv(
     csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
   )).join(','));
   const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
-  downloadText(`coworker-runtime-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
+  const scopeSuffix = scope === 'all' ? '' : `-${scope}`;
+  downloadText(`coworker-runtime${scopeSuffix}-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
 }
 
-function exportJson(stats: UsageStats) {
+function exportJson(
+  stats: UsageStats,
+  scope: UsageScopeKey = 'all',
+  windowKey?: AnalyticsWindowKey,
+  windowStats?: UsageWindowStats,
+  daily: UsageDailyStats[] = [],
+) {
   const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
+  const payload = scope === 'all' ? stats : {
+    scope,
+    window: windowKey,
+    generated_at: stats.generated_at,
+    tracking_since: stats.tracking_since,
+    compression_tracking_since: stats.compression_tracking_since,
+    stats: windowStats,
+    daily,
+  };
   downloadText(
-    `coworker-runtime-${stamp}.json`,
-    `${JSON.stringify(stats, null, 2)}\n`,
+    `coworker-runtime${scope === 'all' ? '' : `-${scope}`}-${stamp}.json`,
+    `${JSON.stringify(payload, null, 2)}\n`,
     'application/json;charset=utf-8',
   );
 }
@@ -364,6 +409,7 @@ export function AdminUsageAnalytics({
 }: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<AnalyticsWindowKey>('last_7_days');
+  const [scopeKey, setScopeKey] = useState<UsageScopeKey>('all');
   const [expandedModels, setExpandedModels] = useState(false);
   const [expandedTools, setExpandedTools] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState(false);
@@ -376,24 +422,28 @@ export function AdminUsageAnalytics({
   const [customStats, setCustomStats] = useState<UsageStats | null>(null);
   const [selectedIntradayStart, setSelectedIntradayStart] = useState('');
   const selectedRange = customStats?.selected_range;
-  const windowStats = windowKey === 'custom'
+  const baseWindowStats = windowKey === 'custom'
     ? selectedRange?.stats
     : stats?.[windowKey];
-  const previousStats = windowKey === 'custom'
+  const windowStats = scopedWindow(baseWindowStats, scopeKey);
+  const basePreviousStats = windowKey === 'custom'
     ? selectedRange?.previous || undefined
     : windowKey === 'lifetime'
       ? undefined
       : stats?.previous?.[windowKey];
+  const previousStats = scopedWindow(basePreviousStats, scopeKey);
   const comparison = comparisonFor(
     finite(windowStats?.total_tokens),
     previousStats ? finite(previousStats.total_tokens) : undefined,
   );
-  const daily = windowKey === 'custom' ? selectedRange?.daily || [] : stats?.daily || [];
-  const intraday = windowKey === 'today'
+  const baseDaily = windowKey === 'custom' ? selectedRange?.daily || [] : stats?.daily || [];
+  const daily = scopedDaily(baseDaily, scopeKey);
+  const baseIntraday = windowKey === 'today'
     ? stats?.today_intraday || []
     : windowKey === 'custom' && selectedRange?.start_date === selectedRange?.end_date
       ? selectedRange?.intraday || []
       : [];
+  const intraday = scopedIntraday(baseIntraday, scopeKey);
   const peakIntraday = intraday.reduce<UsageIntradayStats | null>((peak, item) => (
     !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
   ), null);
@@ -408,14 +458,23 @@ export function AdminUsageAnalytics({
   const peakDaily = visibleDaily.reduce<(UsageWindowStats & { date: string }) | null>((peak, item) => (
     !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
   ), null);
-  const sourceEntries = useMemo(() => windowStats
-    ? usageScopeEntries(windowStats)
+  const scopeOptions = useMemo(() => {
+    const scopes = baseWindowStats?.by_scope || {};
+    const extraScopes = Object.keys(scopes)
+      .filter(name => !USAGE_SCOPE_ORDER.includes(name) && name !== 'unknown')
+      .sort();
+    const keys = [...USAGE_SCOPE_ORDER, ...extraScopes];
+    if (scopes.unknown) keys.push('unknown');
+    return keys.filter((name, index) => keys.indexOf(name) === index);
+  }, [baseWindowStats]);
+  const sourceEntries = useMemo(() => baseWindowStats
+    ? usageScopeEntries(baseWindowStats)
       .filter(([, item]) => finite(item.total_tokens) > 0 || finite(item.llm_calls) > 0)
       .sort(([, left], [, right]) => (
         finite(right.total_tokens) - finite(left.total_tokens)
         || finite(right.llm_calls) - finite(left.llm_calls)
       ))
-    : [], [windowStats]);
+    : [], [baseWindowStats]);
   const allModelEntries = useMemo(() => {
     if (!windowStats) return [];
     const buckets: Record<string, UsageModelStats | UsageProviderModelStats> =
@@ -513,7 +572,7 @@ export function AdminUsageAnalytics({
 
   if (loading && !stats) return <div className="state-box"><span className="state-pulse" aria-hidden="true"><i /><i /><i /></span><span>{t('正在读取运行分析…')}</span></div>;
   if (error && !stats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{error}</span></div>;
-  if (!stats || !windowStats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{t('运行分析暂不可用')}</span></div>;
+  if (!stats || !baseWindowStats || !windowStats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{t('运行分析暂不可用')}</span></div>;
 
   const totalTokens = finite(windowStats.total_tokens);
   const llmCalls = finite(windowStats.llm_calls);
@@ -539,7 +598,11 @@ export function AdminUsageAnalytics({
     ? `${previousRangeLabel} · ${comparison.detail}`
     : comparison.detail;
   const reportDate = latestReportDate(stats);
-  const exportDaily = windowKey === 'custom' ? selectedRange?.daily || [] : reportStats.daily || [];
+  const exportDaily = daily;
+  const scopeLabel = scopeKey === 'all'
+    ? t('全部职责')
+    : t(USAGE_SCOPE_LABELS[scopeKey] || scopeKey);
+  const baseTotalTokens = finite(baseWindowStats.total_tokens);
   const compressionTriggers = windowStats.memory_compression_triggers || {
     automatic: 0,
     admin: 0,
@@ -561,10 +624,13 @@ export function AdminUsageAnalytics({
         : null,
     ),
   });
-  const bubbleScopes = [
-    ['bubble', windowStats.by_scope?.bubble],
-    ['subconscious', windowStats.by_scope?.subconscious],
+  const allBubbleScopes = [
+    ['bubble', baseWindowStats.by_scope?.bubble],
+    ['subconscious', baseWindowStats.by_scope?.subconscious],
   ] as const;
+  const bubbleScopes = scopeKey === 'all'
+    ? allBubbleScopes
+    : allBubbleScopes.filter(([name]) => name === scopeKey);
 
   return <div className="page-stack usage-analytics-page">
     <section className="admin-panel usage-analytics-hero">
@@ -575,8 +641,8 @@ export function AdminUsageAnalytics({
           <p>{t('本地脱敏聚合，不等同于 Provider 账单或结果质量评价。')}</p>
         </div>
         <div className="usage-analytics-actions">
-          <button type="button" onClick={() => exportCsv(reportStats, exportDaily)}><Download size={14} />CSV</button>
-          <button type="button" onClick={() => exportJson(reportStats)}><FileJson size={14} />JSON</button>
+          <button type="button" onClick={() => exportCsv(reportStats, exportDaily, scopeKey)}><Download size={14} />CSV</button>
+          <button type="button" onClick={() => exportJson(reportStats, scopeKey, windowKey, windowStats, exportDaily)}><FileJson size={14} />JSON</button>
           <button type="button" className="icon-btn" onClick={() => void reloadAnalytics()} disabled={loading || rangeLoading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
         </div>
       </header>
@@ -603,10 +669,36 @@ export function AdminUsageAnalytics({
         </div>
         <div className="usage-window-context">
           {windowKey === 'custom' && rangeLabel && <span>{t('所选范围')} <b>{rangeLabel}</b></span>}
+          <span>{t('职责')} <b>{scopeLabel}</b></span>
           <span title={comparisonDetail}>{t('较上一周期')} <b>{comparison.label}</b></span>
           <span>{t('缓存 Token 占比')} <b>{formatCacheRate(windowStats.cache_rate)}</b></span>
           <span>{t('压缩精确统计自')} <b>{compressionTrackingSince}</b></span>
         </div>
+      </div>
+      <div className="usage-scope-filter">
+        <span>{t('职责范围')}</span>
+        <div role="group" aria-label={t('按职责筛选统计')}>
+          <button
+            type="button"
+            className={scopeKey === 'all' ? 'active' : ''}
+            aria-pressed={scopeKey === 'all'}
+            onClick={() => {
+              setScopeKey('all');
+              setSelectedIntradayStart('');
+            }}
+          >{t('全部')}</button>
+          {scopeOptions.map(name => <button
+            type="button"
+            className={scopeKey === name ? 'active' : ''}
+            aria-pressed={scopeKey === name}
+            onClick={() => {
+              setScopeKey(name);
+              setSelectedIntradayStart('');
+            }}
+            key={name}
+          ><i className={usageScopeClassName(name)} />{t(USAGE_SCOPE_LABELS[name] || name)}</button>)}
+        </div>
+        <small>{t('指标、趋势、模型与执行明细会一起切换')}</small>
       </div>
       {rangePickerOpen && <form className="usage-date-range" onSubmit={applySelectedRange}>
         <div className="usage-date-range-mode" role="group" aria-label={t('日期选择方式')}>
@@ -760,16 +852,30 @@ export function AdminUsageAnalytics({
       </section>
 
       <section className="admin-panel usage-source-panel">
-        <header><div><h2>{t('职责来源')}</h2><p>{t('谁消耗了模型 Token')}</p></div><b>{sourceEntries.length}</b></header>
+        <header><div><h2>{t('职责来源')}</h2><p>{t('点击职责切换统计，并直接查看缓存率')}</p></div><b>{sourceEntries.length}</b></header>
         <div className="usage-source-cards">{sourceEntries.length ? sourceEntries.map(([name, item]) => {
-          const share = totalTokens > 0 ? finite(item.total_tokens) / totalTokens : 0;
-          return <article key={name}>
+          const share = baseTotalTokens > 0 ? finite(item.total_tokens) / baseTotalTokens : 0;
+          return <button
+            type="button"
+            className={scopeKey === name ? 'active' : ''}
+            aria-pressed={scopeKey === name}
+            onClick={() => {
+              setScopeKey(name);
+              setSelectedIntradayStart('');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            key={name}
+          >
             <i className={usageScopeClassName(name)} />
             <span>{t(USAGE_SCOPE_LABELS[name] || name)}</span>
             <strong>{formatTokenUnits(item.total_tokens)}</strong>
-            <small>{t('{{share}} · {{calls}} 次调用', { share: formatCacheRate(share), calls: formatCount(item.llm_calls) })}</small>
+            <small>{t('{{share}} 占比 · {{calls}} 次调用 · 缓存 {{cache}}', {
+              share: formatCacheRate(share),
+              calls: formatCount(item.llm_calls),
+              cache: formatCacheRate(item.cache_rate),
+            })}</small>
             <div className="usage-source-track" aria-hidden="true"><span style={{ '--w': clampPercent(share * 100) } as CSSProperties} /></div>
-          </article>;
+          </button>;
         }) : <p>{t('尚无来源用量')}</p>}</div>
       </section>
     </div>
@@ -839,7 +945,7 @@ export function AdminUsageAnalytics({
         <span className="amber"><b>{formatCount(windowStats.bubble_timeouts)}</b>{t('超时')}</span>
         <span><b>{formatCount(windowStats.bubble_cancelled)}</b>{t('取消')}</span>
       </div>
-      <div className="usage-bubble-modes">{bubbleScopes.map(([name, item]) => <article key={name}>
+      <div className="usage-bubble-modes">{bubbleScopes.length ? bubbleScopes.map(([name, item]) => <article key={name}>
         <div><i className={usageScopeClassName(name)} /><strong>{t(USAGE_SCOPE_LABELS[name])}</strong><b>{formatCount(item?.bubble_runs)}</b></div>
         <p>{t('{{done}} 完成 · {{errors}} 错误 · {{timeouts}} 超时', {
           done: formatCount(item?.bubble_done),
@@ -851,7 +957,7 @@ export function AdminUsageAnalytics({
           cycles: finite(item?.avg_bubble_cycles).toFixed(item?.avg_bubble_cycles ? 1 : 0),
           resumes: formatCount(item?.bubble_resumes),
         })}</small>
-      </article>)}</div>
+      </article>) : <p>{t('当前职责暂无自主执行记录')}</p>}</div>
     </section>
 
     <footer className="usage-analytics-foot">

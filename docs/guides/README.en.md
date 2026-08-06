@@ -88,8 +88,10 @@ group. It continues from the summary and provides:
 - daily input- and output-token trends for multi-day windows covering the
   latest 30 days or the selected custom range;
 - exact, estimated, and untracked token confidence breakdowns;
-- Provider/model and main, Bubble, and other responsibility-source drivers,
-  with proportional bars highlighting the largest consumers;
+- Provider/model and main, summary, Bubble, and other responsibility-source
+  drivers; each responsibility shows its cache rate, and either the top filter
+  or a responsibility card switches metrics, trends, models, execution details,
+  and exports to that scope;
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
 - completed memory-compression counts, affected messages, summary-model calls
