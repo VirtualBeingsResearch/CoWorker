@@ -29,6 +29,7 @@ person_merge_invalid = "合并失败：人物不存在，或不能把人物并�
 unnamed = "未命名"
 confirm_name = "请输入 Coworker 名称“{{name}}”以确认"
 invalid_log_cursor = "日志游标无效"
+invalid_usage_date_range = "起始日期不能晚于结束日期"
 already_initialized = "初始化已完成，请在运行设置中修改模型连接"
 model_required = "启动模型不能为空"
 api_key_required = "API Key 不能为空"

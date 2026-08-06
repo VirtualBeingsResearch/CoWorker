@@ -11,7 +11,7 @@ import secrets
 import shutil
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -1070,8 +1070,28 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
 
 
 @router.get("/usage")
-async def usage(_: None = Depends(require_admin)) -> ApiResponse:
-    return _require_usage_stats().report()
+async def usage(
+    _: None = Depends(require_admin),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+) -> ApiResponse:
+    if start_date is None and end_date is None:
+        return _require_usage_stats().report()
+    selected_start = start_date or end_date
+    selected_end = end_date or start_date
+    if (
+        selected_start is None
+        or selected_end is None
+        or selected_start > selected_end
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.admin.invalid_usage_date_range"),
+        )
+    return _require_usage_stats().report(
+        start_date=selected_start,
+        end_date=selected_end,
+    )
 
 
 @router.get("/config")

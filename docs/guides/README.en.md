@@ -73,12 +73,15 @@ the page says so instead of reporting those calls as zero usage.
 Runtime Analytics is a dedicated left-navigation entry in the Life Overview
 group. It continues from the summary and provides:
 
-- Today, 7-day, 30-day, and all-time windows;
-- equal-length comparisons for today versus yesterday, 7 days versus the
-  preceding 7 days, and 30 days versus the preceding 30 days;
+- Today, 7-day, 30-day, and all-time preset windows plus custom single-day or
+  inclusive start/end date ranges;
+- yesterday, the preceding 7 days, or the preceding 30 days as preset
+  baselines, with every custom range compared against the immediately
+  preceding equal-length period;
 - a first-screen summary of tokens, model calls, caching, tools, skill loads,
   and autonomous runs next to data confidence and attention items;
-- daily input- and output-token trends for the latest 30 days;
+- daily input- and output-token trends for the latest 30 days or the selected
+  custom range;
 - exact, estimated, and untracked token confidence breakdowns;
 - Provider/model and main, Bubble, and other responsibility-source drivers,
   with proportional bars highlighting the largest consumers;
@@ -88,17 +91,18 @@ group. It continues from the summary and provides:
   timeouts, cycles, and resumes;
 - the first eight ranked model, tool, and skill rows by default, with an
   in-place control to reveal every remaining record;
-- JSON for the current admin report and CSV for daily aggregates.
+- administrator-report JSON and daily-aggregate CSV exports, including the
+  selected interval and matching daily rows when a custom range is active.
 
 ![Coworker Web management console Runtime Analytics](../assets/screenshots/admin-usage-en.png)
 
-<p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical execution outcomes together.</sub></p>
+<p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical outcomes by a single day or date range.</sub></p>
 
 The public status page continues to use a compact snapshot without daily
-details. The 30-day trend and exports are available only through the
-authenticated administrator endpoint. Statistics come from local logs, so a
-low coverage rate can understate totals; the console does not convert them into
-Provider cost estimates.
+details. The 30-day and custom-range trends and exports are available only
+through the authenticated administrator endpoint. Statistics come from local
+logs, so a low coverage rate can understate totals; the console does not convert
+them into Provider cost estimates.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,

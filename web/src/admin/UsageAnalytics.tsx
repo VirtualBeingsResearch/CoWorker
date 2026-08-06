@@ -1,7 +1,8 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import {
   Activity,
   Bot,
+  CalendarRange,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   Sparkles,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 
 import type {
@@ -42,6 +44,7 @@ type AdminUsageAnalyticsProps = {
   loading: boolean;
   error: string;
   onReload: () => void | Promise<void>;
+  onLoadRange: (startDate: string, endDate: string) => Promise<UsageStats>;
 };
 
 type AttentionItem = {
@@ -51,6 +54,9 @@ type AttentionItem = {
 };
 
 const DETAIL_LIMIT = 8;
+
+type AnalyticsWindowKey = UsageWindowKey | 'custom';
+type DateSelectionMode = 'single' | 'range';
 
 function finite(value?: number | null): number {
   const numeric = Number(value ?? 0);
@@ -74,6 +80,16 @@ function formatDurationSeconds(value?: number | null): string {
 
 function formatOptionalTokenUnits(value?: number | null): string {
   return typeof value === 'number' && Number.isFinite(value) ? formatTokenUnits(value) : '—';
+}
+
+function shiftIsoDate(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function latestReportDate(stats: UsageStats): string {
+  return stats.generated_at?.slice(0, 10) || new Date().toISOString().slice(0, 10);
 }
 
 function comparisonFor(current: number, previous?: number | null) {
@@ -108,7 +124,10 @@ function downloadText(filename: string, content: string, type: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function exportCsv(stats: UsageStats) {
+function exportCsv(
+  stats: UsageStats,
+  daily: Array<UsageWindowStats & { date: string }> = stats.daily || [],
+) {
   const columns = [
     'date',
     'input_tokens',
@@ -130,7 +149,7 @@ function exportCsv(stats: UsageStats) {
     'bubble_errors',
     'bubble_timeouts',
   ];
-  const rows = (stats.daily || []).map(item => columns.map(column => (
+  const rows = daily.map(item => columns.map(column => (
     csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
   )).join(','));
   const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
@@ -227,22 +246,44 @@ function attentionItems(stats: UsageWindowStats): AttentionItem[] {
   return items;
 }
 
-export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUsageAnalyticsProps) {
+export function AdminUsageAnalytics({
+  stats,
+  loading,
+  error,
+  onReload,
+  onLoadRange,
+}: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
-  const [windowKey, setWindowKey] = useState<UsageWindowKey>('last_7_days');
+  const [windowKey, setWindowKey] = useState<AnalyticsWindowKey>('last_7_days');
   const [expandedModels, setExpandedModels] = useState(false);
   const [expandedTools, setExpandedTools] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState(false);
-  const windowStats = stats?.[windowKey];
-  const previousStats = windowKey === 'lifetime' ? undefined : stats?.previous?.[windowKey];
+  const [dateSelectionMode, setDateSelectionMode] = useState<DateSelectionMode>('range');
+  const [rangePickerOpen, setRangePickerOpen] = useState(false);
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState('');
+  const [customStats, setCustomStats] = useState<UsageStats | null>(null);
+  const selectedRange = customStats?.selected_range;
+  const windowStats = windowKey === 'custom'
+    ? selectedRange?.stats
+    : stats?.[windowKey];
+  const previousStats = windowKey === 'custom'
+    ? selectedRange?.previous || undefined
+    : windowKey === 'lifetime'
+      ? undefined
+      : stats?.previous?.[windowKey];
   const comparison = comparisonFor(
     finite(windowStats?.total_tokens),
     previousStats ? finite(previousStats.total_tokens) : undefined,
   );
-  const daily = stats?.daily || [];
-  const visibleDaily = windowKey === 'today' || windowKey === 'last_7_days'
+  const daily = windowKey === 'custom' ? selectedRange?.daily || [] : stats?.daily || [];
+  const visibleDaily = windowKey !== 'custom'
+    && (windowKey === 'today' || windowKey === 'last_7_days')
     ? daily.slice(-7)
     : daily;
+  const trendLabelStep = Math.max(1, Math.ceil(visibleDaily.length / 7));
   const maxDailyTokens = Math.max(1, ...visibleDaily.map(item => finite(item.total_tokens)));
   const peakDaily = visibleDaily.reduce<(UsageWindowStats & { date: string }) | null>((peak, item) => (
     !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
@@ -277,6 +318,79 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
   const toolEntries = expandedTools ? allToolEntries : allToolEntries.slice(0, DETAIL_LIMIT);
   const skillEntries = expandedSkills ? allSkillEntries : allSkillEntries.slice(0, DETAIL_LIMIT);
 
+  const initializeRange = () => {
+    if (!stats || rangeStart || rangeEnd) return;
+    const latest = latestReportDate(stats);
+    const earliest = stats.tracking_since || '';
+    const suggestedStart = shiftIsoDate(latest, -6);
+    setRangeStart(earliest && suggestedStart < earliest ? earliest : suggestedStart);
+    setRangeEnd(latest);
+  };
+
+  const selectDateMode = (mode: DateSelectionMode) => {
+    if (!stats) return;
+    const latest = latestReportDate(stats);
+    if (mode === 'single') {
+      const selectedDate = rangeEnd || rangeStart || latest;
+      setRangeStart(selectedDate);
+      setRangeEnd(selectedDate);
+    } else if (!rangeStart || rangeStart === rangeEnd) {
+      const earliest = stats.tracking_since || '';
+      const selectedEnd = rangeEnd || rangeStart || latest;
+      const suggestedStart = shiftIsoDate(selectedEnd, -6);
+      setRangeStart(earliest && suggestedStart < earliest ? earliest : suggestedStart);
+      setRangeEnd(selectedEnd);
+    }
+    setDateSelectionMode(mode);
+    setRangeError('');
+  };
+
+  const toggleRangePicker = () => {
+    initializeRange();
+    setRangeError('');
+    if (selectedRange?.stats) setWindowKey('custom');
+    setRangePickerOpen(value => !value);
+  };
+
+  const loadSelectedRange = async (startDate: string, endDate: string, close: boolean) => {
+    setRangeLoading(true);
+    setRangeError('');
+    try {
+      const next = await onLoadRange(startDate, endDate);
+      if (!next.selected_range?.stats) throw new Error(t('所选范围暂不可用'));
+      setCustomStats(next);
+      setWindowKey('custom');
+      if (close) setRangePickerOpen(false);
+    } catch (loadError) {
+      setRangeError(loadError instanceof Error ? loadError.message : t('读取所选范围失败'));
+    } finally {
+      setRangeLoading(false);
+    }
+  };
+
+  const applySelectedRange = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selectedStart = rangeStart;
+    const selectedEnd = dateSelectionMode === 'single' ? rangeStart : rangeEnd;
+    if (!selectedStart || !selectedEnd) {
+      setRangeError(t('请选择日期'));
+      return;
+    }
+    if (selectedStart > selectedEnd) {
+      setRangeError(t('起始日期不能晚于结束日期'));
+      return;
+    }
+    setRangeEnd(selectedEnd);
+    void loadSelectedRange(selectedStart, selectedEnd, true);
+  };
+
+  const reloadAnalytics = async () => {
+    await onReload();
+    if (windowKey === 'custom' && selectedRange) {
+      await loadSelectedRange(selectedRange.start_date, selectedRange.end_date, false);
+    }
+  };
+
   if (loading && !stats) return <div className="state-box"><span className="state-pulse" aria-hidden="true"><i /><i /><i /></span><span>{t('正在读取运行分析…')}</span></div>;
   if (error && !stats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{error}</span></div>;
   if (!stats || !windowStats) return <div className="state-box error" role="alert"><TriangleAlert size={17} /><span>{t('运行分析暂不可用')}</span></div>;
@@ -287,9 +401,25 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
   const estimatedCalls = finite(windowStats.estimated_calls);
   const untrackedCalls = finite(windowStats.untracked_calls);
   const attention = attentionItems(windowStats);
-  const generatedAt = stats.generated_at
-    ? new Date(stats.generated_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
+  const reportStats = windowKey === 'custom' && customStats ? customStats : stats;
+  const generatedAt = reportStats.generated_at
+    ? new Date(reportStats.generated_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
     : '—';
+  const rangeLabel = selectedRange
+    ? selectedRange.start_date === selectedRange.end_date
+      ? selectedRange.start_date
+      : `${selectedRange.start_date} – ${selectedRange.end_date}`
+    : '';
+  const previousRangeLabel = selectedRange?.previous_start_date && selectedRange.previous_end_date
+    ? selectedRange.previous_start_date === selectedRange.previous_end_date
+      ? selectedRange.previous_start_date
+      : `${selectedRange.previous_start_date} – ${selectedRange.previous_end_date}`
+    : '';
+  const comparisonDetail = previousRangeLabel
+    ? `${previousRangeLabel} · ${comparison.detail}`
+    : comparison.detail;
+  const reportDate = latestReportDate(stats);
+  const exportDaily = windowKey === 'custom' ? selectedRange?.daily || [] : reportStats.daily || [];
   const bubbleScopes = [
     ['bubble', windowStats.by_scope?.bubble],
     ['subconscious', windowStats.by_scope?.subconscious],
@@ -304,9 +434,9 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           <p>{t('本地脱敏聚合，不等同于 Provider 账单或结果质量评价。')}</p>
         </div>
         <div className="usage-analytics-actions">
-          <button type="button" onClick={() => exportCsv(stats)}><Download size={14} />CSV</button>
-          <button type="button" onClick={() => exportJson(stats)}><FileJson size={14} />JSON</button>
-          <button type="button" className="icon-btn" onClick={() => void onReload()} disabled={loading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
+          <button type="button" onClick={() => exportCsv(reportStats, exportDaily)}><Download size={14} />CSV</button>
+          <button type="button" onClick={() => exportJson(reportStats)}><FileJson size={14} />JSON</button>
+          <button type="button" className="icon-btn" onClick={() => void reloadAnalytics()} disabled={loading || rangeLoading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
         </div>
       </header>
       <div className="usage-analytics-toolbar">
@@ -315,15 +445,66 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
             type="button"
             className={windowKey === item.key ? 'active' : ''}
             aria-pressed={windowKey === item.key}
-            onClick={() => setWindowKey(item.key)}
+            onClick={() => {
+              setWindowKey(item.key);
+              setRangePickerOpen(false);
+              setRangeError('');
+            }}
             key={item.key}
           >{t(item.label)}</button>)}
+          <button
+            type="button"
+            className={windowKey === 'custom' || rangePickerOpen ? 'active' : ''}
+            aria-pressed={windowKey === 'custom'}
+            aria-expanded={rangePickerOpen}
+            onClick={toggleRangePicker}
+          ><CalendarRange size={12} />{t('自定义')}</button>
         </div>
         <div className="usage-window-context">
-          <span title={comparison.detail}>{t('较上一周期')} <b>{comparison.label}</b></span>
+          {windowKey === 'custom' && rangeLabel && <span>{t('所选范围')} <b>{rangeLabel}</b></span>}
+          <span title={comparisonDetail}>{t('较上一周期')} <b>{comparison.label}</b></span>
           <span>{t('缓存 Token 占比')} <b>{formatCacheRate(windowStats.cache_rate)}</b></span>
         </div>
       </div>
+      {rangePickerOpen && <form className="usage-date-range" onSubmit={applySelectedRange}>
+        <div className="usage-date-range-mode" role="group" aria-label={t('日期选择方式')}>
+          <button type="button" className={dateSelectionMode === 'single' ? 'active' : ''} aria-pressed={dateSelectionMode === 'single'} onClick={() => selectDateMode('single')}>{t('单日')}</button>
+          <button type="button" className={dateSelectionMode === 'range' ? 'active' : ''} aria-pressed={dateSelectionMode === 'range'} onClick={() => selectDateMode('range')}>{t('日期区间')}</button>
+        </div>
+        <div className={`usage-date-range-fields ${dateSelectionMode}`}>
+          <label><span>{t(dateSelectionMode === 'single' ? '日期' : '开始日期')}</span><input
+            type="date"
+            required
+            min={stats.tracking_since || undefined}
+            max={reportDate}
+            value={rangeStart}
+            onInput={event => {
+              setRangeStart(event.currentTarget.value);
+              if (dateSelectionMode === 'single') setRangeEnd(event.currentTarget.value);
+              setRangeError('');
+            }}
+          /></label>
+          {dateSelectionMode === 'range' && <label><span>{t('结束日期')}</span><input
+            type="date"
+            required
+            min={rangeStart || stats.tracking_since || undefined}
+            max={reportDate}
+            value={rangeEnd}
+            onInput={event => {
+              setRangeEnd(event.currentTarget.value);
+              setRangeError('');
+            }}
+          /></label>}
+        </div>
+        <div className="usage-date-range-actions">
+          <button type="submit" className="primary" disabled={rangeLoading}>{rangeLoading ? t('正在读取…') : t('应用')}</button>
+          <button type="button" className="ghost" onClick={() => {
+            setRangePickerOpen(false);
+            setRangeError('');
+          }}><X size={12} />{t('取消')}</button>
+        </div>
+        {rangeError && <span className="usage-date-range-error" role="alert"><TriangleAlert size={13} />{rangeError}</span>}
+      </form>}
       <div className="usage-analytics-metrics">
         <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} />
         <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
@@ -381,12 +562,17 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
           <div className="usage-trend-legend"><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></div>
         </div>
       </header>
-      <div className="usage-trend-chart" role="img" aria-label={t('{{days}} 日 Token 趋势', { days: visibleDaily.length })}>
+      <div
+        className="usage-trend-chart"
+        role="img"
+        aria-label={t('{{days}} 日 Token 趋势', { days: visibleDaily.length })}
+        style={{ '--usage-days': Math.max(1, visibleDaily.length) } as CSSProperties}
+      >
         {visibleDaily.map((item, index) => {
           const input = finite(item.input_tokens);
           const output = finite(item.output_tokens);
           const total = finite(item.total_tokens);
-          const showLabel = visibleDaily.length <= 7 || index % 5 === 0 || index === visibleDaily.length - 1;
+          const showLabel = visibleDaily.length <= 7 || index % trendLabelStep === 0 || index === visibleDaily.length - 1;
           return <article aria-label={t('{{date}}：输入 {{input}}，输出 {{output}}', { date: item.date, input: formatCount(input), output: formatCount(output) })} key={item.date}>
             <b>{formatTokenUnits(total)}</b>
             <div className="usage-trend-column"><div className="usage-trend-stack" style={{ '--h': clampPercent((total / maxDailyTokens) * 100) } as CSSProperties}>
@@ -510,7 +696,7 @@ export function AdminUsageAnalytics({ stats, loading, error, onReload }: AdminUs
     </section>
 
     <footer className="usage-analytics-foot">
-      <span>{t('开始追踪：{{date}}', { date: stats.tracking_since || '—' })}</span>
+      <span>{t('开始追踪：{{date}}', { date: reportStats.tracking_since || '—' })}</span>
       <span>{t('生成时间：{{date}}', { date: generatedAt })}</span>
       <span>{t('仅保存脱敏聚合，不向前端返回日志正文')}</span>
     </footer>

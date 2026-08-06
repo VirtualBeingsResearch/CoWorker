@@ -938,12 +938,25 @@ html:has(.admin-login),
 .usage-analytics-actions > button:not(.icon-btn):hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
 .usage-analytics-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
 .usage-analytics-windows { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-paper); }
-.usage-analytics-windows button { min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--admin-muted); background: transparent; font-size: 9px; }
+.usage-analytics-windows button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--admin-muted); background: transparent; font-size: 9px; }
 .usage-analytics-windows button:hover { color: var(--admin-ink); }
 .usage-analytics-windows button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 2px 8px color-mix(in oklch, var(--admin-ink) 8%, transparent); font-weight: 720; }
 .usage-window-context { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .usage-window-context span { display: inline-flex; align-items: baseline; gap: 4px; min-height: 27px; padding: 6px 8px; border: 1px solid var(--admin-line); border-radius: 7px; color: var(--admin-muted); background: var(--admin-surface); font-size: 8px; white-space: nowrap; }
 .usage-window-context b { color: var(--admin-ink); font: 680 9px var(--admin-data); }
+.usage-date-range { display: grid; grid-template-columns: auto minmax(280px, 1fr) auto; align-items: end; gap: 8px 10px; margin: -3px 0 11px; padding: 8px; border: 1px solid color-mix(in oklch, var(--admin-vital) 24%, var(--admin-line)); border-radius: 9px; background: color-mix(in oklch, var(--admin-vital) 3%, var(--admin-paper)); }
+.usage-date-range-mode { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--admin-line); border-radius: 7px; background: var(--admin-surface); }
+.usage-date-range-mode button { min-height: 28px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--admin-muted); background: transparent; font-size: 8px; white-space: nowrap; }
+.usage-date-range-mode button.active { color: var(--admin-vital); background: var(--admin-soft); font-weight: 680; }
+.usage-date-range-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.usage-date-range-fields.single { grid-template-columns: minmax(150px, 260px); }
+.usage-date-range-fields label { display: grid; grid-template-columns: auto minmax(132px, 1fr); align-items: center; gap: 7px; min-width: 0; }
+.usage-date-range-fields label > span { color: var(--admin-muted); font-size: 8px; white-space: nowrap; }
+.usage-date-range-fields input { width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--admin-line); border-radius: 6px; color: var(--admin-ink); background: var(--admin-surface); font: 9px var(--admin-data); color-scheme: light dark; }
+.usage-date-range-fields input:focus { border-color: var(--admin-vital); outline: 2px solid color-mix(in oklch, var(--admin-vital) 12%, transparent); }
+.usage-date-range-actions { display: flex; gap: 5px; }
+.usage-date-range-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 34px; padding: 0 10px; font-size: 8px; white-space: nowrap; }
+.usage-date-range-error { display: inline-flex; grid-column: 1 / -1; align-items: center; gap: 5px; color: var(--admin-red); font-size: 8px; }
 .usage-attention { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: stretch; margin-top: 9px; padding: 7px; border: 1px solid color-mix(in oklch, var(--admin-amber) 24%, var(--admin-line)); border-radius: 9px; background: color-mix(in oklch, var(--admin-amber) 4%, var(--admin-surface)); }
 .usage-attention > header { display: flex; align-items: center; align-content: center; flex-wrap: wrap; gap: 5px; width: 72px; padding: 4px 7px; color: color-mix(in oklch, var(--admin-amber) 75%, var(--admin-ink)); }
 .usage-attention > header span { font-size: 9px; font-weight: 680; }
@@ -1000,7 +1013,7 @@ html:has(.admin-login),
 .usage-trend-stack i.input { background: var(--admin-vital); }
 .usage-trend-legend i.output,
 .usage-trend-stack i.output { background: var(--admin-sky); }
-.usage-trend-chart { display: grid; grid-template-columns: repeat(var(--usage-days, 30), minmax(5px, 1fr)); align-items: end; gap: clamp(2px, .45vw, 7px); min-height: 145px; padding: 4px 2px 0; }
+.usage-trend-chart { display: grid; grid-template-columns: repeat(var(--usage-days, 30), minmax(5px, 1fr)); align-items: end; gap: clamp(2px, .45vw, 7px); min-height: 145px; overflow-x: auto; padding: 4px 2px 0; scrollbar-width: thin; }
 .usage-trend-chart:has(article:nth-child(7):last-child) { --usage-days: 7; }
 .usage-trend-chart article { display: grid; grid-template-rows: 16px 100px 18px; align-items: end; min-width: 0; height: 134px; }
 .usage-trend-chart article > b { overflow: hidden; color: var(--admin-muted); font: 7px var(--admin-data); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
@@ -1123,10 +1136,15 @@ html:has(.admin-login),
   .usage-analytics-actions { width: 100%; }
   .usage-analytics-actions > button:not(.icon-btn) { flex: 1; justify-content: center; }
   .usage-analytics-toolbar { align-items: stretch; flex-direction: column; }
-  .usage-analytics-windows { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+  .usage-analytics-windows { display: grid; grid-template-columns: repeat(5, 1fr); width: 100%; }
   .usage-analytics-windows button { min-width: 0; padding-inline: 6px; }
   .usage-window-context { justify-content: stretch; }
   .usage-window-context span { flex: 1; justify-content: center; }
+  .usage-date-range { grid-template-columns: 1fr; align-items: stretch; }
+  .usage-date-range-mode { display: grid; grid-template-columns: 1fr 1fr; }
+  .usage-date-range-fields,
+  .usage-date-range-fields.single { grid-template-columns: 1fr; }
+  .usage-date-range-actions button { flex: 1; }
   .usage-attention { grid-template-columns: 1fr; }
   .usage-attention > header { width: auto; }
   .usage-analytics-metric { min-height: 96px; padding: 11px; }

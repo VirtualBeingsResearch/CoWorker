@@ -159,6 +159,16 @@ export type UsageWindowStats = UsageModelStats & {
   by_scope?: Record<string, UsageWindowStats>;
 };
 
+export type UsageDateRangeStats = {
+  start_date: string;
+  end_date: string;
+  previous_start_date?: string | null;
+  previous_end_date?: string | null;
+  stats?: UsageWindowStats;
+  previous?: UsageWindowStats | null;
+  daily?: Array<UsageWindowStats & { date: string }>;
+};
+
 export type UsageStats = {
   today?: UsageWindowStats;
   last_7_days?: UsageWindowStats;
@@ -170,6 +180,7 @@ export type UsageStats = {
     last_30_days?: UsageWindowStats;
   };
   daily?: Array<UsageWindowStats & { date: string }>;
+  selected_range?: UsageDateRangeStats;
   generated_at?: string;
   tracking_since?: string | null;
 };

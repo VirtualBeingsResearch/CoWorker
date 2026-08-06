@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -209,6 +209,62 @@ def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
     assert response.status_code == 200
     assert response.json() == report
     usage_stats.report.assert_called_once_with()
+
+
+def test_admin_usage_returns_a_requested_date_range(tmp_path):
+    report = {
+        "selected_range": {
+            "start_date": "2026-06-20",
+            "end_date": "2026-06-22",
+            "stats": {"total_tokens": 42},
+            "daily": [],
+        }
+    }
+    usage_stats = SimpleNamespace(report=MagicMock(return_value=report))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    response = client.get(
+        "/api/admin/usage?start_date=2026-06-20&end_date=2026-06-22",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == report
+    usage_stats.report.assert_called_once_with(
+        start_date=date(2026, 6, 20),
+        end_date=date(2026, 6, 22),
+    )
+
+
+def test_admin_usage_treats_one_requested_date_as_a_single_day(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock(return_value={"selected_range": {}}))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    response = client.get(
+        "/api/admin/usage?start_date=2026-06-20",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    usage_stats.report.assert_called_once_with(
+        start_date=date(2026, 6, 20),
+        end_date=date(2026, 6, 20),
+    )
+
+
+def test_admin_usage_rejects_a_reversed_date_range(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock())
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    with locale_context("zh-CN"):
+        response = client.get(
+            "/api/admin/usage?start_date=2026-06-22&end_date=2026-06-20",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "起始日期不能晚于结束日期"
+    usage_stats.report.assert_not_called()
 
 
 def test_admin_usage_collector_is_cleared_for_the_next_runtime(tmp_path):

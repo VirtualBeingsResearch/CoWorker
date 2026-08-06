@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -271,6 +271,89 @@ def test_admin_report_adds_30_day_trend_previous_periods_and_tracking_metadata()
     assert report["daily"][-1]["estimated_calls"] == 1
     assert report["tracking_since"] == "2026-05-30"
     assert report["generated_at"] == "2026-06-29T12:00:00"
+
+
+def test_admin_report_adds_an_inclusive_custom_range_with_equal_previous_period():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "ts": "2026-06-23T08:00:00",
+            "provider": "previous",
+            "model": "baseline",
+            "usage": {"input_tokens": 20, "output_tokens": 2},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-25T08:00:00",
+            "provider": "selected",
+            "model": "range-model",
+            "usage": {"input_tokens": 30, "output_tokens": 3},
+        },
+        {
+            "type": "tool_call",
+            "id": "skill-load",
+            "ts": "2026-06-27T08:00:00",
+            "name": "get_skill",
+            "arguments": {"skill_name": "browser"},
+        },
+        {
+            "type": "tool_result",
+            "id": "skill-load",
+            "ts": "2026-06-27T08:00:01",
+            "name": "get_skill",
+            "is_error": False,
+        },
+    ])
+
+    report = collector.report(
+        start_date=date(2026, 6, 25),
+        end_date=date(2026, 6, 27),
+    )
+    selected = report["selected_range"]
+
+    assert selected["start_date"] == "2026-06-25"
+    assert selected["end_date"] == "2026-06-27"
+    assert selected["previous_start_date"] == "2026-06-22"
+    assert selected["previous_end_date"] == "2026-06-24"
+    assert selected["previous"]["total_tokens"] == 22
+    assert selected["stats"]["total_tokens"] == 33
+    assert selected["stats"]["by_scope"]["main"]["total_tokens"] == 33
+    assert selected["stats"]["by_provider_model"]["selected/range-model"][
+        "total_tokens"
+    ] == 33
+    assert selected["stats"]["tool_successes"] == 1
+    assert selected["stats"]["skills"]["browser"]["explicit_successes"] == 1
+    assert [item["date"] for item in selected["daily"]] == [
+        "2026-06-25",
+        "2026-06-26",
+        "2026-06-27",
+    ]
+    assert selected["daily"][1]["total_tokens"] == 0
+
+
+def test_admin_report_treats_one_custom_date_as_a_single_day():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "ts": "2026-06-24T08:00:00",
+            "usage": {"input_tokens": 5, "output_tokens": 1},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-25T08:00:00",
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+        },
+    ])
+
+    selected = collector.report(start_date=date(2026, 6, 25))["selected_range"]
+
+    assert selected["start_date"] == "2026-06-25"
+    assert selected["end_date"] == "2026-06-25"
+    assert selected["stats"]["total_tokens"] == 12
+    assert selected["previous"]["total_tokens"] == 6
+    assert len(selected["daily"]) == 1
 
 
 def test_public_snapshot_stays_compact_when_admin_report_is_available():

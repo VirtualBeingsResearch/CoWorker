@@ -481,6 +481,10 @@ function UsageAnalyticsPage() {
     loading={usage.loading}
     error={usage.error}
     onReload={usage.reload}
+    onLoadRange={(startDate, endDate) => {
+      const query = new URLSearchParams({ start_date: startDate, end_date: endDate });
+      return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
+    }}
   />;
 }
 

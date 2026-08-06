@@ -787,7 +787,12 @@ class UsageStatsCollector:
             return payload
         return {key: self._compact_window(value) for key, value in payload.items()}
 
-    def report(self) -> dict[str, Any]:
+    def report(
+        self,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> dict[str, Any]:
         """Return the authenticated management report without expanding public status."""
         now = self._now_fn()
         today = now.date()
@@ -819,7 +824,57 @@ class UsageStatsCollector:
             "generated_at": now.isoformat(),
             "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
         }
+        if start_date is not None or end_date is not None:
+            selected_start = start_date or end_date
+            selected_end = end_date or start_date
+            if selected_start is None or selected_end is None:
+                raise ValueError("invalid_usage_date_range")
+            if selected_start > selected_end:
+                raise ValueError("invalid_usage_date_range")
+            payload["selected_range"] = self._selected_range_report(
+                selected_start,
+                selected_end,
+            )
         return payload
+
+    def _selected_range_report(self, start: date, end: date) -> dict[str, Any]:
+        bucket, scopes = self._aggregate_range(start, end)
+        span = (end - start).days + 1
+        previous_start: date | None = None
+        previous_end: date | None = None
+        previous: dict[str, Any] | None = None
+        try:
+            previous_end = start - timedelta(days=1)
+            previous_start = previous_end - timedelta(days=span - 1)
+        except OverflowError:
+            previous_start = None
+            previous_end = None
+        else:
+            previous = _summary_bucket(
+                self._aggregate_range(previous_start, previous_end)[0]
+            )
+        return {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "previous_start_date": (
+                previous_start.isoformat() if previous_start is not None else None
+            ),
+            "previous_end_date": (
+                previous_end.isoformat() if previous_end is not None else None
+            ),
+            "stats": self._finalize_window(bucket, scopes),
+            "previous": previous,
+            "daily": [
+                {
+                    "date": day.isoformat(),
+                    **_summary_bucket(deepcopy(self._days.get(day, _new_bucket()))),
+                }
+                for day in (
+                    start + timedelta(days=offset)
+                    for offset in range(span)
+                )
+            ],
+        }
 
     @classmethod
     def _compact_window(cls, window: dict[str, Any]) -> dict[str, Any]:
