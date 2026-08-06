@@ -227,6 +227,48 @@ class InteractionLogger:
             entry["context_hint"] = context_hint[:200]
         self._write(entry)
 
+    def log_memory_compression(
+        self,
+        *,
+        trigger: str,
+        mode: str,
+        storage: str,
+        messages_compressed: int,
+        duration_ms: int,
+        summary_calls: int,
+        summary_tracked_calls: int,
+        summary_input_tokens: int,
+        summary_output_tokens: int,
+        summary_cached_tokens: int,
+    ) -> None:
+        """Persist privacy-safe facts for one completed short-term compression."""
+
+        def nonnegative(value: int) -> int:
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                return 0
+
+        normalized_trigger = trigger if trigger in {"automatic", "admin", "tool"} else "other"
+        normalized_mode = mode if mode in {"incremental", "full"} else "unknown"
+        normalized_storage = storage if storage in {"tree", "legacy"} else "unknown"
+        input_tokens = nonnegative(summary_input_tokens)
+        output_tokens = nonnegative(summary_output_tokens)
+        self._write({
+            "type": "memory_compression",
+            "trigger": normalized_trigger,
+            "mode": normalized_mode,
+            "storage": normalized_storage,
+            "messages_compressed": nonnegative(messages_compressed),
+            "duration_ms": nonnegative(duration_ms),
+            "summary_calls": nonnegative(summary_calls),
+            "summary_tracked_calls": nonnegative(summary_tracked_calls),
+            "summary_input_tokens": input_tokens,
+            "summary_output_tokens": output_tokens,
+            "summary_cached_tokens": nonnegative(summary_cached_tokens),
+            "summary_total_tokens": input_tokens + output_tokens,
+        })
+
     def log_vision_llm_response(
         self,
         *,

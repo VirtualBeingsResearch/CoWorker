@@ -17,6 +17,10 @@ node_modules/
 status-app/node_modules/
 status-app/.vite/
 .claude/settings.local.json
+
+# 本地 agent 配置与并行开发 worktree
+.pi/
+.worktrees/
 # 命名 provider 配置（含真实 API key），单复数都忽略，避免照 example 创建后误提交
 provider.json
 providers.json

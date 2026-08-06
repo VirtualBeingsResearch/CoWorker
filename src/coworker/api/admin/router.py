@@ -11,7 +11,7 @@ import secrets
 import shutil
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
     from coworker.agent.loop import AgentLoop
     from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+    from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
@@ -90,6 +91,7 @@ _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
 _person_store: PersonStore | None = None
 _persona_cards: PersonaCard | None = None
+_usage_stats: UsageStatsCollector | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
@@ -227,6 +229,7 @@ def setup_admin(
     relay_client: RelayClient | None = None,
     person_store: PersonStore | None = None,
     persona_cards: PersonaCard | None = None,
+    usage_stats: UsageStatsCollector | None = None,
 ) -> None:
     global \
         _agent, \
@@ -241,7 +244,8 @@ def setup_admin(
         _admin_config_service, \
         _relay_client, \
         _person_store, \
-        _persona_cards
+        _persona_cards, \
+        _usage_stats
     _agent = agent
     _brain = brain
     _config = config
@@ -254,6 +258,7 @@ def setup_admin(
     _relay_client = relay_client
     _person_store = person_store
     _persona_cards = persona_cards
+    _usage_stats = usage_stats
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -283,6 +288,15 @@ def _require_brain() -> Brain:
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.brain_not_ready"))
     return _brain
+
+
+def _require_usage_stats() -> UsageStatsCollector:
+    if _usage_stats is None:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.state.usage_stats_not_ready"),
+        )
+    return _usage_stats
 
 
 def _require_persona() -> tuple[PersonStore, PersonaCard]:
@@ -546,6 +560,9 @@ _INTERACTION_PREVIEW_CHARS = 480
 _INTERACTION_DETAIL_STRING_CHARS = 32_000
 _INTERACTION_DETAIL_ITEMS = 200
 _INTERACTION_DETAIL_DEPTH = 10
+_INTERACTION_TIME_RANGE_LIMIT = timedelta(days=1)
+
+
 def _interaction_logs_dir() -> Path:
     logs_dir = _config.agent.logs_dir if _config is not None else "data/logs"
     return Path(logs_dir)
@@ -645,10 +662,16 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
         "model",
         "cycle",
         "mode",
+        "trigger",
+        "storage",
         "operation",
         "stop_reason",
         "is_error",
         "thinking",
+        "messages_compressed",
+        "duration_ms",
+        "summary_calls",
+        "summary_total_tokens",
     ):
         value = entry.get(key)
         if value not in (None, ""):
@@ -1063,6 +1086,31 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
         },
         "pending_restart": _require_admin_config_service().pending_restart,
     }
+
+
+@router.get("/usage")
+async def usage(
+    _: None = Depends(require_admin),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+) -> ApiResponse:
+    if start_date is None and end_date is None:
+        return _require_usage_stats().report()
+    selected_start = start_date or end_date
+    selected_end = end_date or start_date
+    if (
+        selected_start is None
+        or selected_end is None
+        or selected_start > selected_end
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.admin.invalid_usage_date_range"),
+        )
+    return _require_usage_stats().report(
+        start_date=selected_start,
+        end_date=selected_end,
+    )
 
 
 @router.get("/config")
@@ -1775,6 +1823,7 @@ async def compress_memory(
         _require_brain(),
         context_hint=tr("notification.admin_compress_hint"),
         agent_system_prompt=agent.current_system_prompt(),
+        trigger="admin",
     )
     _audit(
         request,
@@ -1875,6 +1924,8 @@ async def get_interaction_history(
     q: str = Query(default="", max_length=500),
     seq_start: int | None = Query(default=None, ge=0),
     seq_end: int | None = Query(default=None, ge=0),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     """Page through every interactions.jsonl shard without loading history at once.
@@ -1887,18 +1938,90 @@ async def get_interaction_history(
     """
     if seq_start is not None and seq_end is not None and seq_start > seq_end:
         raise HTTPException(status_code=400, detail=tr("api.admin.invalid_seq_range"))
+    if (start_time is None) != (end_time is None):
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.admin.incomplete_log_time_range"),
+        )
+    if start_time is not None and end_time is not None:
+        try:
+            time_span = end_time - start_time
+        except TypeError:
+            time_span = timedelta(days=-1)
+        if time_span < timedelta(0):
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.admin.invalid_log_time_range"),
+            )
+        if time_span > _INTERACTION_TIME_RANGE_LIMIT:
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.admin.log_time_range_too_large"),
+            )
     needle = q.strip().casefold()
     selected_type = (event_type or "").strip()
 
+    store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
+    sequence = _interaction_sequence_summary(store)
+    effective_seq_start = seq_start
+    effective_seq_end = seq_end
+    time_range: JsonObject | None = None
+    if start_time is not None and end_time is not None:
+        time_range = {
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+        }
+        ranged_entries, _complete = store.read_time_range(start_time, end_time)
+        ranged_sequences: list[int] = []
+        for entry in ranged_entries:
+            try:
+                ranged_sequences.append(int(entry.get("seq", -1)))
+            except (TypeError, ValueError, OverflowError):
+                continue
+        ranged_sequences = [seq for seq in ranged_sequences if seq >= 0]
+        if not ranged_sequences:
+            return {
+                "events": [],
+                "next_cursor": None,
+                "has_more": False,
+                "scanned_bytes": 0,
+                "sequence": sequence,
+                "time_range": time_range,
+            }
+        time_seq_start = min(ranged_sequences)
+        time_seq_end = max(ranged_sequences)
+        effective_seq_start = max(
+            value for value in (effective_seq_start, time_seq_start) if value is not None
+        )
+        effective_seq_end = min(
+            value for value in (effective_seq_end, time_seq_end) if value is not None
+        )
+        if effective_seq_start > effective_seq_end:
+            return {
+                "events": [],
+                "next_cursor": None,
+                "has_more": False,
+                "scanned_bytes": 0,
+                "sequence": sequence,
+                "time_range": time_range,
+            }
+
+    start_time_iso = start_time.isoformat() if start_time is not None else None
+    end_time_iso = end_time.isoformat() if end_time is not None else None
+
     def matches(entry: dict[str, Any]) -> bool:
-        if seq_start is not None or seq_end is not None:
+        if effective_seq_start is not None or effective_seq_end is not None:
             try:
                 entry_seq = int(entry.get("seq", -1))
             except (TypeError, ValueError, OverflowError):
                 return False
-            if (seq_start is not None and entry_seq < seq_start) or (
-                seq_end is not None and entry_seq > seq_end
+            if (effective_seq_start is not None and entry_seq < effective_seq_start) or (
+                effective_seq_end is not None and entry_seq > effective_seq_end
             ):
+                return False
+        if start_time_iso is not None and end_time_iso is not None:
+            entry_time = str(entry.get("ts") or "")
+            if not start_time_iso <= entry_time <= end_time_iso:
                 return False
         if selected_type and str(entry.get("type") or "") != selected_type:
             return False
@@ -1910,25 +2033,32 @@ async def get_interaction_history(
             searchable = str(entry)
         return needle in searchable.casefold()
 
-    store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
-    sequence = _interaction_sequence_summary(store)
     page = store.read_history_page(
         limit=limit,
         cursor=_decode_interaction_cursor(cursor),
         match=matches
-        if selected_type or needle or seq_start is not None or seq_end is not None
+        if (
+            selected_type
+            or needle
+            or effective_seq_start is not None
+            or effective_seq_end is not None
+            or time_range is not None
+        )
         else None,
         max_scan_bytes=_INTERACTION_PAGE_SCAN_BYTES,
-        seq_start=seq_start,
-        seq_end=seq_end,
+        seq_start=effective_seq_start,
+        seq_end=effective_seq_end,
     )
-    return {
+    response: ApiResponse = {
         "events": [_interaction_list_item(entry) for entry in page.entries],
         "next_cursor": _encode_interaction_cursor(page.cursor),
         "has_more": page.has_more,
         "scanned_bytes": page.scanned_bytes,
         "sequence": sequence,
     }
+    if time_range is not None:
+        response["time_range"] = time_range
+    return response
 
 
 @router.get("/interactions/{seq}")

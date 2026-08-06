@@ -6,9 +6,9 @@
 
 The Web management console is available at
 <http://127.0.0.1:8000/admin> by default. It manages Coworker's runtime,
-memory, tasks, models, identity, capability content, remote access, and
-diagnostics. It is an administration surface, not a public multi-tenant control
-plane.
+memory, tasks, models, identity, people and relationships, capability content,
+remote access, and diagnostics. It is an administration surface, not a public
+multi-tenant control plane.
 
 To start from an outcome instead of page structure, see [Common Use Cases](use-cases.en.md).
 Use [Authoring Capability Content](capability-authoring.en.md) when creating a Skill, Palace, or
@@ -36,27 +36,105 @@ Before initialization, the console shows only first-time setup. After language,
 output-token, Provider, model, and Passive mode settings are saved, Coworker
 restarts. See [First Run](../getting-started/README.en.md) for the complete path.
 
-After initialization, the sidebar organizes ten areas under Observe, Shape,
-Extend, and Trace.
+After initialization, the management pages are organized into five
+responsibility groups: Observability, Operations, Configuration, Relationships,
+and Extensions. On desktop, the left navigation lists all 12 feature
+pages under those groups. Group labels aid scanning without adding another
+click, so every page remains directly reachable. Phones use five bottom-bar
+entries to return to the most recently visited page in each group and can
+select any of the 12 pages from the top bar. Existing `?section=` deep links
+remain valid.
 
 ![Coworker Web management console Life Overview](../assets/screenshots/admin-overview-en.png)
 
-<p align="center"><sub>Life Overview · Review current state, context pressure, model, and runtime metrics.</sub></p>
+<p align="center"><sub>Life Overview · Review current state, model-token usage, and key runtime metrics in one view.</sub></p>
 
-## Observe: understand the current state
+## Observability: start with state, usage, and key metrics
 
 ### Life Overview
 
 Life Overview shows current state rather than full history:
 
 - whether the Agent is active, resting, or waiting for an event;
-- current short-context pressure and memory-tree structure;
-- process uptime, current model, and important runtime indicators;
+- model tokens, input, output, cached-token share, and data confidence for
+  today, the last 7 days, and all time;
+- tool, skill, and autonomous-execution alerts plus a direct route into full
+  runtime analytics;
+- current tasks, alarms, short context, long-term memory, and context capacity;
+- current model, wake policy, cycle count, and current start time;
 - state shown on the public Web identity page.
+
+Usage here is collected locally by the current Coworker process and is not a
+Provider bill. If model calls exist but the Provider did not return token data,
+the page says so instead of reporting those calls as zero usage.
+
+### Runtime Analytics
+
+Runtime Analytics is a dedicated left-navigation entry in the Observability
+group. It continues from the summary and provides:
+
+- Today, 7-day, 30-day, and all-time preset windows plus custom single-day or
+  inclusive start/end date ranges;
+- yesterday, the preceding 7 days, or the preceding 30 days as preset
+  baselines, with every custom range compared against the immediately
+  preceding equal-length period;
+- a first-screen summary of tokens, model calls, caching, tools, skill loads,
+  autonomous runs, and memory compression next to data confidence and
+  attention items;
+- a 24-hour input/output increment chart and running daily-token line whenever
+  Today or a custom single day is selected;
+- per-hour token, model-call, and cache summaries, with a direct jump that
+  carries the selected interval into Runtime Center logs;
+- daily input- and output-token trends for multi-day windows covering the
+  latest 30 days or the selected custom range;
+- exact, estimated, and untracked token confidence breakdowns;
+- Provider/model and main, summary, Bubble, and other responsibility-source
+  drivers; each responsibility shows its cache rate, and either the top filter
+  or a responsibility card switches metrics, trends, models, execution details,
+  and exports to that scope;
+- successful, errored, and unsettled tool outcomes plus explicit and Palace
+  automatic skill loads;
+- completed memory-compression counts, affected messages, summary-model calls
+  and tokens, split by automatic, administrator, and tool triggers, with the
+  metric linking directly to filtered compression-event logs;
+- technical Bubble and subconscious outcomes such as completion, errors,
+  timeouts, cycles, and resumes;
+- the first eight ranked model, tool, and skill rows by default, with an
+  in-place control to reveal every remaining record;
+- administrator-report JSON and daily-aggregate CSV exports, including the
+  selected interval and matching daily rows when a custom range is active.
+
+![Coworker Web management console Runtime Analytics](../assets/screenshots/admin-usage-en.png)
+
+<p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical outcomes by a single day or date range.</sub></p>
+
+The public status page continues to use a compact snapshot without daily
+details. The 30-day and custom-range trends and exports are available only
+through the authenticated administrator endpoint. Statistics come from local
+logs, so a low coverage rate can understate totals; the console does not convert
+them into Provider cost estimates.
+The hourly chart reads privacy-safe aggregates only. Its log drill-through
+still uses the existing administrator authorization, limits each time range to
+24 hours, shows bounded previews in the list, and fetches expanded detail only
+after an explicit click.
+
+Memory compression is tracked precisely through a dedicated success event from
+the time this version is installed. Attempts skipped for insufficient messages
+or concurrency, and attempts aborted because context changed during summary,
+do not increment the count. Older logs are not inferred from ordinary
+`summary_llm_response` calls because the Summary model also serves Bubble,
+backfill, memory-tree merging, and other responsibilities. The console displays
+the date on which exact compression tracking began.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
 and the last successful activity when deciding whether there is a failure.
+
+## Operations: care for work in progress
+
+![Coworker Web management console Operations workbench](../assets/screenshots/admin-operations-en.png)
+
+<p align="center"><sub>Operations · Switch directly among tasks, memory, and diagnostics from the grouped left navigation.</sub></p>
 
 ### Memory Center
 
@@ -85,7 +163,8 @@ Runtime Center brings together:
 
 - task board;
 - alarms and waiting;
-- lifetime interaction history;
+- lifetime interaction history filterable by sequence or a time range of up to
+  24 hours;
 - emergency backups;
 - safe restart.
 
@@ -103,7 +182,24 @@ These are not disaster backups for all of `data/`, `.coworker/`, or Docker
 volumes. Record the current state before a full restore and prefer summary
 restore when it can recover enough context.
 
-## Shape: change models, runtime, and identity
+### Diagnostics & Audit
+
+Event-loop diagnostics shows background-task state and recent failures.
+Administrator Operation Timeline records management-operation metadata without
+tokens, secrets, or complete message bodies.
+
+When diagnosing a problem:
+
+1. record when it happened;
+2. check whether a background task is failing repeatedly;
+3. compare lifetime interaction history and process logs;
+4. check whether a recent administrator action changed configuration;
+5. restart or restore only after identifying the likely cause.
+
+See [Troubleshooting](../operations/troubleshooting.en.md) for the common
+diagnostic order and recovery paths.
+
+## Configuration: adjust models and runtime parameters
 
 ### Model Orchestration
 
@@ -137,6 +233,8 @@ Do not use development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 
+## Relationships: maintain the companion identity and people
+
 ### Identity Profile
 
 Identity Profile manages name, current location, and personality. Saving writes
@@ -148,7 +246,15 @@ It excludes tool schemas, short-term context, and the current message. Use it
 to verify that identity and system settings entered the prompt, not as a full
 request audit.
 
-## Extend: add capabilities and remote entry points
+### People
+
+People binds one real person’s addresses across channels into a single
+relationship. You can create, rename, or merge people, inspect the profile
+framework, and maintain personalized notes. Verify both sets of addresses
+before a merge. Deleting a person removes the relationship record and cannot be
+undone from the ordinary page.
+
+## Extensions: manage capabilities, remote access, and releases
 
 ### Capability Content
 
@@ -191,23 +297,6 @@ Creating or synchronizing a draft does not notify clients. Only an explicit
 Publish changes the update manifest. An online push asks a client to check a
 signed update and does not bypass user confirmation. Ordinary users do not need
 this page.
-
-## Trace: diagnostics and audit
-
-Event-loop diagnostics shows background-task state and recent failures.
-Administrator Operation Timeline records management-operation metadata without
-tokens, secrets, or complete message bodies.
-
-When diagnosing a problem:
-
-1. record when it happened;
-2. check whether a background task is failing repeatedly;
-3. compare lifetime interaction history and process logs;
-4. check whether a recent administrator action changed configuration;
-5. restart or restore only after identifying the likely cause.
-
-See [Troubleshooting](../operations/troubleshooting.en.md) for the common
-diagnostic order and recovery paths.
 
 ## Suggested routine checks
 

@@ -22,7 +22,11 @@ The following paths are relative to Coworker's working directory unless configur
 
 These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you. Protect them with operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and must be handled as credential files.
 
-The default configuration does not automatically synchronize the entire `data/` or `.coworker/` directory to a project-operated server, and Chroma anonymous telemetry is explicitly disabled. Downloads made by third-party dependencies, model services, and the tools below still produce network requests.
+The default configuration does not automatically synchronize the entire `data/` or `.coworker/`
+directory to a project-operated server, and anonymous telemetry from mem0 and Chroma is explicitly
+disabled. Setting `MEM0_TELEMETRY=true` explicitly in the process environment opts back into mem0
+telemetry. Downloads made by third-party dependencies, model services, and the tools below still
+produce network requests.
 
 Container deployments keep the Git workspace, runtime data, and model cache in the separate
 `coworker-workspace`, `coworker-state`, and `coworker-models` volumes. The strict offline image

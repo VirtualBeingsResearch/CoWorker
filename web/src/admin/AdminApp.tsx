@@ -1,6 +1,6 @@
-import { FormEvent, Fragment, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlarmClock, ArchiveRestore, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
+  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
@@ -11,32 +11,105 @@ import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
+import { AdminUsageOverview } from './UsageOverview';
+import { AdminUsageAnalytics } from './UsageAnalytics';
+import type { UsageStats } from '../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type Section = 'overview' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
-type NavGroup = '观察' | '塑形' | '扩展' | '追溯';
+type Section = 'overview' | 'usage' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
+type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' | 'advanced';
+type RuntimeTab = 'tasks' | 'alarms' | 'logs' | 'maintenance';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 
-const NAV: Array<{ id: Section; label: string; description: string; group: NavGroup; icon: typeof Activity }> = [
-  { id: 'overview', label: '生命总览', description: '状态、上下文和当前驻留情况', group: '观察', icon: HeartPulse },
-  { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', group: '观察', icon: Database },
-  { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', group: '观察', icon: Activity },
-  { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', group: '塑形', icon: Brain },
-  { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', group: '塑形', icon: Settings2 },
-  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', group: '塑形', icon: Fingerprint },
-  { id: 'people', label: '通信录', description: '人物与跨信道身份', group: '塑形', icon: Users },
-  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', group: '扩展', icon: FileCog },
-  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', group: '扩展', icon: CloudUpload },
-  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', group: '扩展', icon: PackageOpen },
-  { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', group: '追溯', icon: ShieldCheck },
+const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
+  { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
+  { id: 'usage', label: '运行分析', description: 'Token、工具、技能与自主执行结果', workspace: 'overview', icon: BarChart3 },
+  { id: 'runtime', label: '运行中心', description: '任务、闹钟、运行账本与维护', workspace: 'operations', icon: Activity },
+  { id: 'memory', label: '记忆中心', description: '短期上下文、长期召回与并行思考记录', workspace: 'operations', icon: Database },
+  { id: 'audit', label: '诊断与审计', description: '事件循环健康与管理员操作记录', workspace: 'operations', icon: ShieldCheck },
+  { id: 'models', label: '模型编排', description: '主线模型、摘要与失败降级链', workspace: 'configuration', icon: Brain },
+  { id: 'settings', label: '运行设置', description: '连接、记忆与循环参数', workspace: 'configuration', icon: Settings2 },
+  { id: 'identity', label: '身份档案', description: '姓名、现居地和人格', workspace: 'relationships', icon: Fingerprint },
+  { id: 'people', label: '通信录', description: '人物与跨信道身份', workspace: 'relationships', icon: Users },
+  { id: 'content', label: '能力内容', description: 'Skill、Palace 与潜意识模式', workspace: 'advanced', icon: FileCog },
+  { id: 'relay', label: '远程访问', description: '安全连接自托管 Relay', workspace: 'advanced', icon: CloudUpload },
+  { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'advanced', icon: PackageOpen },
 ];
-const NAV_GROUPS: NavGroup[] = ['观察', '塑形', '扩展', '追溯'];
+const WORKSPACES: Array<{ id: Workspace; label: string; mobileLabel: string; description: string; icon: typeof Activity; sections: Section[] }> = [
+  { id: 'overview', label: '观测', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview', 'usage'] },
+  { id: 'operations', label: '运维', mobileLabel: '运维', description: '任务、记忆与运行诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
+  { id: 'configuration', label: '配置', mobileLabel: '配置', description: '模型连接与运行参数', icon: SlidersHorizontal, sections: ['models', 'settings'] },
+  { id: 'relationships', label: '关系', mobileLabel: '人物', description: '身份与跨信道人物关系', icon: Users, sections: ['identity', 'people'] },
+  { id: 'advanced', label: '扩展', mobileLabel: '高级', description: '能力、远程接入与发布维护', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
+];
+const DEFAULT_SECTION_BY_WORKSPACE: Record<Workspace, Section> = {
+  overview: 'overview',
+  operations: 'runtime',
+  configuration: 'models',
+  relationships: 'identity',
+  advanced: 'content',
+};
+
+const NavigationGuardContext = createContext<(owner: string, dirty: boolean) => void>(() => undefined);
+
+function useNavigationGuard(owner: string, dirty: boolean) {
+  const report = useContext(NavigationGuardContext);
+  useEffect(() => {
+    report(owner, dirty);
+    return () => report(owner, false);
+  }, [dirty, owner, report]);
+}
 
 function sectionFromLocation(): Section {
   const requested = new URLSearchParams(window.location.search).get('section');
   return NAV.some(item => item.id === requested) ? requested as Section : 'overview';
+}
+
+function workspaceForSection(section: Section) {
+  const navItem = NAV.find(item => item.id === section) || NAV[0];
+  return WORKSPACES.find(workspace => workspace.id === navItem.workspace) || WORKSPACES[0];
+}
+
+function sectionHref(next: Section) {
+  const url = new URL(window.location.href);
+  const current = sectionFromLocation();
+  if (next === 'overview') url.searchParams.delete('section');
+  else url.searchParams.set('section', next);
+  if (next !== 'settings' || current !== 'settings') {
+    url.searchParams.delete('group');
+    url.searchParams.delete('source');
+  }
+  if (next !== 'runtime' || current !== 'runtime') {
+    url.searchParams.delete('runtime_tab');
+    url.searchParams.delete('log_start');
+    url.searchParams.delete('log_end');
+    url.searchParams.delete('log_type');
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function runtimeTabFromLocation(): RuntimeTab {
+  const requested = new URLSearchParams(window.location.search).get('runtime_tab');
+  return requested === 'alarms' || requested === 'logs' || requested === 'maintenance'
+    ? requested
+    : 'tasks';
+}
+
+function logTimeFromLocation(key: 'log_start' | 'log_end'): string {
+  const value = new URLSearchParams(window.location.search).get(key) || '';
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ? value.slice(0, 26) : '';
+}
+
+function logTypeFromLocation(): string {
+  const value = new URLSearchParams(window.location.search).get('log_type') || '';
+  return /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : '';
+}
+
+function logTimeInputValue(value: string): string {
+  const fraction = value.indexOf('.');
+  return fraction < 0 ? value : value.slice(0, fraction + 4);
 }
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
@@ -356,10 +429,12 @@ function runtimeWakePolicy(status: Json) {
   return t('每 {{seconds}} 秒自唤醒', { seconds: status.idle_sleep_seconds });
 }
 
-function Overview({ name }: { name: string }) {
+function Overview({ name, onNavigate }: { name: string; onNavigate: (event: ReactMouseEvent<HTMLAnchorElement>, section: Section) => void }) {
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/overview'), []);
+  const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState('');
+  const reloadAll = async () => { await Promise.all([reload(), usage.reload()]); };
   const resume = async () => {
     setResuming(true);
     setResumeError('');
@@ -380,45 +455,69 @@ function Overview({ name }: { name: string }) {
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
   const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return <div className="page-stack">
-    <section className={`presence-hero ${presenceState}`}>
-      <div className="presence-copy">
-        <p className="eyebrow">{t('状态采样')}</p>
-        <h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span>{resting && <button type="button" className="primary mini presence-resume" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}</h1>
-        <div className="presence-readout">
-          <div><span>{t('主线模型')}</span><strong>{status.provider}/{status.model}</strong></div>
-          <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
-          <div><span>{t('唤醒方式')}</span><strong>{wakePolicy}</strong></div>
-          <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
-        </div>
+  const operations: Array<{ label: string; value: number; note: string; icon: typeof Activity; section: Section }> = [
+    { label: t('活跃任务'), value: counts.active_tasks, note: t('{{count}} 项总计', { count: counts.tasks }), icon: ListTodo, section: 'runtime' },
+    { label: t('运行 Bubble'), value: counts.active_bubbles, note: t('并行思考分支'), icon: Orbit, section: 'memory' },
+    { label: t('短期上下文'), value: counts.short_term_messages, note: t('{{count}} 个树节点', { count: data.memory.tree_nodes }), icon: MessagesSquare, section: 'memory' },
+    { label: t('长期记忆'), value: counts.long_term_memories, note: t('可语义检索'), icon: Database, section: 'memory' },
+    { label: t('待触发闹钟'), value: counts.alarms, note: t('后台守候中'), icon: AlarmClock, section: 'runtime' },
+    { label: t('上下文容量'), value: data.memory.max_tokens, note: 'Token', icon: CircleGauge, section: 'memory' },
+  ];
+  return <div className="page-stack overview-dashboard">
+    <section className={`overview-status-strip ${presenceState}`}>
+      <div className="overview-status-lead">
+        <div className="overview-mini-signal" aria-hidden="true">{[22, 58, 92, 46, 72].map((height, index) => <i style={{ '--h': `${height}%`, '--d': `${index * .08}s` } as React.CSSProperties} key={height + '-' + index} />)}</div>
+        <div><p className="eyebrow">{t('当前状态')}</p><h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1></div>
       </div>
-      <div className="pulse-organ" aria-label={presenceLabel}>
-        <span className="organ-line" aria-hidden="true" />
-        {[22, 42, 66, 92, 56, 38, 74, 48, 26].map((h, i) => <i key={i} style={{ '--h': `${h}%`, '--d': `${i * .08}s` } as React.CSSProperties} />)}
-        <small>{t('生命信号')} · {presenceLabel}</small>
+      <div className="overview-status-facts">
+        <div><span>{t('主线模型')}</span><strong title={`${status.provider}/${status.model}`}>{status.provider}/{status.model}</strong></div>
+        <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
+        <div><span>{t('唤醒方式')}</span><strong title={wakePolicy}>{wakePolicy}</strong></div>
+        <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
-      <button className="icon-btn" onClick={() => void reload()} title={t('刷新生命迹象')} aria-label={t('刷新生命迹象')}><RefreshCw size={16} /></button>
+      <div className="overview-status-actions">
+        {resting && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
+        <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
+      </div>
     </section>
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
-    <div className="vital-grid">
-      {[
-        [t('活跃任务'), counts.active_tasks, t('{{count}} 项总计', { count: counts.tasks }), ListTodo],
-        [t('运行 Bubble'), counts.active_bubbles, t('并行思考分支'), Orbit],
-        [t('长期记忆'), counts.long_term_memories, t('可语义检索'), Database],
-        [t('短期上下文'), counts.short_term_messages, t('{{count}} 个树节点', { count: data.memory.tree_nodes }), MessagesSquare],
-        [t('待触发闹钟'), counts.alarms, t('后台守候中'), AlarmClock],
-      ].map(([label, value, note, Icon]: any) => <article className="vital" key={label}><Icon size={18} /><span>{t(label)}</span><strong>{Number(value).toLocaleString()}</strong><small>{t(note)}</small></article>)}
-    </div>
-    <div className="two-col">
-      <Panel title="上下文水位" note="短期消息与记忆树的当前结构">
-        <div className="memory-meter"><div><span>{t('消息')}</span><b>{data.memory.messages}</b></div><div><span>{t('容量')}</span><b>{Number(data.memory.max_tokens).toLocaleString()} token</b></div><div><span>{t('回溯')}</span><b>{data.memory.backfill?.running ? `${data.memory.backfill.done}/${data.memory.backfill.total}` : t('空闲')}</b></div></div>
-      </Panel>
-      <Panel title="进程驻留" note="当前实例的连续运行时间">
-        <div className="runtime-clock"><CircleGauge size={34} /><div><b>{new Date(status.started_at).toLocaleString()}</b><span>{t('本轮启动时间')}</span></div></div>
+    <div className="overview-main-grid">
+      <AdminUsageOverview
+        stats={usage.data}
+        loading={usage.loading}
+        error={usage.error}
+        analyticsHref={sectionHref('usage')}
+        onOpenAnalytics={event => onNavigate(event, 'usage')}
+      />
+      <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
+        <div className="overview-operation-grid">
+          {operations.map(item => <a className="overview-operation" href={sectionHref(item.section)} onClick={event => onNavigate(event, item.section)} key={item.label}><item.icon size={16} /><span>{item.label}</span><strong>{Number(item.value).toLocaleString()}</strong><small>{item.note}</small></a>)}
+        </div>
+        <footer className="overview-runtime-footer">
+          <span><b>{t('回溯状态')}</b>{data.memory.backfill?.running ? `${data.memory.backfill.done}/${data.memory.backfill.total}` : t('空闲')}</span>
+          <span><b>{t('本轮启动')}</b>{new Date(status.started_at).toLocaleString()}</span>
+        </footer>
       </Panel>
     </div>
   </div>;
+}
+
+function UsageAnalyticsPage({ onOpenLogs }: {
+  onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+}) {
+  const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
+  return <AdminUsageAnalytics
+    stats={usage.data}
+    loading={usage.loading}
+    error={usage.error}
+    onReload={usage.reload}
+    onLoadRange={(startDate, endDate) => {
+      const query = new URLSearchParams({ start_date: startDate, end_date: endDate });
+      return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
+    }}
+    onOpenLogs={onOpenLogs}
+  />;
 }
 
 function Models() {
@@ -428,6 +527,8 @@ function Models() {
   const [switching, setSwitching] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks }));
+  useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
     const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision }) });
@@ -705,6 +806,14 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
     if (current && sources.some(source => source.id === current)) { setSelectedSourceId(current); return; }
     if (selectedSourceId && !sources.some(source => source.id === selectedSourceId)) setSelectedSourceId(active || sources[0]?.id || '');
   }, [active, selectedSourceId, sources]);
+  useEffect(() => {
+    const syncSourceFromLocation = () => {
+      const current = new URLSearchParams(window.location.search).get('source') || '';
+      setSelectedSourceId(current && sources.some(source => source.id === current) ? current : active || sources[0]?.id || '');
+    };
+    window.addEventListener('popstate', syncSourceFromLocation);
+    return () => window.removeEventListener('popstate', syncSourceFromLocation);
+  }, [active, sources]);
   const feedStatus = secretStatus['desktop_updates.feed_token'];
   const activeConfigured = isSourceConfigured(activeSource || undefined);
   return <div className="desktop-update-settings">
@@ -795,6 +904,7 @@ function Settings() {
     setSecretInputs,
     toggleClearOverride,
   } = settings;
+  useNavigationGuard('settings', dirtyGroups.size > 0);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -908,10 +1018,22 @@ function repeatLabel(seconds?: number | null) {
 }
 
 function Runtime({ confirmationName }: { confirmationName: string }) {
-  const [tab, setTab] = useState<'tasks' | 'alarms' | 'logs' | 'maintenance'>('tasks');
+  const [tab, setTab] = useState<RuntimeTab>(runtimeTabFromLocation);
+  const selectTab = (next: RuntimeTab) => {
+    const url = new URL(window.location.href);
+    if (next === 'tasks') url.searchParams.delete('runtime_tab');
+    else url.searchParams.set('runtime_tab', next);
+    if (next !== 'logs') {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+      url.searchParams.delete('log_type');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setTab(next);
+  };
   return <div className="page-stack"><div className="tabbar">{[
     ['tasks', '任务'], ['alarms', '闹钟'], ['logs', '运行日志'], ['maintenance', '维护'],
-  ].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as 'tasks' | 'alarms' | 'logs' | 'maintenance')}>{t(label)}</button>)}</div>
+  ].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => selectTab(id as RuntimeTab)}>{t(label)}</button>)}</div>
     {tab === 'tasks' && <Tasks />}{tab === 'alarms' && <Alarms />}{tab === 'logs' && <Logs />}{tab === 'maintenance' && <Maintenance confirmationName={confirmationName} />}
   </div>;
 }
@@ -1306,12 +1428,17 @@ function Alarms() {
 function Logs() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [type, setType] = useState('');
+  const [type, setType] = useState(logTypeFromLocation);
   const [seqStartDraft, setSeqStartDraft] = useState('');
   const [seqEndDraft, setSeqEndDraft] = useState('');
   const [seqStart, setSeqStart] = useState('');
   const [seqEnd, setSeqEnd] = useState('');
   const [sequenceError, setSequenceError] = useState('');
+  const [timeStartDraft, setTimeStartDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_start')));
+  const [timeEndDraft, setTimeEndDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_end')));
+  const [timeStart, setTimeStart] = useState(() => logTimeFromLocation('log_start'));
+  const [timeEnd, setTimeEnd] = useState(() => logTimeFromLocation('log_end'));
+  const [timeError, setTimeError] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
   const [newerCursors, setNewerCursors] = useState<Array<string | null>>([]);
   const [page, setPage] = useState<Json | null>(null);
@@ -1328,7 +1455,7 @@ function Logs() {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const applySequenceRange = () => {
+  const applyHistoryFilters = () => {
     const normalize = (value: string) => value.trim().replace(/^0+(?=\d)/, '');
     const start = normalize(seqStartDraft);
     const end = normalize(seqEndDraft);
@@ -1340,11 +1467,49 @@ function Logs() {
       setSequenceError(t('序列下限不能大于序列上限。'));
       return;
     }
+    const draftedTimeStart = timeStartDraft.trim();
+    const draftedTimeEnd = timeEndDraft.trim();
+    const selectedTimeStart = draftedTimeStart === logTimeInputValue(timeStart)
+      ? timeStart
+      : draftedTimeStart;
+    const selectedTimeEnd = draftedTimeEnd === logTimeInputValue(timeEnd)
+      ? timeEnd
+      : draftedTimeEnd;
+    if (Boolean(selectedTimeStart) !== Boolean(selectedTimeEnd)) {
+      setTimeError(t('日志起止时间必须同时提供'));
+      return;
+    }
+    if (selectedTimeStart && selectedTimeEnd) {
+      const startTimestamp = new Date(selectedTimeStart).getTime();
+      const endTimestamp = new Date(selectedTimeEnd).getTime();
+      if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp) || startTimestamp > endTimestamp) {
+        setTimeError(t('日志起始时间不能晚于结束时间'));
+        return;
+      }
+      if (endTimestamp - startTimestamp > 86_400_000) {
+        setTimeError(t('日志时间范围不能超过 24 小时'));
+        return;
+      }
+    }
     setSeqStartDraft(start);
     setSeqEndDraft(end);
     setSeqStart(start);
     setSeqEnd(end);
     setSequenceError('');
+    setTimeStartDraft(logTimeInputValue(selectedTimeStart));
+    setTimeEndDraft(logTimeInputValue(selectedTimeEnd));
+    setTimeStart(selectedTimeStart);
+    setTimeEnd(selectedTimeEnd);
+    setTimeError('');
+    const url = new URL(window.location.href);
+    if (selectedTimeStart && selectedTimeEnd) {
+      url.searchParams.set('log_start', selectedTimeStart);
+      url.searchParams.set('log_end', selectedTimeEnd);
+    } else {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
   useEffect(() => {
@@ -1354,12 +1519,12 @@ function Logs() {
     setOpenSeq(null);
     setDetails({});
     setDetailError('');
-  }, [type, debouncedQuery, seqStart, seqEnd]);
+  }, [type, debouncedQuery, seqStart, seqEnd, timeStart, timeEnd]);
 
   useEffect(() => {
     const version = ++requestVersion.current;
     const controller = new AbortController();
-    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd);
+    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd || timeStart || timeEnd);
     setLoading(true);
     setError('');
     void loadInteractionHistoryPage({
@@ -1371,6 +1536,8 @@ function Logs() {
         if (debouncedQuery) params.set('q', debouncedQuery);
         if (seqStart) params.set('seq_start', seqStart);
         if (seqEnd) params.set('seq_end', seqEnd);
+        if (timeStart) params.set('start_time', timeStart);
+        if (timeEnd) params.set('end_time', timeEnd);
         if (pageCursor) params.set('cursor', pageCursor);
         return api<Json>('/api/admin/interactions?' + params.toString(), { signal: controller.signal });
       },
@@ -1391,7 +1558,7 @@ function Logs() {
         if (version === requestVersion.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, type]);
+  }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, timeEnd, timeStart, type]);
 
   const showOlder = () => {
     const next = typeof page?.next_cursor === 'string' ? page.next_cursor : null;
@@ -1437,6 +1604,13 @@ function Logs() {
       : seqEnd
         ? t('序列上限 {{end}}', { end: seqEnd })
         : '';
+  const timeScope = timeStart && timeEnd
+    ? t('{{start}} 至 {{end}}', {
+      start: timeStart.replace('T', ' '),
+      end: timeEnd.replace('T', ' '),
+    })
+    : '';
+  const activeScope = [timeScope, sequenceScope].filter(Boolean).join(' · ');
   const sequenceSummary = page?.sequence;
   const sequenceTotal = Number(sequenceSummary?.total);
   const sequenceFirst = Number(sequenceSummary?.first);
@@ -1447,33 +1621,46 @@ function Logs() {
       count: sequenceTotal.toLocaleString(), first: sequenceFirst.toLocaleString(), latest: sequenceLatest.toLocaleString(),
     })
     : page ? t('总序列 0') : '';
-  const searchContinuation = events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(sequenceScope));
-  const continuationLabel = sequenceScope
+  const searchContinuation = events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(activeScope));
+  const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
       ? t('继续搜索更早日志')
       : t('查看更早记录');
   return <Panel
     title="生命全史日志"
-    note="序列上下限是包含端点的筛选条件，结果从范围内最新记录开始分页；筛选会自动跨过没有命中的扫描窗口。"
-    action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applySequenceRange(); }}>
-      <select aria-label={t('筛选事件类型')} value={type} onChange={event => setType(event.target.value)}>
+    note="时间与序列范围都包含端点，结果从范围内最新记录开始分页；时间范围最多 24 小时。"
+    action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applyHistoryFilters(); }}>
+      <select aria-label={t('筛选事件类型')} value={type} onChange={event => {
+        const selectedType = event.target.value;
+        setType(selectedType);
+        const url = new URL(window.location.href);
+        if (selectedType) url.searchParams.set('log_type', selectedType);
+        else url.searchParams.delete('log_type');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+      }}>
         <option value="">{t('全部事件')}</option>
-        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>subconscious_done</option>
+        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>memory_compression</option><option>subconscious_done</option>
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
+      <div className="history-time-range" aria-label={t('日志时间范围')}>
+        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} type="datetime-local" step="any" value={timeStartDraft} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
+        <span className="sequence-separator" aria-hidden="true">–</span>
+        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} type="datetime-local" step="any" min={timeStartDraft || undefined} value={timeEndDraft} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
+      </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
         <label><span>{t('序列上限')}</span><input aria-label={t('序列上限')} type="number" min="0" step="1" inputMode="numeric" value={seqEndDraft} onChange={event => { setSeqEndDraft(event.target.value); setSequenceError(''); }} placeholder={t('当前')} /></label>
-        <button className="ghost mini sequence-locate" type="submit">{t('筛选范围')}</button>
       </div>
+      <button className="ghost mini sequence-locate" type="submit">{t('应用范围')}</button>
       <button className="icon-btn" type="button" aria-label={t('刷新生命全史日志')} title={t('刷新生命全史日志')} onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={15} /></button>
     </form>}
   >
     {sequenceError && <div className="notice error history-sequence-error">{sequenceError}</div>}
+    {timeError && <div className="notice error history-sequence-error">{timeError}</div>}
     <div className="history-navigator">
-      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : sequenceScope ? t('已应用序列范围') : t('最新记录')}</b><div className="history-detail-line"><small>{sequenceScope ? sequenceScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
+      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : activeScope ? t('已应用日志范围') : t('最新记录')}</b><div className="history-detail-line"><small>{activeScope ? activeScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
       <div className="history-actions"><button className="ghost mini" disabled={!newerCursors.length || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{continuationLabel}</button></div>
     </div>
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
@@ -1571,6 +1758,8 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  const identityDirty = Boolean(identity.data && draft && ['name', 'current_location', 'personality'].some(key => (draft[key] || '') !== (identity.data?.[key] || '')));
+  useNavigationGuard('identity', identityDirty);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
@@ -1761,6 +1950,7 @@ function ContentManager() {
   const [addingFile, setAddingFile] = useState(false);
   const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/content/' + kind), [kind]);
   const dirty = raw !== originalRaw;
+  useNavigationGuard('content', dirty);
   const meta = useMemo(() => draftMeta(raw), [raw]);
   const items = useMemo(() => (data?.items || []).filter((item: Json) => (item.id + ' ' + item.name + ' ' + item.summary).toLowerCase().includes(query.trim().toLowerCase())), [data, query]);
   const kindLabel = t(CONTENT_KIND[kind].label);
@@ -2621,6 +2811,17 @@ export default function AdminApp() {
   const [identity, setIdentity] = useState<AdminIdentity>({ name: '', confirmation_name: '' });
   const [section, setSection] = useState<Section>(sectionFromLocation);
   const [lifeState, setLifeState] = useState<LifeState>('quiet');
+  const dirtyOwners = useRef(new Set<string>());
+  const sectionRef = useRef(section);
+  const lastSectionByWorkspace = useRef<Record<Workspace, Section>>({ ...DEFAULT_SECTION_BY_WORKSPACE });
+  const acceptedLocation = useRef(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+  const reportNavigationDirty = useCallback((owner: string, dirty: boolean) => {
+    if (dirty) dirtyOwners.current.add(owner);
+    else dirtyOwners.current.delete(owner);
+  }, []);
+  const confirmNavigation = useCallback(() => (
+    dirtyOwners.current.size === 0 || window.confirm(t('当前页面有未保存修改，确定离开？'))
+  ), []);
   useEffect(() => {
     if (!storedToken()) { setSessionChecked(true); return; }
     api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' })
@@ -2633,9 +2834,25 @@ export default function AdminApp() {
     api<Json>('/api/admin/bootstrap').then(setBootstrap).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {
-    const syncSection = () => setSection(sectionFromLocation());
+    const syncSection = () => {
+      const next = sectionFromLocation();
+      if (next !== sectionRef.current && !confirmNavigation()) {
+        window.history.pushState({}, '', acceptedLocation.current);
+        return;
+      }
+      sectionRef.current = next;
+      acceptedLocation.current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      setSection(next);
+    };
     window.addEventListener('popstate', syncSection);
     return () => window.removeEventListener('popstate', syncSection);
+  }, [confirmNavigation]);
+  useEffect(() => {
+    const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
+      if (dirtyOwners.current.size > 0) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+    return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
   }, []);
   useEffect(() => {
     if (!ready) return;
@@ -2655,14 +2872,49 @@ export default function AdminApp() {
     return () => { active = false; window.clearInterval(timer); };
   }, [ready]);
   const current = useMemo(() => NAV.find(x => x.id === section) || NAV[0], [section]);
-  const navigate = (next: Section) => {
-    if (next === section) return;
-    const url = new URL(window.location.href);
-    if (next === 'overview') url.searchParams.delete('section');
-    else url.searchParams.set('section', next);
-    window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  const currentWorkspace = useMemo(() => workspaceForSection(section), [section]);
+  useEffect(() => {
+    lastSectionByWorkspace.current[currentWorkspace.id] = section;
+  }, [currentWorkspace.id, section]);
+  const navigate = useCallback((next: Section) => {
+    if (next === sectionRef.current || !confirmNavigation()) return;
+    const href = sectionHref(next);
+    window.history.pushState({}, '', href);
+    sectionRef.current = next;
+    lastSectionByWorkspace.current[workspaceForSection(next).id] = next;
+    acceptedLocation.current = href;
     setSection(next);
-  };
+    window.scrollTo(0, 0);
+  }, [confirmNavigation]);
+  const openRuntimeLogs = useCallback((startTime = '', endTime = '', eventType = '') => {
+    if (!confirmNavigation()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('section', 'runtime');
+    url.searchParams.set('runtime_tab', 'logs');
+    if (startTime && endTime) {
+      url.searchParams.set('log_start', startTime.slice(0, 26));
+      url.searchParams.set('log_end', endTime.slice(0, 26));
+    } else {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+    }
+    if (eventType) url.searchParams.set('log_type', eventType);
+    else url.searchParams.delete('log_type');
+    url.searchParams.delete('group');
+    url.searchParams.delete('source');
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    window.history.pushState({}, '', href);
+    sectionRef.current = 'runtime';
+    lastSectionByWorkspace.current.operations = 'runtime';
+    acceptedLocation.current = href;
+    setSection('runtime');
+    window.scrollTo(0, 0);
+  }, [confirmNavigation]);
+  const onSectionLinkClick = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, next: Section) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(next);
+  }, [navigate]);
   const name = identity.name || '';
   const confirmationName = identity.confirmation_name || '';
   const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : '等待生命信号');
@@ -2670,34 +2922,63 @@ export default function AdminApp() {
   if (!ready) return <Login onReady={result => { setIdentity(result); setReady(true); }} />;
   if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在读取初始化状态…')}</span></div></main></>;
   if (bootstrap.required) return <FirstRun data={bootstrap} onComplete={() => { setBootstrap({ required: false }); location.reload(); }} />;
-  return <main className={`admin-shell life-${lifeState}`} data-language={language}>
+  return <NavigationGuardContext.Provider value={reportNavigationDirty}><main className={`admin-shell life-${lifeState}`} data-language={language}>
     <aside className="admin-sidebar">
       <a className="admin-brand" href="/">
         <div className="brand-mark"><Orbit size={22} /><i /></div>
         <div><b>{name || 'Coworker'}</b><span>{t('生命值守台')}</span></div>
       </a>
-      <nav aria-label={t('照看室导航')}>
-        {NAV_GROUPS.map(group => <div className="nav-group" key={group}>
-          <p>{t(group)}</p>
-          {NAV.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} title={t(item.description)} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{t(item.label)}</span><ChevronRight className="nav-chevron" size={14} /></button>)}
-        </div>)}
+      <nav className="workspace-nav" aria-label={t('照看室导航')}>
+        {WORKSPACES.map(workspace => {
+          const WorkspaceIcon = workspace.icon;
+          const active = workspace.id === currentWorkspace.id;
+          return <div className={`workspace-group${active ? ' active' : ''}`} role="group" aria-label={t(workspace.label)} key={workspace.id}>
+            <div className="workspace-group-label" title={t(workspace.description)}>
+              <WorkspaceIcon size={13} />
+              <span>{t(workspace.label)}</span>
+            </div>
+            <div className="workspace-section-list">
+              {workspace.sections.map(sectionId => {
+                const item = NAV.find(candidate => candidate.id === sectionId)!;
+                const ItemIcon = item.icon;
+                const selected = section === item.id;
+                return <a className={`workspace-section-link${selected ? ' active' : ''}`} href={sectionHref(item.id)} onClick={event => onSectionLinkClick(event, item.id)} aria-current={selected ? 'page' : undefined} title={t(item.description)} key={item.id}>
+                  <ItemIcon size={15} />
+                  <span>{t(item.label)}</span>
+                </a>;
+              })}
+            </div>
+          </div>;
+        })}
+      </nav>
+      <nav className="mobile-workspace-nav" aria-label={t('照看室导航')}>
+        {WORKSPACES.map(workspace => {
+          const active = workspace.id === currentWorkspace.id;
+          const target = active ? section : lastSectionByWorkspace.current[workspace.id];
+          const WorkspaceIcon = workspace.icon;
+          return <a className={`mobile-workspace-link${active ? ' active' : ''}`} href={sectionHref(target)} onClick={event => onSectionLinkClick(event, target)} title={t(workspace.description)} aria-label={t(workspace.label)} aria-current={active ? 'page' : undefined} key={workspace.id}>
+            <WorkspaceIcon size={18} />
+            <span>{t(workspace.mobileLabel)}</span>
+          </a>;
+        })}
       </nav>
       <div className="sidebar-foot">
         <span className="sidebar-presence"><i />{lifeLabel}</span>
-        <button type="button" onClick={() => { sessionStorage.removeItem('coworker-admin-token'); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
+        <button type="button" onClick={() => { if (!confirmNavigation()) return; dirtyOwners.current.clear(); sessionStorage.removeItem('coworker-admin-token'); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
       </div>
     </aside>
     <section className="admin-main">
       <header className="admin-topbar">
-        <div className="topbar-title"><p className="eyebrow">{t('值守控制台')}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span></div>
+        <div className="topbar-title"><p className="eyebrow">{t(currentWorkspace.label)}</p><h1>{t(current.label)}</h1><span>{t(current.description)}</span><label className="workspace-picker"><span className="sr-only">{t('切换管理页面')}</span><select aria-label={t('切换管理页面')} value={section} onChange={event => navigate(event.target.value as Section)}>{WORKSPACES.map(workspace => <optgroup label={t(workspace.label)} key={workspace.id}>{workspace.sections.map(sectionId => <option value={sectionId} key={sectionId}>{t(NAV.find(item => item.id === sectionId)?.label || sectionId)}</option>)}</optgroup>)}</select></label></div>
         <div className="topbar-actions">
           <AdminLanguageSwitch />
-          <div className="shell-life" aria-label={lifeLabel}><div className="life-trace" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div><span><i />{lifeLabel}</span></div>
+          <div className="shell-life" aria-label={lifeLabel}><span><i />{lifeLabel}</span></div>
           <a href="/">{t('查看生命体主页')} <ChevronRight size={14} /></a>
         </div>
       </header>
       <div className="admin-content">
-        {section === 'overview' && <Overview name={name} />}
+        {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
@@ -2710,5 +2991,5 @@ export default function AdminApp() {
         {section === 'audit' && <Audit />}
       </div>
     </section>
-  </main>;
+  </main></NavigationGuardContext.Provider>;
 }

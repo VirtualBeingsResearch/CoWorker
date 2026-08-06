@@ -1,6 +1,7 @@
 [memory]
 autonomous_context = "autonomous thought record"
 manual_context = "manual full short-term memory compression"
+compression_listener_failed = "Memory compression statistics listener failed: {{error}}"
 legacy_anchor = '''[memory: summary of my previous actions]
 {{summary}}'''
 leaf_hint = "{{context}}. Summarize this activity as a continuous memory narrative, targeting about {{target}} tokens with a hard limit of {{budget}} tokens. Preserve the task thread, causality, key decisions, state changes, unfinished items, next continuation point, blockers, and risks. Reduce noisy quantities and identifiers: summarize BUGs, cases, commits, traceIds, and task counts as several, a batch, or multiple rounds unless a specific identifier is required for an unresolved item, blocker, acceptance evidence, an explicit user reference, or later investigation. End with “Continuation: ...” stating the current state, next step, or clear completion. Retain only high-signal names, projects, files/APIs, URLs, credentials, time commitments, and task names. Do not emit a Keywords list or blank output."
