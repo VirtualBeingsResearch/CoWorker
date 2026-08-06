@@ -145,6 +145,14 @@ class BaseChannel(ABC):
             raise RuntimeError(f"channel {self.name} has no inbound handler")
         access_channel = self.access_channel_for(event.participant_id)
         if not self._access.allows(access_channel, "inbound", event.participant_id):
+            self._access.traffic.record(
+                direction="inbound",
+                channel=access_channel,
+                participant_id=event.participant_id,
+                status="denied",
+                source=event.source,
+                reason="policy",
+            )
             logger.info(
                 tr(
                     "channel.access.inbound_denied",
@@ -153,7 +161,25 @@ class BaseChannel(ABC):
                 )
             )
             return
-        await self._inbound_handler(event)
+        try:
+            await self._inbound_handler(event)
+        except Exception as error:
+            self._access.traffic.record(
+                direction="inbound",
+                channel=access_channel,
+                participant_id=event.participant_id,
+                status="failed",
+                source=event.source,
+                reason=type(error).__name__,
+            )
+            raise
+        self._access.traffic.record(
+            direction="inbound",
+            channel=access_channel,
+            participant_id=event.participant_id,
+            status="received",
+            source=event.source,
+        )
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         raise NotImplementedError(f"channel {self.name} does not accept raw inbound payloads")

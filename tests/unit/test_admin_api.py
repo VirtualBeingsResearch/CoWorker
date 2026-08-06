@@ -12,6 +12,7 @@ from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.module import ChannelModuleRegistry
+from coworker.channels.traffic import ChannelTrafficStore
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
     Config,
@@ -842,6 +843,53 @@ def test_channel_access_config_hot_applies_with_direct_channel_shape(tmp_path):
     assert json.loads(
         (tmp_path / "admin_config.json").read_text(encoding="utf-8")
     ) == {}
+
+
+def test_channel_traffic_is_authenticated_and_filterable(tmp_path):
+    client, config = _client(tmp_path)
+    path = Path(config.agent.logs_dir) / "channel_traffic.jsonl"
+    traffic = ChannelTrafficStore(path)
+    traffic.record(
+        direction="inbound",
+        channel="wecom",
+        participant_id="wecom:single:blocked",
+        status="denied",
+        source="wecom",
+        reason="policy",
+    )
+    traffic.record(
+        direction="outbound",
+        channel="desktop",
+        participant_id="coworker-desktop:desk:local:one",
+        status="sent",
+        source="agent",
+    )
+
+    assert client.get("/api/admin/channel-traffic").status_code == 401
+    response = client.get(
+        "/api/admin/channel-traffic?direction=inbound&status=denied&channel=wecom",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == [
+        {
+            "ts": response.json()["entries"][0]["ts"],
+            "direction": "inbound",
+            "channel": "wecom",
+            "participant_id": "wecom:single:blocked",
+            "status": "denied",
+            "source": "wecom",
+            "reason": "policy",
+        }
+    ]
+    assert "message" not in response.text
+
+    invalid = client.get(
+        "/api/admin/channel-traffic?status=unknown",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert invalid.status_code == 422
 
 
 class _ChannelManagement:

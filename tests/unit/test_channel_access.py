@@ -128,6 +128,11 @@ async def test_registry_enforces_canonical_outbound_and_filters_connections() ->
     assert blocked.is_error
     assert "信道访问策略" in blocked.content
     assert "Channel access policy" in blocked_en.content
+    assert [entry["status"] for entry in access.traffic.recent(10)] == [
+        "denied",
+        "denied",
+        "sent",
+    ]
     assert [item.participant_id for item in registry.list_connections()] == [
         "sample:allowed"
     ]
@@ -135,9 +140,8 @@ async def test_registry_enforces_canonical_outbound_and_filters_connections() ->
 
 @pytest.mark.asyncio
 async def test_registry_rejects_inbound_before_transport_processing() -> None:
-    registry = ChannelRegistry(
-        ChannelAccessController(_access(inbound_deny=["sample:allowed"]))
-    )
+    access = ChannelAccessController(_access(inbound_deny=["sample:allowed"]))
+    registry = ChannelRegistry(access)
     channel = _RecordingChannel()
     registry.register(channel)
     envelope = InboundEnvelope(
@@ -150,6 +154,16 @@ async def test_registry_rejects_inbound_before_transport_processing() -> None:
         await registry.receive_raw(envelope)
 
     assert channel.inbound == []
+    entry = access.traffic.recent(1)[0]
+    assert entry["ts"]
+    assert {key: value for key, value in entry.items() if key != "ts"} == {
+        "direction": "inbound",
+        "channel": "sample",
+        "participant_id": "sample:allowed",
+        "status": "denied",
+        "source": "rest",
+        "reason": "policy",
+    }
 
 
 def test_controller_observes_hot_replacement_of_shared_config() -> None:

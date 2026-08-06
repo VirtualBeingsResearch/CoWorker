@@ -67,15 +67,15 @@ class ChannelRegistry:
         for channel in self._channels:
             channel.set_inbound_handler(handler)
 
-    def ensure_inbound_allowed(self, participant_id: str) -> str:
+    def ensure_inbound_allowed(self, participant_id: str, *, source: str = "") -> str:
         """Validate inbound access before an adapter records protocol state."""
         canonical, target = self._inbound_target(participant_id)
-        self._enforce_inbound_access(canonical, target)
+        self._enforce_inbound_access(canonical, target, source=source)
         return canonical
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         canonical, target = self._inbound_target(envelope.participant_id)
-        self._enforce_inbound_access(canonical, target)
+        self._enforce_inbound_access(canonical, target, source=envelope.source)
         await target.receive_raw(replace(envelope, participant_id=canonical))
 
     def _inbound_target(self, participant_id: str) -> tuple[str, BaseChannel]:
@@ -89,6 +89,8 @@ class ChannelRegistry:
         self,
         canonical: str,
         target: BaseChannel,
+        *,
+        source: str = "",
     ) -> None:
         access_channel = target.access_channel_for(canonical)
         if not self._access.allows(
@@ -96,6 +98,14 @@ class ChannelRegistry:
             "inbound",
             canonical,
         ):
+            self._access.traffic.record(
+                direction="inbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="denied",
+                source=source,
+                reason="policy",
+            )
             logger.info(
                 tr(
                     "channel.access.inbound_denied",
@@ -104,6 +114,18 @@ class ChannelRegistry:
                 )
             )
             raise ChannelAccessDeniedError(access_channel, canonical)
+
+    def record_inbound_duplicate(self, participant_id: str, *, source: str) -> None:
+        """Record an authenticated transport retry that was already accepted."""
+        canonical, target = self._inbound_target(participant_id)
+        self._access.traffic.record(
+            direction="inbound",
+            channel=target.access_channel_for(canonical),
+            participant_id=canonical,
+            status="duplicate",
+            source=source,
+            reason="message_id",
+        )
 
     def resolve_participant_id(self, participant_id: str) -> str:
         canonical, _ = self._resolve(participant_id)
@@ -122,6 +144,14 @@ class ChannelRegistry:
         canonical, channel = self._resolve(request.participant_id)
         target = channel if channel is not None else self._fallback
         if target is None:
+            self._access.traffic.record(
+                direction="outbound",
+                channel="unrouted",
+                participant_id=request.participant_id,
+                status="failed",
+                source="agent",
+                reason="no_channel",
+            )
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.communicate.no_channel", participant=request.participant_id),
@@ -133,9 +163,32 @@ class ChannelRegistry:
             target=target,
         )
         if validation_error is not None:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=target.access_channel_for(canonical),
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason="participant_validation",
+            )
             return validation_error
         access_channel = target.access_channel_for(canonical)
         if not self._access.allows(access_channel, "outbound", canonical):
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="denied",
+                source="agent",
+                reason="policy",
+            )
+            logger.info(
+                tr(
+                    "channel.access.outbound_denied",
+                    channel=access_channel,
+                    participant=canonical,
+                )
+            )
             return ToolResult(
                 tool_call_id="",
                 content=tr(
@@ -148,9 +201,35 @@ class ChannelRegistry:
         outbound, omitted = target.capabilities_for(canonical).filter(
             replace(request, participant_id=canonical)
         )
-        result = await target.send(outbound)
+        try:
+            result = await target.send(outbound)
+        except Exception as error:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason=type(error).__name__,
+            )
+            raise
         if result.is_error:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason="delivery",
+            )
             return result
+        self._access.traffic.record(
+            direction="outbound",
+            channel=access_channel,
+            participant_id=canonical,
+            status="sent",
+            source="agent",
+        )
         if not omitted:
             return result
         notice_key = (

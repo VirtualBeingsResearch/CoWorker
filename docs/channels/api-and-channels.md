@@ -13,12 +13,13 @@
 
 ## Channel 开发模型
 
-`from coworker.channels import BaseChannel, ChannelAccessController, ChannelActivityStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None, access_config=None)` 是应用唯一的通信装配入口，返回：
+`from coworker.channels import BaseChannel, ChannelAccessController, ChannelActivityStore, ChannelTrafficStore, ChannelCapabilities, ChannelRuntime, ChannelModule, ChannelManagement, ChannelSettings, StreamProfile, create_channel_system` 是稳定的开发入口。`create_channel_system(outbox_dir, activity_path=None, access_config=None, traffic_path=None)` 是应用唯一的通信装配入口，返回：
 
 - `registry`：注册 Channel、路由 inbound/outbound，并确保共享 Runtime 只启动和停止一次。
 - `stream_runtime`：承接 WS/SSE 连接、participant 注册、附件存储和离线 outbox，并向 HTTP 与 WebSocket 路由提供 Stream 基础设施。
 - `activity`：记录 participant 最近成功发送与接收时间。传入 `activity_path` 时使用原子 JSON 持久化，应用重启后仍可恢复。
 - `access`：共享的 participant 入站/出站访问控制器；Registry、Channel 与 Stream profile 使用同一份配置。
+- `traffic`：只记录消息收发元数据的有界历史。传入 `traffic_path` 时写入轮转 JSONL，供管理端跨重启查询。
 - `modules`：保存完整信道模块贡献的管理接口和热设置应用器。
 
 新增独立传输时继承 `BaseChannel`。只需要传输时可调用
@@ -70,7 +71,11 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
 
-内置配置键是 `stream`、`desktop`、`wecom` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前；REST `/messages` 返回 `403`，WebSocket 以 `1008` 关闭，企业微信和微信 Claw 则静默丢弃并记录不含正文的日志。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+内置配置键是 `stream`、`desktop`、`wecom` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+
+管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
+
+结构化记录写入 `AGENT__LOGS_DIR/channel_traffic.jsonl`（默认 `data/logs/channel_traffic.jsonl`），单文件达到 10 MiB 后轮转并保留 6 份备份；普通拒绝日志仍同时进入进程输出和 `AGENT__LOGS_DIR/coworker.log`。流量记录只含时间、方向、信道、规范 participant ID、状态、来源和简短原因，不保存消息正文、附件内容或凭据。participant ID 本身仍可能属于敏感元数据，管理 API 因此要求管理员认证，分享或备份日志时也应按敏感数据处理。
 
 这些列表只表达“某个信道方向上是否允许某个规范 participant 地址”，不是身份认证、租户隔离或“哪些人可以唤醒 Agent”的权限模型。群聊、机器人实例等聚合 participant 也只按它们自己的 participant ID 判定，不会推导到真实人员身份。
 

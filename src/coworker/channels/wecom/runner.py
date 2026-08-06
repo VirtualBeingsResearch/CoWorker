@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.channels.access import ChannelAccessController
+from coworker.channels.access import (
+    ChannelAccessController,
+    inbound_access_denied_message,
+)
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.wecom import adapter
@@ -181,7 +184,7 @@ class WeComRunner:
     async def _on_text_like(self, frame: dict[str, Any]) -> None:
         try:
             participant_id = adapter.participant_id_for(frame)
-            if not self._allows_inbound(participant_id):
+            if not await self._allows_inbound(participant_id, frame):
                 return
             event = adapter.frame_to_event(frame, attachments=[])
             self._cache_frame(event.participant_id, event.conversation_id, frame)
@@ -192,7 +195,7 @@ class WeComRunner:
     async def _on_with_attachments(self, frame: dict[str, Any]) -> None:
         try:
             participant_id = adapter.participant_id_for(frame)
-            if not self._allows_inbound(participant_id):
+            if not await self._allows_inbound(participant_id, frame):
                 return
             atts = await adapter.collect_attachments(self._client, frame, self._attachments_dir)
             event = adapter.frame_to_event(frame, attachments=atts)
@@ -211,7 +214,11 @@ class WeComRunner:
             return
         await self._inbound_handler(event)
 
-    def _allows_inbound(self, participant_id: str) -> bool:
+    async def _allows_inbound(
+        self,
+        participant_id: str,
+        frame: dict[str, Any],
+    ) -> bool:
         if self._access.allows("wecom", "inbound", participant_id):
             return True
         logger.info(
@@ -221,6 +228,50 @@ class WeComRunner:
                 participant=participant_id,
             )
         )
+        self._access.traffic.record(
+            direction="inbound",
+            channel="wecom",
+            participant_id=participant_id,
+            status="denied",
+            source="wecom",
+            reason="policy",
+        )
+        try:
+            if self._client is None:
+                raise RuntimeError(tr("channel.access.reply_transport_unavailable"))
+            from wecom_aibot_sdk import generate_req_id
+
+            await self._client.reply_stream(
+                frame,
+                generate_req_id("stream"),
+                inbound_access_denied_message(),
+                finish=True,
+            )
+            self._access.traffic.record(
+                direction="outbound",
+                channel="wecom",
+                participant_id=participant_id,
+                status="sent",
+                source="access_policy",
+                reason="rejection_notice",
+            )
+        except Exception as error:
+            self._access.traffic.record(
+                direction="outbound",
+                channel="wecom",
+                participant_id=participant_id,
+                status="failed",
+                source="access_policy",
+                reason="rejection_notice",
+            )
+            logger.warning(
+                tr(
+                    "channel.access.inbound_denied_reply_failed",
+                    channel="wecom",
+                    participant=participant_id,
+                    error=error,
+                )
+            )
         return False
 
     async def _on_kicked(self, frame: dict[str, Any]) -> None:

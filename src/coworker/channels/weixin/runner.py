@@ -11,7 +11,10 @@ from uuid import uuid4
 import qrcode
 from loguru import logger
 
-from coworker.channels.access import ChannelAccessController
+from coworker.channels.access import (
+    ChannelAccessController,
+    inbound_access_denied_message,
+)
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.weixin.client import (
@@ -311,7 +314,7 @@ class WeixinRunner:
             )
         for message in response.get("msgs") or []:
             if isinstance(message, dict):
-                await self._publish_message(bot_instance_id, message)
+                await self._publish_message(bot_instance_id, message, client)
         state.cursor = str(response.get("get_updates_buf") or state.cursor)
         self._state_store.save(self._state)
 
@@ -319,6 +322,7 @@ class WeixinRunner:
         self,
         bot_instance_id: str,
         message: dict[str, Any],
+        client: WeixinClient,
     ) -> None:
         if message.get("message_type") not in (None, _MESSAGE_TYPE_USER):
             return
@@ -334,6 +338,45 @@ class WeixinRunner:
                     participant=participant_id,
                 )
             )
+            self._access.traffic.record(
+                direction="inbound",
+                channel="weixin",
+                participant_id=participant_id,
+                status="denied",
+                source="weixin",
+                reason="policy",
+            )
+            try:
+                await client.send_text(
+                    user_id,
+                    inbound_access_denied_message(),
+                    str(message.get("context_token") or ""),
+                )
+                self._access.traffic.record(
+                    direction="outbound",
+                    channel="weixin",
+                    participant_id=participant_id,
+                    status="sent",
+                    source="access_policy",
+                    reason="rejection_notice",
+                )
+            except Exception as error:
+                self._access.traffic.record(
+                    direction="outbound",
+                    channel="weixin",
+                    participant_id=participant_id,
+                    status="failed",
+                    source="access_policy",
+                    reason="rejection_notice",
+                )
+                logger.warning(
+                    tr(
+                        "channel.access.inbound_denied_reply_failed",
+                        channel="weixin",
+                        participant=participant_id,
+                        error=error,
+                    )
+                )
             return
         context_token = str(message.get("context_token") or "")
         if context_token:

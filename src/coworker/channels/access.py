@@ -5,10 +5,16 @@ from __future__ import annotations
 from fnmatch import fnmatchcase
 from typing import Literal
 
+from coworker.channels.traffic import ChannelTrafficStore
 from coworker.core.config import ChannelAccessConfig
 from coworker.i18n import tr
 
 AccessDirection = Literal["inbound", "outbound"]
+
+
+def inbound_access_denied_message() -> str:
+    """Return the transport-safe notice sent for a rejected inbound message."""
+    return tr("channel.access.inbound_denied_reply")
 
 
 class ChannelAccessDeniedError(PermissionError):
@@ -30,15 +36,24 @@ class ChannelAccessDeniedError(PermissionError):
 class ChannelAccessController:
     """Evaluate a live :class:`ChannelAccessConfig` without transport coupling."""
 
-    def __init__(self, config: ChannelAccessConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ChannelAccessConfig | None = None,
+        traffic: ChannelTrafficStore | None = None,
+    ) -> None:
         # The config object is deliberately shared with the running Config. Admin
         # hot-apply replaces ``root`` atomically so registered Channels see the
         # next policy without being restarted or re-registered.
         self._config = config if config is not None else ChannelAccessConfig()
+        self._traffic = traffic if traffic is not None else ChannelTrafficStore()
 
     @property
     def config(self) -> ChannelAccessConfig:
         return self._config
+
+    @property
+    def traffic(self) -> ChannelTrafficStore:
+        return self._traffic
 
     def allows(
         self,

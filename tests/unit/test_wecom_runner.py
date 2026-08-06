@@ -244,9 +244,17 @@ async def test_inbound_access_is_checked_before_attachment_download_and_cache(
 
     collect_attachments.assert_not_awaited()
     handler.assert_not_awaited()
+    runner._client.reply_stream.assert_awaited_once()
+    assert runner._client.reply_stream.await_args.args[0] is frame
+    assert "拒绝" in runner._client.reply_stream.await_args.args[2]
+    assert runner._client.reply_stream.await_args.kwargs["finish"] is True
     assert runner._frame_cache == {}
     assert runner._contacts == {}
     assert runner.activity_for("wecom:single:U123") == (None, None)
+    assert [entry["status"] for entry in runner._access.traffic.recent(2)] == [  # noqa: SLF001
+        "sent",
+        "denied",
+    ]
 
 
 def test_channel_lists_latest_activity_times(tmp_path):

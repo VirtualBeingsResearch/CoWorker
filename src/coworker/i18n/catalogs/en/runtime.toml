@@ -122,7 +122,15 @@ field_required = "Channel management field {{field}} is required"
 
 [channel.access]
 inbound_denied = "Channel access policy rejected an inbound {{channel}} message: participant_id={{participant}}"
+outbound_denied = "Channel access policy rejected an outbound {{channel}} message: participant_id={{participant}}"
+inbound_denied_reply = "This message was rejected by Coworker's channel access policy."
+inbound_denied_reply_failed = "Failed to return an inbound rejection message through {{channel}} to participant_id={{participant}}: {{error}}"
+reply_transport_unavailable = "The rejection-message reply transport is unavailable"
 controller_setup_failed = "Failed to install the channel access controller: {{error}}"
+
+[channel.traffic]
+write_failed = "Failed to write the Channel message traffic log: {{error}}"
+read_failed = "Failed to read the Channel message traffic log: {{error}}"
 
 [config.channel_access]
 patterns_must_be_strings = "Channel access patterns must be strings"

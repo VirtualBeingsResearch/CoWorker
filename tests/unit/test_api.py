@@ -181,6 +181,7 @@ class TestPostMessages:
         assert body["status"] == "queued"
         assert body["sender_id"] == "alice"
         mock_inbox.push.assert_called_once()
+        assert communication.traffic.recent(1)[0]["status"] == "received"
 
     def test_channel_access_returns_403_before_inbound_processing(
         self,
@@ -211,6 +212,7 @@ class TestPostMessages:
         assert response.status_code == 403
         assert "blocked" in response.json()["detail"]
         mock_inbox.push.assert_not_awaited()
+        assert communication.traffic.recent(1)[0]["status"] == "denied"
 
     def test_denied_desktop_message_id_can_be_retried_after_policy_change(
         self,
@@ -637,11 +639,16 @@ class TestConnectionRejection:
 
         with client.websocket_connect("/ws/blocked") as websocket:
             websocket.send_text("hello")
+            assert "拒绝" in websocket.receive_text()
             with pytest.raises(WebSocketDisconnect) as error:
                 websocket.receive_text()
 
         assert error.value.code == 1008
         mock_inbox.push.assert_not_awaited()
+        assert [entry["status"] for entry in communication.traffic.recent(2)] == [
+            "sent",
+            "denied",
+        ]
 
     def test_websocket_duplicate_gets_rejection_message(self, client, tmp_path):
         mock_inbox = MagicMock()

@@ -126,6 +126,7 @@ async def test_runner_uses_bot_instance_as_participant_and_state_key(
         events.append(event)
 
     runner.set_inbound_handler(collect)
+    client = AsyncMock()
     await runner._publish_message(  # noqa: SLF001
         "bot-1",
         {
@@ -135,6 +136,7 @@ async def test_runner_uses_bot_instance_as_participant_and_state_key(
             "message_id": "message-1",
             "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
         },
+        client,
     )
 
     assert events[0].participant_id == "weixin:bot-1"
@@ -156,6 +158,7 @@ async def test_runner_checks_inbound_access_before_context_and_activity(
             )
         )
     )
+    client = AsyncMock()
 
     await runner._publish_message(  # noqa: SLF001
         "bot-1",
@@ -166,17 +169,27 @@ async def test_runner_checks_inbound_access_before_context_and_activity(
             "message_id": "message-1",
             "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
         },
+        client,
     )
 
     collect.assert_not_awaited()
+    client.send_text.assert_awaited_once()
+    assert client.send_text.await_args.args[0] == "user-1"
+    assert "拒绝" in client.send_text.await_args.args[1]
+    assert client.send_text.await_args.args[2] == "blocked-context"
     assert runner._state.connections == {}  # noqa: SLF001
     assert runner.activity_for("weixin:bot-1") == (None, None)
+    assert [entry["status"] for entry in runner._access.traffic.recent(2)] == [  # noqa: SLF001
+        "sent",
+        "denied",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_runner_prunes_state_when_connection_is_removed(tmp_path: Path) -> None:
     state_path = tmp_path / "weixin-state.json"
     runner = _runner(tmp_path)
+    client = AsyncMock()
     await runner._publish_message(  # noqa: SLF001
         "bot-1",
         {
@@ -185,6 +198,7 @@ async def test_runner_prunes_state_when_connection_is_removed(tmp_path: Path) ->
             "context_token": "context-1",
             "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
         },
+        client,
     )
 
     await runner.replace_connections([])

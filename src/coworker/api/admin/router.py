@@ -33,6 +33,11 @@ from coworker.agent.bubble_log_index import (
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
+from coworker.channels.traffic import (
+    ChannelTrafficStore,
+    TrafficDirection,
+    TrafficStatus,
+)
 from coworker.core.config import (
     Config,
     _deep_merge,
@@ -426,6 +431,11 @@ async def require_admin(
 def _audit_path() -> Path:
     logs_dir = _config.agent.logs_dir if _config is not None else "data/logs"
     return Path(logs_dir) / "admin_audit.jsonl"
+
+
+def _channel_traffic_path() -> Path:
+    logs_dir = _config.agent.logs_dir if _config is not None else "data/logs"
+    return Path(logs_dir) / "channel_traffic.jsonl"
 
 
 def _audit(
@@ -1965,6 +1975,25 @@ async def audit_log(
         except json.JSONDecodeError:
             continue
     return {"entries": list(reversed(entries))}
+
+
+@router.get("/channel-traffic")
+async def channel_traffic(
+    limit: int = Query(default=300, ge=1, le=1000),
+    direction: TrafficDirection | None = Query(default=None),
+    status: TrafficStatus | None = Query(default=None),
+    channel: str = Query(default="", max_length=80),
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    store = ChannelTrafficStore(_channel_traffic_path())
+    entries = await asyncio.to_thread(
+        store.recent,
+        limit,
+        direction=direction,
+        status=status,
+        channel=channel,
+    )
+    return {"entries": entries}
 
 
 @router.get("/identity")
