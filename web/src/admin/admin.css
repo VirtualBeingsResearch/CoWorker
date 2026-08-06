@@ -565,8 +565,9 @@ html:has(.admin-login),
   min-height: 20px;
   padding: 0 9px;
   color: color-mix(in oklch, var(--admin-paper) 38%, var(--admin-ink));
-  font-size: 8px;
+  font-size: var(--admin-type-micro);
   font-weight: 680;
+  line-height: 1.45;
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -591,7 +592,8 @@ html:has(.admin-login),
 .workspace-section-link.active { color: var(--admin-paper); border-color: #ffffff12; background: color-mix(in oklch, var(--admin-vital) 15%, transparent); font-weight: 680; }
 .workspace-section-link.active::before { content: ''; position: absolute; left: -14px; width: 3px; height: 20px; border-radius: 0 999px 999px 0; background: var(--admin-vital); }
 .workspace-section-link svg { flex: 0 0 auto; }
-.workspace-section-link span { overflow: hidden; min-width: 0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-section-link span { overflow: hidden; min-width: 0; font-size: var(--admin-type-small); font-weight: 560; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-section-link.active span { font-weight: 680; }
 
 .sidebar-foot {
   display: grid;

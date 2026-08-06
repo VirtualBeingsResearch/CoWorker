@@ -24,3 +24,12 @@ def test_usage_analytics_uses_the_shared_admin_type_scale() -> None:
         ".usage-intraday-bars > button > small",
     ):
         assert selector in typography
+
+
+def test_workspace_sidebar_uses_the_shared_admin_type_scale() -> None:
+    css = (REPOSITORY_ROOT / "web/src/admin/admin.css").read_text(encoding="utf-8")
+    group_label = css.split(".workspace-group-label {", 1)[1].split("}", 1)[0]
+    section_link = css.split(".workspace-section-link span {", 1)[1].split("}", 1)[0]
+
+    assert "font-size: var(--admin-type-micro)" in group_label
+    assert "font-size: var(--admin-type-small)" in section_link
