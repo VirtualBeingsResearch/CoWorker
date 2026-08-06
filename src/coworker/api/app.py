@@ -36,10 +36,7 @@ from coworker.api.routes import (
     router,
     verify_communication_authorization,
 )
-from coworker.channels.access import (
-    ChannelAccessDeniedError,
-    inbound_access_denied_message,
-)
+from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
@@ -786,7 +783,6 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
         return
     channels = _channel_system.registry
     stream = _channel_system.stream_runtime
-    traffic = _channel_system.traffic
     queue: asyncio.Queue = asyncio.Queue()
     sender_task: asyncio.Task | None = None
 
@@ -815,37 +811,7 @@ async def websocket_endpoint(ws: WebSocket, participant_id: str):
                 )
             )
     except ChannelAccessDeniedError as error:
-        try:
-            await ws.send_text(inbound_access_denied_message())
-            traffic.record(
-                direction="outbound",
-                channel=error.channel,
-                participant_id=error.participant_id,
-                status="sent",
-                source="access_policy",
-                reason="rejection_notice",
-            )
-        except Exception as reply_error:
-            traffic.record(
-                direction="outbound",
-                channel=error.channel,
-                participant_id=error.participant_id,
-                status="failed",
-                source="access_policy",
-                reason="rejection_notice",
-            )
-            logger.warning(
-                tr(
-                    "channel.access.inbound_denied_reply_failed",
-                    channel=error.channel,
-                    participant=error.participant_id,
-                    error=reply_error,
-                )
-            )
-        await ws.close(
-            code=1008,
-            reason=tr("api.message.channel_access_denied_websocket"),
-        )
+        await stream.reject_inbound_access(ws, error)
     except WebSocketDisconnect:
         logger.info(f"WS client disconnected: {participant_id}")
     finally:

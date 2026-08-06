@@ -54,12 +54,13 @@ def create_channel_system(
 ) -> ChannelSystem:
     outbox = Path(outbox_dir)
     activity = ChannelActivityStore(activity_path)
+    traffic = ChannelTrafficStore(traffic_path)
     stream = StreamRuntime(
         outbox,
         outbox.parent / "communicate_registrations.json",
         activity,
+        traffic,
     )
-    traffic = ChannelTrafficStore(traffic_path)
     access = ChannelAccessController(access_config, traffic)
     registry = ChannelRegistry(access)
     modules = ChannelModuleRegistry()
