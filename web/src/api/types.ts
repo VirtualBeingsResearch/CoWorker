@@ -139,6 +139,20 @@ export type UsageWindowStats = UsageModelStats & {
   thinking_calls?: number;
   thinking_seconds?: number;
   avg_thinking_seconds?: number | null;
+  memory_compressions?: number;
+  messages_compressed?: number;
+  memory_compression_duration_ms?: number;
+  avg_memory_compression_duration_ms?: number | null;
+  memory_compression_summary_calls?: number;
+  memory_compression_summary_tracked_calls?: number;
+  memory_compression_summary_untracked_calls?: number;
+  memory_compression_summary_tracking_coverage?: number | null;
+  memory_compression_input_tokens?: number;
+  memory_compression_output_tokens?: number;
+  memory_compression_cached_tokens?: number;
+  memory_compression_total_tokens?: number;
+  memory_compression_triggers?: Record<'automatic' | 'admin' | 'tool' | 'other', number>;
+  last_memory_compression_at?: string | null;
   by_model?: Record<string, UsageModelStats>;
   by_provider_model?: Record<string, UsageProviderModelStats>;
   tools?: Record<string, number>;
@@ -190,6 +204,7 @@ export type UsageStats = {
   selected_range?: UsageDateRangeStats;
   generated_at?: string;
   tracking_since?: string | null;
+  compression_tracking_since?: string | null;
 };
 
 export type ShortTermMemoryInfo = {

@@ -652,10 +652,16 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
         "model",
         "cycle",
         "mode",
+        "trigger",
+        "storage",
         "operation",
         "stop_reason",
         "is_error",
         "thinking",
+        "messages_compressed",
+        "duration_ms",
+        "summary_calls",
+        "summary_total_tokens",
     ):
         value = entry.get(key)
         if value not in (None, ""):
@@ -1807,6 +1813,7 @@ async def compress_memory(
         _require_brain(),
         context_hint=tr("notification.admin_compress_hint"),
         agent_system_prompt=agent.current_system_prompt(),
+        trigger="admin",
     )
     _audit(
         request,

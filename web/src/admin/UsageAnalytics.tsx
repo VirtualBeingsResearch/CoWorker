@@ -12,6 +12,7 @@ import {
   FileJson,
   FileText,
   Hammer,
+  Minimize2,
   Orbit,
   RefreshCw,
   Sparkles,
@@ -47,7 +48,7 @@ type AdminUsageAnalyticsProps = {
   error: string;
   onReload: () => void | Promise<void>;
   onLoadRange: (startDate: string, endDate: string) => Promise<UsageStats>;
-  onOpenLogs: (startTime: string, endTime: string) => void;
+  onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
 };
 
 type AttentionItem = {
@@ -151,6 +152,10 @@ function exportCsv(
     'bubble_done',
     'bubble_errors',
     'bubble_timeouts',
+    'memory_compressions',
+    'messages_compressed',
+    'memory_compression_summary_calls',
+    'memory_compression_total_tokens',
   ];
   const rows = daily.map(item => columns.map(column => (
     csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
@@ -174,19 +179,34 @@ function MetricCard({
   detail,
   icon: Icon,
   tone,
+  onActivate,
+  actionLabel,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: typeof Database;
-  tone?: 'tool' | 'skill' | 'autonomy';
+  tone?: 'tool' | 'skill' | 'autonomy' | 'memory';
+  onActivate?: () => void;
+  actionLabel?: string;
 }) {
-  return <article className={`usage-analytics-metric${tone ? ` metric-${tone}` : ''}`}>
+  const className = `usage-analytics-metric${tone ? ` metric-${tone}` : ''}`;
+  const content = <>
     <Icon size={16} />
     <span>{label}</span>
     <strong>{value}</strong>
     <small>{detail}</small>
-  </article>;
+  </>;
+  if (onActivate) {
+    return <button
+      type="button"
+      className={className}
+      onClick={onActivate}
+      aria-label={actionLabel || label}
+      title={actionLabel}
+    >{content}</button>;
+  }
+  return <article className={className}>{content}</article>;
 }
 
 function DetailToggle({
@@ -520,6 +540,27 @@ export function AdminUsageAnalytics({
     : comparison.detail;
   const reportDate = latestReportDate(stats);
   const exportDaily = windowKey === 'custom' ? selectedRange?.daily || [] : reportStats.daily || [];
+  const compressionTriggers = windowStats.memory_compression_triggers || {
+    automatic: 0,
+    admin: 0,
+    tool: 0,
+    other: 0,
+  };
+  const compressionTrackingSince = reportStats.compression_tracking_since || stats.compression_tracking_since || '—';
+  const lastCompressionAt = windowStats.last_memory_compression_at
+    ? new Date(windowStats.last_memory_compression_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
+    : t('尚无压缩事件');
+  const compressionActionLabel = t('查看压缩事件；{{automatic}} 自动 · {{admin}} 管理员 · {{tool}} 工具 · 最近 {{time}} · 平均 {{duration}}', {
+    automatic: formatCount(compressionTriggers.automatic),
+    admin: formatCount(compressionTriggers.admin),
+    tool: formatCount(compressionTriggers.tool),
+    time: lastCompressionAt,
+    duration: formatDurationSeconds(
+      typeof windowStats.avg_memory_compression_duration_ms === 'number'
+        ? windowStats.avg_memory_compression_duration_ms / 1000
+        : null,
+    ),
+  });
   const bubbleScopes = [
     ['bubble', windowStats.by_scope?.bubble],
     ['subconscious', windowStats.by_scope?.subconscious],
@@ -564,6 +605,7 @@ export function AdminUsageAnalytics({
           {windowKey === 'custom' && rangeLabel && <span>{t('所选范围')} <b>{rangeLabel}</b></span>}
           <span title={comparisonDetail}>{t('较上一周期')} <b>{comparison.label}</b></span>
           <span>{t('缓存 Token 占比')} <b>{formatCacheRate(windowStats.cache_rate)}</b></span>
+          <span>{t('压缩精确统计自')} <b>{compressionTrackingSince}</b></span>
         </div>
       </div>
       {rangePickerOpen && <form className="usage-date-range" onSubmit={applySelectedRange}>
@@ -624,6 +666,18 @@ export function AdminUsageAnalytics({
           errors: formatCount(windowStats.bubble_errors),
           timeouts: formatCount(windowStats.bubble_timeouts),
         })} icon={Orbit} tone="autonomy" />
+        <MetricCard
+          label={t('记忆压缩')}
+          value={formatCount(windowStats.memory_compressions)}
+          detail={t('{{messages}} 条消息 · {{tokens}} Token', {
+            messages: formatCount(windowStats.messages_compressed),
+            tokens: formatTokenUnits(windowStats.memory_compression_total_tokens),
+          })}
+          icon={Minimize2}
+          tone="memory"
+          onActivate={() => onOpenLogs('', '', 'memory_compression')}
+          actionLabel={compressionActionLabel}
+        />
       </div>
       <div className="usage-quality">
         <div className="usage-quality-copy">

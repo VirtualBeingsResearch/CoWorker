@@ -4,8 +4,10 @@ import asyncio
 import bisect
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
@@ -25,6 +27,38 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
 
 TokenCountSource = Literal["estimated", "exact"]
+CompressionTrigger = Literal["automatic", "admin", "tool", "other"]
+
+
+@dataclass
+class _CompressionUsage:
+    summary_calls: int = 0
+    summary_tracked_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+
+    @staticmethod
+    def _token_value(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def record(self, raw: str | SummaryResult) -> None:
+        self.summary_calls += 1
+        if not isinstance(raw, SummaryResult):
+            return
+        usage = raw.usage
+        if any(key in usage and usage.get(key) is not None for key in (
+            "input_tokens",
+            "output_tokens",
+            "cached_tokens",
+        )):
+            self.summary_tracked_calls += 1
+        self.input_tokens += self._token_value(usage.get("input_tokens"))
+        self.output_tokens += self._token_value(usage.get("output_tokens"))
+        self.cached_tokens += self._token_value(usage.get("cached_tokens"))
 
 class ShortTermMemory:
     def __init__(
@@ -61,6 +95,7 @@ class ShortTermMemory:
             reach_depth=tree_merge_reach_depth,
         )
         self._compress_lock = asyncio.Lock()
+        self._compression_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._backfill_concurrency = max(1, tree_backfill_concurrency)
         # 历史回溯进度（供 API 轮询）：{running, done, total}。回溯是长操作，需要可观测。
         self.backfill_progress: dict = {"running": False, "done": 0, "total": 0}
@@ -68,6 +103,37 @@ class ShortTermMemory:
     @property
     def log_store(self) -> LogStore | None:
         return self._log_store
+
+    def add_compression_listener(self, fn: Callable[[dict[str, Any]], None]) -> None:
+        """Observe completed compression passes without exposing message content."""
+        self._compression_listeners.append(fn)
+
+    def _notify_compression(
+        self,
+        *,
+        trigger: CompressionTrigger,
+        mode: Literal["incremental", "full"],
+        messages_compressed: int,
+        duration_ms: int,
+        usage: _CompressionUsage,
+    ) -> None:
+        event: dict[str, Any] = {
+            "trigger": trigger,
+            "mode": mode,
+            "storage": "tree" if self._tree_enabled else "legacy",
+            "messages_compressed": messages_compressed,
+            "duration_ms": duration_ms,
+            "summary_calls": usage.summary_calls,
+            "summary_tracked_calls": usage.summary_tracked_calls,
+            "summary_input_tokens": usage.input_tokens,
+            "summary_output_tokens": usage.output_tokens,
+            "summary_cached_tokens": usage.cached_tokens,
+        }
+        for fn in tuple(self._compression_listeners):
+            try:
+                fn(dict(event))
+            except Exception as e:
+                logger.warning(tr("memory.compression_listener_failed", error=e))
 
     def get_thread(self, participant_id: str) -> ConversationThread:
         if participant_id not in self.threads:
@@ -229,6 +295,8 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str | None = None,
         agent_system_prompt: str = "",
+        *,
+        trigger: CompressionTrigger = "other",
     ) -> tuple[int, int]:
         """Execute compression. Returns (messages_compressed, memories_saved).
 
@@ -242,9 +310,25 @@ class ShortTermMemory:
         # 会让第二个调用者也通过 if 检查，被锁串行后跑出第二次压缩。锁只负责串行临界区
         # （选片→摘要→splice→树变更），不充当重入门闩——门闩是这个同步置位的标志。
         self._compressing = True
+        started_at = perf_counter()
+        usage = _CompressionUsage()
         try:
             async with self._compress_lock:
-                return await self._do_compress_inner(brain, context_hint, agent_system_prompt)
+                result = await self._do_compress_inner(
+                    brain,
+                    context_hint,
+                    agent_system_prompt,
+                    usage,
+                )
+            if result[0] > 0:
+                self._notify_compression(
+                    trigger=trigger,
+                    mode="incremental",
+                    messages_compressed=result[0],
+                    duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
+                    usage=usage,
+                )
+            return result
         finally:
             self._compressing = False
 
@@ -338,6 +422,7 @@ class ShortTermMemory:
         self,
         brain: Brain,
         agent_system_prompt: str = "",
+        compression_usage: _CompressionUsage | None = None,
     ) -> Callable[[str, str], Awaitable[str | SummaryResult]]:
         """Adapt brain.summarize into the (text, hint)->summary callable the tree expects."""
 
@@ -349,6 +434,8 @@ class ShortTermMemory:
                 return_usage=True,
                 # No stm_context for tree merges — input is already a summary, self-contained.
             )
+            if compression_usage is not None:
+                compression_usage.record(raw)
             if isinstance(raw, SummaryResult):
                 return SummaryResult(
                     content=self._parse_summary(raw.content),
@@ -402,6 +489,7 @@ class ShortTermMemory:
         context_hint: str,
         agent_system_prompt: str = "",
         stm_context: list[Message] | None = None,
+        compression_usage: _CompressionUsage | None = None,
     ) -> tuple[str, int, TokenCountSource]:
         budget = self.tree.node_budget()
         hint = self._tree_leaf_context_hint(context_hint, budget)
@@ -416,6 +504,8 @@ class ShortTermMemory:
                 stm_context=stm_context,
                 return_usage=True,
             )
+            if compression_usage is not None:
+                compression_usage.record(raw)
             last, last_tokens, last_source = self._summary_text_tokens_and_source(raw)
             if last.strip() and last_tokens <= budget:
                 return last, last_tokens, last_source
@@ -468,9 +558,15 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str,
         agent_system_prompt: str = "",
+        compression_usage: _CompressionUsage | None = None,
     ) -> tuple[int, int]:
         if self._tree_enabled:
-            return await self._compress_into_tree(brain, context_hint, agent_system_prompt)
+            return await self._compress_into_tree(
+                brain,
+                context_hint,
+                agent_system_prompt,
+                compression_usage,
+            )
 
         # ---- legacy 单锚点路径（tree_enabled=False 回退）----
         total_tokens = self.estimate_tokens(brain)
@@ -483,7 +579,10 @@ class ShortTermMemory:
             to_compress,
             context_hint=context_hint,
             agent_system_prompt=agent_system_prompt,
+            return_usage=True,
         )
+        if compression_usage is not None:
+            compression_usage.record(raw)
         summary_text = self._parse_summary(raw)
 
         if not self._promoted_slice_intact(to_compress, cutoff):
@@ -505,6 +604,7 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str,
         agent_system_prompt: str = "",
+        compression_usage: _CompressionUsage | None = None,
     ) -> tuple[int, int]:
         """Promote the oldest tail slice into the memory block tree (multi-resolution).
 
@@ -530,6 +630,7 @@ class ShortTermMemory:
             context_hint=context_hint,
             agent_system_prompt=agent_system_prompt,
             stm_context=stm_context,
+            compression_usage=compression_usage,
         )
         # 摘要 await 期间主循环可能改动 primary 前缀；前缀已变则放弃，避免误删尾部消息。
         if not self._promoted_slice_intact(to_compress, cutoff):
@@ -551,7 +652,11 @@ class ShortTermMemory:
         # 节点浅拷贝安全：fib_carry 只新建 merged 节点，不修改已有节点对象。
         temp_tree = self.tree.clone_empty()
         temp_tree.nodes.extend(self.tree.nodes)
-        summarize = self._make_summarize_fn(brain, agent_system_prompt)
+        summarize = self._make_summarize_fn(
+            brain,
+            agent_system_prompt,
+            compression_usage,
+        )
         await temp_tree.promote_leaf(leaf, summarize=summarize)
 
         # fib_carry 期间 primary 也可能被外部改动，再检查一次。
@@ -575,15 +680,33 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str | None = None,
         agent_system_prompt: str = "",
+        *,
+        trigger: CompressionTrigger = "other",
     ) -> tuple[int, int]:
         """Compress every currently live primary message except an active tool_use tail."""
         context_hint = context_hint or tr("memory.manual_context")
         if self._compressing:
             return 0, 0
         self._compressing = True
+        started_at = perf_counter()
+        usage = _CompressionUsage()
         try:
             async with self._compress_lock:
-                return await self._do_compress_all_inner(brain, context_hint, agent_system_prompt)
+                result = await self._do_compress_all_inner(
+                    brain,
+                    context_hint,
+                    agent_system_prompt,
+                    usage,
+                )
+            if result[0] > 0:
+                self._notify_compression(
+                    trigger=trigger,
+                    mode="full",
+                    messages_compressed=result[0],
+                    duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
+                    usage=usage,
+                )
+            return result
         finally:
             self._compressing = False
 
@@ -592,13 +715,19 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str,
         agent_system_prompt: str = "",
+        compression_usage: _CompressionUsage | None = None,
     ) -> tuple[int, int]:
         to_compress, cutoff = self._select_full_promotion_slice()
         if not to_compress:
             return 0, 0
         if self._tree_enabled:
             return await self._compress_full_slice_into_tree(
-                brain, to_compress, cutoff, context_hint, agent_system_prompt
+                brain,
+                to_compress,
+                cutoff,
+                context_hint,
+                agent_system_prompt,
+                compression_usage,
             )
 
         logger.info(f"Compressing all {len(to_compress)} live messages to summary anchor")
@@ -606,7 +735,10 @@ class ShortTermMemory:
             to_compress,
             context_hint=context_hint,
             agent_system_prompt=agent_system_prompt,
+            return_usage=True,
         )
+        if compression_usage is not None:
+            compression_usage.record(raw)
         summary_text = self._parse_summary(raw)
 
         if not self._promoted_slice_intact(to_compress, cutoff):
@@ -630,6 +762,7 @@ class ShortTermMemory:
         cutoff: int,
         context_hint: str,
         agent_system_prompt: str = "",
+        compression_usage: _CompressionUsage | None = None,
     ) -> tuple[int, int]:
         logger.info(f"Promoting all {len(to_compress)} live messages into memory tree")
         stm_context = self.tree.render() if agent_system_prompt else None
@@ -643,6 +776,7 @@ class ShortTermMemory:
             context_hint=context_hint,
             agent_system_prompt=agent_system_prompt,
             stm_context=stm_context,
+            compression_usage=compression_usage,
         )
         if not self._promoted_slice_intact(to_compress, cutoff):
             logger.warning("Full promotion aborted: primary prefix changed during summarize")
@@ -660,7 +794,11 @@ class ShortTermMemory:
         )
         temp_tree = self.tree.clone_empty()
         temp_tree.nodes.extend(self.tree.nodes)
-        summarize = self._make_summarize_fn(brain, agent_system_prompt)
+        summarize = self._make_summarize_fn(
+            brain,
+            agent_system_prompt,
+            compression_usage,
+        )
         await temp_tree.promote_leaf(leaf, summarize=summarize)
 
         if not self._promoted_slice_intact(to_compress, cutoff):
@@ -729,18 +867,32 @@ class ShortTermMemory:
         brain: Brain,
         context_hint: str | None = None,
         agent_system_prompt: str = "",
+        *,
+        trigger: CompressionTrigger = "other",
     ) -> tuple[int, int]:
         """Force one compression pass. Returns (messages_compressed, memories_saved)."""
-        return await self._do_compress(brain, context_hint, agent_system_prompt)
+        return await self._do_compress(
+            brain,
+            context_hint,
+            agent_system_prompt,
+            trigger=trigger,
+        )
 
     async def compress_all_now(
         self,
         brain: Brain,
         context_hint: str | None = None,
         agent_system_prompt: str = "",
+        *,
+        trigger: CompressionTrigger = "other",
     ) -> tuple[int, int]:
         """Force-compress all live primary messages while preserving an active tool_use tail."""
-        return await self._do_compress_all(brain, context_hint, agent_system_prompt)
+        return await self._do_compress_all(
+            brain,
+            context_hint,
+            agent_system_prompt,
+            trigger=trigger,
+        )
 
     @staticmethod
     def _chunk_span(chunk: list[dict[str, Any]]) -> tuple[datetime, datetime]:

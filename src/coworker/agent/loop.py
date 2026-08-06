@@ -476,6 +476,7 @@ class AgentLoop:
         compressed, _ = await self._short_term.compress_now(
             self._brain,
             agent_system_prompt=system_prompt,
+            trigger="automatic",
         )
         if compressed:
             source = "provider" if observed_input_tokens > 0 else "estimated"

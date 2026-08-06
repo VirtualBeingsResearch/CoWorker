@@ -85,6 +85,7 @@ function sectionHref(next: Section) {
     url.searchParams.delete('runtime_tab');
     url.searchParams.delete('log_start');
     url.searchParams.delete('log_end');
+    url.searchParams.delete('log_type');
   }
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -99,6 +100,11 @@ function runtimeTabFromLocation(): RuntimeTab {
 function logTimeFromLocation(key: 'log_start' | 'log_end'): string {
   const value = new URLSearchParams(window.location.search).get(key) || '';
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ? value.slice(0, 26) : '';
+}
+
+function logTypeFromLocation(): string {
+  const value = new URLSearchParams(window.location.search).get('log_type') || '';
+  return /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : '';
 }
 
 function logTimeInputValue(value: string): string {
@@ -497,7 +503,9 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   </div>;
 }
 
-function UsageAnalyticsPage({ onOpenLogs }: { onOpenLogs: (startTime: string, endTime: string) => void }) {
+function UsageAnalyticsPage({ onOpenLogs }: {
+  onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+}) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
     stats={usage.data}
@@ -1018,6 +1026,7 @@ function Runtime({ confirmationName }: { confirmationName: string }) {
     if (next !== 'logs') {
       url.searchParams.delete('log_start');
       url.searchParams.delete('log_end');
+      url.searchParams.delete('log_type');
     }
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     setTab(next);
@@ -1419,7 +1428,7 @@ function Alarms() {
 function Logs() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [type, setType] = useState('');
+  const [type, setType] = useState(logTypeFromLocation);
   const [seqStartDraft, setSeqStartDraft] = useState('');
   const [seqEndDraft, setSeqEndDraft] = useState('');
   const [seqStart, setSeqStart] = useState('');
@@ -1622,9 +1631,16 @@ function Logs() {
     title="生命全史日志"
     note="时间与序列范围都包含端点，结果从范围内最新记录开始分页；时间范围最多 24 小时。"
     action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applyHistoryFilters(); }}>
-      <select aria-label={t('筛选事件类型')} value={type} onChange={event => setType(event.target.value)}>
+      <select aria-label={t('筛选事件类型')} value={type} onChange={event => {
+        const selectedType = event.target.value;
+        setType(selectedType);
+        const url = new URL(window.location.href);
+        if (selectedType) url.searchParams.set('log_type', selectedType);
+        else url.searchParams.delete('log_type');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+      }}>
         <option value="">{t('全部事件')}</option>
-        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>subconscious_done</option>
+        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>memory_compression</option><option>subconscious_done</option>
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="history-time-range" aria-label={t('日志时间范围')}>
@@ -2819,13 +2835,20 @@ export default function AdminApp() {
     setSection(next);
     window.scrollTo(0, 0);
   }, [confirmNavigation]);
-  const openRuntimeLogs = useCallback((startTime: string, endTime: string) => {
+  const openRuntimeLogs = useCallback((startTime = '', endTime = '', eventType = '') => {
     if (!confirmNavigation()) return;
     const url = new URL(window.location.href);
     url.searchParams.set('section', 'runtime');
     url.searchParams.set('runtime_tab', 'logs');
-    url.searchParams.set('log_start', startTime.slice(0, 26));
-    url.searchParams.set('log_end', endTime.slice(0, 26));
+    if (startTime && endTime) {
+      url.searchParams.set('log_start', startTime.slice(0, 26));
+      url.searchParams.set('log_end', endTime.slice(0, 26));
+    } else {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+    }
+    if (eventType) url.searchParams.set('log_type', eventType);
+    else url.searchParams.delete('log_type');
     url.searchParams.delete('group');
     url.searchParams.delete('source');
     const href = `${url.pathname}${url.search}${url.hash}`;

@@ -35,8 +35,16 @@ _METRIC_KEYS = (
     "bubble_resumes",
     "bubble_max_cycles_reached",
     "thinking_calls",
+    "memory_compressions",
+    "messages_compressed",
+    "memory_compression_duration_ms",
+    "memory_compression_summary_calls",
+    "memory_compression_summary_tracked_calls",
+    "memory_compression_input_tokens",
+    "memory_compression_output_tokens",
+    "memory_compression_cached_tokens",
 )
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 _REPORT_DAYS = 30
 _INTRADAY_HOURS = 24
 _SUMMARY_KEYS = (
@@ -74,6 +82,20 @@ _SUMMARY_KEYS = (
     "thinking_calls",
     "thinking_seconds",
     "avg_thinking_seconds",
+    "memory_compressions",
+    "messages_compressed",
+    "memory_compression_duration_ms",
+    "avg_memory_compression_duration_ms",
+    "memory_compression_summary_calls",
+    "memory_compression_summary_tracked_calls",
+    "memory_compression_summary_untracked_calls",
+    "memory_compression_summary_tracking_coverage",
+    "memory_compression_input_tokens",
+    "memory_compression_output_tokens",
+    "memory_compression_cached_tokens",
+    "memory_compression_total_tokens",
+    "memory_compression_triggers",
+    "last_memory_compression_at",
 )
 _MAIN_STREAM_ID = "main"
 _MAIN_SCOPE = "main"
@@ -116,6 +138,20 @@ _ADMIN_WINDOW_KEYS = {
     "bubble_max_cycles_reached",
     "tool_outcomes",
     "skills",
+    "memory_compressions",
+    "messages_compressed",
+    "memory_compression_duration_ms",
+    "avg_memory_compression_duration_ms",
+    "memory_compression_summary_calls",
+    "memory_compression_summary_tracked_calls",
+    "memory_compression_summary_untracked_calls",
+    "memory_compression_summary_tracking_coverage",
+    "memory_compression_input_tokens",
+    "memory_compression_output_tokens",
+    "memory_compression_cached_tokens",
+    "memory_compression_total_tokens",
+    "memory_compression_triggers",
+    "last_memory_compression_at",
 }
 
 
@@ -160,6 +196,15 @@ def _new_skill_bucket() -> dict[str, int]:
     }
 
 
+def _new_compression_trigger_bucket() -> dict[str, int]:
+    return {
+        "automatic": 0,
+        "admin": 0,
+        "tool": 0,
+        "other": 0,
+    }
+
+
 def _new_bucket() -> dict[str, Any]:
     return {
         "llm_calls": 0,
@@ -186,6 +231,16 @@ def _new_bucket() -> dict[str, Any]:
         "bubble_max_cycles_reached": 0,
         "thinking_calls": 0,
         "thinking_seconds": 0.0,
+        "memory_compressions": 0,
+        "messages_compressed": 0,
+        "memory_compression_duration_ms": 0,
+        "memory_compression_summary_calls": 0,
+        "memory_compression_summary_tracked_calls": 0,
+        "memory_compression_input_tokens": 0,
+        "memory_compression_output_tokens": 0,
+        "memory_compression_cached_tokens": 0,
+        "memory_compression_triggers": _new_compression_trigger_bucket(),
+        "last_memory_compression_at": None,
         "by_model": {},
         "by_provider_model": {},
         "tools": {},
@@ -322,6 +377,36 @@ def _add_thinking_duration(bucket: dict[str, Any], seconds: float) -> None:
     bucket["thinking_seconds"] += seconds
 
 
+def _add_memory_compression(
+    bucket: dict[str, Any],
+    entry: dict[str, Any],
+    occurred_at: str,
+) -> None:
+    bucket["memory_compressions"] += 1
+    bucket["messages_compressed"] += _int_value(entry.get("messages_compressed"))
+    bucket["memory_compression_duration_ms"] += _int_value(entry.get("duration_ms"))
+    bucket["memory_compression_summary_calls"] += _int_value(entry.get("summary_calls"))
+    bucket["memory_compression_summary_tracked_calls"] += _int_value(
+        entry.get("summary_tracked_calls")
+    )
+    bucket["memory_compression_input_tokens"] += _int_value(
+        entry.get("summary_input_tokens")
+    )
+    bucket["memory_compression_output_tokens"] += _int_value(
+        entry.get("summary_output_tokens")
+    )
+    bucket["memory_compression_cached_tokens"] += _int_value(
+        entry.get("summary_cached_tokens")
+    )
+    trigger = str(entry.get("trigger") or "other")
+    if trigger not in {"automatic", "admin", "tool"}:
+        trigger = "other"
+    triggers = bucket["memory_compression_triggers"]
+    triggers[trigger] = triggers.get(trigger, 0) + 1
+    if occurred_at and occurred_at > str(bucket.get("last_memory_compression_at") or ""):
+        bucket["last_memory_compression_at"] = occurred_at
+
+
 def _merge_model_bucket(dst: dict[str, int], src: dict[str, int]) -> None:
     for key in ("llm_calls", "tracked_calls", "estimated_calls", *_TOKEN_KEYS):
         dst[key] = dst.get(key, 0) + _int_value(src.get(key))
@@ -339,6 +424,14 @@ def _merge_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
         dst[key] += _int_value(src.get(key))
     dst["thinking_seconds"] += _float_value(src.get("thinking_seconds"))
     dst["bubble_elapsed_seconds"] += _float_value(src.get("bubble_elapsed_seconds"))
+    for trigger, count in src.get("memory_compression_triggers", {}).items():
+        trigger_name = str(trigger)
+        if trigger_name not in {"automatic", "admin", "tool"}:
+            trigger_name = "other"
+        dst["memory_compression_triggers"][trigger_name] += _int_value(count)
+    last_compression_at = str(src.get("last_memory_compression_at") or "")
+    if last_compression_at > str(dst.get("last_memory_compression_at") or ""):
+        dst["last_memory_compression_at"] = last_compression_at
     for model, model_bucket in src.get("by_model", {}).items():
         model = _norm_part(model, _UNKNOWN_MODEL)
         _merge_model_bucket(dst["by_model"].setdefault(model, _new_model_bucket()), model_bucket)
@@ -526,6 +619,31 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
     bubble_runs = _int_value(bucket.get("bubble_runs"))
     bubble_elapsed_seconds = _float_value(bucket.get("bubble_elapsed_seconds"))
     bubble_cycles = _int_value(bucket.get("bubble_cycles"))
+    memory_compressions = _int_value(bucket.get("memory_compressions"))
+    memory_compression_duration_ms = _int_value(
+        bucket.get("memory_compression_duration_ms")
+    )
+    memory_compression_summary_calls = _int_value(
+        bucket.get("memory_compression_summary_calls")
+    )
+    memory_compression_summary_tracked_calls = min(
+        memory_compression_summary_calls,
+        _int_value(bucket.get("memory_compression_summary_tracked_calls")),
+    )
+    memory_compression_input_tokens = _int_value(
+        bucket.get("memory_compression_input_tokens")
+    )
+    memory_compression_output_tokens = _int_value(
+        bucket.get("memory_compression_output_tokens")
+    )
+    compression_triggers = _new_compression_trigger_bucket()
+    raw_compression_triggers = bucket.get("memory_compression_triggers", {})
+    if isinstance(raw_compression_triggers, dict):
+        for trigger, count in raw_compression_triggers.items():
+            trigger_name = str(trigger)
+            if trigger_name not in compression_triggers:
+                trigger_name = "other"
+            compression_triggers[trigger_name] += _int_value(count)
     return {
         "llm_calls": llm_calls,
         "tracked_calls": tracked_calls,
@@ -575,6 +693,41 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         "avg_thinking_seconds": (
             thinking_seconds / thinking_calls if thinking_calls else None
         ),
+        "memory_compressions": memory_compressions,
+        "messages_compressed": _int_value(bucket.get("messages_compressed")),
+        "memory_compression_duration_ms": memory_compression_duration_ms,
+        "avg_memory_compression_duration_ms": (
+            memory_compression_duration_ms / memory_compressions
+            if memory_compressions
+            else None
+        ),
+        "memory_compression_summary_calls": memory_compression_summary_calls,
+        "memory_compression_summary_tracked_calls": (
+            memory_compression_summary_tracked_calls
+        ),
+        "memory_compression_summary_untracked_calls": max(
+            0,
+            memory_compression_summary_calls - memory_compression_summary_tracked_calls,
+        ),
+        "memory_compression_summary_tracking_coverage": (
+            memory_compression_summary_tracked_calls / memory_compression_summary_calls
+            if memory_compression_summary_calls
+            else None
+        ),
+        "memory_compression_input_tokens": memory_compression_input_tokens,
+        "memory_compression_output_tokens": memory_compression_output_tokens,
+        "memory_compression_cached_tokens": _int_value(
+            bucket.get("memory_compression_cached_tokens")
+        ),
+        "memory_compression_total_tokens": (
+            memory_compression_input_tokens + memory_compression_output_tokens
+        ),
+        "memory_compression_triggers": compression_triggers,
+        "last_memory_compression_at": (
+            str(bucket.get("last_memory_compression_at"))
+            if bucket.get("last_memory_compression_at")
+            else None
+        ),
         "by_model": by_model,
         "by_provider_model": by_provider_model,
         "tools": tools,
@@ -607,6 +760,7 @@ class UsageStatsCollector:
         self._last_seq_by_stream: dict[str, int] = {}
         self._pending_thinking_starts: dict[str, tuple[datetime, date]] = {}
         self._pending_tool_calls: dict[str, dict[str, str]] = {}
+        self._compression_tracking_since: date | None = None
         self._bubble_history_key: tuple[int, str] | None = None
         self._bubble_history_scanned = False
         self._loading_history = False
@@ -626,6 +780,8 @@ class UsageStatsCollector:
             return
         finally:
             self._loading_history = False
+        if self._compression_tracking_since is None:
+            self._compression_tracking_since = self._now_fn().date()
         self._persist_state()
 
     def load_entries(self, entries: list[dict[str, Any]]) -> None:
@@ -740,6 +896,8 @@ class UsageStatsCollector:
                 scope,
                 str(entry.get("usage_source") or ""),
             )
+        elif t == "memory_compression":
+            self._record_memory_compression(entry, stream_id)
         elif t == "tool_call":
             tool_name = _norm_part(entry.get("name"), "unknown")
             day = self._entry_date(entry)
@@ -828,6 +986,9 @@ class UsageStatsCollector:
             "today_intraday": self._intraday_report(today),
             "generated_at": now.isoformat(),
             "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
+            "compression_tracking_since": (
+                self._compression_tracking_since or today
+            ).isoformat(),
         }
         if start_date is not None or end_date is not None:
             selected_start = start_date or end_date
@@ -1086,6 +1247,24 @@ class UsageStatsCollector:
         _add_bubble_outcome(self._scope_bucket_for_day(day, scope), entry)
         _add_bubble_outcome(self._scope_bucket_for_lifetime(scope), entry)
 
+    def _record_memory_compression(
+        self,
+        entry: dict[str, Any],
+        stream_id: str,
+    ) -> None:
+        day = self._entry_date(entry)
+        hour = self._entry_hour(entry)
+        occurred_at_value = self._entry_datetime(entry)
+        occurred_at = occurred_at_value.isoformat() if occurred_at_value is not None else ""
+        _add_memory_compression(self._days.setdefault(day, _new_bucket()), entry, occurred_at)
+        _add_memory_compression(self._hours.setdefault(hour, _new_bucket()), entry, occurred_at)
+        _add_memory_compression(self._lifetime, entry, occurred_at)
+        scope = self._scope_for_stream_id(stream_id)
+        _add_memory_compression(self._scope_bucket_for_day(day, scope), entry, occurred_at)
+        _add_memory_compression(self._scope_bucket_for_lifetime(scope), entry, occurred_at)
+        if self._compression_tracking_since is None or day < self._compression_tracking_since:
+            self._compression_tracking_since = day
+
     def _remember_tool_call(
         self,
         entry: dict[str, Any],
@@ -1276,6 +1455,12 @@ class UsageStatsCollector:
         if schema_version != _SCHEMA_VERSION:
             return False
         try:
+            compression_tracking_since = data.get("compression_tracking_since")
+            self._compression_tracking_since = (
+                date.fromisoformat(compression_tracking_since)
+                if isinstance(compression_tracking_since, str)
+                else None
+            )
             self._lifetime = _new_bucket()
             _merge_bucket(self._lifetime, data.get("lifetime", {}))
             self._days = {}
@@ -1327,6 +1512,7 @@ class UsageStatsCollector:
             self._last_seq_by_stream = {}
             self._pending_thinking_starts = {}
             self._pending_tool_calls = {}
+            self._compression_tracking_since = None
             return False
         return True
 
@@ -1367,6 +1553,11 @@ class UsageStatsCollector:
             "checkpoints": checkpoints,
             "pending_thinking_starts": self._format_pending_thinking_starts(),
             "pending_tool_calls": self._pending_tool_calls,
+            "compression_tracking_since": (
+                self._compression_tracking_since.isoformat()
+                if self._compression_tracking_since is not None
+                else None
+            ),
             "bubble_history": self._format_bubble_history(),
             "lifetime": self._lifetime,
             "days": {day.isoformat(): bucket for day, bucket in sorted(self._days.items())},

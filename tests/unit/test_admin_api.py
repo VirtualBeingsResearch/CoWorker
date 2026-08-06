@@ -1975,6 +1975,50 @@ def test_admin_interaction_history_rejects_invalid_cursor(tmp_path):
     assert response.status_code == 400
 
 
+def test_admin_interaction_history_filters_and_previews_memory_compressions(tmp_path):
+    client, config = _client(tmp_path)
+    logs_dir = Path(config.agent.logs_dir)
+    logs_dir.mkdir(parents=True)
+    entries = [
+        {"type": "message_in", "seq": 0, "ts": "2026-07-01T09:00:00"},
+        {
+            "type": "memory_compression",
+            "seq": 1,
+            "ts": "2026-07-01T09:01:00",
+            "trigger": "automatic",
+            "mode": "incremental",
+            "storage": "tree",
+            "messages_compressed": 6,
+            "duration_ms": 120,
+            "summary_calls": 1,
+            "summary_total_tokens": 80,
+        },
+    ]
+    (logs_dir / "interactions.jsonl").write_text(
+        "\n".join(json.dumps(item) for item in entries) + "\n",
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/api/admin/interactions?event_type=memory_compression",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert [event["seq"] for event in events] == [1]
+    assert events[0]["meta"] == {
+        "mode": "incremental",
+        "trigger": "automatic",
+        "storage": "tree",
+        "messages_compressed": "6",
+        "duration_ms": "120",
+        "summary_calls": "1",
+        "summary_total_tokens": "80",
+    }
+    assert "messages_compressed" in events[0]["preview"]
+
+
 def test_admin_interaction_history_can_jump_to_a_sequence_range(tmp_path):
     client, config = _client(tmp_path)
     logs_dir = Path(config.agent.logs_dir)

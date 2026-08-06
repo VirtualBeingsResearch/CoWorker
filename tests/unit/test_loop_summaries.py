@@ -396,6 +396,7 @@ async def test_compresses_once_after_provider_input_reaches_budget():
     mem.compress_now.assert_awaited_once_with(
         brain,
         agent_system_prompt="system prompt",
+        trigger="automatic",
     )
 
 

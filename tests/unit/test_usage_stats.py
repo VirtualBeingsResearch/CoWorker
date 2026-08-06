@@ -43,6 +43,10 @@ def test_empty_snapshot_returns_zeroes():
     assert report["last_7_days"]["skill_load_attempts"] == 0
     assert report["last_7_days"]["automatic_skill_loads"] == 0
     assert report["last_7_days"]["bubble_runs"] == 0
+    assert report["last_7_days"]["memory_compressions"] == 0
+    assert report["last_7_days"]["messages_compressed"] == 0
+    assert report["last_7_days"]["memory_compression_total_tokens"] == 0
+    assert report["compression_tracking_since"] == "2026-06-29"
     assert stats["lifetime"]["by_model"] == {}
     assert stats["lifetime"]["by_provider_model"] == {}
     assert set(stats["lifetime"]["by_scope"]) == {
@@ -393,6 +397,108 @@ def test_intraday_report_combines_main_summary_and_bubble_usage_by_hour():
     assert intraday[8]["llm_calls"] == 2
     assert intraday[13]["total_tokens"] == 23
     assert sum(item["total_tokens"] for item in intraday) == 69
+
+
+def test_memory_compressions_are_exactly_aggregated_by_window_trigger_and_hour():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "memory_compression",
+            "seq": 0,
+            "ts": "2026-06-23T09:15:00",
+            "trigger": "tool",
+            "mode": "full",
+            "storage": "tree",
+            "messages_compressed": 20,
+            "duration_ms": 500,
+            "summary_calls": 2,
+            "summary_tracked_calls": 2,
+            "summary_input_tokens": 400,
+            "summary_output_tokens": 50,
+            "summary_cached_tokens": 100,
+        },
+        {
+            "type": "memory_compression",
+            "seq": 1,
+            "ts": "2026-06-29T08:10:00",
+            "trigger": "automatic",
+            "mode": "incremental",
+            "storage": "tree",
+            "messages_compressed": 4,
+            "duration_ms": 120,
+            "summary_calls": 2,
+            "summary_tracked_calls": 2,
+            "summary_input_tokens": 100,
+            "summary_output_tokens": 20,
+            "summary_cached_tokens": 30,
+        },
+        {
+            "type": "memory_compression",
+            "seq": 2,
+            "ts": "2026-06-29T13:20:00",
+            "trigger": "admin",
+            "mode": "full",
+            "storage": "tree",
+            "messages_compressed": 10,
+            "duration_ms": 80,
+            "summary_calls": 1,
+            "summary_tracked_calls": 0,
+        },
+    ])
+
+    report = collector.report(
+        start_date=date(2026, 6, 29),
+        end_date=date(2026, 6, 29),
+    )
+    today = report["today"]
+
+    assert today["memory_compressions"] == 2
+    assert today["messages_compressed"] == 14
+    assert today["memory_compression_duration_ms"] == 200
+    assert today["avg_memory_compression_duration_ms"] == 100
+    assert today["memory_compression_summary_calls"] == 3
+    assert today["memory_compression_summary_tracked_calls"] == 2
+    assert today["memory_compression_summary_untracked_calls"] == 1
+    assert today["memory_compression_summary_tracking_coverage"] == 2 / 3
+    assert today["memory_compression_input_tokens"] == 100
+    assert today["memory_compression_output_tokens"] == 20
+    assert today["memory_compression_cached_tokens"] == 30
+    assert today["memory_compression_total_tokens"] == 120
+    assert today["memory_compression_triggers"] == {
+        "automatic": 1,
+        "admin": 1,
+        "tool": 0,
+        "other": 0,
+    }
+    assert today["last_memory_compression_at"] == "2026-06-29T13:20:00"
+    assert report["last_7_days"]["memory_compressions"] == 3
+    assert report["last_7_days"]["memory_compression_triggers"]["tool"] == 1
+    assert report["compression_tracking_since"] == "2026-06-23"
+    assert report["today_intraday"][8]["memory_compressions"] == 1
+    assert report["today_intraday"][13]["memory_compressions"] == 1
+    assert report["selected_range"]["stats"]["memory_compressions"] == 2
+    assert report["selected_range"]["daily"][0]["messages_compressed"] == 14
+
+
+def test_public_snapshot_does_not_expose_memory_compression_details():
+    collector = _collector()
+    collector.on_entry({
+        "type": "memory_compression",
+        "ts": "2026-06-29T08:10:00",
+        "trigger": "automatic",
+        "messages_compressed": 4,
+        "duration_ms": 120,
+        "summary_calls": 1,
+        "summary_tracked_calls": 1,
+        "summary_input_tokens": 100,
+        "summary_output_tokens": 20,
+    })
+
+    today = collector.snapshot()["today"]
+
+    assert "memory_compressions" not in today
+    assert "memory_compression_triggers" not in today
+    assert "last_memory_compression_at" not in today
 
 
 def test_public_snapshot_stays_compact_when_admin_report_is_available():
@@ -954,7 +1060,7 @@ def test_runtime_entry_persists_seq_checkpoint(tmp_path):
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["checkpoint"] == {"seq": 9}
     assert state["checkpoints"]["main"] == {"seq": 9}
-    assert state["schema_version"] == 9
+    assert state["schema_version"] == 10
     assert state["lifetime_by_scope"]["main"]["tool_calls"] == 1
 
 
@@ -1290,13 +1396,13 @@ def test_old_state_schema_is_rebuilt_from_logs_for_scope_split(tmp_path):
     assert lifetime["by_provider_model"]["unknown/bubble-model"]["total_tokens"] == 5
     assert lifetime["by_scope"]["main"]["total_tokens"] == 5
     assert lifetime["by_scope"]["bubble"]["total_tokens"] == 5
-    assert migrated["schema_version"] == 9
+    assert migrated["schema_version"] == 10
     assert migrated["checkpoint"] == {"seq": 0}
     assert "bubble:bubbles/bbl_a.jsonl" not in migrated["checkpoints"]
     assert migrated["bubble_history"]["path"] == "bubbles/bbl_a.jsonl"
 
 
-def test_v9_state_loads_provider_model_scope_thinking_tracking_and_hour_buckets(tmp_path):
+def test_v10_state_loads_provider_model_scope_thinking_tracking_and_hour_buckets(tmp_path):
     state_path = tmp_path / "usage_stats.json"
     model_bucket = {
         "llm_calls": 2,
@@ -1320,7 +1426,7 @@ def test_v9_state_loads_provider_model_scope_thinking_tracking_and_hour_buckets(
         "tools": {},
     }
     state_path.write_text(json.dumps({
-        "schema_version": 9,
+        "schema_version": 10,
         "updated_at": "2026-06-29T08:00:00",
         "checkpoint": {"seq": -1},
         "checkpoints": {"main": {"seq": -1}},
@@ -1352,7 +1458,7 @@ def test_v9_state_loads_provider_model_scope_thinking_tracking_and_hour_buckets(
     assert lifetime["avg_thinking_seconds"] == 6
     assert lifetime["tracking_coverage"] == 1
     assert lifetime["by_scope"]["main"]["by_provider_model"]["unknown/legacy-model"]["total_tokens"] == 25
-    assert migrated["schema_version"] == 9
+    assert migrated["schema_version"] == 10
     assert collector.report()["today_intraday"][8]["total_tokens"] == 25
 
 
@@ -1386,7 +1492,7 @@ def test_v8_state_is_rebuilt_from_logs_for_intraday_buckets(tmp_path):
 
     assert collector.snapshot()["lifetime"]["llm_calls"] == 1
     assert collector.report()["today_intraday"][14]["total_tokens"] == 10
-    assert migrated["schema_version"] == 9
+    assert migrated["schema_version"] == 10
     assert migrated["hours"]["2026-06-29T14:00:00"]["input_tokens"] == 7
 
 
@@ -1432,7 +1538,7 @@ def test_v5_state_is_rebuilt_from_logs_for_thinking_time(tmp_path):
     assert lifetime["total_tokens"] == 5
     assert lifetime["thinking_calls"] == 1
     assert lifetime["avg_thinking_seconds"] == 6
-    assert migrated["schema_version"] == 9
+    assert migrated["schema_version"] == 10
 
 
 def test_mark_bubble_log_complete_compacts_stream_checkpoint(tmp_path):
@@ -1522,7 +1628,7 @@ def test_empty_bubble_history_marks_scanned(tmp_path):
 def test_scanned_history_loads_pending_stream_without_glob(tmp_path):
     state_path = tmp_path / "usage_stats.json"
     state_path.write_text(json.dumps({
-        "schema_version": 9,
+        "schema_version": 10,
         "updated_at": "2026-06-29T08:00:00",
         "checkpoint": {"seq": -1},
         "checkpoints": {

@@ -79,7 +79,8 @@ group. It continues from the summary and provides:
   baselines, with every custom range compared against the immediately
   preceding equal-length period;
 - a first-screen summary of tokens, model calls, caching, tools, skill loads,
-  and autonomous runs next to data confidence and attention items;
+  autonomous runs, and memory compression next to data confidence and
+  attention items;
 - a 24-hour input/output increment chart and running daily-token line whenever
   Today or a custom single day is selected;
 - per-hour token, model-call, and cache summaries, with a direct jump that
@@ -91,6 +92,9 @@ group. It continues from the summary and provides:
   with proportional bars highlighting the largest consumers;
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
+- completed memory-compression counts, affected messages, summary-model calls
+  and tokens, split by automatic, administrator, and tool triggers, with the
+  metric linking directly to filtered compression-event logs;
 - technical Bubble and subconscious outcomes such as completion, errors,
   timeouts, cycles, and resumes;
 - the first eight ranked model, tool, and skill rows by default, with an
@@ -111,6 +115,14 @@ The hourly chart reads privacy-safe aggregates only. Its log drill-through
 still uses the existing administrator authorization, limits each time range to
 24 hours, shows bounded previews in the list, and fetches expanded detail only
 after an explicit click.
+
+Memory compression is tracked precisely through a dedicated success event from
+the time this version is installed. Attempts skipped for insufficient messages
+or concurrency, and attempts aborted because context changed during summary,
+do not increment the count. Older logs are not inferred from ordinary
+`summary_llm_response` calls because the Summary model also serves Bubble,
+backfill, memory-tree merging, and other responsibilities. The console displays
+the date on which exact compression tracking began.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
