@@ -306,7 +306,10 @@ class ClearShortTermMemoryTool(Tool):
                 await self._subconscious.notify_pre_compress(to_summarize)
             except Exception as e:
                 logger.warning(f"Pre-compress summarize notification failed: {e}")
-        compressed, _remaining = await self._short_term.compress_all_now(self._brain)
+        compressed, _remaining = await self._short_term.compress_all_now(
+            self._brain,
+            trigger="tool",
+        )
         if compressed == 0:
             return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_empty"))
         return ToolResult(

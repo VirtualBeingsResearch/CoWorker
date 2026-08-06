@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -46,6 +46,7 @@ def _client(
     channel_modules=None,
     relay_client=None,
     persona: bool = False,
+    usage_stats=None,
 ):
     config = Config.model_validate(
         {
@@ -88,6 +89,7 @@ def _client(
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,
+        usage_stats=usage_stats,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
@@ -178,6 +180,115 @@ def test_admin_requires_bearer_token(tmp_path):
     assert response.status_code == 200
     assert response.json()["name"] == "Luna"
     assert response.json()["confirmation_name"] == "Luna"
+
+
+def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
+    report = {
+        "today": {"llm_calls": 2, "total_tokens": 34},
+        "last_7_days": {"llm_calls": 5, "total_tokens": 89},
+        "last_30_days": {"llm_calls": 7, "total_tokens": 120},
+        "lifetime": {"llm_calls": 8, "total_tokens": 144},
+        "daily": [{"date": "2026-06-29", "total_tokens": 34}],
+    }
+    usage_stats = SimpleNamespace(report=MagicMock(return_value=report))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    assert client.get("/api/admin/usage").status_code == 401
+    assert (
+        client.get(
+            "/api/admin/usage", headers={"Authorization": "Bearer wrong"}
+        ).status_code
+        == 403
+    )
+    usage_stats.report.assert_not_called()
+
+    response = client.get(
+        "/api/admin/usage", headers={"Authorization": "Bearer secret"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == report
+    usage_stats.report.assert_called_once_with()
+
+
+def test_admin_usage_returns_a_requested_date_range(tmp_path):
+    report = {
+        "selected_range": {
+            "start_date": "2026-06-20",
+            "end_date": "2026-06-22",
+            "stats": {"total_tokens": 42},
+            "daily": [],
+        }
+    }
+    usage_stats = SimpleNamespace(report=MagicMock(return_value=report))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    response = client.get(
+        "/api/admin/usage?start_date=2026-06-20&end_date=2026-06-22",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == report
+    usage_stats.report.assert_called_once_with(
+        start_date=date(2026, 6, 20),
+        end_date=date(2026, 6, 22),
+    )
+
+
+def test_admin_usage_treats_one_requested_date_as_a_single_day(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock(return_value={"selected_range": {}}))
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    response = client.get(
+        "/api/admin/usage?start_date=2026-06-20",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    usage_stats.report.assert_called_once_with(
+        start_date=date(2026, 6, 20),
+        end_date=date(2026, 6, 20),
+    )
+
+
+def test_admin_usage_rejects_a_reversed_date_range(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock())
+    client, _ = _client(tmp_path, usage_stats=usage_stats)
+
+    with locale_context("zh-CN"):
+        response = client.get(
+            "/api/admin/usage?start_date=2026-06-22&end_date=2026-06-20",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "起始日期不能晚于结束日期"
+    usage_stats.report.assert_not_called()
+
+
+def test_admin_usage_collector_is_cleared_for_the_next_runtime(tmp_path):
+    usage_stats = SimpleNamespace(
+        report=MagicMock(
+            return_value={
+                "today": {},
+                "last_7_days": {},
+                "last_30_days": {},
+                "lifetime": {},
+                "daily": [],
+            }
+        )
+    )
+    first_client, _ = _client(tmp_path / "first", usage_stats=usage_stats)
+    headers = {"Authorization": "Bearer secret"}
+    assert first_client.get("/api/admin/usage", headers=headers).status_code == 200
+
+    second_client, _ = _client(tmp_path / "second")
+    with locale_context("zh-CN"):
+        response = second_client.get("/api/admin/usage", headers=headers)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "用量统计尚未就绪"
 
 
 def test_admin_session_provides_stable_unnamed_confirmation(tmp_path):
@@ -1864,6 +1975,50 @@ def test_admin_interaction_history_rejects_invalid_cursor(tmp_path):
     assert response.status_code == 400
 
 
+def test_admin_interaction_history_filters_and_previews_memory_compressions(tmp_path):
+    client, config = _client(tmp_path)
+    logs_dir = Path(config.agent.logs_dir)
+    logs_dir.mkdir(parents=True)
+    entries = [
+        {"type": "message_in", "seq": 0, "ts": "2026-07-01T09:00:00"},
+        {
+            "type": "memory_compression",
+            "seq": 1,
+            "ts": "2026-07-01T09:01:00",
+            "trigger": "automatic",
+            "mode": "incremental",
+            "storage": "tree",
+            "messages_compressed": 6,
+            "duration_ms": 120,
+            "summary_calls": 1,
+            "summary_total_tokens": 80,
+        },
+    ]
+    (logs_dir / "interactions.jsonl").write_text(
+        "\n".join(json.dumps(item) for item in entries) + "\n",
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/api/admin/interactions?event_type=memory_compression",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert [event["seq"] for event in events] == [1]
+    assert events[0]["meta"] == {
+        "mode": "incremental",
+        "trigger": "automatic",
+        "storage": "tree",
+        "messages_compressed": "6",
+        "duration_ms": "120",
+        "summary_calls": "1",
+        "summary_total_tokens": "80",
+    }
+    assert "messages_compressed" in events[0]["preview"]
+
+
 def test_admin_interaction_history_can_jump_to_a_sequence_range(tmp_path):
     client, config = _client(tmp_path)
     logs_dir = Path(config.agent.logs_dir)
@@ -1901,6 +2056,76 @@ def test_admin_interaction_history_can_jump_to_a_sequence_range(tmp_path):
         ).status_code
         == 400
     )
+
+
+def test_admin_interaction_history_can_page_within_a_time_range(tmp_path):
+    client, config = _client(tmp_path)
+    logs_dir = Path(config.agent.logs_dir)
+    logs_dir.mkdir(parents=True)
+    entries = [
+        {"seq": 0, "ts": "2026-07-01T08:59:59", "type": "message_in"},
+        {"seq": 1, "ts": "2026-07-01T09:05:00", "type": "thinking_start"},
+        {"seq": 2, "ts": "2026-07-01T09:30:00", "type": "llm_response"},
+        {"seq": 3, "ts": "2026-07-01T10:00:00", "type": "tool_call"},
+    ]
+    (logs_dir / "interactions.jsonl").write_text(
+        "\n".join(json.dumps(item) for item in entries) + "\n",
+        encoding="utf-8",
+    )
+    headers = {"Authorization": "Bearer secret"}
+    params = {
+        "limit": "1",
+        "start_time": "2026-07-01T09:00:00",
+        "end_time": "2026-07-01T09:59:59.999999",
+    }
+
+    first = client.get("/api/admin/interactions", params=params, headers=headers)
+
+    assert first.status_code == 200
+    assert [item["seq"] for item in first.json()["events"]] == [2]
+    assert first.json()["time_range"] == {
+        "start_time": "2026-07-01T09:00:00",
+        "end_time": "2026-07-01T09:59:59.999999",
+    }
+    assert first.json()["next_cursor"]
+
+    second = client.get(
+        "/api/admin/interactions",
+        params={**params, "cursor": first.json()["next_cursor"]},
+        headers=headers,
+    )
+
+    assert second.status_code == 200
+    assert [item["seq"] for item in second.json()["events"]] == [1]
+    assert second.json()["has_more"] is False
+
+
+def test_admin_interaction_history_validates_time_ranges(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    with locale_context("zh-CN"):
+        incomplete = client.get(
+            "/api/admin/interactions?start_time=2026-07-01T09:00:00",
+            headers=headers,
+        )
+        reversed_range = client.get(
+            "/api/admin/interactions?start_time=2026-07-01T10:00:00"
+            "&end_time=2026-07-01T09:00:00",
+            headers=headers,
+        )
+        too_large = client.get(
+            "/api/admin/interactions?start_time=2026-07-01T09:00:00"
+            "&end_time=2026-07-02T09:00:00.000001",
+            headers=headers,
+        )
+
+    assert incomplete.status_code == 422
+    assert incomplete.json()["detail"] == "日志起止时间必须同时提供"
+    assert reversed_range.status_code == 422
+    assert reversed_range.json()["detail"] == "日志起始时间不能晚于结束时间"
+    assert too_large.status_code == 422
+    assert too_large.json()["detail"] == "日志时间范围不能超过 24 小时"
 
 
 def test_legacy_admin_logs_endpoint_is_not_available(tmp_path):

@@ -650,6 +650,9 @@ async def _main() -> bool:
     usage_stats.load_bubble_history(config.agent.logs_dir)
     interaction_log.add_listener(event_collector.on_entry)
     interaction_log.add_listener(usage_stats.on_entry)
+    short_term.add_compression_listener(
+        lambda event: interaction_log.log_memory_compression(**event)
+    )
 
     def log_mem0_usage(entry: dict[str, Any]) -> None:
         usage = entry.get("usage")
@@ -978,6 +981,7 @@ async def _main() -> bool:
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,
+        usage_stats=usage_stats,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(

@@ -54,6 +54,42 @@ class TestInteractionLogSeq:
         assert entry["usage_source"] == "estimated"
         assert entry["operation"] == "generate_response"
 
+    def test_completed_memory_compression_is_logged_without_message_content(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(path))
+
+        log.log_memory_compression(
+            trigger="automatic",
+            mode="incremental",
+            storage="tree",
+            messages_compressed=12,
+            duration_ms=345,
+            summary_calls=2,
+            summary_tracked_calls=2,
+            summary_input_tokens=800,
+            summary_output_tokens=120,
+            summary_cached_tokens=300,
+        )
+
+        entry = json.loads(path.read_text(encoding="utf-8").strip())
+        assert entry == {
+            "type": "memory_compression",
+            "trigger": "automatic",
+            "mode": "incremental",
+            "storage": "tree",
+            "messages_compressed": 12,
+            "duration_ms": 345,
+            "summary_calls": 2,
+            "summary_tracked_calls": 2,
+            "summary_input_tokens": 800,
+            "summary_output_tokens": 120,
+            "summary_cached_tokens": 300,
+            "summary_total_tokens": 920,
+            "seq": 0,
+            "ts": entry["ts"],
+        }
+        assert "content" not in entry
+
 
 class TestInteractionLogRotation:
     def test_rotates_by_size_and_log_store_reads_full_history(self, tmp_path):

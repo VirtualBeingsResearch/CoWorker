@@ -95,10 +95,17 @@ export type FullStatus = {
 
 export type UsageModelStats = {
   llm_calls?: number;
+  tracked_calls?: number;
+  exact_calls?: number;
+  untracked_calls?: number;
+  estimated_calls?: number;
+  tracking_coverage?: number | null;
+  exact_coverage?: number | null;
   input_tokens?: number;
   output_tokens?: number;
   cached_tokens?: number;
   total_tokens?: number;
+  avg_tokens_per_call?: number | null;
   cache_rate?: number | null;
 };
 
@@ -109,19 +116,95 @@ export type UsageProviderModelStats = UsageModelStats & {
 
 export type UsageWindowStats = UsageModelStats & {
   tool_calls?: number;
+  tool_successes?: number;
+  tool_errors?: number;
+  tool_incomplete?: number;
+  tool_success_rate?: number | null;
+  skill_load_attempts?: number;
+  skill_load_successes?: number;
+  skill_load_errors?: number;
+  skill_load_incomplete?: number;
+  automatic_skill_loads?: number;
+  bubble_runs?: number;
+  bubble_done?: number;
+  bubble_errors?: number;
+  bubble_timeouts?: number;
+  bubble_cancelled?: number;
+  bubble_cycles?: number;
+  bubble_elapsed_seconds?: number;
+  avg_bubble_cycles?: number | null;
+  avg_bubble_seconds?: number | null;
+  bubble_resumes?: number;
+  bubble_max_cycles_reached?: number;
   thinking_calls?: number;
   thinking_seconds?: number;
   avg_thinking_seconds?: number | null;
+  memory_compressions?: number;
+  messages_compressed?: number;
+  memory_compression_duration_ms?: number;
+  avg_memory_compression_duration_ms?: number | null;
+  memory_compression_summary_calls?: number;
+  memory_compression_summary_tracked_calls?: number;
+  memory_compression_summary_untracked_calls?: number;
+  memory_compression_summary_tracking_coverage?: number | null;
+  memory_compression_input_tokens?: number;
+  memory_compression_output_tokens?: number;
+  memory_compression_cached_tokens?: number;
+  memory_compression_total_tokens?: number;
+  memory_compression_triggers?: Record<'automatic' | 'admin' | 'tool' | 'other', number>;
+  last_memory_compression_at?: string | null;
   by_model?: Record<string, UsageModelStats>;
   by_provider_model?: Record<string, UsageProviderModelStats>;
   tools?: Record<string, number>;
+  tool_outcomes?: Record<string, {
+    calls?: number;
+    successes?: number;
+    errors?: number;
+    incomplete?: number;
+    success_rate?: number | null;
+  }>;
+  skills?: Record<string, {
+    explicit_attempts?: number;
+    explicit_successes?: number;
+    explicit_errors?: number;
+    explicit_incomplete?: number;
+    automatic_loads?: number;
+  }>;
   by_scope?: Record<string, UsageWindowStats>;
+};
+
+export type UsageDateRangeStats = {
+  start_date: string;
+  end_date: string;
+  previous_start_date?: string | null;
+  previous_end_date?: string | null;
+  stats?: UsageWindowStats;
+  previous?: UsageWindowStats | null;
+  daily?: Array<UsageWindowStats & { date: string }>;
+  intraday?: UsageIntradayStats[];
+};
+
+export type UsageIntradayStats = UsageWindowStats & {
+  start_time: string;
+  end_time: string;
 };
 
 export type UsageStats = {
   today?: UsageWindowStats;
   last_7_days?: UsageWindowStats;
+  last_30_days?: UsageWindowStats;
   lifetime?: UsageWindowStats;
+  previous?: {
+    today?: UsageWindowStats;
+    last_7_days?: UsageWindowStats;
+    last_30_days?: UsageWindowStats;
+  };
+  daily?: Array<UsageWindowStats & { date: string }>;
+  today_intraday?: UsageIntradayStats[];
+  selected_range?: UsageDateRangeStats;
+  generated_at?: string;
+  tracking_since?: string | null;
+  compression_tracking_since?: string | null;
 };
 
 export type ShortTermMemoryInfo = {
@@ -196,4 +279,3 @@ export type RuntimeLogEvent = {
   // tool_result
   is_error?: boolean;
 };
-

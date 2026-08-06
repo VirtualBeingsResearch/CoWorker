@@ -215,6 +215,64 @@ class TestShortTermMemory:
         assert ctx[len(mem.tree.nodes):] == mem.primary
 
     @pytest.mark.asyncio
+    async def test_compression_listener_reports_only_completed_pass_with_usage(self):
+        from coworker.brain.brain import Brain
+        from coworker.core.types import LLMResponse
+        from tests.conftest import MockProvider
+
+        provider = MockProvider(LLMResponse(
+            content="summary",
+            tool_calls=[],
+            stop_reason="end_turn",
+            model="mock-model",
+            usage={"input_tokens": 100, "output_tokens": 12, "cached_tokens": 40},
+        ))
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(provider)
+        mem = ShortTermMemory(max_tokens=10, tree_enabled=False)
+        for i in range(8):
+            mem.primary.append(Message(role="user", content=f"message {i} " * 5))
+        events: list[dict] = []
+        mem.add_compression_listener(events.append)
+
+        compressed, _ = await mem.compress_now(brain, trigger="automatic")
+
+        assert compressed >= 2
+        assert len(events) == 1
+        assert events[0] == {
+            "trigger": "automatic",
+            "mode": "incremental",
+            "storage": "legacy",
+            "messages_compressed": compressed,
+            "duration_ms": events[0]["duration_ms"],
+            "summary_calls": 1,
+            "summary_tracked_calls": 1,
+            "summary_input_tokens": 100,
+            "summary_output_tokens": 12,
+            "summary_cached_tokens": 40,
+        }
+        assert events[0]["duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_compression_listener_failure_does_not_fail_compression(self):
+        brain = self._summary_brain()
+        mem = ShortTermMemory(max_tokens=10)
+        for i in range(8):
+            mem.primary.append(Message(role="user", content=f"message {i} " * 5))
+
+        def fail(_event: dict) -> None:
+            raise RuntimeError("listener failed")
+
+        observed: list[dict] = []
+        mem.add_compression_listener(fail)
+        mem.add_compression_listener(observed.append)
+
+        compressed, _ = await mem.compress_now(brain)
+
+        assert compressed >= 2
+        assert len(observed) == 1
+
+    @pytest.mark.asyncio
     async def test_tree_promotion_uses_reported_summary_output_tokens(self):
         from coworker.brain.brain import Brain
         from coworker.core.types import LLMResponse, estimate_content_tokens
@@ -383,7 +441,7 @@ class TestShortTermMemory:
             mem.primary.append(Message(role="user", content="mutated during fib_carry"))
             return "merged"
 
-        mem._make_summarize_fn = lambda b, asp="": evil_merge  # type: ignore[method-assign]
+        mem._make_summarize_fn = lambda b, asp="", usage=None: evil_merge  # type: ignore[method-assign]
 
         promoted, _ = await mem.compress_now(brain)
         assert promoted == 0  # 放弃
@@ -419,7 +477,7 @@ class TestShortTermMemory:
             state["compress_gen"] = mem.compress_generation
             return "merged"
 
-        mem._make_summarize_fn = lambda b, asp="": observing_merge  # type: ignore[method-assign]
+        mem._make_summarize_fn = lambda b, asp="", usage=None: observing_merge  # type: ignore[method-assign]
 
         promoted, _ = await mem.compress_now(brain)
         assert promoted >= 2
@@ -750,8 +808,10 @@ class TestShortTermMemory:
         mem = ShortTermMemory()
         for i in range(3):
             mem.primary.append(Message(role="user", content=f"msg {i}"))
+        events: list[dict] = []
+        mem.add_compression_listener(events.append)
 
-        compressed, _ = await mem.compress_all_now(brain)
+        compressed, _ = await mem.compress_all_now(brain, trigger="admin")
 
         assert compressed == 3
         assert mem.primary == []
@@ -759,6 +819,10 @@ class TestShortTermMemory:
         assert mem.tree.nodes[0].msg_count == 3
         assert mem.tree.nodes[0].summary == "节点摘要"
         assert mem.compress_generation == 1
+        assert events[0]["trigger"] == "admin"
+        assert events[0]["mode"] == "full"
+        assert events[0]["storage"] == "tree"
+        assert events[0]["messages_compressed"] == 3
 
     @pytest.mark.asyncio
     async def test_compress_all_preserves_active_tool_use_tail(self):
@@ -786,6 +850,8 @@ class TestShortTermMemory:
         mem = ShortTermMemory()
         for i in range(3):
             mem.primary.append(Message(role="user", content=f"msg {i}"))
+        events: list[dict] = []
+        mem.add_compression_listener(events.append)
 
         async def evil_summarize(messages, context_hint="", **_):
             mem.primary.clear()
@@ -800,6 +866,7 @@ class TestShortTermMemory:
         assert len(mem.tree.nodes) == 0
         assert [m.content for m in mem.primary] == ["brand new"]
         assert mem.compress_generation == 0
+        assert events == []
 
     @pytest.mark.asyncio
     async def test_compress_all_legacy_single_anchor_preserves_tool_use_tail(self):
