@@ -2205,6 +2205,107 @@ html:has(.admin-login),
 .task-waiting > code { font-size: var(--admin-type-small); line-height: 1.65; }
 .task-waiting pre { font-size: var(--admin-type-caption); line-height: 1.65; }
 
+/* Usage analytics follows the shared admin scale; dense charts keep the micro floor. */
+.usage-analytics-actions > button:not(.icon-btn),
+.usage-analytics-windows button,
+.usage-scope-filter button,
+.usage-date-range-mode button,
+.usage-date-range-actions button,
+.usage-list-toggle {
+  font-size: var(--admin-type-small);
+  line-height: 1.35;
+}
+
+.usage-window-context span,
+.usage-window-context b,
+.usage-scope-filter > small,
+.usage-date-range-fields label > span,
+.usage-date-range-error,
+.usage-attention > header b,
+.usage-attention article small,
+.usage-analytics-metric > small,
+.usage-quality-copy span,
+.usage-quality-legend,
+.usage-trend-head-meta,
+.usage-trend-legend,
+.usage-intraday-detail span,
+.usage-intraday-detail small,
+.usage-model-table th,
+.usage-source-cards > button > small,
+.usage-outcome-summary span,
+.usage-execution-list article small,
+.usage-skill-list span,
+.usage-skill-list small,
+.usage-bubble-statuses span,
+.usage-bubble-modes article p,
+.usage-bubble-modes article small,
+.usage-analytics-foot {
+  font-size: var(--admin-type-caption);
+  line-height: 1.5;
+}
+
+.usage-scope-filter > span,
+.usage-date-range-fields input,
+.usage-attention > header span,
+.usage-attention article strong,
+.usage-analytics-metric > span,
+.usage-quality-copy strong,
+.usage-trend-head-meta > span b,
+.usage-intraday-detail strong,
+.usage-source-panel > header > b,
+.usage-panel-actions > b,
+.usage-model-table,
+.usage-model-table td,
+.usage-source-cards > button > span,
+.usage-source-cards > button > strong,
+.usage-source-cards > p,
+.usage-execution-list > p,
+.usage-skill-list > p,
+.usage-panel-total,
+.usage-execution-list article strong,
+.usage-execution-list article b,
+.usage-skill-list strong,
+.usage-skill-list b,
+.usage-bubble-modes article strong,
+.usage-bubble-modes article b,
+.usage-bubble-modes > p {
+  font-size: var(--admin-type-small);
+  line-height: 1.45;
+}
+
+.usage-analytics-metric > strong {
+  font-size: clamp(22px, calc(21px + .18vw), 26px);
+}
+
+.usage-bubble-statuses b {
+  font-size: clamp(15px, calc(14px + .14vw), 18px);
+}
+
+.usage-trend-chart article > b,
+.usage-trend-chart article > span,
+.usage-intraday-bars > button > b,
+.usage-intraday-bars > button > small {
+  font-size: var(--admin-type-micro);
+  line-height: 1.2;
+}
+
+.usage-trend-chart article {
+  grid-template-rows: 18px 100px 20px;
+  height: 138px;
+}
+
+.usage-intraday-stage,
+.usage-intraday-bars {
+  height: 142px;
+}
+
+.usage-intraday-stage { min-width: 520px; }
+.usage-intraday-stage > svg { top: 18px; }
+.usage-intraday-bars > button {
+  grid-template-rows: 18px 100px 20px;
+  height: 140px;
+}
+
 /* Desktop releases — a version relay, not another settings table. */
 .release-page { max-width: 1440px; margin: 0 auto; }
 .release-hero {
