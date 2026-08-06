@@ -54,7 +54,7 @@ function PatternList({
         <button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))} title={t('删除匹配规则')} aria-label={t('删除匹配规则 {{item}}', { item: pattern })}><X size={13} /></button>
       </div>)}</div> : <div className="string-list-empty">{t('未配置规则')}</div>}
       <div className="string-list-add">
-        <input aria-label={t(label)} value={candidate} onChange={event => setCandidate(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add(); } }} placeholder="wecom:single:*" />
+        <input aria-label={t(label)} value={candidate} onChange={event => setCandidate(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add(); } }} placeholder="*" />
         <button type="button" className="ghost mini" disabled={!candidate.trim() || value.includes(candidate.trim())} onClick={add}><Plus size={14} />{t('添加规则')}</button>
       </div>
     </div>

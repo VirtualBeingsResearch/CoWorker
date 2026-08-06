@@ -995,7 +995,7 @@ html:has(.admin-login),
 .config-section-heading small { display: block; }
 .config-section-heading b { font-size: 13px; }
 .config-section-heading small { margin-top: 4px; color: var(--admin-muted); font-size: 10px; }
-.channel-access-settings { display: grid; gap: 14px; }
+.channel-access-settings { display: grid; gap: 14px; margin-top: 14px; }
 .channel-access-overview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px; border: 1px solid color-mix(in oklch, var(--admin-vital) 26%, var(--admin-line)); border-radius: 14px; background: linear-gradient(120deg, var(--admin-soft), var(--admin-surface) 72%); }
 .channel-access-overview > svg { color: var(--admin-vital); }
 .channel-access-overview span { color: var(--admin-vital); font: 680 9px var(--admin-data); letter-spacing: .12em; }
