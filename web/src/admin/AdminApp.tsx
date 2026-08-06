@@ -38,11 +38,11 @@ const NAV: Array<{ id: Section; label: string; description: string; workspace: W
   { id: 'releases', label: '桌面发布', description: '版本、签名产物与更新投放', workspace: 'advanced', icon: PackageOpen },
 ];
 const WORKSPACES: Array<{ id: Workspace; label: string; mobileLabel: string; description: string; icon: typeof Activity; sections: Section[] }> = [
-  { id: 'overview', label: '生命总览', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview', 'usage'] },
-  { id: 'operations', label: '运行工作台', mobileLabel: '运维', description: '任务、记忆与运行诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
-  { id: 'configuration', label: '配置工作台', mobileLabel: '配置', description: '模型连接与运行参数', icon: SlidersHorizontal, sections: ['models', 'settings'] },
-  { id: 'relationships', label: '人物与身份', mobileLabel: '人物', description: '身份与跨信道人物关系', icon: Users, sections: ['identity', 'people'] },
-  { id: 'advanced', label: '高级管理', mobileLabel: '高级', description: '能力、远程接入与发布维护', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
+  { id: 'overview', label: '观测', mobileLabel: '总览', description: '状态、用量和关键指标', icon: HeartPulse, sections: ['overview', 'usage'] },
+  { id: 'operations', label: '运维', mobileLabel: '运维', description: '任务、记忆与运行诊断', icon: Activity, sections: ['runtime', 'memory', 'audit'] },
+  { id: 'configuration', label: '配置', mobileLabel: '配置', description: '模型连接与运行参数', icon: SlidersHorizontal, sections: ['models', 'settings'] },
+  { id: 'relationships', label: '关系', mobileLabel: '人物', description: '身份与跨信道人物关系', icon: Users, sections: ['identity', 'people'] },
+  { id: 'advanced', label: '扩展', mobileLabel: '高级', description: '能力、远程接入与发布维护', icon: Sparkles, sections: ['content', 'relay', 'releases'] },
 ];
 const DEFAULT_SECTION_BY_WORKSPACE: Record<Workspace, Section> = {
   overview: 'overview',

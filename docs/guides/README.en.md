@@ -37,8 +37,8 @@ output-token, Provider, model, and Passive mode settings are saved, Coworker
 restarts. See [First Run](../getting-started/README.en.md) for the complete path.
 
 After initialization, the management pages are organized into five
-responsibility groups: Life Overview, Operations, Configuration, People &
-Identity, and Advanced. On desktop, the left navigation lists all 12 feature
+responsibility groups: Observability, Operations, Configuration, Relationships,
+and Extensions. On desktop, the left navigation lists all 12 feature
 pages under those groups. Group labels aid scanning without adding another
 click, so every page remains directly reachable. Phones use five bottom-bar
 entries to return to the most recently visited page in each group and can
@@ -49,7 +49,7 @@ remain valid.
 
 <p align="center"><sub>Life Overview · Review current state, model-token usage, and key runtime metrics in one view.</sub></p>
 
-## Overview: start with state, usage, and key metrics
+## Observability: start with state, usage, and key metrics
 
 ### Life Overview
 
@@ -70,7 +70,7 @@ the page says so instead of reporting those calls as zero usage.
 
 ### Runtime Analytics
 
-Runtime Analytics is a dedicated left-navigation entry in the Life Overview
+Runtime Analytics is a dedicated left-navigation entry in the Observability
 group. It continues from the summary and provides:
 
 - Today, 7-day, 30-day, and all-time preset windows plus custom single-day or
@@ -233,7 +233,7 @@ Do not use development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 
-## People & Identity: maintain the companion identity and relationships
+## Relationships: maintain the companion identity and people
 
 ### Identity Profile
 
@@ -254,7 +254,7 @@ framework, and maintain personalized notes. Verify both sets of addresses
 before a merge. Deleting a person removes the relationship record and cannot be
 undone from the ordinary page.
 
-## Advanced: manage extensions, remote access, and releases
+## Extensions: manage capabilities, remote access, and releases
 
 ### Capability Content
 
