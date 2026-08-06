@@ -80,8 +80,12 @@ group. It continues from the summary and provides:
   preceding equal-length period;
 - a first-screen summary of tokens, model calls, caching, tools, skill loads,
   and autonomous runs next to data confidence and attention items;
-- daily input- and output-token trends for the latest 30 days or the selected
-  custom range;
+- a 24-hour input/output increment chart and running daily-token line whenever
+  Today or a custom single day is selected;
+- per-hour token, model-call, and cache summaries, with a direct jump that
+  carries the selected interval into Runtime Center logs;
+- daily input- and output-token trends for multi-day windows covering the
+  latest 30 days or the selected custom range;
 - exact, estimated, and untracked token confidence breakdowns;
 - Provider/model and main, Bubble, and other responsibility-source drivers,
   with proportional bars highlighting the largest consumers;
@@ -103,6 +107,10 @@ details. The 30-day and custom-range trends and exports are available only
 through the authenticated administrator endpoint. Statistics come from local
 logs, so a low coverage rate can understate totals; the console does not convert
 them into Provider cost estimates.
+The hourly chart reads privacy-safe aggregates only. Its log drill-through
+still uses the existing administrator authorization, limits each time range to
+24 hours, shows bounded previews in the list, and fetches expanded detail only
+after an explicit click.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
@@ -141,7 +149,8 @@ Runtime Center brings together:
 
 - task board;
 - alarms and waiting;
-- lifetime interaction history;
+- lifetime interaction history filterable by sequence or a time range of up to
+  24 hours;
 - emergency backups;
 - safe restart.
 

@@ -167,6 +167,12 @@ export type UsageDateRangeStats = {
   stats?: UsageWindowStats;
   previous?: UsageWindowStats | null;
   daily?: Array<UsageWindowStats & { date: string }>;
+  intraday?: UsageIntradayStats[];
+};
+
+export type UsageIntradayStats = UsageWindowStats & {
+  start_time: string;
+  end_time: string;
 };
 
 export type UsageStats = {
@@ -180,6 +186,7 @@ export type UsageStats = {
     last_30_days?: UsageWindowStats;
   };
   daily?: Array<UsageWindowStats & { date: string }>;
+  today_intraday?: UsageIntradayStats[];
   selected_range?: UsageDateRangeStats;
   generated_at?: string;
   tracking_since?: string | null;

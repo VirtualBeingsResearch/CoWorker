@@ -10,6 +10,7 @@ import {
   Database,
   Download,
   FileJson,
+  FileText,
   Hammer,
   Orbit,
   RefreshCw,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import type {
+  UsageIntradayStats,
   UsageModelStats,
   UsageProviderModelStats,
   UsageStats,
@@ -45,6 +47,7 @@ type AdminUsageAnalyticsProps = {
   error: string;
   onReload: () => void | Promise<void>;
   onLoadRange: (startDate: string, endDate: string) => Promise<UsageStats>;
+  onOpenLogs: (startTime: string, endTime: string) => void;
 };
 
 type AttentionItem = {
@@ -207,6 +210,91 @@ function DetailToggle({
   </button>;
 }
 
+function IntradayTrend({
+  items,
+  selected,
+  onSelect,
+  onOpenLogs,
+}: {
+  items: UsageIntradayStats[];
+  selected: UsageIntradayStats;
+  onSelect: (startTime: string) => void;
+  onOpenLogs: (startTime: string, endTime: string) => void;
+}) {
+  const maximum = Math.max(1, ...items.map(item => finite(item.total_tokens)));
+  const total = items.reduce((sum, item) => sum + finite(item.total_tokens), 0);
+  let cumulative = 0;
+  const cumulativePoints = [
+    '0,96',
+    ...items.map((item, index) => {
+      cumulative += finite(item.total_tokens);
+      const x = ((index + 0.5) / Math.max(1, items.length)) * 1000;
+      const y = 96 - (cumulative / Math.max(1, total)) * 82;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }),
+  ].join(' ');
+  const peak = items.reduce<UsageIntradayStats | null>((current, item) => (
+    !current || finite(item.total_tokens) > finite(current.total_tokens) ? item : current
+  ), null);
+  const date = selected.start_time.slice(0, 10);
+  const selectedLabel = `${selected.start_time.slice(11, 16)}–${selected.end_time.slice(11, 16)}`;
+
+  return <section className="admin-panel usage-trend-panel usage-intraday-panel">
+    <header>
+      <div><h2>{t('{{date}} 日内 Token 变化', { date })}</h2><p>{t('按本地小时查看增量，并用折线显示当日累计')}</p></div>
+      <div className="usage-trend-head-meta">
+        {peak && <span>{t('峰值')} <b>{formatTokenUnits(peak.total_tokens)}</b> · {peak.start_time.slice(11, 16)}</span>}
+        <div className="usage-trend-legend">
+          <span><i className="input" />{t('输入')}</span>
+          <span><i className="output" />{t('输出')}</span>
+          <span><i className="cumulative" />{t('累计趋势')}</span>
+        </div>
+      </div>
+    </header>
+    <div className="usage-intraday-scroll">
+      <div className="usage-intraday-stage" role="group" aria-label={t('{{date}} 的 24 小时 Token 变化', { date })}>
+        <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points={cumulativePoints} />
+        </svg>
+        <div className="usage-intraday-bars">
+          {items.map((item, index) => {
+            const input = finite(item.input_tokens);
+            const output = finite(item.output_tokens);
+            const itemTotal = finite(item.total_tokens);
+            const active = item.start_time === selected.start_time;
+            return <button
+              type="button"
+              className={active ? 'active' : ''}
+              aria-pressed={active}
+              aria-label={t('{{time}}：输入 {{input}}，输出 {{output}}，共 {{total}} Token', {
+                time: item.start_time.slice(11, 16),
+                input: formatCount(input),
+                output: formatCount(output),
+                total: formatCount(itemTotal),
+              })}
+              onClick={() => onSelect(item.start_time)}
+              key={item.start_time}
+            >
+              <b>{itemTotal > 0 ? formatTokenUnits(itemTotal) : ''}</b>
+              <span className="usage-intraday-column"><span className="usage-trend-stack" style={{ '--h': clampPercent(itemTotal / maximum * 100) } as CSSProperties}>
+                {input > 0 && <i className="input" style={{ flexGrow: input }} />}
+                {output > 0 && <i className="output" style={{ flexGrow: output }} />}
+              </span></span>
+              <small>{index % 3 === 0 ? item.start_time.slice(11, 16) : ''}</small>
+            </button>;
+          })}
+        </div>
+      </div>
+    </div>
+    <div className="usage-intraday-detail">
+      <div><span>{t('所选时段')}</span><strong>{date} · {selectedLabel}</strong></div>
+      <div><span>Token</span><strong>{formatTokenUnits(selected.total_tokens)}</strong><small>{t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
+      <div><span>{t('模型调用')}</span><strong>{formatCount(selected.llm_calls)}</strong><small>{t('缓存 Token {{count}}', { count: formatTokenUnits(selected.cached_tokens) })}</small></div>
+      <button type="button" className="ghost mini" onClick={() => onOpenLogs(selected.start_time, selected.end_time)}><FileText size={13} />{t('查看该时段日志')}</button>
+    </div>
+  </section>;
+}
+
 function attentionItems(stats: UsageWindowStats): AttentionItem[] {
   const items: AttentionItem[] = [];
   const untracked = finite(stats.untracked_calls);
@@ -252,6 +340,7 @@ export function AdminUsageAnalytics({
   error,
   onReload,
   onLoadRange,
+  onOpenLogs,
 }: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<AnalyticsWindowKey>('last_7_days');
@@ -265,6 +354,7 @@ export function AdminUsageAnalytics({
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState('');
   const [customStats, setCustomStats] = useState<UsageStats | null>(null);
+  const [selectedIntradayStart, setSelectedIntradayStart] = useState('');
   const selectedRange = customStats?.selected_range;
   const windowStats = windowKey === 'custom'
     ? selectedRange?.stats
@@ -279,6 +369,16 @@ export function AdminUsageAnalytics({
     previousStats ? finite(previousStats.total_tokens) : undefined,
   );
   const daily = windowKey === 'custom' ? selectedRange?.daily || [] : stats?.daily || [];
+  const intraday = windowKey === 'today'
+    ? stats?.today_intraday || []
+    : windowKey === 'custom' && selectedRange?.start_date === selectedRange?.end_date
+      ? selectedRange?.intraday || []
+      : [];
+  const peakIntraday = intraday.reduce<UsageIntradayStats | null>((peak, item) => (
+    !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
+  ), null);
+  const selectedIntraday = intraday.find(item => item.start_time === selectedIntradayStart)
+    || peakIntraday;
   const visibleDaily = windowKey !== 'custom'
     && (windowKey === 'today' || windowKey === 'last_7_days')
     ? daily.slice(-7)
@@ -553,8 +653,13 @@ export function AdminUsageAnalytics({
       </div>
     </section>
 
-    <div className="usage-resource-dashboard">
-      <section className="admin-panel usage-trend-panel">
+    <div className={`usage-resource-dashboard${intraday.length > 0 ? ' intraday' : ''}`}>
+      {intraday.length > 0 && selectedIntraday ? <IntradayTrend
+        items={intraday}
+        selected={selectedIntraday}
+        onSelect={setSelectedIntradayStart}
+        onOpenLogs={onOpenLogs}
+      /> : <section className="admin-panel usage-trend-panel">
       <header>
         <div><h2>{t('{{days}} 日趋势', { days: visibleDaily.length })}</h2><p>{t('按本地日期汇总输入与输出 Token')}</p></div>
         <div className="usage-trend-head-meta">
@@ -583,7 +688,7 @@ export function AdminUsageAnalytics({
           </article>;
         })}
       </div>
-      </section>
+      </section>}
 
       <section className="admin-panel usage-model-table-panel">
         <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><div className="usage-panel-actions"><b>{allModelEntries.length}</b><DetailToggle expanded={expandedModels} label={t('模型与 Provider')} total={allModelEntries.length} onToggle={() => setExpandedModels(value => !value)} /></div></header>

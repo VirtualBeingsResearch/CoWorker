@@ -36,8 +36,9 @@ _METRIC_KEYS = (
     "bubble_max_cycles_reached",
     "thinking_calls",
 )
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 _REPORT_DAYS = 30
+_INTRADAY_HOURS = 24
 _SUMMARY_KEYS = (
     "llm_calls",
     "tracked_calls",
@@ -598,6 +599,7 @@ class UsageStatsCollector:
     ) -> None:
         self._now_fn = now_fn
         self._days: dict[date, dict[str, Any]] = {}
+        self._hours: dict[str, dict[str, Any]] = {}
         self._lifetime = _new_bucket()
         self._days_by_scope: dict[date, dict[str, dict[str, Any]]] = {}
         self._lifetime_by_scope = _new_scope_buckets()
@@ -706,6 +708,7 @@ class UsageStatsCollector:
             model = _norm_part(entry.get("model"), _UNKNOWN_MODEL)
             self._record_usage(
                 self._entry_date(entry),
+                self._entry_hour(entry),
                 usage,
                 provider,
                 model,
@@ -730,6 +733,7 @@ class UsageStatsCollector:
                 scope = _MEM0_SCOPE
             self._record_usage_with_scope(
                 self._entry_date(entry),
+                self._entry_hour(entry),
                 usage,
                 provider,
                 model,
@@ -821,6 +825,7 @@ class UsageStatsCollector:
                     for offset in range(_REPORT_DAYS)
                 )
             ],
+            "today_intraday": self._intraday_report(today),
             "generated_at": now.isoformat(),
             "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
         }
@@ -853,7 +858,7 @@ class UsageStatsCollector:
             previous = _summary_bucket(
                 self._aggregate_range(previous_start, previous_end)[0]
             )
-        return {
+        report = {
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
             "previous_start_date": (
@@ -875,6 +880,26 @@ class UsageStatsCollector:
                 )
             ],
         }
+        if start == end:
+            report["intraday"] = self._intraday_report(start)
+        return report
+
+    def _intraday_report(self, day: date) -> list[dict[str, Any]]:
+        return [
+            {
+                "start_time": f"{day.isoformat()}T{hour:02d}:00:00",
+                "end_time": f"{day.isoformat()}T{hour:02d}:59:59.999999",
+                **_summary_bucket(
+                    deepcopy(
+                        self._hours.get(
+                            f"{day.isoformat()}T{hour:02d}:00:00",
+                            _new_bucket(),
+                        )
+                    )
+                ),
+            }
+            for hour in range(_INTRADAY_HOURS)
+        ]
 
     @classmethod
     def _compact_window(cls, window: dict[str, Any]) -> dict[str, Any]:
@@ -910,6 +935,7 @@ class UsageStatsCollector:
     def _record_usage(
         self,
         day: date,
+        hour: str,
         usage: dict[str, Any],
         provider: str,
         model: str,
@@ -918,6 +944,13 @@ class UsageStatsCollector:
     ) -> None:
         bucket = self._days.setdefault(day, _new_bucket())
         _add_usage(bucket, usage, provider, model, usage_source)
+        _add_usage(
+            self._hours.setdefault(hour, _new_bucket()),
+            usage,
+            provider,
+            model,
+            usage_source,
+        )
         _add_usage(self._lifetime, usage, provider, model, usage_source)
         scope = self._scope_for_stream_id(stream_id)
         self._record_usage_for_scope(day, usage, provider, model, scope, usage_source)
@@ -925,6 +958,7 @@ class UsageStatsCollector:
     def _record_usage_with_scope(
         self,
         day: date,
+        hour: str,
         usage: dict[str, Any],
         provider: str,
         model: str,
@@ -933,6 +967,13 @@ class UsageStatsCollector:
     ) -> None:
         bucket = self._days.setdefault(day, _new_bucket())
         _add_usage(bucket, usage, provider, model, usage_source)
+        _add_usage(
+            self._hours.setdefault(hour, _new_bucket()),
+            usage,
+            provider,
+            model,
+            usage_source,
+        )
         _add_usage(self._lifetime, usage, provider, model, usage_source)
         self._record_usage_for_scope(day, usage, provider, model, scope, usage_source)
 
@@ -1113,6 +1154,12 @@ class UsageStatsCollector:
                 pass
         return self._now_fn().date()
 
+    def _entry_hour(self, entry: dict[str, Any]) -> str:
+        occurred_at = self._entry_datetime(entry)
+        if occurred_at is None:
+            occurred_at = self._now_fn()
+        return f"{occurred_at.date().isoformat()}T{occurred_at.hour:02d}:00:00"
+
     @staticmethod
     def _entry_datetime(entry: dict[str, Any]) -> datetime | None:
         ts = entry.get("ts")
@@ -1236,6 +1283,12 @@ class UsageStatsCollector:
                 day = date.fromisoformat(day_str)
                 self._days[day] = _new_bucket()
                 _merge_bucket(self._days[day], bucket)
+            self._hours = {}
+            for hour_str, bucket in data.get("hours", {}).items():
+                hour = datetime.fromisoformat(hour_str)
+                hour_key = f"{hour.date().isoformat()}T{hour.hour:02d}:00:00"
+                self._hours[hour_key] = _new_bucket()
+                _merge_bucket(self._hours[hour_key], bucket)
             self._lifetime_by_scope = self._load_scope_map(data.get("lifetime_by_scope", {}))
             self._days_by_scope = {}
             for day_str, scopes in data.get("days_by_scope", {}).items():
@@ -1267,6 +1320,7 @@ class UsageStatsCollector:
         except Exception as e:
             logger.warning(f"Failed to parse usage stats state {self._state_path}: {e}")
             self._days = {}
+            self._hours = {}
             self._lifetime = _new_bucket()
             self._days_by_scope = {}
             self._lifetime_by_scope = _new_scope_buckets()
@@ -1316,6 +1370,7 @@ class UsageStatsCollector:
             "bubble_history": self._format_bubble_history(),
             "lifetime": self._lifetime,
             "days": {day.isoformat(): bucket for day, bucket in sorted(self._days.items())},
+            "hours": {hour: bucket for hour, bucket in sorted(self._hours.items())},
             "lifetime_by_scope": self._lifetime_by_scope,
             "days_by_scope": {
                 day.isoformat(): scopes for day, scopes in sorted(self._days_by_scope.items())

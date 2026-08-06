@@ -19,6 +19,7 @@ import remarkGfm from 'remark-gfm';
 
 type Section = 'overview' | 'usage' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
 type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' | 'advanced';
+type RuntimeTab = 'tasks' | 'alarms' | 'logs' | 'maintenance';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 
@@ -80,7 +81,29 @@ function sectionHref(next: Section) {
     url.searchParams.delete('group');
     url.searchParams.delete('source');
   }
+  if (next !== 'runtime' || current !== 'runtime') {
+    url.searchParams.delete('runtime_tab');
+    url.searchParams.delete('log_start');
+    url.searchParams.delete('log_end');
+  }
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function runtimeTabFromLocation(): RuntimeTab {
+  const requested = new URLSearchParams(window.location.search).get('runtime_tab');
+  return requested === 'alarms' || requested === 'logs' || requested === 'maintenance'
+    ? requested
+    : 'tasks';
+}
+
+function logTimeFromLocation(key: 'log_start' | 'log_end'): string {
+  const value = new URLSearchParams(window.location.search).get(key) || '';
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ? value.slice(0, 26) : '';
+}
+
+function logTimeInputValue(value: string): string {
+  const fraction = value.indexOf('.');
+  return fraction < 0 ? value : value.slice(0, fraction + 4);
 }
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
@@ -474,7 +497,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   </div>;
 }
 
-function UsageAnalyticsPage() {
+function UsageAnalyticsPage({ onOpenLogs }: { onOpenLogs: (startTime: string, endTime: string) => void }) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
     stats={usage.data}
@@ -485,6 +508,7 @@ function UsageAnalyticsPage() {
       const query = new URLSearchParams({ start_date: startDate, end_date: endDate });
       return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
     }}
+    onOpenLogs={onOpenLogs}
   />;
 }
 
@@ -986,10 +1010,21 @@ function repeatLabel(seconds?: number | null) {
 }
 
 function Runtime({ confirmationName }: { confirmationName: string }) {
-  const [tab, setTab] = useState<'tasks' | 'alarms' | 'logs' | 'maintenance'>('tasks');
+  const [tab, setTab] = useState<RuntimeTab>(runtimeTabFromLocation);
+  const selectTab = (next: RuntimeTab) => {
+    const url = new URL(window.location.href);
+    if (next === 'tasks') url.searchParams.delete('runtime_tab');
+    else url.searchParams.set('runtime_tab', next);
+    if (next !== 'logs') {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setTab(next);
+  };
   return <div className="page-stack"><div className="tabbar">{[
     ['tasks', '任务'], ['alarms', '闹钟'], ['logs', '运行日志'], ['maintenance', '维护'],
-  ].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as 'tasks' | 'alarms' | 'logs' | 'maintenance')}>{t(label)}</button>)}</div>
+  ].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => selectTab(id as RuntimeTab)}>{t(label)}</button>)}</div>
     {tab === 'tasks' && <Tasks />}{tab === 'alarms' && <Alarms />}{tab === 'logs' && <Logs />}{tab === 'maintenance' && <Maintenance confirmationName={confirmationName} />}
   </div>;
 }
@@ -1390,6 +1425,11 @@ function Logs() {
   const [seqStart, setSeqStart] = useState('');
   const [seqEnd, setSeqEnd] = useState('');
   const [sequenceError, setSequenceError] = useState('');
+  const [timeStartDraft, setTimeStartDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_start')));
+  const [timeEndDraft, setTimeEndDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_end')));
+  const [timeStart, setTimeStart] = useState(() => logTimeFromLocation('log_start'));
+  const [timeEnd, setTimeEnd] = useState(() => logTimeFromLocation('log_end'));
+  const [timeError, setTimeError] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
   const [newerCursors, setNewerCursors] = useState<Array<string | null>>([]);
   const [page, setPage] = useState<Json | null>(null);
@@ -1406,7 +1446,7 @@ function Logs() {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const applySequenceRange = () => {
+  const applyHistoryFilters = () => {
     const normalize = (value: string) => value.trim().replace(/^0+(?=\d)/, '');
     const start = normalize(seqStartDraft);
     const end = normalize(seqEndDraft);
@@ -1418,11 +1458,49 @@ function Logs() {
       setSequenceError(t('序列下限不能大于序列上限。'));
       return;
     }
+    const draftedTimeStart = timeStartDraft.trim();
+    const draftedTimeEnd = timeEndDraft.trim();
+    const selectedTimeStart = draftedTimeStart === logTimeInputValue(timeStart)
+      ? timeStart
+      : draftedTimeStart;
+    const selectedTimeEnd = draftedTimeEnd === logTimeInputValue(timeEnd)
+      ? timeEnd
+      : draftedTimeEnd;
+    if (Boolean(selectedTimeStart) !== Boolean(selectedTimeEnd)) {
+      setTimeError(t('日志起止时间必须同时提供'));
+      return;
+    }
+    if (selectedTimeStart && selectedTimeEnd) {
+      const startTimestamp = new Date(selectedTimeStart).getTime();
+      const endTimestamp = new Date(selectedTimeEnd).getTime();
+      if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp) || startTimestamp > endTimestamp) {
+        setTimeError(t('日志起始时间不能晚于结束时间'));
+        return;
+      }
+      if (endTimestamp - startTimestamp > 86_400_000) {
+        setTimeError(t('日志时间范围不能超过 24 小时'));
+        return;
+      }
+    }
     setSeqStartDraft(start);
     setSeqEndDraft(end);
     setSeqStart(start);
     setSeqEnd(end);
     setSequenceError('');
+    setTimeStartDraft(logTimeInputValue(selectedTimeStart));
+    setTimeEndDraft(logTimeInputValue(selectedTimeEnd));
+    setTimeStart(selectedTimeStart);
+    setTimeEnd(selectedTimeEnd);
+    setTimeError('');
+    const url = new URL(window.location.href);
+    if (selectedTimeStart && selectedTimeEnd) {
+      url.searchParams.set('log_start', selectedTimeStart);
+      url.searchParams.set('log_end', selectedTimeEnd);
+    } else {
+      url.searchParams.delete('log_start');
+      url.searchParams.delete('log_end');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
   useEffect(() => {
@@ -1432,12 +1510,12 @@ function Logs() {
     setOpenSeq(null);
     setDetails({});
     setDetailError('');
-  }, [type, debouncedQuery, seqStart, seqEnd]);
+  }, [type, debouncedQuery, seqStart, seqEnd, timeStart, timeEnd]);
 
   useEffect(() => {
     const version = ++requestVersion.current;
     const controller = new AbortController();
-    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd);
+    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd || timeStart || timeEnd);
     setLoading(true);
     setError('');
     void loadInteractionHistoryPage({
@@ -1449,6 +1527,8 @@ function Logs() {
         if (debouncedQuery) params.set('q', debouncedQuery);
         if (seqStart) params.set('seq_start', seqStart);
         if (seqEnd) params.set('seq_end', seqEnd);
+        if (timeStart) params.set('start_time', timeStart);
+        if (timeEnd) params.set('end_time', timeEnd);
         if (pageCursor) params.set('cursor', pageCursor);
         return api<Json>('/api/admin/interactions?' + params.toString(), { signal: controller.signal });
       },
@@ -1469,7 +1549,7 @@ function Logs() {
         if (version === requestVersion.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, type]);
+  }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, timeEnd, timeStart, type]);
 
   const showOlder = () => {
     const next = typeof page?.next_cursor === 'string' ? page.next_cursor : null;
@@ -1515,6 +1595,13 @@ function Logs() {
       : seqEnd
         ? t('序列上限 {{end}}', { end: seqEnd })
         : '';
+  const timeScope = timeStart && timeEnd
+    ? t('{{start}} 至 {{end}}', {
+      start: timeStart.replace('T', ' '),
+      end: timeEnd.replace('T', ' '),
+    })
+    : '';
+  const activeScope = [timeScope, sequenceScope].filter(Boolean).join(' · ');
   const sequenceSummary = page?.sequence;
   const sequenceTotal = Number(sequenceSummary?.total);
   const sequenceFirst = Number(sequenceSummary?.first);
@@ -1525,33 +1612,39 @@ function Logs() {
       count: sequenceTotal.toLocaleString(), first: sequenceFirst.toLocaleString(), latest: sequenceLatest.toLocaleString(),
     })
     : page ? t('总序列 0') : '';
-  const searchContinuation = events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(sequenceScope));
-  const continuationLabel = sequenceScope
+  const searchContinuation = events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(activeScope));
+  const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
       ? t('继续搜索更早日志')
       : t('查看更早记录');
   return <Panel
     title="生命全史日志"
-    note="序列上下限是包含端点的筛选条件，结果从范围内最新记录开始分页；筛选会自动跨过没有命中的扫描窗口。"
-    action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applySequenceRange(); }}>
+    note="时间与序列范围都包含端点，结果从范围内最新记录开始分页；时间范围最多 24 小时。"
+    action={<form className="log-filters history-log-filters" onSubmit={event => { event.preventDefault(); applyHistoryFilters(); }}>
       <select aria-label={t('筛选事件类型')} value={type} onChange={event => setType(event.target.value)}>
         <option value="">{t('全部事件')}</option>
         <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>subconscious_done</option>
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
+      <div className="history-time-range" aria-label={t('日志时间范围')}>
+        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} type="datetime-local" step="any" value={timeStartDraft} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
+        <span className="sequence-separator" aria-hidden="true">–</span>
+        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} type="datetime-local" step="any" min={timeStartDraft || undefined} value={timeEndDraft} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
+      </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
         <label><span>{t('序列上限')}</span><input aria-label={t('序列上限')} type="number" min="0" step="1" inputMode="numeric" value={seqEndDraft} onChange={event => { setSeqEndDraft(event.target.value); setSequenceError(''); }} placeholder={t('当前')} /></label>
-        <button className="ghost mini sequence-locate" type="submit">{t('筛选范围')}</button>
       </div>
+      <button className="ghost mini sequence-locate" type="submit">{t('应用范围')}</button>
       <button className="icon-btn" type="button" aria-label={t('刷新生命全史日志')} title={t('刷新生命全史日志')} onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={15} /></button>
     </form>}
   >
     {sequenceError && <div className="notice error history-sequence-error">{sequenceError}</div>}
+    {timeError && <div className="notice error history-sequence-error">{timeError}</div>}
     <div className="history-navigator">
-      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : sequenceScope ? t('已应用序列范围') : t('最新记录')}</b><div className="history-detail-line"><small>{sequenceScope ? sequenceScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
+      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : activeScope ? t('已应用日志范围') : t('最新记录')}</b><div className="history-detail-line"><small>{activeScope ? activeScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
       <div className="history-actions"><button className="ghost mini" disabled={!newerCursors.length || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{continuationLabel}</button></div>
     </div>
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
@@ -2726,6 +2819,23 @@ export default function AdminApp() {
     setSection(next);
     window.scrollTo(0, 0);
   }, [confirmNavigation]);
+  const openRuntimeLogs = useCallback((startTime: string, endTime: string) => {
+    if (!confirmNavigation()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('section', 'runtime');
+    url.searchParams.set('runtime_tab', 'logs');
+    url.searchParams.set('log_start', startTime.slice(0, 26));
+    url.searchParams.set('log_end', endTime.slice(0, 26));
+    url.searchParams.delete('group');
+    url.searchParams.delete('source');
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    window.history.pushState({}, '', href);
+    sectionRef.current = 'runtime';
+    lastSectionByWorkspace.current.operations = 'runtime';
+    acceptedLocation.current = href;
+    setSection('runtime');
+    window.scrollTo(0, 0);
+  }, [confirmNavigation]);
   const onSectionLinkClick = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, next: Section) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -2794,7 +2904,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
-        {section === 'usage' && <UsageAnalyticsPage />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
