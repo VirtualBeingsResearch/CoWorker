@@ -137,11 +137,25 @@ In a single request, Coworker can recover yesterday's context, use file and code
 
 ## Quick start
 
-The fastest local evaluation path is to run from source. You need **Python 3.13+**,
-[uv](https://docs.astral.sh/uv/), and access to a model service that supports tool/function
-calling (usually with an API key). PyPI and wheel packages are not currently available.
+The fastest local evaluation path is to start the published image directly. You only need Docker
+and access to a model service that supports tool/function calling (usually with an API key).
 
 ### 1. Start Coworker
+
+```bash
+docker run --name coworker \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+The image includes the Coworker source, Python environment, Chromium, FFmpeg, and embedding model.
+Docker automatically creates data volumes for the workspace, runtime state, and model cache. The
+command stays attached so you can read the administrator token and logs. After stopping it with
+`Ctrl+C`, run `docker start -a coworker` to start the same container again.
+
+<details>
+<summary><strong>Want to run from source or change the code?</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
@@ -151,24 +165,32 @@ uv run playwright install chromium
 uv run coworker
 ```
 
-`uv run python -m coworker` is equivalent to the last command. You do not need to create `.env`
+This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
+`uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
+</details>
+
 <details>
-<summary><strong>Prefer Docker Compose?</strong></summary>
+<summary><strong>Want to combine a local checkout with Docker Compose?</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build
+docker compose up --pull always --no-build
 ```
 
-Compose builds the strict-offline runtime image with its embedding model preloaded by default,
-then persists the workspace, runtime state, and model cache separately. “Offline” here means the
-runtime does not fetch missing content from Hugging Face or Git remotes; your configured
-conversation-model provider may still require network access.
+The published image supplies the Linux, Python, and browser execution environment. The current
+checkout is mounted directly at `/app` as both the running source and the Agent workspace, so you
+do not need local Python dependencies or an image build. Runtime state and the model cache remain
+in separate named volumes.
 
 </details>
+
+The `offline` image blocks automatic downloads of missing Hugging Face content and prevents the
+startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
+Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
+integrations may still access the network.
 
 > [!NOTE]
 > Intel macOS cannot install the current PyTorch wheel. Run the service through the
@@ -224,42 +246,13 @@ with Codex or Claude Code, or connect your own tools through
 > recovery, continue with the [First Run guide](docs/getting-started/README.en.md). See the
 > [Configuration Reference](docs/operations/configuration.en.md) for Docker images, environment
 > variables, and persistent volumes.
-
-## Sync upstream source
-
-Coworker can edit and commit the repository source directly, so your checkout may contain local
-commits maintained by you or by her. Sync upstream regularly to keep the branches from drifting too
-far apart. You can do this manually or ask Coworker to inspect and perform the sync; we recommend
-the latter because she can first check the working tree, branch, and remotes, review incoming
-changes, resolve straightforward conflicts, and run the relevant checks. Any operation that would
-discard or overwrite local work should require your confirmation.
-
-The following commands assume the upstream remote is named `upstream`. Add it once if it is not
-configured yet:
-
-```bash
-git remote add upstream <upstream-repository-url>
-```
-
-Run these commands in the local branch you want to update:
-
-```bash
-git status --short
-git fetch upstream
-git merge upstream/main
-```
-
-Replace `main` if the upstream repository uses a different default branch. If a direct clone's
-`origin` already points upstream, use `origin/main` instead; no additional remote is needed.
-
-For automatic syncing, name both the desired frequency and the local branch to maintain, then ask
-Coworker to set a repeating reminder. This prevents the task from using whichever branch happens to
-be checked out when it runs. For example:
-
-> Every week, inspect the current repository and safely merge `upstream/main` into `<local-branch>`. Preserve local commits, resolve only straightforward conflicts, run the relevant checks, and report the result. Ask me before discarding or overwriting any local work.
-
-This workflow updates only the local branch. To update your own remote repository too, ask Coworker
-to confirm the target remote and branch before running `git push`.
+>
+> After a direct Docker start, `/app` is also a persistent Git workspace. To manage it through your
+> own repository, tell Coworker: “Configure `<my-repository-url>` as `origin`, preserve the official
+> repository as `upstream`, then inspect, safely synchronize, and push the current branch. Ask me
+> before any overwrite, discard, or force-push.” See
+> [Upgrading and Migration](docs/operations/upgrading.en.md#connect-the-workspace-to-your-repository)
+> for remote layout, credential boundaries, and the complete safe-sync workflow.
 
 ## Data and trust boundaries
 

@@ -13,7 +13,7 @@
 |---|---|---|
 | Coworker Python 服务 | Python 3.13+、uv | macOS Apple Silicon、Windows、Linux；Intel macOS 使用 Dev Container 或 Docker |
 | browser 工具 | Playwright Chromium | Debian/Ubuntu 可能需要 `--with-deps` 安装系统库 |
-| Coworker Desktop | Node.js 20+、稳定版 Rust（构建） | Windows NSIS、macOS dmg、Linux AppImage/deb 构建目标 |
+| Coworker Desktop | Node.js 24.15+、稳定版 Rust（构建） | Windows NSIS、macOS dmg、Linux AppImage/deb 构建目标 |
 | Explore Lab | Python workspace、Node.js | 本机开发工具，默认只监听 `127.0.0.1:8100` |
 | Relay | Go 1.26.5+（构建）或 Docker | 当前 v1 为单节点，不共享 bbolt 卷 |
 

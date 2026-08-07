@@ -21,31 +21,42 @@ flowchart LR
 
 | Method | Best for | Operator responsibility |
 |---|---|---|
-| Docker Compose | Long-running single-host service and dependency isolation | Volumes, image versions, and host backups |
+| Docker Compose plus the current checkout | Long-running single-host service with source maintained in the image environment | Checkout, volumes, image versions, and host backups |
 | Source plus a process manager | Development or direct checkout maintenance | Python environment, working directory, and process permissions |
 | Dev Container | Development and validation | Not an unattended production service |
 
-## Docker Compose
+## Docker Compose plus the current checkout
 
-The checked-in `docker-compose.yaml`:
+After cloning the repository, use the published image as the execution environment and mount the
+current checkout as both the running source and the Agent workspace. The checked-in
+`docker-compose.yaml`:
 
 - binds the host port to `127.0.0.1:8000`;
 - uses `restart: unless-stopped`;
 - requests `/status` every 30 seconds for health;
-- separates workspace, runtime state, and model cache volumes;
-- builds the strict-offline image with a preloaded embedding model by default.
+- keeps runtime state and the model cache in separate named volumes;
+- uses the published `offline` image to supply Linux, Python, browser dependencies, and a
+  preloaded embedding model.
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build -d
+docker compose up --pull always --no-build -d
 docker compose ps
 docker compose logs --tail 100 coworker
 ```
 
-Restrict `.env` to the runtime account. Pin `COWORKER_IMAGE` or the build commit. Follow
-[Upgrading and Migration](upgrading.en.md) before upgrades instead of relying on an
-irreproducible `latest` state.
+Before the first start, inspect `data/` in the checkout. If it is a non-empty directory left by a
+source run, the entrypoint refuses to replace it. Follow
+[Upgrading and Migration](upgrading.en.md#migrate-an-existing-checkout-data-directory) to transfer
+it into the `coworker-state` volume first.
+
+Restart the container after source changes. Rebuild the execution environment only after changing
+`pyproject.toml`, `uv.lock`, or image-level system dependencies; see
+[Develop with the offline image](../development/development.en.md#develop-with-the-offline-image).
+Restrict `.env` to the runtime account. A long-running deployment may keep using the default
+`offline` release tag. When reproducible upgrades or an exact rollback target are required, pin
+`COWORKER_IMAGE` to a version tag or digest and retain the pre-upgrade data backup.
 
 ## Source process management
 

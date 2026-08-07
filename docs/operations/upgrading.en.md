@@ -21,6 +21,45 @@ and check for data-format or protocol changes first.
 > Do not force-sync, reset, or overwrite a working tree with unreviewed changes. Coworker may also
 > have created branches or commits in the checkout.
 
+## Connect the workspace to your repository
+
+Coworker always works in a complete Git repository, whether the service runs from source, through
+Compose, or directly from Docker. A direct Docker run persists `/app` and its remote configuration
+in the workspace volume, so you do not need to enter the container and configure it first. To
+manage subsequent changes in your own repository, use it as `origin` and keep the official
+Coworker repository or another source as `upstream`. If you track only one repository, `origin`
+alone is sufficient.
+
+You can give Coworker the repository URL and target branch directly:
+
+> Inspect the current working tree, branch, and remotes. Configure `<my-repository-url>` as
+> `origin`; if the existing `origin` points to the official Coworker repository, preserve it as
+> `upstream`. Fetch both remotes, preserve every local commit and modification, safely integrate
+> `upstream/main` into the current branch, run the relevant checks, then push the current branch to
+> `origin`. Ask me before any force-push, discard, overwrite, or conflict whose resolution is not
+> clear.
+
+For a manual workflow, inspect the workspace and existing remotes before adapting them to the
+actual repositories:
+
+```bash
+git status --short
+git branch --show-current
+git remote -v
+git remote add upstream <upstream-repository-url>
+git fetch upstream
+git merge upstream/main
+```
+
+Replace `main` when the upstream uses another default branch. Do not run `git remote add` when a
+remote with that name already exists. Repository URLs must not contain tokens, passwords, or
+private keys. Public repositories need no extra credentials for fetching. Configure dedicated,
+least-privilege Git credentials in the container or runtime account before accessing a private
+repository or pushing, and never send credentials through chat.
+
+For recurring synchronization, name the frequency, local branch, upstream branch, and whether to
+push. This prevents a scheduled task from using whichever branch happens to be checked out later.
+
 ## Let Coworker upgrade herself
 
 For a source checkout, the recommended path is to ask Coworker to inspect and perform the upgrade.
@@ -76,20 +115,112 @@ uv run coworker --check
 `--check` validates the startup environment without entering the persistent Agent loop. After it
 passes, start with `uv run coworker`, then inspect `/status` and management diagnostics.
 
-## Upgrade Docker Compose
+## Upgrade a direct Docker run
 
-After stopping writes and creating a backup, select the exact image or source revision to run:
+A direct `docker run` creates mounts for `/app`, `/var/lib/coworker`, and `/opt/huggingface`.
+Before upgrading, follow [Backup and Restore](backup-and-restore.en.md#run-the-docker-image-directly)
+to record their names and back up the workspace and state. Then preserve the old container and let
+the replacement reuse its mounts:
 
 ```bash
-docker compose stop
-docker compose build
-docker compose up -d
+docker stop coworker
+docker rename coworker coworker-before-upgrade
+docker pull ghcr.io/virtualbeingsresearch/coworker:offline
+docker run --name coworker \
+  --volumes-from coworker-before-upgrade \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+When the managed workspace is on the image's default branch, clean, and eligible for a
+fast-forward, the new image advances it from the embedded Git bundle. Local modifications,
+commits, other branches, and divergent history remain in place. Do not remove
+`coworker-before-upgrade` or the backup until the replacement is verified. Both containers share
+the same state volume, however, so confirm data-format compatibility before returning to the old
+image and restore the pre-upgrade backup when required.
+
+### Migrate from direct Docker to Compose
+
+First use the backup procedure to create `workspace.tgz` and `state.tgz`. Extract the workspace to
+a new host directory, retain the old container, then create the Compose container and restore its
+state volume:
+
+```bash
+mkdir coworker-compose
+tar -xzf /absolute/path/to/coworker-backup/workspace.tgz -C coworker-compose
+docker stop coworker
+docker rename coworker coworker-direct-backup
+cd coworker-compose
+docker compose pull
+docker compose create --no-build
+docker run --rm \
+  --volumes-from coworker \
+  --mount type=bind,src=/absolute/path/to/coworker-backup,dst=/backup,readonly \
+  --entrypoint sh \
+  ghcr.io/virtualbeingsresearch/coworker:offline \
+  -ec 'tar -C /var/lib/coworker -xzf /backup/state.tgz'
+docker compose up --no-build -d
 docker compose ps
 ```
 
-For published images, pin `COWORKER_IMAGE` to the tag or digest you intend to validate, then run
-`docker compose pull` and `docker compose up -d`. `coworker-workspace`, `coworker-state`, and
-`coworker-models` are separate volumes. Replacing a container does not migrate, back up, or delete them.
+`workspace.tgz` contains Git history, `.coworker/`, and workspace configuration. `state.tgz`
+restores into Compose's separate state volume. Keep `coworker-direct-backup` and the encrypted
+backup until identity, memory, tasks, and messages are verified. If a custom model cache cannot be
+recreated from the image, also back up `/opt/huggingface` separately.
+
+## Upgrade Docker Compose
+
+Compose uses the current checkout as its workspace and the published image as its execution
+environment by default. After stopping writes and creating a backup, pin `COWORKER_IMAGE` to the
+version tag or digest you intend to validate, then run:
+
+```bash
+docker compose stop
+docker compose pull
+docker compose up --no-build -d
+docker compose ps
+```
+
+If the checkout contains `pyproject.toml`, `uv.lock`, or image-level system dependency changes not
+included in the selected published image, run `docker compose build` and `docker compose up -d`
+instead of reusing the old execution environment.
+`coworker-state` and `coworker-models` are separate volumes. Replacing a container does not
+migrate, back up, or delete them.
+
+### Migrate an existing checkout data directory
+
+The Compose entrypoint replaces `/app/data` with a state-volume link only when that path is absent
+or empty. If you previously ran `uv run coworker` in the same checkout, `data/` may be non-empty.
+Startup then refuses to overwrite it instead of silently losing data.
+
+Stop the source process, move the original directory to a protected location outside the
+checkout, then restore its contents into the state volume created by Compose:
+
+```bash
+mv data ../coworker-data-before-compose
+docker compose pull
+docker compose create --no-build
+docker run --rm \
+  --volumes-from coworker \
+  --mount type=bind,src="$PWD/../coworker-data-before-compose",dst=/backup,readonly \
+  --entrypoint sh \
+  ghcr.io/virtualbeingsresearch/coworker:offline \
+  -ec 'cp -a /backup/. /var/lib/coworker/'
+docker compose up --no-build -d
+```
+
+The migrated directory contains administrator tokens, model keys, conversations, and attachments.
+Keep it in a location readable only by the runtime account. Do not remove
+`../coworker-data-before-compose` until the new container is fully verified.
+
+Older Compose versions used the `coworker-workspace` named volume by default. On the first upgrade
+to a version that defaults to the current checkout, that volume is not deleted, but the new bind
+mount hides it. Before startup, follow [Backup and Restore](backup-and-restore.en.md) to resolve the
+actual volume name and back up its branches, commits, and modifications. To keep using the old
+workspace temporarily, set
+`COWORKER_WORKSPACE_SOURCE=coworker-workspace` in `.env`. Remove the override and switch to the
+current checkout only after its contents have been migrated safely.
 
 ## Data and memory migration
 
