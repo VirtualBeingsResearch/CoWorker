@@ -196,8 +196,13 @@ class MemoryConfig(_EnvSettings):
     recent_activity_auto_recall_limit: int = 2
     recent_activity_auto_recall_relevance_threshold: float = 0.72
 
-    mem0_llm_provider: str = "deepseek"
-    mem0_llm_model: str = "deepseek-v4-flash"
+    # mem0 的独立 LLM 配置。留空表示跟随主线（llm.default_provider / 该 provider 的
+    # default_model，无则 llm.default_model），与摘要/压缩的跟随逻辑一致。
+    mem0_llm_provider: str = ""
+    mem0_llm_model: str = ""
+    # 独立 thinking 开关（默认关闭，可设为 true；无 None 态）。抽取是结构化 JSON 任务，
+    # 默认关闭可避免思考模型把 token 预算耗在推理上导致 content=None。
+    mem0_llm_thinking: bool = False
     mem0_embedder_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
     # 可选的 Person 子机制：关闭时与现状完全一致。状态与其他记忆状态同放 data/memory。

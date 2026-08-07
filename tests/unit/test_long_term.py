@@ -347,10 +347,13 @@ def test_llm_config_preserves_provider_base_url(
     resolved_provider, config = llm.as_mem0_config()
 
     assert resolved_provider == api_dialect
+    # openai 方言额外携带 thinking/coworker_provider，供 CoworkerOpenAILLM 注入思考参数。
     assert config == {
         "model": "model-id",
         "api_key": "secret",
         base_url_key: "https://llm.example.test/v1",
+        "thinking": False,
+        "coworker_provider": provider,
     }
     assert MemoryConfig(
         llm={"provider": resolved_provider, "config": config}
@@ -404,3 +407,70 @@ class TestChromaAccessGuard:
         # Collections returned through the guarded client stay guarded.
         collection = lt.chroma_client.get_or_create_collection("memories")
         assert isinstance(collection, _ChromaCollectionProxy)
+
+
+class TestWriteResult:
+    def _make(self) -> LongTermMemory:
+        lt = LongTermMemory(db_path="data/_unused")
+        lt._mem = MagicMock()
+        return lt
+
+    async def test_written_returns_first_id(self):
+        lt = self._make()
+        lt._mem.add = AsyncMock(
+            return_value={"results": [{"id": "new-1"}, {"id": "new-2"}]}
+        )
+
+        result = await lt.write("新内容", category="knowledge", tags=["a"])
+
+        assert result.status == "written"
+        assert result.memory_id == "new-1"
+        lt._mem.add.assert_awaited_once()
+
+    async def test_empty_extraction_returns_empty(self):
+        lt = self._make()
+        lt._mem.add = AsyncMock(return_value={"results": []})
+
+        result = await lt.write("无可提取内容")
+
+        assert result.status == "empty"
+        assert result.memory_id == ""
+
+
+class TestReconfigure:
+    async def test_replaces_mem0_llm_instance(self, monkeypatch):
+        import mem0.utils.factory as mem0_factory
+
+        lt = LongTermMemory(db_path="data/_unused")
+        fake_llm = MagicMock()
+        fake_llm.generate_response = MagicMock()
+        monkeypatch.setattr(
+            mem0_factory.LlmFactory, "create", lambda provider, cfg: fake_llm
+        )
+        lt._mem = MagicMock()
+
+        new_cfg = LongTermLLMConfig(
+            provider="deepseek",
+            api_dialect="openai",
+            api_key="k",
+            model="deepseek-v4-pro",
+            base_url="",
+            thinking=True,
+        )
+        await lt.reconfigure(new_cfg)
+
+        assert lt._mem.llm is fake_llm
+        assert lt._mem.config.llm.provider == "openai"
+        assert lt._mem.config.llm.config["model"] == "deepseek-v4-pro"
+        assert lt._mem.config.llm.config["thinking"] is True
+        assert lt._llm is new_cfg
+
+    async def test_deferred_when_not_initialized(self):
+        lt = LongTermMemory(db_path="data/_unused")
+        new_cfg = LongTermLLMConfig(
+            provider="deepseek", api_dialect="openai", model="m"
+        )
+
+        await lt.reconfigure(new_cfg)
+
+        assert lt._llm is new_cfg

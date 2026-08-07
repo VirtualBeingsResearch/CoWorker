@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
+from loguru import logger
 from pydantic import ValidationError
 
 from coworker.core.config import (
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry, ChannelSettings
     from coworker.desktop_updates import SyncService
+    from coworker.memory.long_term import LongTermMemory
 
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 type JsonObject = dict[str, JsonValue]
@@ -57,6 +59,9 @@ HOT_CONFIG_PATHS = {
     "memory.recent_activity_auto_recall_enabled",
     "memory.recent_activity_auto_recall_limit",
     "memory.recent_activity_auto_recall_relevance_threshold",
+    "memory.mem0_llm_provider",
+    "memory.mem0_llm_model",
+    "memory.mem0_llm_thinking",
 }
 
 _SOURCE_TOKEN_PATH_RE = re.compile(
@@ -79,6 +84,7 @@ class AdminConfigDependencies:
     config: Config
     inherited_config: Config
     desktop_update_sync: SyncService | None = None
+    long_term: LongTermMemory | None = None
 
 
 @dataclass(frozen=True)
@@ -362,7 +368,48 @@ class AdminConfigService:
         await self._apply_channel_changes(desired, changed_paths, applied)
         self._apply_channel_access_changes(desired, changed_paths, applied)
         self._apply_scalar_changes(desired, changed_paths, applied)
+        await self._apply_mem0_llm_changes(desired, changed_paths, applied)
         return sorted(set(applied)), restart
+
+    async def _apply_mem0_llm_changes(
+        self,
+        desired: Config,
+        changed_paths: set[str],
+        applied: list[str],
+    ) -> None:
+        """mem0 LLM 配置（provider/model/thinking）变更时热替换 mem0 的 LLM 实例。
+
+        未初始化或未注入 long_term 依赖时只把变更落到覆盖配置，待下次初始化生效。
+        """
+        changed = changed_paths & {
+            "memory.mem0_llm_provider",
+            "memory.mem0_llm_model",
+            "memory.mem0_llm_thinking",
+        }
+        if not changed:
+            return
+        from coworker.memory.long_term import build_memory_llm_config
+
+        self._dependencies.config.memory.mem0_llm_provider = desired.memory.mem0_llm_provider
+        self._dependencies.config.memory.mem0_llm_model = desired.memory.mem0_llm_model
+        self._dependencies.config.memory.mem0_llm_thinking = desired.memory.mem0_llm_thinking
+        long_term = self._dependencies.long_term
+        brain = self._dependencies.brain
+        if long_term is not None:
+            # reconfigure 在未初始化（setup 模式）时只记录配置，待 initialize 生效。
+            # 跟随运行态主线：mem0 未显式配置时用当前 active provider/model，而非启动默认值。
+            try:
+                await long_term.reconfigure(
+                    build_memory_llm_config(
+                        desired,
+                        active_provider=brain.current_provider_name,
+                        active_model=brain.current_model,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"mem0 LLM hot reconfigure failed: {e}")
+        for path in sorted(changed):
+            applied.append(path)
 
     async def _apply_provider_changes(
         self,

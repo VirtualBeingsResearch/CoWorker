@@ -101,6 +101,7 @@ digest_subconscious = "[subconscious · {{mode}}] {{result}}"
 [memory.manage]
 associate_tags_empty = "associate_tags requires non-empty tags"
 missing = "Memory does not exist: {{id}}"
+not_stored = "No new memory stored: extraction produced nothing new, or the content already exists (deduplicated)"
 
 [memory.query]
 legacy_args = "query_memory no longer accepts {{arguments}}. Use query=... to search long-term memory, or start/end to recall a time window."

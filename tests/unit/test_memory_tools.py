@@ -6,15 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from loguru import logger
 
+from coworker.memory.long_term import MemoryWriteResult
 from coworker.memory.memory_tree import MemoryNode
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.memory_tools import ManageMemoryTool, QueryMemoryTool
 
 
-def _make_memory(query_results=None):
+def _make_memory(query_results=None, write_result=None):
     memory = MagicMock()
     memory.query = AsyncMock(return_value=query_results or [])
-    memory.write = AsyncMock(return_value="mem-abc123")
+    memory.write = AsyncMock(return_value=write_result or MemoryWriteResult(status="written", memory_id="mem-abc123"))
     memory.update = AsyncMock()
     memory.associate_tags = AsyncMock(return_value=["product", "bug"])
     memory.delete = AsyncMock()
@@ -380,6 +381,15 @@ class TestManageMemoryTool:
         assert "mem-abc123" in result.content
         assert result.recalled_memory_ids == ["mem-abc123"]
         memory.write.assert_called_once_with("新知识", category="knowledge", tags=[])
+
+    @pytest.mark.asyncio
+    async def test_write_empty_reports_not_stored(self):
+        memory = _make_memory(write_result=MemoryWriteResult(status="empty"))
+        tool = ManageMemoryTool(memory)
+        result = await tool.execute(action="write", content="无可提取内容")
+        assert not result.is_error
+        assert result.recalled_memory_ids == []
+        assert "未写入" in result.content
 
     @pytest.mark.asyncio
     async def test_write_with_tags(self):

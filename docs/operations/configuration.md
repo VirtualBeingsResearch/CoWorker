@@ -87,8 +87,9 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_ENABLED` | `true` | 自动回忆时是否同时查询最近活动 |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_LIMIT` | `2` | 自动回忆最多注入的最近活动条数 |
 | `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.72` | 最近活动自动回忆的相关度阈值 |
-| `MEMORY__MEM0_LLM_PROVIDER` | `deepseek` | mem0 记忆提取引用的 Brain provider 名称或类型；复用匹配实例的凭据和有效 `base_url`，OpenAI-compatible provider 按 API 方言接入 |
-| `MEMORY__MEM0_LLM_MODEL` | `deepseek-v4-flash` | mem0 记忆提取使用的模型 ID；原样传给对应 API 方言，不维护独立模型白名单 |
+| `MEMORY__MEM0_LLM_PROVIDER` | `""`（跟随主线） | mem0 记忆提取的独立 provider；留空跟随 `LLM__DEFAULT_PROVIDER`，也可显式指定 Brain provider 名称或类型，复用匹配实例的凭据和有效 `base_url`。修改后热生效，无需重启 |
+| `MEMORY__MEM0_LLM_MODEL` | `""`（跟随主线） | mem0 记忆提取的独立模型 ID；留空跟随该 provider 的 `default_model`（无则 `LLM__DEFAULT_MODEL`），原样传给对应 API 方言。修改后热生效，无需重启 |
+| `MEMORY__MEM0_LLM_THINKING` | `false` | mem0 抽取 LLM 的 thinking 开关；对已知思考模型注入对应参数（抽取是结构化 JSON 任务，默认关闭避免思考吞 token）。修改后热生效，无需重启 |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 与最近活动索引使用的嵌入模型；已有数据不应直接切换模型 |
 
 ### Agent

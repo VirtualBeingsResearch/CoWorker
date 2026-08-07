@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
     from coworker.desktop_updates import SyncService
+    from coworker.memory.long_term import LongTermMemory
     from coworker.memory.short_term import ShortTermMemory
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.persona import PersonaCard, PersonStore
@@ -157,10 +158,19 @@ class VisionModelPatch(BaseModel):
     thinking: bool | None = None
 
 
+class Mem0ModelPatch(BaseModel):
+    """mem0 抽取 LLM 配置。provider/model 留空表示跟随主线。"""
+
+    provider: str | None = None
+    model: str | None = None
+    thinking: bool | None = None
+
+
 class ModelPatch(BaseModel):
     summary: SummaryModelPatch | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelPatch | None = None
+    mem0: Mem0ModelPatch | None = None
 
 
 class SwitchModelPayload(BaseModel):
@@ -224,6 +234,7 @@ def setup_admin(
     skill_loader: SkillLoader,
     palace_loader: PalaceLoader,
     mode_loader: SubconsciousModeLoader,
+    long_term: LongTermMemory | None = None,
     desktop_update_sync: SyncService | None = None,
     inherited_config: Config | None = None,
     relay_client: RelayClient | None = None,
@@ -266,6 +277,7 @@ def setup_admin(
             config=config,
             inherited_config=_inherited_config,
             desktop_update_sync=desktop_update_sync,
+            long_term=long_term,
         )
     )
     _admin_config_service.set_channel_modules(_channel_modules)
@@ -1358,9 +1370,20 @@ async def trigger_desktop_update_sync(
     return {"accepted": True, **result}
 
 
+def _mem0_model_view(config: Config) -> dict[str, Any]:
+    """模型编排页所需的 mem0 配置视图（空字符串表示跟随主线）。"""
+    return {
+        "provider": config.memory.mem0_llm_provider,
+        "model": config.memory.mem0_llm_model,
+        "thinking": config.memory.mem0_llm_thinking,
+    }
+
+
 @router.get("/model")
 async def get_model(_: None = Depends(require_admin)) -> ApiResponse:
-    return cast(ApiResponse, _require_brain().model_config_snapshot())
+    snapshot = _require_brain().model_config_snapshot()
+    snapshot["mem0"] = _mem0_model_view(_require_config())
+    return cast(ApiResponse, snapshot)
 
 
 @router.patch("/model")
@@ -1389,8 +1412,27 @@ async def patch_model(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    if payload.mem0 is not None:
+        changes: dict[str, Any] = {}
+        if payload.mem0.provider is not None:
+            changes["mem0_llm_provider"] = payload.mem0.provider
+        if payload.mem0.model is not None:
+            changes["mem0_llm_model"] = payload.mem0.model
+        if payload.mem0.thinking is not None:
+            changes["mem0_llm_thinking"] = payload.mem0.thinking
+        if changes:
+            try:
+                await _require_admin_config_service().patch(
+                    ConfigUpdate(changes={"memory": changes})
+                )
+            except ConfigUpdateError as error:
+                raise HTTPException(
+                    status_code=error.status_code, detail=error.detail
+                ) from error
     _audit(request, "model.runtime.update", "model_config")
-    return cast(ApiResponse, snapshot)
+    response = snapshot
+    response["mem0"] = _mem0_model_view(config)
+    return cast(ApiResponse, response)
 
 
 @router.post("/model/switch")
