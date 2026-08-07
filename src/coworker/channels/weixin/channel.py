@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.base import (
     BaseChannel,
     ChannelCapabilities,
@@ -63,7 +64,11 @@ class WeixinChannel(BaseChannel):
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
-        self._runner.set_inbound_handler(handler)
+        self._runner.set_inbound_handler(self.publish_inbound if handler is not None else None)
+
+    def set_access_controller(self, access: ChannelAccessController) -> None:
+        super().set_access_controller(access)
+        self._runner.set_access_controller(access)
 
     def list_connections(self) -> list[ConnectionInfo]:
         connections = [

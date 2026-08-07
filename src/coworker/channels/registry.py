@@ -7,6 +7,10 @@ from dataclasses import replace
 
 from loguru import logger
 
+from coworker.channels.access import (
+    ChannelAccessController,
+    ChannelAccessDeniedError,
+)
 from coworker.channels.base import (
     BaseChannel,
     ConnectionInfo,
@@ -25,16 +29,24 @@ _PARTICIPANT_SUGGESTION_DISTANCE = 4
 class ChannelRegistry:
     """Compose channels while leaving mutable transport state in their runtimes."""
 
-    def __init__(self) -> None:
+    def __init__(self, access: ChannelAccessController | None = None) -> None:
         self._channels: list[BaseChannel] = []
         self._fallback: BaseChannel | None = None
         self._inbound_handler: InboundHandler | None = None
         self._runtime_tasks: dict[int, asyncio.Task[None]] = {}
+        self._access = access if access is not None else ChannelAccessController()
 
     def register(self, channel: BaseChannel) -> None:
         issues = self._registration_issues(channel)
         if issues:
             raise RegistrationError("channel", issues)
+        try:
+            channel.set_access_controller(self._access)
+        except Exception as error:
+            raise RegistrationError(
+                "channel",
+                [tr("channel.access.controller_setup_failed", error=error)],
+            ) from error
         try:
             channel.set_inbound_handler(self._inbound_handler)
         except Exception as error:
@@ -55,12 +67,65 @@ class ChannelRegistry:
         for channel in self._channels:
             channel.set_inbound_handler(handler)
 
+    def ensure_inbound_allowed(self, participant_id: str, *, source: str = "") -> str:
+        """Validate inbound access before an adapter records protocol state."""
+        canonical, target = self._inbound_target(participant_id)
+        self._enforce_inbound_access(canonical, target, source=source)
+        return canonical
+
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
-        _, channel = self._resolve(envelope.participant_id)
+        canonical, target = self._inbound_target(envelope.participant_id)
+        self._enforce_inbound_access(canonical, target, source=envelope.source)
+        await target.receive_raw(replace(envelope, participant_id=canonical))
+
+    def _inbound_target(self, participant_id: str) -> tuple[str, BaseChannel]:
+        canonical, channel = self._resolve(participant_id)
         target = channel if channel is not None else self._fallback
         if target is None:
             raise RuntimeError("no channel registered for inbound message")
-        await target.receive_raw(envelope)
+        return canonical, target
+
+    def _enforce_inbound_access(
+        self,
+        canonical: str,
+        target: BaseChannel,
+        *,
+        source: str = "",
+    ) -> None:
+        access_channel = target.access_channel_for(canonical)
+        if not self._access.allows(
+            access_channel,
+            "inbound",
+            canonical,
+        ):
+            self._access.traffic.record(
+                direction="inbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="denied",
+                source=source,
+                reason="policy",
+            )
+            logger.info(
+                tr(
+                    "channel.access.inbound_denied",
+                    channel=access_channel,
+                    participant=canonical,
+                )
+            )
+            raise ChannelAccessDeniedError(access_channel, canonical)
+
+    def record_inbound_duplicate(self, participant_id: str, *, source: str) -> None:
+        """Record an authenticated transport retry that was already accepted."""
+        canonical, target = self._inbound_target(participant_id)
+        self._access.traffic.record(
+            direction="inbound",
+            channel=target.access_channel_for(canonical),
+            participant_id=canonical,
+            status="duplicate",
+            source=source,
+            reason="message_id",
+        )
 
     def resolve_participant_id(self, participant_id: str) -> str:
         canonical, _ = self._resolve(participant_id)
@@ -79,6 +144,14 @@ class ChannelRegistry:
         canonical, channel = self._resolve(request.participant_id)
         target = channel if channel is not None else self._fallback
         if target is None:
+            self._access.traffic.record(
+                direction="outbound",
+                channel="unrouted",
+                participant_id=request.participant_id,
+                status="failed",
+                source="agent",
+                reason="no_channel",
+            )
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.communicate.no_channel", participant=request.participant_id),
@@ -90,13 +163,73 @@ class ChannelRegistry:
             target=target,
         )
         if validation_error is not None:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=target.access_channel_for(canonical),
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason="participant_validation",
+            )
             return validation_error
+        access_channel = target.access_channel_for(canonical)
+        if not self._access.allows(access_channel, "outbound", canonical):
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="denied",
+                source="agent",
+                reason="policy",
+            )
+            logger.info(
+                tr(
+                    "channel.access.outbound_denied",
+                    channel=access_channel,
+                    participant=canonical,
+                )
+            )
+            return ToolResult(
+                tool_call_id="",
+                content=tr(
+                    "tool_result.communicate.channel_access_denied",
+                    channel=access_channel,
+                    participant=canonical,
+                ),
+                is_error=True,
+            )
         outbound, omitted = target.capabilities_for(canonical).filter(
             replace(request, participant_id=canonical)
         )
-        result = await target.send(outbound)
+        try:
+            result = await target.send(outbound)
+        except Exception as error:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason=type(error).__name__,
+            )
+            raise
         if result.is_error:
+            self._access.traffic.record(
+                direction="outbound",
+                channel=access_channel,
+                participant_id=canonical,
+                status="failed",
+                source="agent",
+                reason="delivery",
+            )
             return result
+        self._access.traffic.record(
+            direction="outbound",
+            channel=access_channel,
+            participant_id=canonical,
+            status="sent",
+            source="agent",
+        )
         if not omitted:
             return result
         notice_key = (
@@ -113,7 +246,15 @@ class ChannelRegistry:
     def list_connections(self) -> list[ConnectionInfo]:
         connections: list[ConnectionInfo] = []
         for channel in self._channels:
-            connections.extend(channel.list_connections())
+            connections.extend(
+                connection
+                for connection in channel.list_connections()
+                if self._access.allows(
+                    channel.access_channel_for(connection.participant_id),
+                    "outbound",
+                    connection.participant_id,
+                )
+            )
         return connections
 
     def agent_instructions(self) -> list[str]:

@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.module import ChannelModule, ChannelModuleRegistry
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamChannel, StreamProfile, StreamRuntime
+from coworker.channels.traffic import ChannelTrafficStore
+from coworker.core.config import ChannelAccessConfig
 from coworker.core.registration import RegistrationError
 
 
@@ -17,6 +20,8 @@ class ChannelSystem:
     registry: ChannelRegistry
     stream_runtime: StreamRuntime
     activity: ChannelActivityStore
+    access: ChannelAccessController
+    traffic: ChannelTrafficStore
     modules: ChannelModuleRegistry
     _stream_channel: StreamChannel = field(repr=False)
 
@@ -44,15 +49,20 @@ class ChannelSystem:
 def create_channel_system(
     outbox_dir: str | Path,
     activity_path: str | Path | None = None,
+    access_config: ChannelAccessConfig | None = None,
+    traffic_path: str | Path | None = None,
 ) -> ChannelSystem:
     outbox = Path(outbox_dir)
     activity = ChannelActivityStore(activity_path)
+    traffic = ChannelTrafficStore(traffic_path)
     stream = StreamRuntime(
         outbox,
         outbox.parent / "communicate_registrations.json",
         activity,
+        traffic,
     )
-    registry = ChannelRegistry()
+    access = ChannelAccessController(access_config, traffic)
+    registry = ChannelRegistry(access)
     modules = ChannelModuleRegistry()
     stream_channel = StreamChannel(stream)
     registry.register(stream_channel)
@@ -60,6 +70,8 @@ def create_channel_system(
         registry=registry,
         stream_runtime=stream,
         activity=activity,
+        access=access,
+        traffic=traffic,
         modules=modules,
         _stream_channel=stream_channel,
     )

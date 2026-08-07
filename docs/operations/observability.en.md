@@ -15,6 +15,7 @@ connection state.
 | `GET /status` | Is the Agent running or sleeping, which model is active, and what is usage? |
 | Life Overview | What is the current context, model, and high-level state? |
 | Diagnostics and Audit | Where are background tasks waiting, what failed, and what did an administrator change? |
+| Diagnostics and Audit → Message traffic | Which recent channel messages were received, sent, denied, ignored, or failed delivery? |
 | Life History and `data/logs/` | What model, tool, or message event actually occurred? |
 | `GET /api/debug/tasks` | Are event-loop tasks stuck on the same await? Trusted diagnostics only |
 | Docker healthcheck / `docker compose ps` | Are the container and HTTP service reachable? |
@@ -54,6 +55,11 @@ Local usage is not a Provider invoice. Use the external service as the billing a
 Record time, timezone, participant, Channel, and the first error. Before sharing logs, remove
 tokens, keys, message text, attachments, personal paths, Weixin QR codes, and Relay pairing
 material. Never upload a complete configuration export.
+
+`data/logs/channel_traffic.jsonl` is the metadata source for the administration console's Message
+traffic view. It excludes message bodies, attachment contents, and credentials, but contains
+potentially sensitive participant IDs. It rotates at 10 MiB with six backups; include these files
+in access control, retention, and cleanup whenever changing the overall log-backup policy.
 
 Retention must account for:
 

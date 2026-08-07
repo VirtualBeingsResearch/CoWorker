@@ -41,6 +41,10 @@ class StreamChannel(BaseChannel):
             raise RegistrationError("stream profile", issues)
         self._profiles.append(profile)
 
+    def access_channel_for(self, participant_id: str) -> str:
+        profile = self._profile_for(participant_id)
+        return profile.name if profile is not None else self.name
+
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         self.record_received(envelope.participant_id)
         profile = self._profile_for(envelope.participant_id)

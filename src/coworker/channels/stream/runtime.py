@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.access import (
+    ChannelAccessDeniedError,
+    inbound_access_denied_message,
+)
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import ConnectionInfo
 from coworker.channels.inbound import AttachmentStore
@@ -17,6 +21,7 @@ from coworker.channels.stream.registration import (
     build_registration,
     next_participant_id,
 )
+from coworker.channels.traffic import ChannelTrafficStore
 from coworker.core.types import (
     AttachmentData,
     CommunicateRegistration,
@@ -29,6 +34,7 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 _UNSAFE_OUTBOX_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+_ACCESS_DENIED_CLOSE_CODE = 1008
 
 
 class StreamRuntime:
@@ -41,12 +47,14 @@ class StreamRuntime:
         outbox_dir: str | Path,
         registrations_path: str | Path,
         activity: ChannelActivityStore | None = None,
+        traffic: ChannelTrafficStore | None = None,
     ) -> None:
         self._outbox = Path(outbox_dir)
         self._pool = ConnectionPool()
         self._registrations = RegistrationStore(registrations_path)
         self._attachments = AttachmentStore(self._outbox.parent / "attachments")
         self._activity = activity or ChannelActivityStore()
+        self._traffic = traffic if traffic is not None else ChannelTrafficStore()
 
     def register_session(
         self,
@@ -89,6 +97,44 @@ class StreamRuntime:
         ws: WebSocket,
     ) -> None:
         await self._pool.run_sender(participant_id, queue, ws)
+
+    async def reject_inbound_access(
+        self,
+        ws: WebSocket,
+        error: ChannelAccessDeniedError,
+    ) -> None:
+        """Notify and disconnect a stream client rejected by channel policy."""
+        try:
+            await ws.send_text(inbound_access_denied_message())
+            self._traffic.record(
+                direction="outbound",
+                channel=error.channel,
+                participant_id=error.participant_id,
+                status="sent",
+                source="access_policy",
+                reason="rejection_notice",
+            )
+        except Exception as reply_error:
+            self._traffic.record(
+                direction="outbound",
+                channel=error.channel,
+                participant_id=error.participant_id,
+                status="failed",
+                source="access_policy",
+                reason="rejection_notice",
+            )
+            logger.warning(
+                tr(
+                    "channel.access.inbound_denied_reply_failed",
+                    channel=error.channel,
+                    participant=error.participant_id,
+                    error=reply_error,
+                )
+            )
+        await ws.close(
+            code=_ACCESS_DENIED_CLOSE_CODE,
+            reason=tr("api.message.channel_access_denied_websocket"),
+        )
 
     def shutdown(self) -> None:
         self._pool.shutdown()

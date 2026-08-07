@@ -14,6 +14,7 @@
 | `GET /status` | Agent 是否运行/休眠、当前模型、周期数和用量 |
 | 管理后台“生命总览” | 当前上下文、模型和关键状态 |
 | “诊断与审计” | 后台任务在哪里等待、最近错误和管理员操作 |
+| “诊断与审计 → 消息流量” | 各信道最近哪些消息被接收、发送、拒绝、忽略或投递失败 |
 | “生命全史”与 `data/logs/` | 某次模型、工具或消息实际发生了什么 |
 | `GET /api/debug/tasks` | 事件循环任务是否卡在同一 await；仅可信诊断环境 |
 | Docker healthcheck / `docker compose ps` | 容器和 HTTP 服务是否可达 |
@@ -52,6 +53,10 @@ Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 sc
 
 记录问题发生时间、时区、participant、Channel 和第一个错误。分享日志前移除令牌、密钥、
 消息正文、附件、个人路径、微信二维码和 Relay 配对材料。不要上传完整配置导出包。
+
+`data/logs/channel_traffic.jsonl` 是管理端“消息流量”的元数据来源：不含消息正文、附件内容或
+凭据，但包含可能敏感的 participant ID。文件达到 10 MiB 后轮转并保留 6 份备份；调整整体
+日志备份策略时应把这些文件一起纳入访问控制、保留和清理范围。
 
 日志保留策略要同时考虑：
 

@@ -140,6 +140,7 @@ fallback_saved = "No live connection was available; message was recorded in the 
 failed = "Message delivery failed: {{error}}"
 no_connections = "There are no connections or known contacts."
 no_channel = "No channel can handle participant_id='{{participant}}'. Use list_connections and copy a complete available ID."
+channel_access_denied = "Channel access policy blocks delivery through {{channel}} to participant_id='{{participant}}'. Do not retry this target."
 participant_unknown = "participant_id='{{participant}}' does not exist. Use list_connections and copy a complete available ID."
 participant_similar = '''participant_id='{{participant}}' does not exist. These known IDs differ by no more than {{max_distance}} characters. No ID was corrected and no message was sent; copy the correct complete ID and call again:
 {{options}}'''

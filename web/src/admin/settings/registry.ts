@@ -1,7 +1,12 @@
+import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
 import type { SettingsPanelRegistration } from './types';
 
 const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
+  channel_access: {
+    label: '信道访问',
+    component: ChannelAccessSettingsPanel,
+  },
   weixin: {
     label: '微信 Claw',
     component: WeixinSettingsPanel,

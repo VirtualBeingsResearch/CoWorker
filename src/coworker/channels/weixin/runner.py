@@ -11,6 +11,10 @@ from uuid import uuid4
 import qrcode
 from loguru import logger
 
+from coworker.channels.access import (
+    ChannelAccessController,
+    inbound_access_denied_message,
+)
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.weixin.client import (
@@ -79,6 +83,7 @@ class WeixinRunner:
         self._login_sessions: dict[str, _LoginSession] = {}
         self._login_lock = asyncio.Lock()
         self._polling_failures: set[str] = set()
+        self._access = ChannelAccessController()
 
     @property
     def config(self) -> WeixinConfig:
@@ -86,6 +91,9 @@ class WeixinRunner:
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
+
+    def set_access_controller(self, access: ChannelAccessController) -> None:
+        self._access = access
 
     async def start(self) -> None:
         while not self._stop.is_set():
@@ -306,7 +314,7 @@ class WeixinRunner:
             )
         for message in response.get("msgs") or []:
             if isinstance(message, dict):
-                await self._publish_message(bot_instance_id, message)
+                await self._publish_message(bot_instance_id, message, client)
         state.cursor = str(response.get("get_updates_buf") or state.cursor)
         self._state_store.save(self._state)
 
@@ -314,16 +322,65 @@ class WeixinRunner:
         self,
         bot_instance_id: str,
         message: dict[str, Any],
+        client: WeixinClient,
     ) -> None:
         if message.get("message_type") not in (None, _MESSAGE_TYPE_USER):
             return
         user_id = str(message.get("from_user_id") or "").strip()
         if not user_id:
             return
+        participant_id = self._participant_id(bot_instance_id)
+        if not self._access.allows("weixin", "inbound", participant_id):
+            logger.info(
+                tr(
+                    "channel.access.inbound_denied",
+                    channel="weixin",
+                    participant=participant_id,
+                )
+            )
+            self._access.traffic.record(
+                direction="inbound",
+                channel="weixin",
+                participant_id=participant_id,
+                status="denied",
+                source="weixin",
+                reason="policy",
+            )
+            try:
+                await client.send_text(
+                    user_id,
+                    inbound_access_denied_message(),
+                    str(message.get("context_token") or ""),
+                )
+                self._access.traffic.record(
+                    direction="outbound",
+                    channel="weixin",
+                    participant_id=participant_id,
+                    status="sent",
+                    source="access_policy",
+                    reason="rejection_notice",
+                )
+            except Exception as error:
+                self._access.traffic.record(
+                    direction="outbound",
+                    channel="weixin",
+                    participant_id=participant_id,
+                    status="failed",
+                    source="access_policy",
+                    reason="rejection_notice",
+                )
+                logger.warning(
+                    tr(
+                        "channel.access.inbound_denied_reply_failed",
+                        channel="weixin",
+                        participant=participant_id,
+                        error=error,
+                    )
+                )
+            return
         context_token = str(message.get("context_token") or "")
         if context_token:
             self._connection_state(bot_instance_id).context_tokens[user_id] = context_token
-        participant_id = self._participant_id(bot_instance_id)
         self._activity.record_received(participant_id)
         if self._inbound_handler is None:
             logger.warning(tr("channel.weixin.inbound_unhandled"))

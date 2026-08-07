@@ -685,8 +685,10 @@ async def _main() -> bool:
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
     channel_system = create_channel_system(
-        config.agent.outbox_dir,
-        Path(config.memory.db_path) / "channel_activity.json",
+        outbox_dir=config.agent.outbox_dir,
+        activity_path=Path(config.memory.db_path) / "channel_activity.json",
+        access_config=config.channel_access,
+        traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None

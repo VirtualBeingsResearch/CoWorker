@@ -9,7 +9,14 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -21,7 +28,7 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
 )
-from coworker.i18n import SupportedLocale, normalize_locale
+from coworker.i18n import SupportedLocale, normalize_locale, tr
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
@@ -440,6 +447,71 @@ class AgentConfig(_EnvSettings):
     subconscious_max_cycles: int = 5
 
 
+class ChannelAccessRuleConfig(BaseModel):
+    """Inbound and outbound participant matching rules for one Channel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inbound_allow: list[str] = Field(default_factory=list)
+    inbound_deny: list[str] = Field(default_factory=list)
+    outbound_allow: list[str] = Field(default_factory=list)
+    outbound_deny: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "inbound_allow",
+        "inbound_deny",
+        "outbound_allow",
+        "outbound_deny",
+        mode="before",
+    )
+    @classmethod
+    def normalize_patterns(cls, value: object) -> object:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(tr("config.channel_access.patterns_must_be_strings"))
+            pattern = item.strip()
+            if pattern and pattern not in normalized:
+                normalized.append(pattern)
+        return normalized
+
+
+class ChannelAccessConfig(RootModel[dict[str, ChannelAccessRuleConfig]]):
+    """Channel name to participant access rules.
+
+    A root model keeps the persisted shape compact::
+
+        {"wecom": {"inbound_allow": ["wecom:single:*"]}}
+    """
+
+    root: dict[str, ChannelAccessRuleConfig] = Field(default_factory=dict)
+
+    @field_validator("root", mode="before")
+    @classmethod
+    def normalize_channel_names(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            return value
+        normalized: dict[str, object] = {}
+        for raw_name, rules in value.items():
+            if not isinstance(raw_name, str):
+                raise ValueError(tr("config.channel_access.names_must_be_strings"))
+            name = raw_name.strip()
+            if not name:
+                raise ValueError(tr("config.channel_access.names_must_not_be_empty"))
+            if name in normalized:
+                raise ValueError(
+                    tr("config.channel_access.duplicate_name", channel=name)
+                )
+            normalized[name] = rules
+        return normalized
+
+
 class WeComConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="WECOM__", env_file=".env", extra="ignore")
 
@@ -466,6 +538,7 @@ class Config(_EnvSettings):
     admin: AdminConfig = Field(default_factory=AdminConfig)
     i18n: I18NConfig = Field(default_factory=I18NConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    channel_access: ChannelAccessConfig = Field(default_factory=ChannelAccessConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
 

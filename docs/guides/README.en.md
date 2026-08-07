@@ -188,6 +188,20 @@ Event-loop diagnostics shows background-task state and recent failures.
 Administrator Operation Timeline records management-operation metadata without
 tokens, secrets, or complete message bodies.
 
+The Message Traffic tab displays the latest 500 channel-traffic metadata
+records and refreshes every five seconds only while that tab is open. Filter by
+inbound or outbound direction, result status, or text from the channel,
+participant, and source fields. Each record contains time, channel, canonical
+participant ID, result, source, and a short reason—never message bodies,
+attachment contents, or credentials. A rejected inbound message normally
+produces both an inbound-denied record and a rejection-notice sent/failed
+record, separating the policy decision from notice delivery.
+
+Message Traffic is not a full conversation audit, and participant IDs can
+still be sensitive metadata. See [Observability and Routine Operations](../operations/observability.en.md)
+for persistence, rotation, and diagnostic use, and [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists)
+for when each status is produced.
+
 When diagnosing a problem:
 
 1. record when it happened;
@@ -228,6 +242,24 @@ other runtime parameters. The page:
 - marks validation errors;
 - distinguishes hot updates from restart-required changes;
 - provides dedicated management panels for some Channels.
+
+#### Channel Access
+
+Open **Configuration → Runtime Settings → Channel Access** to configure
+inbound and outbound allow/deny rules by canonical participant address.
+`stream`, `desktop`, `wecom`, and `weixin` always appear in the channel
+selector; extension Channels can be added by registered name.
+
+Every channel uses the same default semantics: empty `inbound_allow`,
+`inbound_deny`, `outbound_allow`, and `outbound_deny` lists mean unrestricted
+access for that channel. Switching channels neither inserts examples such as
+`wecom:single:...` nor inherits values from another channel. Deny lists take
+precedence; when an allow list is non-empty, only complete participant IDs that
+match it are admitted. Saving hot-applies the rules immediately.
+
+This controls communication addresses. It neither identifies real people nor
+decides who may wake the Agent. See [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists)
+for full matching, rejection-response, and logging behavior.
 
 Do not use development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
@@ -303,6 +335,8 @@ this page.
 - Confirm runtime state matches your expectation.
 - Check for background tasks that fail continuously.
 - Review current model, fallback, and unexpected usage.
+- After tightening channel rules, check Message Traffic for unexpected denials
+  or rejection-notice delivery failures.
 - Remove tasks, alarms, and recent interactions that are no longer needed.
 - Test that backups restore instead of only checking that backup files exist.
 - Record the current configuration and version before upgrading or changing a

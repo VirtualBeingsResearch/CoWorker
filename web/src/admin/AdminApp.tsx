@@ -990,7 +990,7 @@ function Settings() {
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
+      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -2548,12 +2548,63 @@ function DesktopReleases() {
   </div>;
 }
 
+const TRAFFIC_DIRECTIONS: Record<string, string> = {
+  inbound: '入站',
+  outbound: '出站',
+};
+const TRAFFIC_STATUSES: Record<string, string> = {
+  received: '已接收',
+  sent: '已发送',
+  denied: '已拒绝',
+  failed: '失败',
+  duplicate: '重复忽略',
+};
+const TRAFFIC_SOURCES: Record<string, string> = {
+  access_policy: '访问策略',
+  agent: 'Agent',
+  desktop: 'Desktop',
+  rest: 'REST',
+  websocket: 'WebSocket',
+  wecom: 'WeCom',
+  weixin: '微信 Claw',
+};
+const TRAFFIC_REASONS: Record<string, string> = {
+  policy: '策略拒绝',
+  rejection_notice: '拒绝通知',
+  message_id: '消息 ID 重复',
+  no_channel: '无匹配信道',
+  participant_validation: '通信地址校验',
+  delivery: '投递失败',
+};
+
+function ChannelTrafficPanel({ data, error }: { data: Json | null; error: string }) {
+  const [query, setQuery] = useState('');
+  const [direction, setDirection] = useState('');
+  const [status, setStatus] = useState('');
+  const entries = data?.entries || [];
+  const filtered = entries.filter((entry: Json) => {
+    if (direction && entry.direction !== direction) return false;
+    if (status && entry.status !== status) return false;
+    return !query || `${entry.channel} ${entry.participant_id} ${entry.source} ${entry.reason}`.toLowerCase().includes(query.toLowerCase());
+  });
+  return <Panel title="消息流量" note="记录所有信道的收发结果与策略拒绝；只保存元数据，不保存消息正文、附件内容或凭据。" className="channel-traffic-panel">
+    <div className="traffic-filters"><label><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索信道、participant 或来源')} /></label><select value={direction} onChange={event => setDirection(event.target.value)}><option value="">{t('全部方向')}</option><option value="inbound">{t('入站')}</option><option value="outbound">{t('出站')}</option></select><select value={status} onChange={event => setStatus(event.target.value)}><option value="">{t('全部状态')}</option>{Object.entries(TRAFFIC_STATUSES).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select><span>{t('{{count}} 条记录', { count: filtered.length })}</span></div>
+    {!data ? <Loading error={error} /> : filtered.length ? <div className="traffic-table"><div className="traffic-row traffic-head"><span>{t('时间')}</span><span>{t('方向')}</span><span>{t('信道')}</span><span>participant_id</span><span>{t('结果')}</span><span>{t('来源 / 原因')}</span></div>{filtered.map((entry: Json, index: number) => <article className={`traffic-row ${entry.status || 'unknown'}`} key={`${entry.ts}-${index}`}><time title={new Date(entry.ts).toLocaleString()}><b>{new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</b><small>{new Date(entry.ts).toLocaleDateString()}</small></time><span className={`traffic-direction ${entry.direction || ''}`}>{t(TRAFFIC_DIRECTIONS[entry.direction] || entry.direction || '未知')}</span><code>{entry.channel || '—'}</code><code title={entry.participant_id}>{entry.participant_id || '—'}</code><b className="traffic-result">{t(TRAFFIC_STATUSES[entry.status] || entry.status || '未知')}</b><small className="traffic-source">{t(TRAFFIC_SOURCES[entry.source] || entry.source || '未知')}{entry.reason ? ` · ${t(TRAFFIC_REASONS[entry.reason] || entry.reason)}` : ''}</small></article>)}</div> : <Empty text="没有符合当前筛选条件的消息流量记录。" />}
+  </Panel>;
+}
+
 function Audit() {
   const audit = useLoad(() => api<Json>('/api/admin/audit?limit=300'), []);
   const diagnostics = useLoad(() => api<Json>('/api/admin/diagnostics/tasks'), []);
-  const [tab, setTab] = useState<'audit' | 'runtime'>('audit');
+  const traffic = useLoad(() => api<Json>('/api/admin/channel-traffic?limit=500'), []);
+  const [tab, setTab] = useState<'audit' | 'runtime' | 'traffic'>('audit');
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
+  useEffect(() => {
+    if (tab !== 'traffic') return;
+    const timer = window.setInterval(() => void traffic.reload(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [tab, traffic.reload]);
   const entries = audit.data?.entries || [];
   const today = new Date().toDateString();
   const todayCount = entries.filter((entry: Json) => new Date(entry.ts).toDateString() === today).length;
@@ -2563,7 +2614,7 @@ function Audit() {
     const matchesResult = !result || (result === 'ok' ? entry.result === 'ok' : entry.result !== 'ok');
     return matchesResult && (!query || JSON.stringify(entry).toLowerCase().includes(query.toLowerCase()));
   });
-  const refresh = () => tab === 'audit' ? audit.reload() : diagnostics.reload();
+  const refresh = () => tab === 'audit' ? audit.reload() : tab === 'runtime' ? diagnostics.reload() : traffic.reload();
   return <div className="audit-workspace">
     <section className="audit-vitals">
       <article><ShieldCheck size={17} /><span>{t('今日操作')}</span><b>{todayCount}</b><small>{t('最近保留 {{count}} 条', { count: entries.length })}</small></article>
@@ -2571,7 +2622,7 @@ function Audit() {
       <article><TerminalSquare size={17} /><span>{t('活跃任务')}</span><b>{diagnostics.data?.pending ?? '—'}</b><small>{t('事件循环中的等待任务')}</small></article>
       <article><Fingerprint size={17} /><span>{t('操作来源')}</span><b>{sources}</b><small>{t('不同客户端地址')}</small></article>
     </section>
-    <div className="audit-switcher"><div><button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}><ShieldCheck size={15} />{t('操作时间线')}</button><button className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}><Activity size={15} />{t('运行诊断')}</button></div><button className="icon-btn" title={t('刷新当前视图')} aria-label={t('刷新当前视图')} onClick={() => void refresh()}><RefreshCw size={15} /></button></div>
+    <div className="audit-switcher"><div><button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}><ShieldCheck size={15} />{t('操作时间线')}</button><button className={tab === 'traffic' ? 'active' : ''} onClick={() => setTab('traffic')}><MessagesSquare size={15} />{t('消息流量')}</button><button className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}><Activity size={15} />{t('运行诊断')}</button></div><button className="icon-btn" title={t('刷新当前视图')} aria-label={t('刷新当前视图')} onClick={() => void refresh()}><RefreshCw size={15} /></button></div>
     {tab === 'audit' ? <Panel title="管理员操作时间线" note="只记录操作元数据，不包含令牌、密钥和完整正文。" className="audit-panel">
       <div className="audit-filters"><label><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索操作、目标或来源')} /></label><select value={result} onChange={event => setResult(event.target.value)}><option value="">{t('全部结果')}</option><option value="ok">{t('仅成功')}</option><option value="failed">{t('仅异常')}</option></select><span>{t('{{count}} 条记录', { count: filtered.length })}</span></div>
       {!audit.data ? <Loading error={audit.error} /> : filtered.length ? <div className="audit-timeline">{filtered.map((entry: Json, index: number) => {
@@ -2580,9 +2631,9 @@ function Audit() {
         const action = actionParts.join(' · ') || entry.action;
         return <article key={entry.ts + '-' + index} className={entry.result === 'ok' ? 'ok' : 'failed'}><div className="audit-rail"><i /></div><time><b>{new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b><span>{new Date(entry.ts).toLocaleDateString()}</span></time><div className="audit-event"><header><span>{area}</span><b>{action}</b><i>{entry.result === 'ok' ? t('成功') : entry.result}</i></header><code>{entry.target || '—'}</code>{entry.detail && <p>{entry.detail}</p>}<footer>{t('来源')} {entry.source || 'unknown'}</footer></div></article>;
       })}</div> : <Empty text="没有符合当前筛选条件的审计记录。" />}
-    </Panel> : <Panel title="事件循环诊断" note="pending 通常表示任务正在等待消息或定时器，并不等同于故障。" className="runtime-diagnostics">
+    </Panel> : tab === 'runtime' ? <Panel title="事件循环诊断" note="pending 通常表示任务正在等待消息或定时器，并不等同于故障。" className="runtime-diagnostics">
       {!diagnostics.data ? <Loading error={diagnostics.error} /> : <><div className="runtime-callout"><Activity size={20} /><div><b>{t('{{count}} 个任务正在等待', { count: diagnostics.data.pending })}</b><span>{t('共采样 {{count}} 个 asyncio task；展开条目查看完整快照。', { count: diagnostics.data.total })}</span></div></div><div className="runtime-task-grid">{diagnostics.data.tasks.map((task: Json, index: number) => <details key={(task.name || 'task') + '-' + index} className={task.current ? 'current' : task.done ? 'done' : ''}><summary><span className="task-signal"><i /></span><div><b>{task.name || 'task-' + index}</b><code>{task.coro || 'unknown coroutine'}</code></div><span className="task-state">{task.current ? t('当前请求') : task.done ? t('已完成') : t('等待中')}</span></summary><div className="task-waiting"><span>{t('等待位置')}</span><code>{task.waiting_at || t('没有 Python 栈，可能尚未开始或正在等待底层 I/O')}</code><pre>{JSON.stringify(task, null, 2)}</pre></div></details>)}</div></>}
-    </Panel>}
+    </Panel> : <ChannelTrafficPanel data={traffic.data} error={traffic.error} />}
   </div>;
 }
 

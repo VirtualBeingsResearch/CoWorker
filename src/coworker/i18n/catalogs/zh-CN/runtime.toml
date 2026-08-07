@@ -120,6 +120,24 @@ control_name = "微信 Claw 连接控制"
 command_unknown = "未知信道管理命令：{{command}}"
 field_required = "信道管理字段 {{field}} 不能为空"
 
+[channel.access]
+inbound_denied = "信道访问策略已拒绝 {{channel}} 的入站消息：participant_id={{participant}}"
+outbound_denied = "信道访问策略已拒绝 {{channel}} 的出站消息：participant_id={{participant}}"
+inbound_denied_reply = "消息已被 Coworker 的信道访问策略拒绝。"
+inbound_denied_reply_failed = "向 {{channel}} 的 participant_id={{participant}} 返回入站拒绝消息失败：{{error}}"
+reply_transport_unavailable = "拒绝消息的回复通道不可用"
+controller_setup_failed = "安装信道访问控制器失败：{{error}}"
+
+[channel.traffic]
+write_failed = "写入信道消息流量日志失败：{{error}}"
+read_failed = "读取信道消息流量日志失败：{{error}}"
+
+[config.channel_access]
+patterns_must_be_strings = "信道访问匹配规则必须是字符串"
+names_must_be_strings = "信道访问名称必须是字符串"
+names_must_not_be_empty = "信道访问名称不能为空"
+duplicate_name = "去除首尾空白后出现重复信道访问名称：{{channel}}"
+
 [channel.desktop]
 command_rejected = "命令未被接受"
 reported_error = "桌面端报告错误"
