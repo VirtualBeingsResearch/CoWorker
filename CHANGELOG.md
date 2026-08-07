@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.3.7 - Unreleased
+
+- docs(release): finalize v0.3.6 changelog (#137)
+- feat(persona): add optional person sub-mechanism with cards and bindings (#138)
+- fix(memory): preserve recall error details (#140)
+- chore: ignore local agent and worktree directories (#142)
+- fix(memory): disable mem0 telemetry by default (#143)
+- feat(admin): add runtime usage and execution analytics (#139)
+- feat(channels): add access lists and message traffic (#141)
+- docs(admin): simplify console introduction (#144)
+
 ## 0.3.6 - 2026-08-03
 
 - docs(release): finalize v0.3.5 changelog (#112)
