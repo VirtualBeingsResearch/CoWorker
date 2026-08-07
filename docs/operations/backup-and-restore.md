@@ -73,9 +73,10 @@ uv run python scripts/cleanup.py restore --from 20260428_123456
 
 ## Docker 和 Relay
 
-先用 `docker compose stop` 停止 Coworker，再通过 `docker volume ls` 和
-`docker volume inspect <name>` 解析当前 Compose 项目的真实卷名。完整备份必须同时覆盖
-工作区卷和状态卷；模型缓存可以重建，但备份可减少恢复时间。不要只复制容器的可写层。
+先用 `docker compose stop` 停止 Coworker，再通过 `docker compose config`、
+`docker volume ls` 和 `docker volume inspect <name>` 解析实际挂载。完整备份必须同时覆盖
+作为工作区的宿主机 checkout（或旧版 `coworker-workspace` 卷）和状态卷；模型缓存可以
+重建，但备份可减少恢复时间。不要只复制容器的可写层。
 
 Relay 使用自己的备份命令创建一致数据库快照：
 

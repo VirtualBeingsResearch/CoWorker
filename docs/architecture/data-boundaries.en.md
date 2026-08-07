@@ -28,10 +28,12 @@ disabled. Setting `MEM0_TELEMETRY=true` explicitly in the process environment op
 telemetry. Downloads made by third-party dependencies, model services, and the tools below still
 produce network requests.
 
-Container deployments keep the Git workspace, runtime data, and model cache in the separate
-`coworker-workspace`, `coworker-state`, and `coworker-models` volumes. The strict offline image
-initializes the workspace from its embedded Git bundle without contacting a repository remote
-at runtime. Deleting these volumes also deletes the corresponding history, state, or model cache.
+By default, Compose bind-mounts the host Git checkout as the workspace and keeps runtime data and
+the model cache in the separate `coworker-state` and `coworker-models` volumes. When running the
+image directly or setting `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, the strict offline image
+initializes a workspace volume from its embedded Git bundle without contacting a repository
+remote at runtime. Deleting a volume or the host checkout also deletes the corresponding history,
+state, or model cache.
 
 ## Data that may leave the machine
 

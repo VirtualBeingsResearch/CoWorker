@@ -137,12 +137,24 @@ flowchart LR
 
 ## 快速开始
 
-最快的本地体验路径是从源码启动。你需要 **Python 3.13+**、
-[uv](https://docs.astral.sh/uv/) 和一个支持 tool/function calling 的模型服务
-（通常需要 API Key）。
-当前不提供 PyPI / wheel 安装包。
+最快的本地体验路径是直接启动发布镜像。你只需要 Docker，以及一个支持
+tool/function calling 的模型服务（通常需要 API Key）。
 
 ### 1. 启动 Coworker
+
+```bash
+docker run --name coworker \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+镜像已经包含 Coworker 源码、Python 环境、Chromium、FFmpeg 和 embedding 模型，Docker
+会自动为工作区、运行状态和模型缓存创建数据卷。命令留在前台显示管理员令牌与日志；按
+`Ctrl+C` 停止后，可以用 `docker start -a coworker` 再次启动同一个容器。
+
+<details>
+<summary><strong>想从源码运行或修改代码？</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
@@ -152,22 +164,28 @@ uv run playwright install chromium
 uv run coworker
 ```
 
-`uv run python -m coworker` 与最后一条命令等价。首次运行不需要提前创建 `.env`。
+需要 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)。
+`uv run python -m coworker` 与最后一条命令等价；首次运行不需要提前创建 `.env`。
+
+</details>
 
 <details>
-<summary><strong>更想使用 Docker Compose？</strong></summary>
+<summary><strong>想把本地 checkout 与 Docker Compose 结合使用？</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build
+docker compose up --pull always --no-build
 ```
 
-Compose 默认构建预置 embedding 模型的严格离线运行时镜像，并分别持久化工作区、
-运行状态和模型缓存。这里的“离线”只表示运行时不会从 Hugging Face 或 Git 远端补齐
-内容；你配置的对话模型服务仍可能需要联网。
+这里由发布镜像提供 Linux、Python 和浏览器等执行环境，当前 checkout 则直接挂载到
+`/app`，同时作为实际运行的源码与 Agent 工作区，不需要在本机安装 Python 依赖或现场
+构建镜像。运行状态和模型缓存仍保存在独立命名卷中。
 
 </details>
+
+严格离线镜像不会在运行时从 Hugging Face 或 Git 远端补齐内容；你配置的对话模型服务
+仍可能需要联网。
 
 > [!NOTE]
 > Intel macOS 无法安装当前版本的 PyTorch wheel，请通过

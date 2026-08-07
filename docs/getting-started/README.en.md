@@ -13,8 +13,9 @@ model, and can receive messages.
 
 | Method | Best for | Main requirements |
 |---|---|---|
-| From source | Local evaluation, development, and code changes | Python 3.13+, uv; Chromium for browser tools |
-| Docker Compose | Isolation and prebuilt dependencies | Docker; the default is the strict offline runtime image |
+| Run the Docker image directly | Fastest first evaluation | Docker; the image includes the source and runtime dependencies |
+| From source | Development and code changes | Python 3.13+, uv; Chromium for browser tools |
+| Docker Compose plus the current checkout | Run local source in the image environment | Docker; clone the repository first |
 | Desktop | A local collaboration workbench | A separately running Coworker service is still required |
 
 See [Platform Support and Component Compatibility](platform-support.en.md) for operating systems,
@@ -29,6 +30,25 @@ or Docker. Desktop itself can still use the Intel macOS package.
 
 ## 2. Start Coworker
 
+Choose one of the following three ways to start the service.
+
+### Run the Docker image directly (recommended for first use)
+
+```bash
+docker run --name coworker \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+You do not need to clone the repository. The image includes the Coworker source, Python
+environment, Chromium, FFmpeg, and embedding model. Docker automatically creates data volumes for
+the Git workspace, runtime state, and model cache. The command stays attached so you can read the
+administrator token and logs. After stopping it with `Ctrl+C`, run `docker start -a coworker` to
+start the same container again. For long-running use, follow
+[Long-running Deployment](../operations/deployment.en.md#docker-compose-plus-the-current-checkout)
+and use the Compose configuration to manage volumes, restart policy, and backups explicitly.
+
 ### Run from source
 
 ```bash
@@ -42,21 +62,28 @@ uv run coworker
 `uv run python -m coworker` is equivalent. You do not need to create `.env`
 before the first evaluation run.
 
-### Use Docker Compose
+### Run the current checkout in the image environment
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build
+docker compose up --pull always --no-build
 ```
 
-Compose stores the Git workspace, runtime state, and model cache in separate
-persistent volumes. Removing a container does not remove that data. Do not
+The published image supplies Linux, Python, Chromium, FFmpeg, and the preloaded embedding model.
+The current checkout is mounted directly at `/app` as both the running source and the Agent
+workspace. This avoids installing Python dependencies on the host or building an image for the
+first run. Restart the container after source changes. When dependency or lock files change,
+follow [Develop with the offline image](../development/development.en.md#develop-with-the-offline-image)
+to rebuild the execution environment.
+
+The strict-offline image does not fetch missing content from Hugging Face or Git remotes at
+runtime. Your configured conversation-model provider may still require network access. Do not
 delete volumes as a first response to an ordinary startup problem.
 
-After startup, the default management URL is
-<http://127.0.0.1:8000/admin>. The API binds to `127.0.0.1` by default. Do not
-publish port `8000` directly to the public internet.
+After startup, the default management URL is <http://127.0.0.1:8000/admin>. The Docker commands
+above bind the host side only to `127.0.0.1:8000`, and a source run also binds the API to
+`127.0.0.1` by default. Do not publish port `8000` directly to the public internet.
 
 ## 3. Get the administrator token
 

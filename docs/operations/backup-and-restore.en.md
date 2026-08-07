@@ -75,10 +75,11 @@ time. Neither mode restores long-term memory, Skills, or configuration.
 
 ## Docker and Relay
 
-Stop Coworker with `docker compose stop`, then resolve the actual Compose volume names through
-`docker volume ls` and `docker volume inspect <name>`. A complete backup must cover both workspace
-and state volumes. The model cache is rebuildable, although retaining it shortens recovery. Do not
-back up only the container writable layer.
+Stop Coworker with `docker compose stop`, then resolve its actual mounts with
+`docker compose config`, `docker volume ls`, and `docker volume inspect <name>`. A complete backup
+must cover both the host checkout used as the workspace (or the legacy `coworker-workspace`
+volume) and the state volume. The model cache is rebuildable, although retaining it shortens
+recovery. Do not back up only the container writable layer.
 
 Create a consistent Relay database snapshot with its own command:
 

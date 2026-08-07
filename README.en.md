@@ -137,11 +137,25 @@ In a single request, Coworker can recover yesterday's context, use file and code
 
 ## Quick start
 
-The fastest local evaluation path is to run from source. You need **Python 3.13+**,
-[uv](https://docs.astral.sh/uv/), and access to a model service that supports tool/function
-calling (usually with an API key). PyPI and wheel packages are not currently available.
+The fastest local evaluation path is to start the published image directly. You only need Docker
+and access to a model service that supports tool/function calling (usually with an API key).
 
 ### 1. Start Coworker
+
+```bash
+docker run --name coworker \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+The image includes the Coworker source, Python environment, Chromium, FFmpeg, and embedding model.
+Docker automatically creates data volumes for the workspace, runtime state, and model cache. The
+command stays attached so you can read the administrator token and logs. After stopping it with
+`Ctrl+C`, run `docker start -a coworker` to start the same container again.
+
+<details>
+<summary><strong>Want to run from source or change the code?</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
@@ -151,24 +165,30 @@ uv run playwright install chromium
 uv run coworker
 ```
 
-`uv run python -m coworker` is equivalent to the last command. You do not need to create `.env`
+This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
+`uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
+</details>
+
 <details>
-<summary><strong>Prefer Docker Compose?</strong></summary>
+<summary><strong>Want to combine a local checkout with Docker Compose?</strong></summary>
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build
+docker compose up --pull always --no-build
 ```
 
-Compose builds the strict-offline runtime image with its embedding model preloaded by default,
-then persists the workspace, runtime state, and model cache separately. “Offline” here means the
-runtime does not fetch missing content from Hugging Face or Git remotes; your configured
-conversation-model provider may still require network access.
+The published image supplies the Linux, Python, and browser execution environment. The current
+checkout is mounted directly at `/app` as both the running source and the Agent workspace, so you
+do not need local Python dependencies or an image build. Runtime state and the model cache remain
+in separate named volumes.
 
 </details>
+
+The strict-offline image does not fetch missing content from Hugging Face or Git remotes at
+runtime. Your configured conversation-model provider may still require network access.
 
 > [!NOTE]
 > Intel macOS cannot install the current PyTorch wheel. Run the service through the

@@ -20,30 +20,33 @@ flowchart LR
 
 | 方式 | 适合 | 责任 |
 |---|---|---|
-| Docker Compose | 长期单机运行、隔离依赖 | 管理卷、镜像版本、宿主机备份 |
+| Docker Compose + 当前 checkout | 长期单机运行、在镜像执行环境中维护源码 | 管理 checkout、卷、镜像版本和宿主机备份 |
 | 源码 + 进程管理器 | 开发或需要直接维护 checkout | 管理 Python 环境、工作目录和进程权限 |
 | Dev Container | 开发与验证 | 不作为无人值守生产服务 |
 
-## Docker Compose
+## Docker Compose + 当前 checkout
 
-仓库内 `docker-compose.yaml` 默认：
+已经克隆仓库时，推荐把发布镜像作为执行环境，将当前 checkout 挂载为实际运行的源码与
+Agent 工作区。仓库内 `docker-compose.yaml` 会：
 
 - 将宿主机端口绑定到 `127.0.0.1:8000`；
 - 使用 `restart: unless-stopped`；
 - 每 30 秒请求 `/status` 进行健康检查；
-- 分离工作区、运行状态和模型缓存三个卷；
-- 默认构建预置 embedding 模型的严格离线镜像。
+- 将运行状态和模型缓存保存在独立命名卷中；
+- 使用预置 embedding 模型的严格离线发布镜像提供 Linux、Python 和浏览器依赖。
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build -d
+docker compose up --pull always --no-build -d
 docker compose ps
 docker compose logs --tail 100 coworker
 ```
 
-将 `.env` 权限限制为运行账户可读。固定 `COWORKER_IMAGE` 或构建提交；升级前按
-[升级与迁移](upgrading.md)执行，不要依赖无法复现的 `latest` 状态。
+源码修改后重启容器即可。只有修改 `pyproject.toml`、`uv.lock` 或镜像中的系统依赖时，
+才需要按[开发指南](../development/development.md#使用-offline-镜像开发)重建执行环境。
+将 `.env` 权限限制为运行账户可读，并固定 `COWORKER_IMAGE` 到准备运行的版本标签或
+digest，不要依赖无法复现的 `latest` 状态。
 
 ## 源码进程管理
 

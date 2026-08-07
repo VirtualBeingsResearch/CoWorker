@@ -174,17 +174,17 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 | `COWORKER_BUNDLE_REPOSITORY_URL` | Official Coworker repository | Compatible repository converted to a Git bundle while building the image |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
 | `COWORKER_WORKSPACE_PATH` | `/app` | In-container Git workspace shared by the running source and the Agent |
-| `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose mount source; set it to `.` to replace the named volume with the current checkout |
+| `COWORKER_WORKSPACE_SOURCE` | `.` | Compose mount source for `/app`; defaults to the current checkout, or set it to `coworker-workspace` to reuse the image-managed named volume |
 | `COWORKER_STATE_PATH` | `/var/lib/coworker` | Persistent runtime data; `/app/data` in the workspace points here |
 | `COWORKER_REPOSITORY_URL` | Empty | Repository cloned on first startup by a non-strict-offline image |
 | `COWORKER_REPOSITORY_REF` | Bundled commit or remote default branch | Branch, tag, or commit checked out during initialization |
 | `COWORKER_REPOSITORY_BUNDLE` | Bundle embedded in the image | Path to an explicitly mounted custom bundle |
 
-When the default named volume is first created, Docker copies the image's `/app` tree into it,
-the entrypoint attaches the Git metadata from the bundle, and `/app/data` is linked to the separate
-`coworker-state` volume. With `COWORKER_WORKSPACE_SOURCE=.`, the
-existing local Git checkout is mounted directly at `/app`, and repository initialization never
-overwrites it.
+By default, Compose mounts the current local Git checkout directly at `/app`, repository
+initialization never overwrites it, and the entrypoint links `/app/data` to the separate
+`coworker-state` volume. With `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, Docker copies the
+image's `/app` tree into the named volume when it is first created and the entrypoint attaches Git
+metadata from the bundle.
 After an image update, the entrypoint automatically fast-forwards only a clean, non-divergent
 managed workspace that remains on the image's default branch; local changes, commits, other
 branches, and divergent history remain untouched. Other repository settings apply only before the

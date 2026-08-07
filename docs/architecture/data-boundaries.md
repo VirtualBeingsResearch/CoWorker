@@ -31,9 +31,11 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 匿名遥测也已显式关闭。在进程环境中显式设置 `MEM0_TELEMETRY=true` 会重新启用 mem0
 遥测。但第三方依赖的下载、模型服务和下述工具仍会产生网络请求。
 
-容器部署将 Git 工作区、运行数据和模型缓存分别保存在 `coworker-workspace`、
-`coworker-state` 与 `coworker-models` 卷。严格离线镜像从内置 Git bundle 初始化
-工作区，不在运行时联系仓库远端。删除这些卷会同时删除对应的代码历史、状态或模型缓存。
+Compose 默认把宿主机的 Git checkout 挂载为工作区，并把运行数据和模型缓存分别保存在
+`coworker-state` 与 `coworker-models` 卷。直接运行镜像或显式设置
+`COWORKER_WORKSPACE_SOURCE=coworker-workspace` 时，严格离线镜像会从内置 Git bundle
+初始化工作区卷，不在运行时联系仓库远端。删除卷或宿主机 checkout 会删除对应的代码历史、
+状态或模型缓存。
 
 ## 可能离开本机的数据
 

@@ -11,8 +11,9 @@
 
 | 方式 | 适合 | 主要要求 |
 |---|---|---|
-| 源码运行 | 本地体验、开发和修改代码 | Python 3.13+、uv；浏览器工具需要 Chromium |
-| Docker Compose | 隔离运行、复用预置依赖 | Docker；默认使用严格离线运行时镜像 |
+| 直接运行 Docker 镜像 | 最快完成首次体验 | Docker；镜像已包含源码与运行依赖 |
+| 源码运行 | 开发和修改代码 | Python 3.13+、uv；浏览器工具需要 Chromium |
+| Docker Compose + 当前 checkout | 在镜像执行环境中运行本地源码 | Docker；需要先克隆仓库 |
 | Desktop | 本机协作工作台 | 仍需先有独立运行的 Coworker 服务 |
 
 完整操作系统、CPU 架构、Desktop 制品和协议说明见
@@ -27,6 +28,23 @@ Coworker 服务；Desktop 本身仍可使用与 Intel macOS 匹配的安装包�
 
 ## 2. 启动 Coworker
 
+下面三种服务启动方式选择一种即可。
+
+### 直接运行 Docker 镜像（推荐首次使用）
+
+```bash
+docker run --name coworker \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+不需要克隆仓库。镜像已经包含 Coworker 源码、Python 环境、Chromium、FFmpeg 和
+embedding 模型，Docker 会自动为 Git 工作区、运行状态和模型缓存创建数据卷。命令会留在
+前台显示管理员令牌与日志，按 `Ctrl+C` 停止后可用 `docker start -a coworker` 再次启动
+同一个容器。准备长期运行时，改用[长期运行与部署](../operations/deployment.md#docker-compose--当前-checkout)
+中的 Compose 配置，以便明确管理卷、重启策略和备份。
+
 ### 从源码运行
 
 ```bash
@@ -39,19 +57,26 @@ uv run coworker
 
 也可以使用 `uv run python -m coworker`。首次体验不需要预先创建 `.env`。
 
-### 使用 Docker Compose
+### 在镜像执行环境中运行当前 checkout
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
 cd CoWorker
-docker compose up --build
+docker compose up --pull always --no-build
 ```
 
-Compose 会将 Git 工作区、运行状态和模型缓存放在不同的持久卷中。删除容器不会自动删除
-这些数据；不要通过删除卷来处理普通启动问题。
+发布镜像提供 Linux、Python、Chromium、FFmpeg 和预置 embedding 模型，当前 checkout
+直接挂载到 `/app`，同时作为实际运行的源码和 Agent 工作区。这样不需要在本机安装 Python
+依赖，也不需要为首次运行构建镜像。运行状态和模型缓存保存在独立命名卷中；源码修改后重启
+容器即可，依赖或锁文件变化时再参考[开发指南](../development/development.md#使用-offline-镜像开发)
+重建执行环境。
 
-启动完成后，默认管理地址为 <http://127.0.0.1:8000/admin>。API 默认只监听
-`127.0.0.1`，不要将 `8000` 端口直接映射到公网。
+严格离线镜像不会在运行时从 Hugging Face 或 Git 远端补齐内容；你配置的对话模型服务仍
+可能需要联网。不要通过删除卷来处理普通启动问题。
+
+启动完成后，默认管理地址为 <http://127.0.0.1:8000/admin>。以上 Docker 命令只把宿主机
+入口绑定到 `127.0.0.1:8000`，源码运行时 API 默认也只监听 `127.0.0.1`。不要将 `8000`
+端口直接映射到公网。
 
 ## 3. 取得管理员令牌
 

@@ -78,18 +78,30 @@ passes, start with `uv run coworker`, then inspect `/status` and management diag
 
 ## Upgrade Docker Compose
 
-After stopping writes and creating a backup, select the exact image or source revision to run:
+Compose uses the current checkout as its workspace and the published image as its execution
+environment by default. After stopping writes and creating a backup, pin `COWORKER_IMAGE` to the
+version tag or digest you intend to validate, then run:
 
 ```bash
 docker compose stop
-docker compose build
-docker compose up -d
+docker compose pull
+docker compose up --no-build -d
 docker compose ps
 ```
 
-For published images, pin `COWORKER_IMAGE` to the tag or digest you intend to validate, then run
-`docker compose pull` and `docker compose up -d`. `coworker-workspace`, `coworker-state`, and
-`coworker-models` are separate volumes. Replacing a container does not migrate, back up, or delete them.
+If the checkout contains `pyproject.toml`, `uv.lock`, or image-level system dependency changes not
+included in the selected published image, run `docker compose build` and `docker compose up -d`
+instead of reusing the old execution environment.
+`coworker-state` and `coworker-models` are separate volumes. Replacing a container does not
+migrate, back up, or delete them.
+
+Older Compose versions used the `coworker-workspace` named volume by default. On the first upgrade
+to a version that defaults to the current checkout, that volume is not deleted, but the new bind
+mount hides it. Before startup, follow [Backup and Restore](backup-and-restore.en.md) to resolve the
+actual volume name and back up its branches, commits, and modifications. To keep using the old
+workspace temporarily, set
+`COWORKER_WORKSPACE_SOURCE=coworker-workspace` in `.env`. Remove the override and switch to the
+current checkout only after its contents have been migrated safely.
 
 ## Data and memory migration
 

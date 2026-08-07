@@ -71,19 +71,26 @@ uv run coworker --check
 
 ## Docker Compose 升级
 
-停止写入并保存备份后，明确选择要运行的镜像或源码版本：
+Compose 默认用当前 checkout 作为工作区，用发布镜像提供执行环境。停止写入并保存备份后，
+先把 `COWORKER_IMAGE` 固定到准备验证的版本标签或 digest，再执行：
 
 ```bash
 docker compose stop
-docker compose build
-docker compose up -d
+docker compose pull
+docker compose up --no-build -d
 docker compose ps
 ```
 
-使用发布镜像时，将 `COWORKER_IMAGE` 固定到准备验证的标签或 digest，再执行
-`docker compose pull` 和 `docker compose up -d`。`coworker-workspace`、
-`coworker-state` 和 `coworker-models` 是不同卷；更新或重建容器不会自动迁移、备份或
-删除这些卷。
+如果 checkout 包含尚未进入所用发布镜像的 `pyproject.toml`、`uv.lock` 或系统依赖修改，
+需要执行 `docker compose build` 和 `docker compose up -d`，而不是继续复用旧执行环境。
+`coworker-state` 和 `coworker-models` 是独立卷；更新或重建容器不会自动迁移、备份或
+删除它们。
+
+旧版本的 Compose 默认使用 `coworker-workspace` 命名卷。首次升级到以当前 checkout 为
+默认工作区的版本时，该旧卷不会被删除，但会被新的 bind mount 遮住。启动前先通过
+[备份与恢复](backup-and-restore.md)确认实际卷名，并备份其中的分支、提交和修改。若要暂时
+继续使用旧工作区，在 `.env` 中设置 `COWORKER_WORKSPACE_SOURCE=coworker-workspace`；
+确认内容已经安全迁移后，再移除此覆盖项并切换到当前 checkout。
 
 ## 数据与记忆迁移
 
