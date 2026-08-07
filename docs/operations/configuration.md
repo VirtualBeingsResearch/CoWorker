@@ -166,19 +166,22 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `COWORKER_BUNDLE_REPOSITORY_URL` | 官方 Coworker 仓库 | 构建镜像时转换为 Git bundle 的兼容仓库 |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
 | `COWORKER_WORKSPACE_PATH` | `/app` | 容器内实际运行源码与 Agent 共用的 Git 工作区 |
-| `COWORKER_WORKSPACE_SOURCE` | `coworker-workspace` | Compose 挂载源；设为 `.` 可用当前 checkout 代替默认命名卷 |
+| `COWORKER_WORKSPACE_SOURCE` | `.` | Compose 的 `/app` 挂载源；默认使用当前 checkout，设为 `coworker-workspace` 可复用镜像托管的命名卷 |
 | `COWORKER_STATE_PATH` | `/var/lib/coworker` | 持久运行数据目录；工作区中的 `/app/data` 指向这里 |
 | `COWORKER_REPOSITORY_URL` | 空 | 非严格离线镜像首次启动时改为在线克隆的仓库地址 |
 | `COWORKER_REPOSITORY_REF` | bundle 固定提交或远端默认分支 | 首次初始化后检出的分支、tag 或 commit |
 | `COWORKER_REPOSITORY_BUNDLE` | 镜像内 bundle | 显式挂载的自定义 bundle 路径 |
 
-默认命名卷首次创建时，镜像中的 `/app` 会被复制进去并从 bundle 补齐 Git 元数据；
-入口脚本同时把 `/app/data` 链接到独立的 `coworker-state` 卷。
-设置 `COWORKER_WORKSPACE_SOURCE=.` 后，现有本地 Git checkout 会直接挂载到 `/app`，仓库
-初始化变量不会覆盖它。更新镜像时，入口脚本只自动快进干净、未分叉且仍位于镜像默认分支
-的托管工作区；本地修改、提交、其他分支和分叉历史保持不变。其他仓库相关变量只在工作区
-尚未初始化时生效。严格离线镜像拒绝从
-`COWORKER_REPOSITORY_URL` 访问网络；自定义私有仓库应在受控构建环境生成 bundle，
+Compose 默认把当前本地 Git checkout 挂载到 `/app`，仓库初始化变量不会覆盖它；入口脚本
+同时把 `/app/data` 链接到独立的 `coworker-state` 卷。若 checkout 中已有非空
+`data/`，入口脚本会拒绝覆盖；先按[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)
+将它导入状态卷。设置
+`COWORKER_WORKSPACE_SOURCE=coworker-workspace` 后，命名卷首次创建时会从镜像复制 `/app`
+并从 bundle 补齐 Git 元数据。更新镜像时，入口脚本只自动快进干净、未分叉且仍位于镜像
+默认分支的托管工作区；本地修改、提交、其他分支和分叉历史保持不变。其他仓库相关变量只在
+工作区尚未初始化时生效。`offline` 镜像拒绝让启动初始化器从
+`COWORKER_REPOSITORY_URL` 访问网络，但它不是网络沙箱，不会禁止用户明确授权的
+Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受控构建环境生成 bundle，
 不要把凭据写进 URL 或镜像构建参数。
 
 ## 支持的模型

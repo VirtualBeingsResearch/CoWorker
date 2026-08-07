@@ -6,6 +6,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT = ROOT / "scripts" / "container-entrypoint.sh"
+COMPOSE_FILE = ROOT / "docker-compose.yaml"
+
+
+def test_compose_uses_current_checkout_as_default_workspace() -> None:
+    compose = COMPOSE_FILE.read_text(encoding="utf-8")
+
+    assert '- "${COWORKER_WORKSPACE_SOURCE:-.}:/app"' in compose
+    assert "\n  coworker-workspace:\n" in compose
 
 
 def _git(cwd: Path, *args: str) -> str:

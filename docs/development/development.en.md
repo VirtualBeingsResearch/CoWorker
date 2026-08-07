@@ -64,7 +64,6 @@ To run and debug only the Coworker service, reuse the published strict-offline i
 current checkout directly at `/app`:
 
 ```bash
-COWORKER_WORKSPACE_SOURCE=. \
 COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:offline \
 docker compose up --pull always --no-build
 ```
@@ -73,7 +72,7 @@ docker compose up --pull always --no-build
 Agent, and running process see the same Git checkout. The image supplies the Linux Python
 environment, Chromium, FFmpeg, and preloaded embedding model; restart the container after source
 changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
-`COWORKER_WORKSPACE_SOURCE=. docker compose up --build`.
+`docker compose up --build`.
 
 ### Explore Lab
 

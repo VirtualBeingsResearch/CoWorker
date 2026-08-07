@@ -31,9 +31,10 @@ services:
       start_period: 2m
       retries: 3
     volumes:
-      # Keep the named volume for normal deployments. Developers can bind the
-      # current checkout with COWORKER_WORKSPACE_SOURCE=.
-      - "${COWORKER_WORKSPACE_SOURCE:-coworker-workspace}:/app"
+      # Compose runs the current checkout in the published image environment by
+      # default. Set COWORKER_WORKSPACE_SOURCE=coworker-workspace to reuse the
+      # legacy image-managed named workspace instead.
+      - "${COWORKER_WORKSPACE_SOURCE:-.}:/app"
       - type: volume
         source: coworker-state
         target: /var/lib/coworker

@@ -172,7 +172,8 @@ uv run playwright install --with-deps chromium
 ## Docker 与 offline 镜像
 
 - 代码、状态和模型缓存可能在不同卷中，先确认实际挂载；
-- 严格离线镜像不会在运行时从 Hugging Face 或 Git 远端补齐缺失内容；
+- `offline` 镜像会阻止自动下载缺失的 Hugging Face 内容，并拒绝启动初始化器从 Git
+  远端克隆工作区；但它不是网络沙箱，模型服务和用户授权的 Agent 网络工具仍可能联网；
 - 预置 embedding 模型必须与运行时配置一致；
 - 修改 `pyproject.toml` 或 `uv.lock` 后要重新构建依赖环境；
 - 挂载 checkout 模式下，宿主机与 Agent 看到同一个 Git 工作区。
