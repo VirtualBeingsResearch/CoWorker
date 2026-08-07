@@ -7,8 +7,7 @@
 The Web management console is available at
 <http://127.0.0.1:8000/admin> by default. It manages Coworker's runtime,
 memory, tasks, models, identity, people and relationships, capability content,
-remote access, and diagnostics. It is an administration surface, not a public
-multi-tenant control plane.
+remote access, and diagnostics.
 
 To start from an outcome instead of page structure, see [Common Use Cases](use-cases.en.md).
 Use [Authoring Capability Content](capability-authoring.en.md) when creating a Skill, Palace, or
