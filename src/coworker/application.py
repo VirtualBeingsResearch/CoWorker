@@ -28,7 +28,7 @@ from coworker.api import app as api_app
 from coworker.api.admin import setup_admin, setup_channel_admin
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
-from coworker.brain.factory import api_dialect, build_provider, resolve_base_url
+from coworker.brain.factory import build_provider
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -42,8 +42,6 @@ from coworker.channels.weixin import (
 )
 from coworker.core.config import (
     Config,
-    LLMConfig,
-    ProviderSpec,
     apply_admin_config_file,
     effective_admin_token,
     effective_communication_token,
@@ -59,7 +57,7 @@ from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
-from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
+from coworker.memory.long_term import LongTermMemory, build_memory_llm_config
 from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
@@ -246,34 +244,6 @@ async def _enqueue_startup_event(
 ) -> None:
     """Retain startup context without waking an agent in passive mode."""
     await inbox_watcher.push(event, wake=not passive_mode)
-
-
-def _resolve_memory_provider(llm_config: LLMConfig, provider: str) -> ProviderSpec | None:
-    providers = llm_config.resolved_providers()
-    by_name = {spec.name: spec for spec in providers}
-    if provider in by_name:
-        return by_name[provider]
-
-    default_provider = by_name.get(llm_config.default_provider)
-    if default_provider is not None and default_provider.type == provider:
-        return default_provider
-
-    matches = [spec for spec in providers if spec.type == provider]
-    return matches[0] if len(matches) == 1 else None
-
-
-def _build_memory_llm_config(config: Config) -> LongTermLLMConfig:
-    provider_name = config.memory.mem0_llm_provider
-    provider = _resolve_memory_provider(config.llm, provider_name)
-    provider_type = provider.type if provider is not None else provider_name
-    configured_base_url = provider.base_url if provider is not None else ""
-    return LongTermLLMConfig(
-        provider=provider_type,
-        api_dialect=api_dialect(provider_type),
-        api_key=provider.api_key if provider is not None else "",
-        model=config.memory.mem0_llm_model,
-        base_url=resolve_base_url(provider_type, configured_base_url) or "",
-    )
 
 
 def _register_providers(brain: Brain, config: Config) -> None:
@@ -484,7 +454,11 @@ async def _main() -> bool:
 
     long_term = LongTermMemory(
         db_path=config.memory.db_path,
-        llm=_build_memory_llm_config(config),
+        llm=build_memory_llm_config(
+            config,
+            active_provider=brain.current_provider_name,
+            active_model=brain.current_model,
+        ),
         embedder_model=config.memory.mem0_embedder_model,
     )
     if setup_required:
@@ -980,6 +954,7 @@ async def _main() -> bool:
         mode_loader=mode_loader,
         desktop_update_sync=desktop_update_sync,
         inherited_config=inherited_config,
+        long_term=long_term,
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,

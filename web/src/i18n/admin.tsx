@@ -421,6 +421,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '启用 Thinking': 'Enable thinking',
   '视觉理解': 'Vision',
   '为纯文本主模型提供图片分析能力。': 'Adds image analysis to a text-only primary model.',
+  '记忆 LLM（mem0 抽取）': 'Memory LLM (mem0 extraction)',
+  '控制记忆提取/去重推断使用的模型；留空跟随主线，修改后立即生效。': 'Model used for memory extraction/dedup inference; leave empty to follow the primary model. Applies immediately.',
   '关闭': 'Off',
   '失败降级链': 'Fallback chain',
   '每行填写 provider 或 provider/model，按从上到下的顺序接棒。': 'Enter provider or provider/model on each line; they take over from top to bottom.',

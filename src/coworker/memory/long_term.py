@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
+from coworker.brain.factory import api_dialect, resolve_base_url
+from coworker.core.config import Config, ProviderSpec
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 from coworker.i18n import tr
 from coworker.memory.chroma_guard import guarded_chroma_client, guarded_chroma_collection
@@ -27,12 +29,85 @@ class LongTermLLMConfig:
     api_key: str = ""
     model: str = "claude-haiku-4-5-20251001"
     base_url: str = ""
+    # 独立 thinking 开关（默认关闭）。mem0 原生不转发思考参数，由
+    # CoworkerOpenAILLM 按 provider 类型注入 extra_body。
+    thinking: bool = False
 
-    def as_mem0_config(self) -> tuple[str, dict[str, str]]:
-        config = {"model": self.model, "api_key": self.api_key}
+    def as_mem0_config(self) -> tuple[str, dict[str, Any]]:
+        config: dict[str, Any] = {"model": self.model, "api_key": self.api_key}
         if self.base_url:
             config[f"{self.api_dialect}_base_url"] = self.base_url
+        # thinking/coworker_provider 仅 openai 方言使用（CoworkerOpenAIConfig 才有
+        # 这些字段）；anthropic 用 AnthropicConfig，混入未知字段会校验失败。
+        if self.api_dialect == "openai":
+            config["thinking"] = self.thinking
+            config["coworker_provider"] = self.provider
         return self.api_dialect, config
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryWriteResult:
+    """显式写记忆的结果。
+
+    - written: 已写入一条新记忆，memory_id 为新 id。
+    - empty: 抽取未产出可写内容（抽取失败、无事实，或 mem0 原生 hash 去重已存在），未写入。
+      去重由 mem0 自身完成，其 add() 不返回被去重的条目，故重复与「无内容」都归为 empty。
+    """
+
+    status: Literal["written", "empty"]
+    memory_id: str = ""
+
+
+def _resolve_memory_provider(llm_config: Any, provider: str) -> ProviderSpec | None:
+    providers = llm_config.resolved_providers()
+    by_name = {spec.name: spec for spec in providers}
+    if provider in by_name:
+        return by_name[provider]
+
+    default_provider = by_name.get(llm_config.default_provider)
+    if default_provider is not None and default_provider.type == provider:
+        return default_provider
+
+    matches = [spec for spec in providers if spec.type == provider]
+    return matches[0] if len(matches) == 1 else None
+
+
+def build_memory_llm_config(
+    config: Config,
+    *,
+    active_provider: str = "",
+    active_model: str = "",
+) -> LongTermLLMConfig:
+    """按「跟随主线」语义解析 mem0 的 LLM 配置。
+
+    - mem0_llm_provider 为空 → active_provider（运行态主线），无则 llm.default_provider。
+    - mem0_llm_model 为空 → 该 provider 的 default_model，无则 active_model，再无则 llm.default_model。
+    与 Brain._resolve_summary_model 一致：跟随运行态 active provider/model，
+    而不是启动默认值（运行时 switch_model 后主线会变）。
+    """
+    provider_name = (
+        config.memory.mem0_llm_provider
+        or active_provider
+        or config.llm.default_provider
+    )
+    provider = _resolve_memory_provider(config.llm, provider_name)
+    provider_type = provider.type if provider is not None else provider_name
+    configured_base_url = provider.base_url if provider is not None else ""
+    model = config.memory.mem0_llm_model
+    if not model:
+        model = (
+            (provider.default_model if provider is not None else None)
+            or active_model
+            or config.llm.default_model
+        )
+    return LongTermLLMConfig(
+        provider=provider_type,
+        api_dialect=api_dialect(provider_type),
+        api_key=provider.api_key if provider is not None else "",
+        model=model,
+        base_url=resolve_base_url(provider_type, configured_base_url) or "",
+        thinking=config.memory.mem0_llm_thinking,
+    )
 
 
 class LongTermMemory:
@@ -120,6 +195,32 @@ class LongTermMemory:
         collection = getattr(vector_store, "collection", None)
         if collection is not None:
             vector_store.collection = guarded_chroma_collection(collection)
+
+    async def reconfigure(self, llm: LongTermLLMConfig) -> None:
+        """运行时替换 mem0 的 LLM 实例（provider/model/thinking），不重建 vector store 与 embedder。
+
+        仅替换 ``self._mem.llm`` 与 ``self._mem.config.llm``，避免重建 Chroma 连接
+        （会与 recent_activity 共享的 client 冲突）。未初始化（setup 模式）时只记录配置，
+        待 :meth:`initialize` 时生效。
+        """
+        self._llm = llm
+        if self._mem is None:
+            logger.info("Long-term memory not initialized; deferred LLM reconfiguration")
+            return
+        from mem0.utils.factory import LlmFactory
+
+        from coworker.memory.mem0_adapters import register_mem0_adapters
+
+        register_mem0_adapters()
+        provider, config_dict = llm.as_mem0_config()
+        new_llm = LlmFactory.create(provider, config_dict)
+        self._mem.llm = new_llm
+        self._mem.config.llm.provider = provider
+        self._mem.config.llm.config = config_dict
+        # 换 LLM 后旧 hook 已挂在新实例上，需要重装到新实例。
+        self._usage_hook_installed = False
+        self._install_usage_hook()
+        logger.info(f"Long-term memory LLM reconfigured: provider={llm.provider} model={llm.model}")
 
     def add_usage_listener(self, fn: _UsageListener) -> None:
         self._usage_listeners.append(fn)
@@ -317,7 +418,7 @@ class LongTermMemory:
         category: str = "general",
         tags: list[str] | None = None,
         source_timestamp: datetime | None = None,
-    ) -> str:
+    ) -> MemoryWriteResult:
         if self._mem is None:
             raise RuntimeError("LongTermMemory not initialized")
         metadata: dict = {
@@ -325,6 +426,8 @@ class LongTermMemory:
             "tags": json.dumps(tags or []),
             "source_timestamp": (source_timestamp or datetime.now()).isoformat(),
         }
+        # 去重交给 mem0 原生 hash 去重（基于抽取文本 md5），add() 不返回被去重的条目；
+        # 全部去重/未产出时 results 为空，统一按 empty 上报，避免假报成功。
         async with self._write_lock:
             result = await self._mem.add(
                 messages=[{"role": "user", "content": content}],
@@ -333,8 +436,12 @@ class LongTermMemory:
             )
         ids = [r["id"] for r in result.get("results", []) if "id" in r]
         memory_id = ids[0] if ids else ""
-        logger.debug(f"Memory written [{category}]: {content[:60]}...")
-        return memory_id
+        if memory_id:
+            logger.debug(f"Memory written [{category}]: {content[:60]}...")
+            return MemoryWriteResult(status="written", memory_id=memory_id)
+        # add 返回空：抽取未产出内容（抽取失败、无事实），或 mem0 去重已存在。
+        logger.debug(f"Memory not stored (empty extraction) [{category}]: {content[:60]}...")
+        return MemoryWriteResult(status="empty")
 
     async def add_conversation(self, messages: list) -> None:
         """将一段对话批量传给 mem0，由其自动提炼并存储事实。"""

@@ -50,6 +50,7 @@ def _client(
     relay_client=None,
     persona: bool = False,
     usage_stats=None,
+    long_term=None,
 ):
     config = Config.model_validate(
         {
@@ -71,6 +72,13 @@ def _client(
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
         refresh_system_prompt=MagicMock(),
     )
+    _brain_snapshot = {
+        "providers": ["openai"],
+        "active": {"provider": "openai", "model": "gpt-5.2"},
+        "summary": {"provider": "", "model": "", "thinking": False},
+        "fallbacks": [],
+        "vision": {"provider": "", "model": "", "thinking": True, "enabled": False},
+    }
     brain = SimpleNamespace(
         active_provider=object(),
         current_provider_name="openai",
@@ -78,6 +86,8 @@ def _client(
         set_max_tokens=lambda value: None,
         list_providers=lambda: [],
         upsert_provider=AsyncMock(),
+        model_config_snapshot=lambda: _brain_snapshot,
+        update_model_config=AsyncMock(return_value=_brain_snapshot),
     )
     person_store = PersonStore(tmp_path / "persons.json") if persona else None
     persona_cards = PersonaCard() if persona else None
@@ -94,6 +104,7 @@ def _client(
         person_store=person_store,
         persona_cards=persona_cards,
         usage_stats=usage_stats,
+        long_term=long_term,
     )
     admin.setup_channel_admin(channel_modules or ChannelModuleRegistry())
     app = FastAPI()
@@ -897,6 +908,78 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     applied = runner.reconfigure.await_args.args[0]
     assert applied.ws_url == "wss://wecom.example/ws"
     assert applied.secret == "existing"
+
+
+def test_mem0_llm_config_hot_applies_and_reconfigures(tmp_path):
+    long_term = SimpleNamespace(reconfigure=AsyncMock())
+    client, config = _client(tmp_path, long_term=long_term)
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    for path in (
+        "memory.mem0_llm_provider",
+        "memory.mem0_llm_model",
+        "memory.mem0_llm_thinking",
+    ):
+        assert path in body["hot_reloadable"]
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "memory": {
+                    "mem0_llm_provider": "qwen",
+                    "mem0_llm_model": "qwen3.6-flash",
+                    "mem0_llm_thinking": True,
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    long_term.reconfigure.assert_awaited_once()
+    applied = long_term.reconfigure.await_args.args[0]
+    assert applied.provider == "qwen"
+    assert applied.model == "qwen3.6-flash"
+    assert applied.thinking is True
+    assert config.memory.mem0_llm_model == "qwen3.6-flash"
+
+
+def test_model_orchestration_reads_and_updates_mem0(tmp_path):
+    long_term = SimpleNamespace(reconfigure=AsyncMock())
+    client, config = _client(tmp_path, long_term=long_term)
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/model", headers=headers).json()
+    assert body["mem0"] == {"provider": "", "model": "", "thinking": False}
+
+    response = client.patch(
+        "/api/admin/model",
+        headers=headers,
+        json={
+            "summary": {"provider": "", "model": "", "thinking": False},
+            "fallbacks": [],
+            "vision": {"provider": "", "model": "", "thinking": True},
+            "mem0": {"provider": "qwen", "model": "qwen3.6-flash", "thinking": True},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mem0"] == {
+        "provider": "qwen",
+        "model": "qwen3.6-flash",
+        "thinking": True,
+    }
+    long_term.reconfigure.assert_awaited_once()
+    applied = long_term.reconfigure.await_args.args[0]
+    assert applied.provider == "qwen"
+    assert applied.model == "qwen3.6-flash"
+    assert applied.thinking is True
+    assert config.memory.mem0_llm_provider == "qwen"
 
 
 def test_channel_access_config_hot_applies_with_direct_channel_shape(tmp_path):

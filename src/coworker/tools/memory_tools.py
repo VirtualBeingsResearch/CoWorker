@@ -729,11 +729,18 @@ class ManageMemoryTool(Tool):
                         content=tr("memory.query.write_needs_content"),
                         is_error=True,
                     )
-                new_id = await self._memory.write(content, category=category, tags=tags or [])
+                result = await self._memory.write(
+                    content, category=category, tags=tags or []
+                )
+                if result.status == "empty":
+                    return ToolResult(
+                        tool_call_id="",
+                        content=tr("memory.manage.not_stored"),
+                    )
                 return ToolResult(
                     tool_call_id="",
-                    content=tr("memory.query.remembered", id=new_id),
-                    recalled_memory_ids=[new_id] if new_id else [],
+                    content=tr("memory.query.remembered", id=result.memory_id),
+                    recalled_memory_ids=[result.memory_id],
                 )
             elif action == "update":
                 if not memory_id:

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from coworker.application import _build_memory_llm_config, _register_providers
+from coworker.application import _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
@@ -17,7 +17,7 @@ from coworker.core.model_config import (
     load_runtime_model_config,
     write_runtime_model_config,
 )
-from coworker.memory.long_term import LongTermLLMConfig
+from coworker.memory.long_term import LongTermLLMConfig, build_memory_llm_config
 
 
 def _llm(**kwargs) -> LLMConfig:
@@ -283,7 +283,7 @@ def test_memory_llm_uses_default_named_provider_endpoint():
         }
     )
 
-    assert _build_memory_llm_config(config) == LongTermLLMConfig(
+    assert build_memory_llm_config(config) == LongTermLLMConfig(
         provider="openai",
         api_dialect="openai",
         api_key="secret",
@@ -314,10 +314,50 @@ def test_memory_llm_uses_same_default_endpoint_as_brain():
         }
     )
 
-    memory_llm = _build_memory_llm_config(config)
+    memory_llm = build_memory_llm_config(config)
 
     assert memory_llm.api_dialect == "openai"
     assert memory_llm.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_memory_llm_follows_runtime_active_provider_when_unset():
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "deepseek",
+                "default_model": "deepseek-v4-pro",
+                "providers_file": "",
+                "managed_providers": [
+                    {
+                        "name": "deepseek",
+                        "type": "deepseek",
+                        "api_key": "vllm-key",
+                        "base_url": "http://vllm.internal.example:8000/v1",
+                        "default_model": "self-hosted-vllm-model",
+                    },
+                    {
+                        "name": "deepseek-official",
+                        "type": "deepseek",
+                        "api_key": "official-key",
+                        "default_model": "",
+                    },
+                ],
+            },
+            # mem0 未显式配置：跟随运行态 active provider/model，而非启动默认。
+            "memory": {},
+        }
+    )
+
+    llm = build_memory_llm_config(
+        config,
+        active_provider="deepseek-official",
+        active_model="deepseek-v4-flash",
+    )
+
+    assert llm.provider == "deepseek"
+    assert llm.api_key == "official-key"
+    assert llm.base_url == "https://api.deepseek.com"
+    assert llm.model == "deepseek-v4-flash"
 
 
 @pytest.mark.parametrize(
