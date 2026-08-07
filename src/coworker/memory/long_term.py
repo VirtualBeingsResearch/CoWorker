@@ -16,6 +16,7 @@ from coworker.core.config import Config, ProviderSpec
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 from coworker.i18n import tr
 from coworker.memory.chroma_guard import guarded_chroma_client, guarded_chroma_collection
+from coworker.memory.tokenizer_guard import guarded_tokenizer
 
 _AGENT_USER_ID = "agent"
 _DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
@@ -164,7 +165,7 @@ class LongTermMemory:
             },
         }
         self._mem = AsyncMemory.from_config(config)
-        self._guard_chroma_access()
+        self._guard_shared_access()
         self._usage_hook_installed = False
         self._install_usage_hook()
         encoder = getattr(self.embedder, "model", self.embedder)
@@ -174,27 +175,53 @@ class LongTermMemory:
             f"embedder={self._embedder_model}, device={device}"
         )
 
-    def _guard_chroma_access(self) -> None:
-        """Serialize all access to the shared Chroma connection under one lock.
+    def _guard_shared_access(self) -> None:
+        """Serialize access to the shared Chroma connection and shared tokenizer.
 
-        chromadb >= 1.x is backed by a Rust connection that is not thread-safe;
-        two threads entering the same client at once raise
-        ``RuntimeError: Already borrowed``. mem0's vector store runs on executor
-        threads, and ``RecentActivityMemory`` reuses this same client, so every
-        Chroma call must acquire the shared lock from
-        :mod:`coworker.memory.chroma_guard` in its own thread.
+        Both chromadb's connection and the ``tokenizers`` Rust tokenizer are
+        backed by a non-thread-safe Rust object; two threads entering either at
+        once raise ``RuntimeError: Already borrowed``. mem0's vector store and
+        embedder run on executor threads, and ``RecentActivityMemory`` reuses
+        this same Chroma client and ``SentenceTransformer``, so every call must
+        acquire the shared lock from the guarding module in its own thread.
         """
         if self._mem is None:
             return
         vector_store = getattr(self._mem, "vector_store", None)
-        if vector_store is None:
+        if vector_store is not None:
+            client = getattr(vector_store, "client", None)
+            if client is not None:
+                vector_store.client = guarded_chroma_client(client)
+            collection = getattr(vector_store, "collection", None)
+            if collection is not None:
+                vector_store.collection = guarded_chroma_collection(collection)
+        self._guard_tokenizer_access()
+
+    def _guard_tokenizer_access(self) -> None:
+        """Wrap the shared Rust tokenizer so every encode/tokenize serializes.
+
+        The ``SentenceTransformer`` embedded inside mem0's embedder carries a
+        ``transformers`` fast tokenizer whose backend is a ``tokenizers`` Rust
+        object. ``RecentActivityMemory`` reuses the very same model and calls
+        ``tokenizer.encode`` directly for chunking, so a batch ``encode_batch``
+        (shared borrow, GIL released) racing another thread's
+        ``enable_truncation`` (exclusive borrow) raises ``Already borrowed``.
+        Installing the guard on ``wrapper._tokenizer`` covers every caller that
+        goes through the wrapper (mem0's embed, recent-activity's encode and
+        tokenizer.encode) with one lock.
+        """
+        embedding_model = getattr(self._mem, "embedding_model", None)
+        model = getattr(embedding_model, "model", None)
+        if model is None:
             return
-        client = getattr(vector_store, "client", None)
-        if client is not None:
-            vector_store.client = guarded_chroma_client(client)
-        collection = getattr(vector_store, "collection", None)
-        if collection is not None:
-            vector_store.collection = guarded_chroma_collection(collection)
+        tokenizer = getattr(model, "tokenizer", None)
+        if tokenizer is None:
+            return
+        rust = getattr(tokenizer, "_tokenizer", None)
+        if rust is None:
+            return
+        tokenizer._tokenizer = guarded_tokenizer(rust)
+        logger.debug("Shared embedding tokenizer wrapped in lock guard")
 
     async def reconfigure(self, llm: LongTermLLMConfig) -> None:
         """运行时替换 mem0 的 LLM 实例（provider/model/thinking），不重建 vector store 与 embedder。
