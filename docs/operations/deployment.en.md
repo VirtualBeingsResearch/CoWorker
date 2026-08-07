@@ -35,7 +35,7 @@ current checkout as both the running source and the Agent workspace. The checked
 - uses `restart: unless-stopped`;
 - requests `/status` every 30 seconds for health;
 - keeps runtime state and the model cache in separate named volumes;
-- uses the published strict-offline image to supply Linux, Python, browser dependencies, and a
+- uses the published `offline` image to supply Linux, Python, browser dependencies, and a
   preloaded embedding model.
 
 ```bash
@@ -46,11 +46,17 @@ docker compose ps
 docker compose logs --tail 100 coworker
 ```
 
+Before the first start, inspect `data/` in the checkout. If it is a non-empty directory left by a
+source run, the entrypoint refuses to replace it. Follow
+[Upgrading and Migration](upgrading.en.md#migrate-an-existing-checkout-data-directory) to transfer
+it into the `coworker-state` volume first.
+
 Restart the container after source changes. Rebuild the execution environment only after changing
 `pyproject.toml`, `uv.lock`, or image-level system dependencies; see
 [Develop with the offline image](../development/development.en.md#develop-with-the-offline-image).
-Restrict `.env` to the runtime account and pin `COWORKER_IMAGE` to the version tag or digest you
-intend to run instead of relying on an irreproducible `latest` state.
+Restrict `.env` to the runtime account. A long-running deployment may keep using the default
+`offline` release tag. When reproducible upgrades or an exact rollback target are required, pin
+`COWORKER_IMAGE` to a version tag or digest and retain the pre-upgrade data backup.
 
 ## Source process management
 

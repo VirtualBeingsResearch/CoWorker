@@ -187,8 +187,10 @@ in separate named volumes.
 
 </details>
 
-The strict-offline image does not fetch missing content from Hugging Face or Git remotes at
-runtime. Your configured conversation-model provider may still require network access.
+The `offline` image blocks automatic downloads of missing Hugging Face content and prevents the
+startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
+Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
+integrations may still access the network.
 
 > [!NOTE]
 > Intel macOS cannot install the current PyTorch wheel. Run the service through the
@@ -244,58 +246,13 @@ with Codex or Claude Code, or connect your own tools through
 > recovery, continue with the [First Run guide](docs/getting-started/README.en.md). See the
 > [Configuration Reference](docs/operations/configuration.en.md) for Docker images, environment
 > variables, and persistent volumes.
-
-## Sync upstream source
-
-Coworker can edit and commit the repository source directly, so your checkout may contain local
-commits maintained by you or by her. Sync upstream regularly to keep the branches from drifting too
-far apart. You can do this manually or ask Coworker to inspect and perform the sync; we recommend
-the latter because she can first check the working tree, branch, and remotes, review incoming
-changes, resolve straightforward conflicts, and run the relevant checks. Any operation that would
-discard or overwrite local work should require your confirmation.
-
-The following commands assume the upstream remote is named `upstream`. Add it once if it is not
-configured yet:
-
-```bash
-git remote add upstream <upstream-repository-url>
-```
-
-Run these commands in the local branch you want to update:
-
-```bash
-git status --short
-git fetch upstream
-git merge upstream/main
-```
-
-Replace `main` if the upstream repository uses a different default branch. If a direct clone's
-`origin` already points upstream, use `origin/main` instead; no additional remote is needed.
-
-When started directly from the Docker image, `/app` is also a complete Git repository and its
-remote configuration persists in the workspace volume. The user does not need to enter the
-container and run Git commands first; they can give Coworker their repository URL directly:
-
-> Inspect the current working tree, branch, and remotes. Configure `<my-repository-url>` as
-> `origin`; if the existing `origin` points to the official Coworker repository, preserve it as
-> `upstream`. Fetch both remotes, preserve every local commit and modification, safely integrate
-> `upstream/main` into the current branch, run the relevant checks, then push the current branch to
-> `origin`. Ask me before any force-push, discard, overwrite, or conflict whose resolution is not
-> clear.
-
-The repository URL must not contain a token, password, or private key. Public repositories need no
-extra credentials for fetching. Configure dedicated least-privilege Git credentials in the
-container before accessing a private repository or pushing, and never send credentials through
-chat.
-
-For automatic syncing, name both the desired frequency and the local branch to maintain, then ask
-Coworker to set a repeating reminder. This prevents the task from using whichever branch happens to
-be checked out when it runs. For example:
-
-> Every week, inspect the current repository and safely merge `upstream/main` into `<local-branch>`. Preserve local commits, resolve only straightforward conflicts, run the relevant checks, and report the result. Ask me before discarding or overwriting any local work.
-
-This workflow updates only the local branch. To update your own remote repository too, ask Coworker
-to confirm the target remote and branch before running `git push`.
+>
+> After a direct Docker start, `/app` is also a persistent Git workspace. To manage it through your
+> own repository, tell Coworker: “Configure `<my-repository-url>` as `origin`, preserve the official
+> repository as `upstream`, then inspect, safely synchronize, and push the current branch. Ask me
+> before any overwrite, discard, or force-push.” See
+> [Upgrading and Migration](docs/operations/upgrading.en.md#connect-the-workspace-to-your-repository)
+> for remote layout, credential boundaries, and the complete safe-sync workflow.
 
 ## Data and trust boundaries
 

@@ -25,7 +25,8 @@ Stop Coworker, then account for the locations used by the deployment:
 - `.coworker/`: Skills, Palaces, subconscious modes, and their assets;
 - `.env`, `providers.json`, and configuration injected by external services;
 - the Desktop operating-system data directory containing settings, credentials, indexes, and logs;
-- Docker `coworker-workspace`, `coworker-state`, and `coworker-models` volumes or bind mounts;
+- anonymous workspace, state, and model volumes created by a direct Docker run, or Compose
+  `coworker-workspace`, `coworker-state`, and `coworker-models` volumes and bind mounts;
 - the Relay bbolt database, signing key, `.env`, and deployment files.
 
 Backups may contain model keys, administrator tokens, Relay private keys, conversations, and file
@@ -75,11 +76,49 @@ time. Neither mode restores long-term memory, Skills, or configuration.
 
 ## Docker and Relay
 
+### Run the Docker image directly
+
+A direct `docker run` creates anonymous volumes for the workspace, runtime state, and model cache.
+They survive container restarts, but lose their easy-to-recognize association after the container
+is removed. Stop writes, inspect the actual volume names, then use a temporary container to archive
+the workspace and state onto the host:
+
+```bash
+umask 077
+mkdir -p coworker-backup
+docker stop coworker
+docker inspect coworker \
+  --format '{{range .Mounts}}{{println .Destination "->" .Name}}{{end}}'
+docker run --rm \
+  --volumes-from coworker \
+  --mount type=bind,src="$PWD/coworker-backup",dst=/backup \
+  --entrypoint sh \
+  ghcr.io/virtualbeingsresearch/coworker:offline \
+  -ec 'tar -C /app --exclude=./data -czf /backup/workspace.tgz .; tar -C /var/lib/coworker -czf /backup/state.tgz .'
+```
+
+`workspace.tgz` contains Git history, uncommitted files, `.coworker/`, and workspace
+configuration. `state.tgz` contains identity, memory, tasks, logs, attachments, administrator
+tokens, and possible model keys. The command excludes the `/app/data` link so state is not stored
+twice. The default `offline` image can repopulate its model cache; if you added a custom model that
+cannot be recreated, archive `/opt/huggingface` separately with the same pattern.
+
+After backup, use `docker start -a coworker` to continue with the original container. See
+[Upgrading and Migration](upgrading.en.md#upgrade-a-direct-docker-run) for image replacement,
+volume reuse, and migration to Compose. Do not run `docker rm -v coworker` before verifying the
+backup.
+
+### Docker Compose
+
 Stop Coworker with `docker compose stop`, then resolve its actual mounts with
 `docker compose config`, `docker volume ls`, and `docker volume inspect <name>`. A complete backup
 must cover both the host checkout used as the workspace (or the legacy `coworker-workspace`
 volume) and the state volume. The model cache is rebuildable, although retaining it shortens
-recovery. Do not back up only the container writable layer.
+recovery. Do not back up only the container writable layer. For restore, create the empty state
+volume with `docker compose create --no-build`, import the backup before Coworker starts, and then
+verify that workspace and state come from the same backup point.
+
+### Relay
 
 Create a consistent Relay database snapshot with its own command:
 

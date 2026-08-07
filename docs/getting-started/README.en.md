@@ -45,7 +45,10 @@ You do not need to clone the repository. The image includes the Coworker source,
 environment, Chromium, FFmpeg, and embedding model. Docker automatically creates data volumes for
 the Git workspace, runtime state, and model cache. The command stays attached so you can read the
 administrator token and logs. After stopping it with `Ctrl+C`, run `docker start -a coworker` to
-start the same container again. For long-running use, follow
+start the same container again. Do not remove this container or run `docker rm -v` before recording
+its volume names or creating a backup; see
+[Inspect and back up a direct Docker run](../operations/backup-and-restore.en.md#run-the-docker-image-directly).
+For long-running use, you can migrate to
 [Long-running Deployment](../operations/deployment.en.md#docker-compose-plus-the-current-checkout)
 and use the Compose configuration to manage volumes, restart policy, and backups explicitly.
 
@@ -77,9 +80,17 @@ first run. Restart the container after source changes. When dependency or lock f
 follow [Develop with the offline image](../development/development.en.md#develop-with-the-offline-image)
 to rebuild the execution environment.
 
-The strict-offline image does not fetch missing content from Hugging Face or Git remotes at
-runtime. Your configured conversation-model provider may still require network access. Do not
-delete volumes as a first response to an ordinary startup problem.
+> [!WARNING]
+> On startup, Compose points `/app/data` at the separate state volume. If the current checkout has
+> a non-empty `data/` directory created by a source run, the entrypoint exits instead of replacing
+> it. Follow [Migrate an existing checkout data directory](../operations/upgrading.en.md#migrate-an-existing-checkout-data-directory)
+> to preserve and transfer that data; do not delete it merely to make startup succeed.
+
+The `offline` image blocks automatic downloads of missing Hugging Face content and prevents the
+startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
+Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
+integrations may still access the network. Do not delete volumes as a first response to an
+ordinary startup problem.
 
 After startup, the default management URL is <http://127.0.0.1:8000/admin>. The Docker commands
 above bind the host side only to `127.0.0.1:8000`, and a source run also binds the API to
@@ -200,10 +211,11 @@ restart-required settings.
 
 ## Next steps and recovery
 
-Runtime data lives in `data/` by default, while user capability content normally
-lives in `.coworker/`. Before long-term use, read
-[Data and Trust Boundaries](../architecture/data-boundaries.en.md) and establish
-a backup policy for both the workspace and runtime state.
+For a source run, runtime data lives in `data/` by default, while user capability content normally
+lives in `.coworker/`. In a container, they live in the corresponding workspace and state volume.
+Before long-term use, read [Data and Trust Boundaries](../architecture/data-boundaries.en.md) and
+[Backup and Restore](../operations/backup-and-restore.en.md), then establish a backup policy for
+both the workspace and runtime state.
 
 When startup, setup, model calls, or client connections fail, start with
 [Troubleshooting](../operations/troubleshooting.en.md). Do not immediately

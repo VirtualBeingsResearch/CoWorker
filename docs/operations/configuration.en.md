@@ -182,15 +182,19 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 
 By default, Compose mounts the current local Git checkout directly at `/app`, repository
 initialization never overwrites it, and the entrypoint links `/app/data` to the separate
-`coworker-state` volume. With `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, Docker copies the
+`coworker-state` volume. If the checkout already has a non-empty `data/`, the entrypoint refuses to
+overwrite it; follow [Upgrading and Migration](upgrading.en.md#migrate-an-existing-checkout-data-directory)
+to import it into the state volume first. With `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, Docker copies the
 image's `/app` tree into the named volume when it is first created and the entrypoint attaches Git
 metadata from the bundle.
 After an image update, the entrypoint automatically fast-forwards only a clean, non-divergent
 managed workspace that remains on the image's default branch; local changes, commits, other
 branches, and divergent history remain untouched. Other repository settings apply only before the
-workspace is initialized. The strict offline image refuses network access through
-`COWORKER_REPOSITORY_URL`. Generate private-repository bundles in a controlled build environment;
-do not put credentials in URLs or image build arguments.
+workspace is initialized. The `offline` image prevents the startup initializer from accessing the
+network through `COWORKER_REPOSITORY_URL`, but it is not a network sandbox and does not block
+user-authorized Agent requests that use Git, search, a browser, or integrations. Generate
+private-repository bundles in a controlled build environment; do not put credentials in URLs or
+image build arguments.
 
 ## Supported models
 

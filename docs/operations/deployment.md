@@ -33,7 +33,7 @@ Agent 工作区。仓库内 `docker-compose.yaml` 会：
 - 使用 `restart: unless-stopped`；
 - 每 30 秒请求 `/status` 进行健康检查；
 - 将运行状态和模型缓存保存在独立命名卷中；
-- 使用预置 embedding 模型的严格离线发布镜像提供 Linux、Python 和浏览器依赖。
+- 使用预置 embedding 模型的 `offline` 发布镜像提供 Linux、Python 和浏览器依赖。
 
 ```bash
 git clone https://github.com/VirtualBeingsResearch/CoWorker.git
@@ -43,10 +43,15 @@ docker compose ps
 docker compose logs --tail 100 coworker
 ```
 
+首次启动前检查 checkout 中的 `data/`。如果它是源码运行留下的非空目录，
+入口脚本会拒绝覆盖；先按[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)
+将其转移到 `coworker-state` 卷。
+
 源码修改后重启容器即可。只有修改 `pyproject.toml`、`uv.lock` 或镜像中的系统依赖时，
 才需要按[开发指南](../development/development.md#使用-offline-镜像开发)重建执行环境。
-将 `.env` 权限限制为运行账户可读，并固定 `COWORKER_IMAGE` 到准备运行的版本标签或
-digest，不要依赖无法复现的 `latest` 状态。
+将 `.env` 权限限制为运行账户可读。长期运行可继续使用默认的 `offline`
+发布标签；如果部署要求可重现升级或精确回滚，再将 `COWORKER_IMAGE` 固定到版本标签或
+digest，并保留升级前的数据备份。
 
 ## 源码进程管理
 

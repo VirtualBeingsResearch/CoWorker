@@ -184,8 +184,9 @@ docker compose up --pull always --no-build
 
 </details>
 
-严格离线镜像不会在运行时从 Hugging Face 或 Git 远端补齐内容；你配置的对话模型服务
-仍可能需要联网。
+`offline` 镜像会阻止自动下载缺失的 Hugging Face 内容，并拒绝启动初始化器从 Git
+远端克隆工作区，但它不是网络沙箱：你配置的模型服务，以及你明确让 Agent 执行的 Git、搜索、
+浏览器或集成任务仍可能联网。
 
 > [!NOTE]
 > Intel macOS 无法安装当前版本的 PyTorch wheel，请通过
@@ -235,50 +236,12 @@ curl -X POST http://127.0.0.1:8000/messages \
 > 想完整了解运行方式、初始化检查、客户端选择和故障恢复，请继续阅读
 > [首次运行指南](docs/getting-started/README.md)。Docker 镜像、环境变量和持久卷的
 > 详细说明见[配置参考](docs/operations/configuration.md)。
-
-## 同步上游源码
-
-Coworker 可以直接修改并提交当前仓库的源码，因此你的 checkout 可能长期包含
-由你或她维护的本地提交。请定期同步上游，避免分支持续漂移。你可以手动同步，
-也可以让 Coworker 检查并完成同步；我们更推荐后者，因为她可以先检查工作区、
-分支和远端，审阅上游变更，处理明确的冲突，并运行相关检查。任何需要丢弃或
-覆盖本地改动的操作都应先征求你的确认。
-
-以下假设上游远端名为 `upstream`；尚未配置时只需添加一次：
-
-```bash
-git remote add upstream <上游仓库 URL>
-```
-
-在需要更新的本地分支中执行：
-
-```bash
-git status --short
-git fetch upstream
-git merge upstream/main
-```
-
-如果上游默认分支不是 `main`，请替换为实际分支名；如果直接克隆的 `origin`
-就是上游，则可以使用 `origin/main`，无需额外添加 remote。
-
-直接通过 Docker 镜像启动时，容器中的 `/app` 也是完整 Git 仓库，remote 配置会随工作区
-数据卷保留。用户不需要先进入容器执行 Git 命令，可以直接把自己的仓库地址告诉 Coworker：
-
-> 检查当前工作区、分支和 remote。把 `<我的仓库 URL>` 配置为 `origin`；如果现有 `origin`
-> 指向 Coworker 官方仓库，将它保留为 `upstream`。获取两边的更新，保留所有本地提交和
-> 修改，把 `upstream/main` 安全集成到当前分支，运行相关检查，然后把当前分支推送到
-> `origin`。任何需要强制推送、丢弃、覆盖或无法明确解决的冲突先询问我。
-
-仓库 URL 不应包含 Token、密码或私钥。公开仓库拉取无需额外凭据；私有仓库或推送操作需要
-先在容器中配置专用、最小权限的 Git 凭据，不要把凭据发送到聊天中。
-
-需要自动同步时，请在指令中写明频率和要维护的本地分支，让 Coworker 设置循环
-提醒，避免任务触发时误用另一个当前分支。例如：
-
-> 每周检查当前仓库，并安全地把 `upstream/main` 合并到 `<本地分支>`：保留本地提交，处理可以明确判断的冲突，运行相关检查并汇报结果；任何需要丢弃或覆盖本地改动的操作先询问我。
-
-上述流程只更新本地分支；如需同步自己的远端仓库，再让 Coworker 确认目标
-remote 和分支后执行 `git push`。
+>
+> 直接通过 Docker 启动后，`/app` 也是会持久保留的 Git 工作区。想改用自己的
+> 仓库管理时，可以直接对 Coworker 说：“把 `<我的仓库 URL>` 配置为 `origin`，
+> 保留官方仓库为 `upstream`，检查后安全同步并推送当前分支；任何需要覆盖、
+> 丢弃或强制推送的操作先询问我。”远端配置、凭据边界和安全同步步骤见
+> [升级与迁移](docs/operations/upgrading.md#将工作区关联到自己的仓库)。
 
 ## 数据与边界
 

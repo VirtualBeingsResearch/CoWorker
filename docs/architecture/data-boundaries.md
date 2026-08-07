@@ -33,9 +33,11 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 
 Compose 默认把宿主机的 Git checkout 挂载为工作区，并把运行数据和模型缓存分别保存在
 `coworker-state` 与 `coworker-models` 卷。直接运行镜像或显式设置
-`COWORKER_WORKSPACE_SOURCE=coworker-workspace` 时，严格离线镜像会从内置 Git bundle
-初始化工作区卷，不在运行时联系仓库远端。删除卷或宿主机 checkout 会删除对应的代码历史、
-状态或模型缓存。
+`COWORKER_WORKSPACE_SOURCE=coworker-workspace` 时，`offline` 镜像会从内置 Git bundle
+初始化工作区卷，启动初始化器不会联系仓库远端，运行时也不会自动下载缺失的
+Hugging Face 内容。这不是容器级网络隔离：模型 Provider，以及用户明确授权的
+Agent Git、搜索、浏览器和集成任务仍可能访问网络。
+删除卷或宿主机 checkout 会删除对应的代码历史、状态或模型缓存。
 
 ## 可能离开本机的数据
 

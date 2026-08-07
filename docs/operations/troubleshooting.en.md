@@ -204,8 +204,9 @@ automatically; that is part of the security boundary.
 
 - Code, state, and model cache may use different volumes; resolve actual mounts
   first.
-- A strict offline image does not fetch missing content from Hugging Face or Git
-  remotes at runtime.
+- The `offline` image blocks automatic downloads of missing Hugging Face content and prevents the
+  startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
+  Model services and user-authorized Agent network tools may still connect.
 - The preloaded embedding model must match runtime configuration.
 - Rebuild the dependency environment after changing `pyproject.toml` or
   `uv.lock`.

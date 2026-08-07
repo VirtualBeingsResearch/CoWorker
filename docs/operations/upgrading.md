@@ -19,6 +19,41 @@
 > 不要在工作区存在未确认修改时强制同步、重置或覆盖代码。Coworker 自己也可能在当前
 > checkout 中留下分支和提交。
 
+## 将工作区关联到自己的仓库
+
+无论是源码、Compose 还是直接 Docker 运行，Coworker 使用的工作区都是完整 Git
+仓库。直接 Docker 的 `/app` 及其 remote 配置保存在工作区卷中，不需要先进入
+容器手动配置。想用自己的仓库管理后续修改时，推荐将它设为 `origin`，将
+Coworker 官方仓库或其他上游设为 `upstream`。如果你只跟踪一个仓库，保留
+`origin` 即可。
+
+可以直接把仓库地址和目标分支告诉 Coworker：
+
+> 检查当前工作区、分支和 remote。把 `<我的仓库 URL>` 配置为 `origin`；如果现有
+> `origin` 指向 Coworker 官方仓库，将它保留为 `upstream`。获取两边的更新，保留
+> 所有本地提交和修改，把 `upstream/main` 安全集成到当前分支，运行相关检查，
+> 然后把当前分支推送到 `origin`。任何需要强制推送、丢弃、覆盖或无法明确解决的
+> 冲突先询问我。
+
+手动检查时，先确认工作区和现有远端，再按实际仓库调整：
+
+```bash
+git status --short
+git branch --show-current
+git remote -v
+git remote add upstream <上游仓库 URL>
+git fetch upstream
+git merge upstream/main
+```
+
+如果默认分支不是 `main`，请替换为实际分支名；已有同名 remote 时不要再执行
+`git remote add`。仓库 URL 不应包含 Token、密码或私钥。公开仓库拉取无需额外
+凭据；私有仓库或推送操作需要事先在容器或运行账户中配置专用、最小权限的
+Git 凭据，不要把凭据发送到聊天中。
+
+需要定期同步时，在指令中写明频率、要维护的本地分支、上游分支和是否推送，
+避免任务触发时误用另一个当前分支。
+
 ## 让搭档升级自己
 
 对于源码 checkout，推荐先让 Coworker 自己检查并执行升级。她可以使用文件、代码和命令
@@ -69,6 +104,56 @@ uv run coworker --check
 `--check` 只验证启动环境，不进入持续 Agent 循环。验证通过后再正常启动
 `uv run coworker`，并检查 `/status` 和管理后台诊断。
 
+## 直接 Docker 升级
+
+直接 `docker run` 会为 `/app`、`/var/lib/coworker` 和 `/opt/huggingface`
+创建挂载。升级前先按[备份与恢复](backup-and-restore.md#直接运行-docker-镜像)
+记录卷名并备份工作区和状态。然后保留旧容器，让新容器复用其挂载：
+
+```bash
+docker stop coworker
+docker rename coworker coworker-before-upgrade
+docker pull ghcr.io/virtualbeingsresearch/coworker:offline
+docker run --name coworker \
+  --volumes-from coworker-before-upgrade \
+  -p 127.0.0.1:8000:8000 \
+  -e API__HOST=0.0.0.0 \
+  ghcr.io/virtualbeingsresearch/coworker:offline
+```
+
+工作区处于镜像托管的默认分支、没有本地改动且可快进时，新镜像会从内置
+Git bundle 快进它；本地修改、提交、其他分支和分叉历史都会保留。新容器未验证前
+不要删除 `coworker-before-upgrade` 或备份；但两个容器共用同一状态卷，因此回退旧镜像前
+仍要先确认数据格式兼容，必要时恢复升级前备份。
+
+### 从直接 Docker 迁移到 Compose
+
+迁移前先用备份文档中的命令生成 `workspace.tgz` 和 `state.tgz`。将工作区
+解压到新的宿主机目录，保留旧容器，再创建 Compose 容器并恢复状态：
+
+```bash
+mkdir coworker-compose
+tar -xzf /absolute/path/to/coworker-backup/workspace.tgz -C coworker-compose
+docker stop coworker
+docker rename coworker coworker-direct-backup
+cd coworker-compose
+docker compose pull
+docker compose create --no-build
+docker run --rm \
+  --volumes-from coworker \
+  --mount type=bind,src=/absolute/path/to/coworker-backup,dst=/backup,readonly \
+  --entrypoint sh \
+  ghcr.io/virtualbeingsresearch/coworker:offline \
+  -ec 'tar -C /var/lib/coworker -xzf /backup/state.tgz'
+docker compose up --no-build -d
+docker compose ps
+```
+
+`workspace.tgz` 中已包含 Git 历史、`.coworker/` 和工作区配置，`state.tgz` 则恢复到
+Compose 的独立状态卷。确认身份、记忆、任务和消息都正常后，再决定是否保留
+`coworker-direct-backup` 和密文备份。自定义模型缓存如果不能从镜像重建，还需单独备份
+`/opt/huggingface`。
+
 ## Docker Compose 升级
 
 Compose 默认用当前 checkout 作为工作区，用发布镜像提供执行环境。停止写入并保存备份后，
@@ -85,6 +170,31 @@ docker compose ps
 需要执行 `docker compose build` 和 `docker compose up -d`，而不是继续复用旧执行环境。
 `coworker-state` 和 `coworker-models` 是独立卷；更新或重建容器不会自动迁移、备份或
 删除它们。
+
+### 迁移 checkout 中现有的 `data/`
+
+Compose 入口脚本只会将不存在或空的 `/app/data` 替换为状态卷链接。如果你曾在
+同一 checkout 中通过 `uv run coworker` 运行，`data/` 可能已非空；此时启动会拒绝覆盖，
+而不是静默丢失数据。
+
+停止源码进程，将原目录移到 checkout 之外的受保护位置，再在 Compose 创建的
+状态卷中恢复内容：
+
+```bash
+mv data ../coworker-data-before-compose
+docker compose pull
+docker compose create --no-build
+docker run --rm \
+  --volumes-from coworker \
+  --mount type=bind,src="$PWD/../coworker-data-before-compose",dst=/backup,readonly \
+  --entrypoint sh \
+  ghcr.io/virtualbeingsresearch/coworker:offline \
+  -ec 'cp -a /backup/. /var/lib/coworker/'
+docker compose up --no-build -d
+```
+
+迁移目录包含管理员令牌、模型密钥、对话和附件，应使用只有运行账户可读的位置。
+验证新容器完整后再处理 `../coworker-data-before-compose`；不要在验证前删除唯一副本。
 
 旧版本的 Compose 默认使用 `coworker-workspace` 命名卷。首次升级到以当前 checkout 为
 默认工作区的版本时，该旧卷不会被删除，但会被新的 bind mount 遮住。启动前先通过

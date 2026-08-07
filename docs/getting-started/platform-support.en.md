@@ -14,7 +14,7 @@ as the version authority.
 |---|---|---|
 | Coworker Python service | Python 3.13+ and uv | macOS Apple Silicon, Windows, Linux; use Dev Container or Docker on Intel macOS |
 | browser tool | Playwright Chromium | Debian/Ubuntu may require system libraries through `--with-deps` |
-| Coworker Desktop | Node.js 20+ and stable Rust to build | Windows NSIS, macOS dmg, Linux AppImage/deb targets |
+| Coworker Desktop | Node.js 24.15+ and stable Rust to build | Windows NSIS, macOS dmg, Linux AppImage/deb targets |
 | Explore Lab | Python workspace and Node.js | Local development tool, binding `127.0.0.1:8100` by default |
 | Relay | Go 1.26.5+ to build, or Docker | v1 is single-node; do not share a bbolt volume |
 
