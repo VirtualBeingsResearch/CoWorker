@@ -13,6 +13,7 @@ from loguru import logger
 
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 from coworker.i18n import tr
+from coworker.memory.chroma_guard import guarded_chroma_client, guarded_chroma_collection
 
 _AGENT_USER_ID = "agent"
 _DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
@@ -56,7 +57,12 @@ class LongTermMemory:
 
     @property
     def chroma_client(self) -> Any | None:
-        """Return mem0's Chroma client when the configured vector store exposes one."""
+        """Return mem0's Chroma client when the configured vector store exposes one.
+
+        After :meth:`initialize` the returned client is a lock-guarded proxy
+        (see :mod:`coworker.memory.chroma_guard`), so subsystems that reuse it
+        (e.g. ``RecentActivityMemory``) serialize with mem0's own writes.
+        """
         vector_store = getattr(self._mem, "vector_store", None)
         return getattr(vector_store, "client", None)
 
@@ -83,6 +89,7 @@ class LongTermMemory:
             },
         }
         self._mem = AsyncMemory.from_config(config)
+        self._guard_chroma_access()
         self._usage_hook_installed = False
         self._install_usage_hook()
         encoder = getattr(self.embedder, "model", self.embedder)
@@ -91,6 +98,28 @@ class LongTermMemory:
             f"Long-term memory (mem0) initialized at {self._db_path}, "
             f"embedder={self._embedder_model}, device={device}"
         )
+
+    def _guard_chroma_access(self) -> None:
+        """Serialize all access to the shared Chroma connection under one lock.
+
+        chromadb >= 1.x is backed by a Rust connection that is not thread-safe;
+        two threads entering the same client at once raise
+        ``RuntimeError: Already borrowed``. mem0's vector store runs on executor
+        threads, and ``RecentActivityMemory`` reuses this same client, so every
+        Chroma call must acquire the shared lock from
+        :mod:`coworker.memory.chroma_guard` in its own thread.
+        """
+        if self._mem is None:
+            return
+        vector_store = getattr(self._mem, "vector_store", None)
+        if vector_store is None:
+            return
+        client = getattr(vector_store, "client", None)
+        if client is not None:
+            vector_store.client = guarded_chroma_client(client)
+        collection = getattr(vector_store, "collection", None)
+        if collection is not None:
+            vector_store.collection = guarded_chroma_collection(collection)
 
     def add_usage_listener(self, fn: _UsageListener) -> None:
         self._usage_listeners.append(fn)

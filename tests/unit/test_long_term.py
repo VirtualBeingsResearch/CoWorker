@@ -355,3 +355,52 @@ def test_llm_config_preserves_provider_base_url(
     assert MemoryConfig(
         llm={"provider": resolved_provider, "config": config}
     ).llm.provider == api_dialect
+
+
+class TestChromaAccessGuard:
+    def test_guard_chroma_access_wraps_vector_store(self):
+        from coworker.memory.chroma_guard import _ChromaClientProxy, _ChromaCollectionProxy
+
+        lt = LongTermMemory(db_path="data/_unused")
+        vector_store = MagicMock()
+        vector_store.client = MagicMock()
+        vector_store.collection = MagicMock()
+        lt._mem = MagicMock()
+        lt._mem.vector_store = vector_store
+
+        lt._guard_chroma_access()
+
+        assert isinstance(vector_store.client, _ChromaClientProxy)
+        assert isinstance(vector_store.collection, _ChromaCollectionProxy)
+        # RecentActivityMemory consumes chroma_client; it must be the guarded proxy.
+        assert lt.chroma_client is vector_store.client
+
+    async def test_initialize_guards_shared_chroma_access(self, monkeypatch):
+        import mem0 as mem0_module
+
+        import coworker.memory.mem0_adapters as adapters
+        from coworker.memory.chroma_guard import _ChromaClientProxy, _ChromaCollectionProxy
+
+        class FakeVectorStore:
+            client = MagicMock()
+            collection = MagicMock()
+
+        class FakeMem:
+            vector_store = FakeVectorStore()
+
+        class FakeAsyncMemory:
+            @classmethod
+            def from_config(cls, config):
+                return FakeMem()
+
+        monkeypatch.setattr(mem0_module, "AsyncMemory", FakeAsyncMemory)
+        monkeypatch.setattr(adapters, "register_mem0_adapters", lambda: None)
+
+        lt = LongTermMemory(db_path="data/_unused")
+        await lt.initialize()
+
+        assert isinstance(lt.chroma_client, _ChromaClientProxy)
+        assert isinstance(lt._mem.vector_store.collection, _ChromaCollectionProxy)
+        # Collections returned through the guarded client stay guarded.
+        collection = lt.chroma_client.get_or_create_collection("memories")
+        assert isinstance(collection, _ChromaCollectionProxy)
