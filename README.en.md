@@ -272,6 +272,22 @@ git merge upstream/main
 Replace `main` if the upstream repository uses a different default branch. If a direct clone's
 `origin` already points upstream, use `origin/main` instead; no additional remote is needed.
 
+When started directly from the Docker image, `/app` is also a complete Git repository and its
+remote configuration persists in the workspace volume. The user does not need to enter the
+container and run Git commands first; they can give Coworker their repository URL directly:
+
+> Inspect the current working tree, branch, and remotes. Configure `<my-repository-url>` as
+> `origin`; if the existing `origin` points to the official Coworker repository, preserve it as
+> `upstream`. Fetch both remotes, preserve every local commit and modification, safely integrate
+> `upstream/main` into the current branch, run the relevant checks, then push the current branch to
+> `origin`. Ask me before any force-push, discard, overwrite, or conflict whose resolution is not
+> clear.
+
+The repository URL must not contain a token, password, or private key. Public repositories need no
+extra credentials for fetching. Configure dedicated least-privilege Git credentials in the
+container before accessing a private repository or pushing, and never send credentials through
+chat.
+
 For automatic syncing, name both the desired frequency and the local branch to maintain, then ask
 Coworker to set a repeating reminder. This prevents the task from using whichever branch happens to
 be checked out when it runs. For example:
