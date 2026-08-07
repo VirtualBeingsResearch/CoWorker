@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.7 - Unreleased
+## 0.3.7 - 2026-08-07
 
 - docs(release): finalize v0.3.6 changelog (#137)
 - feat(persona): add optional person sub-mechanism with cards and bindings (#138)
