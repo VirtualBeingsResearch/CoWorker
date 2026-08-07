@@ -28,6 +28,20 @@ function rulesFor(value: Json, channel: string): Record<RuleField, string[]> {
   };
 }
 
+function parsePatterns(raw: string): string[] {
+  return [...new Set(raw.split(/\r?\n/).map(pattern => pattern.trim()).filter(Boolean))];
+}
+
+function appendPatterns(current: string[], raw: string): string[] {
+  const seen = new Set(current);
+  const additions = parsePatterns(raw).filter(pattern => {
+    if (seen.has(pattern)) return false;
+    seen.add(pattern);
+    return true;
+  });
+  return additions.length ? [...current, ...additions] : current;
+}
+
 function PatternList({
   label,
   hint,
@@ -40,11 +54,17 @@ function PatternList({
   onChange: (next: string[]) => void;
 }) {
   const [candidate, setCandidate] = useState('');
+  const [bulkCandidate, setBulkCandidate] = useState('');
   const add = () => {
     const pattern = candidate.trim();
     if (!pattern || value.includes(pattern)) return;
     onChange([...value, pattern]);
     setCandidate('');
+  };
+  const addBulk = () => {
+    const next = appendPatterns(value, bulkCandidate);
+    if (next !== value) onChange(next);
+    setBulkCandidate('');
   };
   return <div className="field string-list-field channel-access-list">
     <span>{t(label)}</span>
@@ -56,6 +76,10 @@ function PatternList({
       <div className="string-list-add">
         <input aria-label={t(label)} value={candidate} onChange={event => setCandidate(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add(); } }} placeholder="*" />
         <button type="button" className="ghost mini" disabled={!candidate.trim() || value.includes(candidate.trim())} onClick={add}><Plus size={14} />{t('添加规则')}</button>
+      </div>
+      <div className="string-list-bulk">
+        <textarea aria-label={t('批量添加规则')} value={bulkCandidate} onChange={event => setBulkCandidate(event.target.value)} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); addBulk(); } }} placeholder={t('每行一条规则，重复项会自动忽略。')} rows={3} />
+        <button type="button" className="ghost mini" disabled={!parsePatterns(bulkCandidate).length} onClick={addBulk}><Plus size={14} />{t('批量添加')}</button>
       </div>
     </div>
     <small>{t(hint)}</small>

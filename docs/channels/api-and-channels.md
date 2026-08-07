@@ -63,7 +63,7 @@ Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`att
 
 ## 信道访问列表
 
-`CHANNEL_ACCESS` 按信道配置 participant 的入站和出站白名单/黑名单；也可以在管理端“信道访问”中修改并立即生效：
+`CHANNEL_ACCESS` 按信道配置 participant 的入站和出站白名单/黑名单；也可以在管理端“信道访问”中修改并立即生效。管理端既可逐条添加，也可在每个列表的批量输入框中粘贴多行规则；每行一条，重复项会自动忽略并追加到当前列表，不会覆盖已有规则：
 
 ```env
 CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["wecom:trusted:blocked"],"outbound_allow":[],"outbound_deny":["wecom:external:*"]},"desktop":{"inbound_allow":[],"inbound_deny":[],"outbound_allow":["coworker-desktop:*:local:*"],"outbound_deny":[]}}

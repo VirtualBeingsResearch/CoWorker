@@ -63,7 +63,7 @@ A Channel declares support for `conversation_id`, `attachments`, and `extra` thr
 
 ## Channel access lists
 
-`CHANNEL_ACCESS` configures inbound and outbound participant allowlists and denylists by channel. The same settings can be changed in **Channel Access** in the administration console and take effect immediately:
+`CHANNEL_ACCESS` configures inbound and outbound participant allowlists and denylists by channel. The same settings can be changed in **Channel Access** in the administration console and take effect immediately. The console supports both one-at-a-time additions and multiline paste in each list; enter one rule per line, and duplicates are ignored and appended to the current list without replacing existing rules:
 
 ```env
 CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["wecom:trusted:blocked"],"outbound_allow":[],"outbound_deny":["wecom:external:*"]},"desktop":{"inbound_allow":[],"inbound_deny":[],"outbound_allow":["coworker-desktop:*:local:*"],"outbound_deny":[]}}

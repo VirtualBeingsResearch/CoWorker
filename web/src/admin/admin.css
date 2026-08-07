@@ -1363,6 +1363,10 @@ html:has(.admin-login),
 .string-list-add input { min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 8px; outline: 0; color: var(--admin-ink); background: white; font: 11px var(--admin-data); }
 .string-list-add input:focus { border-color: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
 .string-list-add button { white-space: nowrap; }
+.string-list-bulk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 9px; border-top: 1px solid var(--admin-line); background: color-mix(in oklch, var(--admin-paper) 52%, var(--admin-surface)); }
+.string-list-bulk textarea { min-width: 0; min-height: 76px; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 8px; outline: 0; color: var(--admin-ink); background: white; font: 11px/1.5 var(--admin-data); resize: vertical; }
+.string-list-bulk textarea:focus { border-color: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
+.string-list-bulk button { align-self: end; white-space: nowrap; }
 .transport-list-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .transport-list-editor > label { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 62px; padding: 10px 12px; border: 1px solid var(--admin-line); border-radius: 10px; background: var(--admin-surface); cursor: pointer; }
 .transport-list-editor > label:has(input:checked) { border-color: color-mix(in oklch, var(--admin-vital) 38%, var(--admin-line)); background: var(--admin-soft); }
