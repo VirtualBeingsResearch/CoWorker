@@ -361,7 +361,7 @@ def test_llm_config_preserves_provider_base_url(
 
 
 class TestChromaAccessGuard:
-    def test_guard_chroma_access_wraps_vector_store(self):
+    def test_guard_shared_access_wraps_vector_store(self):
         from coworker.memory.chroma_guard import _ChromaClientProxy, _ChromaCollectionProxy
 
         lt = LongTermMemory(db_path="data/_unused")
@@ -371,12 +371,38 @@ class TestChromaAccessGuard:
         lt._mem = MagicMock()
         lt._mem.vector_store = vector_store
 
-        lt._guard_chroma_access()
+        lt._guard_shared_access()
 
         assert isinstance(vector_store.client, _ChromaClientProxy)
         assert isinstance(vector_store.collection, _ChromaCollectionProxy)
         # RecentActivityMemory consumes chroma_client; it must be the guarded proxy.
         assert lt.chroma_client is vector_store.client
+
+    def test_guard_shared_access_wraps_shared_tokenizer(self):
+        from coworker.memory.tokenizer_guard import _TokenizerProxy
+
+        lt = LongTermMemory(db_path="data/_unused")
+        embedding_model = MagicMock()
+        model = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer._tokenizer = MagicMock()
+        embedding_model.model = model
+        model.tokenizer = tokenizer
+        lt._mem = MagicMock()
+        lt._mem.embedding_model = embedding_model
+
+        lt._guard_shared_access()
+
+        # The Rust backend used by both mem0's embed and recent-activity's
+        # tokenizer.encode must be the lock-guarded proxy.
+        assert isinstance(tokenizer._tokenizer, _TokenizerProxy)
+
+    def test_guard_shared_access_skips_without_embedder(self):
+        lt = LongTermMemory(db_path="data/_unused")
+        lt._mem = MagicMock()
+        lt._mem.embedding_model = MagicMock()
+        # No model/tokenizer present: guarding must no-op, not raise.
+        lt._guard_shared_access()
 
     async def test_initialize_guards_shared_chroma_access(self, monkeypatch):
         import mem0 as mem0_module
