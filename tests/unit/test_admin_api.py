@@ -1411,6 +1411,16 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
         "locale": "zh-CN",
         "max_tokens": 8192,
         "passive_mode": False,
+        "advanced": {
+            "idle_sleep_seconds": 30,
+            "short_term_max_tokens": 80_000,
+            "compress_ratio": 0.3,
+            "auto_recall_enabled": True,
+            "auto_recall_relevance_threshold": 0.5,
+            "auto_recall_limit": 5,
+            "bubble_max_concurrent": 5,
+            "persona_enabled": True,
+        },
     }
     assert {item["type"] for item in status.json()["providers"]} >= {"openai", "deepseek"}
 
@@ -1426,6 +1436,16 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
             "locale": "en",
             "max_tokens": 4096,
             "passive_mode": True,
+            "advanced": {
+                "idle_sleep_seconds": 90,
+                "short_term_max_tokens": 48_000,
+                "compress_ratio": 0.4,
+                "auto_recall_enabled": False,
+                "auto_recall_relevance_threshold": 0.72,
+                "auto_recall_limit": 3,
+                "bubble_max_concurrent": 2,
+                "persona_enabled": False,
+            },
         },
     )
 
@@ -1436,8 +1456,16 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["llm"]["max_tokens"] == 4096
     assert saved["llm"]["managed_providers"][0]["api_key"] == "sk-first-run"
     assert saved["memory"]["mem0_llm_provider"] == "openai"
+    assert saved["memory"]["short_term_max_tokens"] == 48_000
+    assert saved["memory"]["compress_ratio"] == 0.4
+    assert saved["memory"]["auto_recall_enabled"] is False
+    assert saved["memory"]["auto_recall_relevance_threshold"] == 0.72
+    assert saved["memory"]["auto_recall_limit"] == 3
+    assert saved["memory"]["persona_enabled"] is False
     assert saved["i18n"]["locale"] == "en"
     assert saved["agent"]["passive_mode"] is True
+    assert saved["agent"]["idle_sleep_seconds"] == 90
+    assert saved["agent"]["bubble_max_concurrent"] == 2
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"
     intent = json.loads(
         (tmp_path / "memory" / "startup_intent.json").read_text(encoding="utf-8")
@@ -1581,6 +1609,21 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
     assert client.post(
         "/api/admin/bootstrap", headers=headers, json={**base, "api_key": "   "}
     ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "advanced": {"idle_sleep_seconds": -1}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "advanced": {"compress_ratio": 1}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "advanced": {"auto_recall_relevance_threshold": 1.1}},
+    ).status_code == 422
     assert not (tmp_path / "admin_config.json").exists()
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
 
@@ -1589,6 +1632,11 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
     config.agent.passive_mode = True
     config.agent.idle_sleep_seconds = 0
+    status_path = Path(config.memory.db_path) / "instance_status.json"
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(
+        json.dumps({"startup_reason": "bootstrap"}), encoding="utf-8"
+    )
     short_term = ShortTermMemory(max_tokens=12_345)
     agent = SimpleNamespace(
         _identity=_Identity(),
@@ -1614,6 +1662,7 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     assert response.json()["memory"]["max_tokens"] == 12_345
     assert response.json()["status"]["passive_mode"] is True
     assert response.json()["status"]["idle_sleep_seconds"] == 0
+    assert response.json()["status"]["startup_reason"] == "bootstrap"
 
 
 def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):

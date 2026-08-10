@@ -134,6 +134,21 @@ class PersonMergePayload(BaseModel):
     other_person_id: str = Field(min_length=1, max_length=120)
 
 
+class BootstrapAdvancedPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idle_sleep_seconds: int | None = Field(default=None, ge=0)
+    short_term_max_tokens: int | None = Field(default=None, gt=0)
+    compress_ratio: float | None = Field(default=None, gt=0, lt=1)
+    auto_recall_enabled: bool | None = None
+    auto_recall_relevance_threshold: float | None = Field(
+        default=None, ge=0, le=1
+    )
+    auto_recall_limit: int | None = Field(default=None, gt=0)
+    bubble_max_concurrent: int | None = Field(default=None, gt=0)
+    persona_enabled: bool | None = None
+
+
 class BootstrapPayload(BaseModel):
     provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
     model: str = Field(min_length=1, max_length=120)
@@ -144,6 +159,7 @@ class BootstrapPayload(BaseModel):
     max_tokens: int | None = Field(default=None, gt=0)
     passive_mode: bool = False
     allow_unverified_model: bool = False
+    advanced: BootstrapAdvancedPayload | None = None
 
 
 class SummaryModelPatch(BaseModel):
@@ -935,6 +951,18 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
             "locale": config.i18n.locale.value,
             "max_tokens": config.llm.max_tokens,
             "passive_mode": config.agent.passive_mode,
+            "advanced": {
+                "idle_sleep_seconds": config.agent.idle_sleep_seconds,
+                "short_term_max_tokens": config.memory.short_term_max_tokens,
+                "compress_ratio": config.memory.compress_ratio,
+                "auto_recall_enabled": config.memory.auto_recall_enabled,
+                "auto_recall_relevance_threshold": (
+                    config.memory.auto_recall_relevance_threshold
+                ),
+                "auto_recall_limit": config.memory.auto_recall_limit,
+                "bubble_max_concurrent": config.agent.bubble_max_concurrent,
+                "persona_enabled": config.memory.persona_enabled,
+            },
         },
     }
 
@@ -995,6 +1023,48 @@ async def complete_bootstrap(
 
         locale = payload.locale or config.i18n.locale.value
         max_tokens = payload.max_tokens if payload.max_tokens is not None else config.llm.max_tokens
+        advanced = payload.advanced
+        idle_sleep_seconds = (
+            advanced.idle_sleep_seconds
+            if advanced is not None and advanced.idle_sleep_seconds is not None
+            else config.agent.idle_sleep_seconds
+        )
+        short_term_max_tokens = (
+            advanced.short_term_max_tokens
+            if advanced is not None and advanced.short_term_max_tokens is not None
+            else config.memory.short_term_max_tokens
+        )
+        compress_ratio = (
+            advanced.compress_ratio
+            if advanced is not None and advanced.compress_ratio is not None
+            else config.memory.compress_ratio
+        )
+        auto_recall_enabled = (
+            advanced.auto_recall_enabled
+            if advanced is not None and advanced.auto_recall_enabled is not None
+            else config.memory.auto_recall_enabled
+        )
+        auto_recall_relevance_threshold = (
+            advanced.auto_recall_relevance_threshold
+            if advanced is not None
+            and advanced.auto_recall_relevance_threshold is not None
+            else config.memory.auto_recall_relevance_threshold
+        )
+        auto_recall_limit = (
+            advanced.auto_recall_limit
+            if advanced is not None and advanced.auto_recall_limit is not None
+            else config.memory.auto_recall_limit
+        )
+        bubble_max_concurrent = (
+            advanced.bubble_max_concurrent
+            if advanced is not None and advanced.bubble_max_concurrent is not None
+            else config.agent.bubble_max_concurrent
+        )
+        persona_enabled = (
+            advanced.persona_enabled
+            if advanced is not None and advanced.persona_enabled is not None
+            else config.memory.persona_enabled
+        )
         path = Path(config.admin.config_file)
         current_overrides = load_admin_overrides(path)
         changes: JsonObject = {
@@ -1013,9 +1083,22 @@ async def complete_bootstrap(
                     }
                 ],
             },
-            "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
+            "memory": {
+                "mem0_llm_provider": provider_type,
+                "mem0_llm_model": model,
+                "short_term_max_tokens": short_term_max_tokens,
+                "compress_ratio": compress_ratio,
+                "auto_recall_enabled": auto_recall_enabled,
+                "auto_recall_relevance_threshold": auto_recall_relevance_threshold,
+                "auto_recall_limit": auto_recall_limit,
+                "persona_enabled": persona_enabled,
+            },
             "i18n": {"locale": locale},
-            "agent": {"passive_mode": payload.passive_mode},
+            "agent": {
+                "passive_mode": payload.passive_mode,
+                "idle_sleep_seconds": idle_sleep_seconds,
+                "bubble_max_concurrent": bubble_max_concurrent,
+            },
         }
         next_overrides = config_service.merge_overrides(current_overrides, changes)
         try:
@@ -1067,10 +1150,22 @@ async def complete_bootstrap(
 async def overview(_: None = Depends(require_admin)) -> ApiResponse:
     agent = _require_agent()
     brain = _require_brain()
+    config = _require_config()
     tasks = agent._task_store.list() if agent._task_store else []
     bubbles = agent._bubble_store.list_active() if agent._bubble_store else []
     memory_count = await agent._long_term.count()
     stm = agent._short_term
+    startup_reason = "unknown"
+    try:
+        instance_status = json.loads(
+            (Path(config.memory.db_path) / "instance_status.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if instance_status.get("startup_reason") in {"bootstrap", "restart", "start"}:
+            startup_reason = instance_status["startup_reason"]
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
     return {
         "status": {
             "is_running": agent.state.is_running,
@@ -1079,8 +1174,9 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
             "started_at": _process_started_at.isoformat(),
-            "passive_mode": _require_config().agent.passive_mode,
-            "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
+            "startup_reason": startup_reason,
+            "passive_mode": config.agent.passive_mode,
+            "idle_sleep_seconds": config.agent.idle_sleep_seconds,
         },
         "counts": {
             "tasks": len(tasks),

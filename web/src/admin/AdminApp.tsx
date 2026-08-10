@@ -235,7 +235,9 @@ function preferredModelFor(providerType: string, models: string[]) {
 }
 
 function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) {
+  const { language } = useAdminI18n();
   const catalogs = data.providers || [];
+  const advancedDefaults = data.defaults?.advanced || {};
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
   const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
@@ -247,6 +249,14 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [locale, setLocale] = useState(data.defaults?.locale === 'en' ? 'en' : 'zh-CN');
   const [maxTokens, setMaxTokens] = useState(String(data.defaults?.max_tokens || 8192));
   const [passiveMode, setPassiveMode] = useState(Boolean(data.defaults?.passive_mode));
+  const [idleSleepSeconds, setIdleSleepSeconds] = useState(String(advancedDefaults.idle_sleep_seconds ?? 30));
+  const [shortTermMaxTokens, setShortTermMaxTokens] = useState(String(advancedDefaults.short_term_max_tokens ?? 80_000));
+  const [compressRatioPercent, setCompressRatioPercent] = useState(String(Math.round(Number(advancedDefaults.compress_ratio ?? 0.3) * 10_000) / 100));
+  const [autoRecallEnabled, setAutoRecallEnabled] = useState(advancedDefaults.auto_recall_enabled !== false);
+  const [autoRecallThreshold, setAutoRecallThreshold] = useState(String(advancedDefaults.auto_recall_relevance_threshold ?? 0.5));
+  const [autoRecallLimit, setAutoRecallLimit] = useState(String(advancedDefaults.auto_recall_limit ?? 5));
+  const [bubbleMaxConcurrent, setBubbleMaxConcurrent] = useState(String(advancedDefaults.bubble_max_concurrent ?? 5));
+  const [personaEnabled, setPersonaEnabled] = useState(advancedDefaults.persona_enabled !== false);
   const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string | null>(null);
@@ -258,9 +268,24 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'form' | 'restarting'>('form');
   const normalizedModel = model.trim();
+  const normalizedName = name.trim();
+  const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
+  const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
   const parsedMaxTokens = Number(maxTokens);
   const validMaxTokens = Number.isInteger(parsedMaxTokens) && parsedMaxTokens > 0;
+  const parsedIdleSleepSeconds = Number(idleSleepSeconds);
+  const parsedShortTermMaxTokens = Number(shortTermMaxTokens);
+  const parsedCompressRatio = Number(compressRatioPercent) / 100;
+  const parsedAutoRecallThreshold = Number(autoRecallThreshold);
+  const parsedAutoRecallLimit = Number(autoRecallLimit);
+  const parsedBubbleMaxConcurrent = Number(bubbleMaxConcurrent);
+  const validAdvanced = Number.isInteger(parsedIdleSleepSeconds) && parsedIdleSleepSeconds >= 0
+    && Number.isInteger(parsedShortTermMaxTokens) && parsedShortTermMaxTokens > 0
+    && parsedCompressRatio > 0 && parsedCompressRatio < 1
+    && parsedAutoRecallThreshold >= 0 && parsedAutoRecallThreshold <= 1
+    && Number.isInteger(parsedAutoRecallLimit) && parsedAutoRecallLimit > 0
+    && Number.isInteger(parsedBubbleMaxConcurrent) && parsedBubbleMaxConcurrent > 0;
   const modelListboxId = `bootstrap-model-listbox-${providerType}`;
   const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
   const filteredModels = useMemo(() => {
@@ -321,7 +346,27 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     setSubmitting(true);
     setError('');
     try {
-      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model: normalizedModel, api_key: apiKey, base_url: baseUrl, coworker_name: name, locale, max_tokens: parsedMaxTokens, passive_mode: passiveMode, allow_unverified_model: customModel && allowUnverifiedModel }) });
+      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({
+        provider_type: providerType,
+        model: normalizedModel,
+        api_key: apiKey,
+        base_url: baseUrl,
+        coworker_name: normalizedName,
+        locale,
+        max_tokens: parsedMaxTokens,
+        passive_mode: passiveMode,
+        allow_unverified_model: customModel && allowUnverifiedModel,
+        advanced: {
+          idle_sleep_seconds: parsedIdleSleepSeconds,
+          short_term_max_tokens: parsedShortTermMaxTokens,
+          compress_ratio: parsedCompressRatio,
+          auto_recall_enabled: autoRecallEnabled,
+          auto_recall_relevance_threshold: parsedAutoRecallThreshold,
+          auto_recall_limit: parsedAutoRecallLimit,
+          bubble_max_concurrent: parsedBubbleMaxConcurrent,
+          persona_enabled: personaEnabled,
+        },
+      }) });
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
       const waitUntilReady = async () => {
@@ -371,20 +416,49 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
                   </ul>}
                 </div>
               </div>
-              <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
-              <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
+              <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+              <div className="bootstrap-name-field wide">
+                <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
+                <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
+                <div className="bootstrap-name-examples" aria-label={t('名字示例')}>{nameExamples.map(example => <button type="button" onClick={() => setName(example)} key={example}>{example}</button>)}</div>
+                {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
+              </div>
               <div className="bootstrap-mode wide" role="radiogroup" aria-label={t('启动模式')}>
                 <span>{t('启动模式')}</span>
-                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><b>{t('主动模式')}</b><small>{t('空闲后会周期性自我唤醒并继续观察。')}</small></button>
-                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><b>{t('Passive 模式')}</b><small>{t('空闲后只等待外部消息、闹钟或任务事件唤醒。')}</small></button>
+                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><em>{t('推荐 · 适合大多数用户')}</em><b>{t('主动模式')}</b><small>{t('她会自己继续观察、思考和推进；一般使用请选择此模式。')}</small></button>
+                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><em>{t('面向开发者')}</em><b>{t('Passive 模式')}</b><small>{t('她只响应外部事件，不会在空闲时自行开始下一轮。')}</small></button>
+                {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
               </div>
-              <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
-              <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
-              <label className="wide"><span>{t('给 Coworker 起个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('之后也可以在身份档案中修改')} /></label>
             </div>
+            <details className="bootstrap-advanced">
+              <summary><span><SlidersHorizontal size={17} /><span><b>{t('高级初始化')}</b><small>{t('在第一次运行前调整模型、生命循环与记忆参数。使用推荐值也可以直接开始。')}</small></span></span><ChevronRight size={16} /></summary>
+              <div className="bootstrap-advanced-body">
+                <section>
+                  <header><b>{t('模型与运行')}</b><small>{t('连接兼容性、运行语言和每轮生成预算')}</small></header>
+                  <div className="bootstrap-advanced-grid">
+                    <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
+                    <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
+                    <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+                    <label><span>{t('主动模式自唤醒间隔（秒）')}</span><input required type="number" min="0" step="1" value={idleSleepSeconds} onChange={e => setIdleSleepSeconds(e.target.value)} /><small>{t(passiveMode ? 'Passive 模式会忽略此间隔。' : '空闲后等待多久进入下一轮；0 表示立即继续。')}</small></label>
+                    <label><span>{t('Bubble 最大并发数')}</span><input required type="number" min="1" step="1" value={bubbleMaxConcurrent} onChange={e => setBubbleMaxConcurrent(e.target.value)} /><small>{t('限制可同时运行的并行思考分支。')}</small></label>
+                  </div>
+                </section>
+                <section>
+                  <header><b>{t('记忆行为')}</b><small>{t('决定最初上下文的容量、压缩节奏和长期记忆召回')}</small></header>
+                  <div className="bootstrap-advanced-grid">
+                    <label><span>{t('短期上下文容量（Token）')}</span><input required type="number" min="1" step="1" value={shortTermMaxTokens} onChange={e => setShortTermMaxTokens(e.target.value)} /></label>
+                    <label><span>{t('每次自动压缩比例（%）')}</span><input required type="number" min="0.1" max="99.9" step="0.1" value={compressRatioPercent} onChange={e => setCompressRatioPercent(e.target.value)} /></label>
+                    <label className="bootstrap-advanced-switch"><input type="checkbox" checked={autoRecallEnabled} onChange={e => setAutoRecallEnabled(e.target.checked)} /><span><b>{t('自动召回长期记忆')}</b><small>{t('根据当前对话自动查找相关经历。')}</small></span></label>
+                    <label className="bootstrap-advanced-switch"><input type="checkbox" checked={personaEnabled} onChange={e => setPersonaEnabled(e.target.checked)} /><span><b>{t('人物记忆')}</b><small>{t('跨信道整理人物、称呼和关系。')}</small></span></label>
+                    <label><span>{t('自动召回相关性阈值')}</span><input disabled={!autoRecallEnabled} required type="number" min="0" max="1" step="0.01" value={autoRecallThreshold} onChange={e => setAutoRecallThreshold(e.target.value)} /></label>
+                    <label><span>{t('单次自动召回数量')}</span><input disabled={!autoRecallEnabled} required type="number" min="1" step="1" value={autoRecallLimit} onChange={e => setAutoRecallLimit(e.target.value)} /></label>
+                  </div>
+                </section>
+              </div>
+            </details>
             {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || !validAdvanced || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -451,6 +525,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   const status = data.status; const counts = data.counts;
   const running = status.is_running;
   const resting = running && Boolean(status.is_sleeping);
+  const firstPassiveStart = running && status.startup_reason === 'bootstrap' && Boolean(status.passive_mode) && Number(status.cycle_count || 0) === 0;
   const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
@@ -476,10 +551,11 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
       <div className="overview-status-actions">
-        {resting && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
+        {resting && !firstPassiveStart && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
         <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
       </div>
     </section>
+    {firstPassiveStart && <section className="overview-first-cycle" role="note"><div className="overview-first-cycle-mark"><Orbit size={22} /><i /></div><div><span>{t('Passive 模式 · 第一次运行')}</span><h2>{t('请由你开启她对世界的第一次观察')}</h2><p>{t('被动模式不会自行开始生命循环。点击“开始第一次运行”会在不添加对话消息的情况下主动继续；这次醒来所感知的环境，将参与形成她最初的世界记忆。')}</p></div>{resting ? <button type="button" className="primary" disabled={resuming} onClick={() => void resume()}><Play size={15} />{t(resuming ? '正在开始…' : '开始第一次运行')}</button> : <small>{t('正在准备第一次运行，请稍候刷新。')}</small>}</section>}
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
     <div className="overview-main-grid">
@@ -864,7 +940,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
   'i18n.locale': '模型与运行时语言',
-  'agent.passive_mode': 'Passive 模式',
+  'agent.passive_mode': 'Passive 模式（开发者控制）',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
   'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
   'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
@@ -941,7 +1017,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
