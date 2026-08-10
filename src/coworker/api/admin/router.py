@@ -97,6 +97,19 @@ _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
+_BOOTSTRAP_MANAGED_CONFIG_PATHS = {
+    "admin.token",
+    "admin.config_file",
+    "desktop_updates.admin_token",
+    "llm.default_provider",
+    "llm.default_model",
+    "llm.managed_providers",
+    "llm.providers_file",
+    "llm.runtime_config_file",
+}
+_BOOTSTRAP_HIDDEN_LLM_SUFFIXES = ("_api_key", "_base_url")
+
+
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
@@ -134,32 +147,17 @@ class PersonMergePayload(BaseModel):
     other_person_id: str = Field(min_length=1, max_length=120)
 
 
-class BootstrapAdvancedPayload(BaseModel):
+class BootstrapPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    idle_sleep_seconds: int | None = Field(default=None, ge=0)
-    short_term_max_tokens: int | None = Field(default=None, gt=0)
-    compress_ratio: float | None = Field(default=None, gt=0, lt=1)
-    auto_recall_enabled: bool | None = None
-    auto_recall_relevance_threshold: float | None = Field(
-        default=None, ge=0, le=1
-    )
-    auto_recall_limit: int | None = Field(default=None, gt=0)
-    bubble_max_concurrent: int | None = Field(default=None, gt=0)
-    persona_enabled: bool | None = None
-
-
-class BootstrapPayload(BaseModel):
     provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
     model: str = Field(min_length=1, max_length=120)
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
-    locale: Literal["zh-CN", "en"] | None = None
-    max_tokens: int | None = Field(default=None, gt=0)
-    passive_mode: bool = False
     allow_unverified_model: bool = False
-    advanced: BootstrapAdvancedPayload | None = None
+    configuration: JsonObject = Field(default_factory=dict)
+    secrets: dict[str, str | None] = Field(default_factory=dict)
 
 
 class SummaryModelPatch(BaseModel):
@@ -931,12 +929,36 @@ async def verify_session(_: None = Depends(require_admin)) -> ApiResponse:
     }
 
 
+def _bootstrap_managed_config_path(
+    configuration: JsonObject,
+    secrets: dict[str, str | None],
+) -> str | None:
+    for section, value in configuration.items():
+        if not isinstance(value, dict):
+            continue
+        for field_name in value:
+            path = f"{section}.{field_name}"
+            if path in _BOOTSTRAP_MANAGED_CONFIG_PATHS:
+                return path
+            if section == "llm" and field_name.endswith(
+                _BOOTSTRAP_HIDDEN_LLM_SUFFIXES
+            ):
+                return path
+    for path in secrets:
+        if path in _BOOTSTRAP_MANAGED_CONFIG_PATHS or path in {
+            "admin.token",
+            "desktop_updates.admin_token",
+        }:
+            return path
+    return None
+
+
 @router.get("/bootstrap")
 async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
 
     brain = _require_brain()
-    config = _require_config()
+    snapshot = _require_admin_config_service().snapshot()
     from coworker.brain.factory import available_models, available_types
 
     providers: list[dict[str, object]] = []
@@ -948,21 +970,8 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "active_model": brain.current_model,
         "providers": providers,
         "defaults": {
-            "locale": config.i18n.locale.value,
-            "max_tokens": config.llm.max_tokens,
-            "passive_mode": config.agent.passive_mode,
-            "advanced": {
-                "idle_sleep_seconds": config.agent.idle_sleep_seconds,
-                "short_term_max_tokens": config.memory.short_term_max_tokens,
-                "compress_ratio": config.memory.compress_ratio,
-                "auto_recall_enabled": config.memory.auto_recall_enabled,
-                "auto_recall_relevance_threshold": (
-                    config.memory.auto_recall_relevance_threshold
-                ),
-                "auto_recall_limit": config.memory.auto_recall_limit,
-                "bubble_max_concurrent": config.agent.bubble_max_concurrent,
-                "persona_enabled": config.memory.persona_enabled,
-            },
+            "configuration": snapshot.config,
+            "secret_status": snapshot.secret_status,
         },
     }
 
@@ -1021,57 +1030,34 @@ async def complete_bootstrap(
                 ),
             )
 
-        locale = payload.locale or config.i18n.locale.value
-        max_tokens = payload.max_tokens if payload.max_tokens is not None else config.llm.max_tokens
-        advanced = payload.advanced
-        idle_sleep_seconds = (
-            advanced.idle_sleep_seconds
-            if advanced is not None and advanced.idle_sleep_seconds is not None
-            else config.agent.idle_sleep_seconds
+        managed_path = _bootstrap_managed_config_path(
+            payload.configuration,
+            payload.secrets,
         )
-        short_term_max_tokens = (
-            advanced.short_term_max_tokens
-            if advanced is not None and advanced.short_term_max_tokens is not None
-            else config.memory.short_term_max_tokens
-        )
-        compress_ratio = (
-            advanced.compress_ratio
-            if advanced is not None and advanced.compress_ratio is not None
-            else config.memory.compress_ratio
-        )
-        auto_recall_enabled = (
-            advanced.auto_recall_enabled
-            if advanced is not None and advanced.auto_recall_enabled is not None
-            else config.memory.auto_recall_enabled
-        )
-        auto_recall_relevance_threshold = (
-            advanced.auto_recall_relevance_threshold
-            if advanced is not None
-            and advanced.auto_recall_relevance_threshold is not None
-            else config.memory.auto_recall_relevance_threshold
-        )
-        auto_recall_limit = (
-            advanced.auto_recall_limit
-            if advanced is not None and advanced.auto_recall_limit is not None
-            else config.memory.auto_recall_limit
-        )
-        bubble_max_concurrent = (
-            advanced.bubble_max_concurrent
-            if advanced is not None and advanced.bubble_max_concurrent is not None
-            else config.agent.bubble_max_concurrent
-        )
-        persona_enabled = (
-            advanced.persona_enabled
-            if advanced is not None and advanced.persona_enabled is not None
-            else config.memory.persona_enabled
-        )
+        if managed_path is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.admin.bootstrap_field_managed", path=managed_path),
+            )
         path = Path(config.admin.config_file)
         current_overrides = load_admin_overrides(path)
-        changes: JsonObject = {
+        try:
+            next_overrides = config_service.prepare_overrides(
+                current_overrides,
+                ConfigUpdate(
+                    changes=payload.configuration,
+                    secrets=payload.secrets,
+                ),
+            )
+        except ConfigUpdateError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=error.detail,
+            ) from error
+        connection_changes: JsonObject = {
             "llm": {
                 "default_provider": provider_type,
                 "default_model": model,
-                "max_tokens": max_tokens,
                 "managed_providers": [
                     {
                         "name": provider_type,
@@ -1083,40 +1069,34 @@ async def complete_bootstrap(
                     }
                 ],
             },
-            "memory": {
-                "mem0_llm_provider": provider_type,
-                "mem0_llm_model": model,
-                "short_term_max_tokens": short_term_max_tokens,
-                "compress_ratio": compress_ratio,
-                "auto_recall_enabled": auto_recall_enabled,
-                "auto_recall_relevance_threshold": auto_recall_relevance_threshold,
-                "auto_recall_limit": auto_recall_limit,
-                "persona_enabled": persona_enabled,
-            },
-            "i18n": {"locale": locale},
-            "agent": {
-                "passive_mode": payload.passive_mode,
-                "idle_sleep_seconds": idle_sleep_seconds,
-                "bubble_max_concurrent": bubble_max_concurrent,
-            },
         }
-        next_overrides = config_service.merge_overrides(current_overrides, changes)
+        next_overrides = config_service.merge_overrides(
+            next_overrides,
+            connection_changes,
+        )
         try:
-            Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
+            desired = Config.model_validate(
+                _deep_merge(config.model_dump(mode="json"), next_overrides)
+            )
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
 
         agent = _require_agent()
         if payload.coworker_name.strip():
             identity = agent._identity
-            identity._dir.mkdir(parents=True, exist_ok=True)
-            (identity._dir / "name.txt").write_text(
+            identity_dir = identity._dir
+            agent_changes = payload.configuration.get("agent")
+            if isinstance(agent_changes, dict) and "identity_dir" in agent_changes:
+                identity_dir = Path(desired.agent.identity_dir)
+            identity_dir.mkdir(parents=True, exist_ok=True)
+            (identity_dir / "name.txt").write_text(
                 payload.coworker_name.strip(), encoding="utf-8"
             )
-            identity.load()
+            if identity_dir == identity._dir:
+                identity.load()
 
         write_bootstrap_startup_intent(
-            config.memory.db_path,
+            desired.memory.db_path,
             provider=provider_type,
             model=model,
         )
@@ -1139,7 +1119,7 @@ async def complete_bootstrap(
             _audit(
                 request,
                 "bootstrap.complete",
-                f"{provider_type}/{model} locale={locale} max_tokens={max_tokens} passive_mode={payload.passive_mode} custom_model={custom_model}",
+                f"{provider_type}/{model} locale={desired.i18n.locale.value} max_tokens={desired.llm.max_tokens} passive_mode={desired.agent.passive_mode} custom_model={custom_model}",
             )
         except OSError as error:
             logger.warning(f"Failed to write bootstrap audit entry: {error}")

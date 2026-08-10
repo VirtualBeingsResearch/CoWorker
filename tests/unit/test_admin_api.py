@@ -1407,20 +1407,15 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
-    assert status.json()["defaults"] == {
-        "locale": "zh-CN",
-        "max_tokens": 8192,
-        "passive_mode": False,
-        "advanced": {
-            "idle_sleep_seconds": 30,
-            "short_term_max_tokens": 80_000,
-            "compress_ratio": 0.3,
-            "auto_recall_enabled": True,
-            "auto_recall_relevance_threshold": 0.5,
-            "auto_recall_limit": 5,
-            "bubble_max_concurrent": 5,
-            "persona_enabled": True,
-        },
+    defaults = status.json()["defaults"]
+    assert defaults["configuration"]["llm"]["max_tokens"] == 8192
+    assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 80_000
+    assert defaults["configuration"]["agent"]["passive_mode"] is False
+    assert defaults["configuration"]["i18n"]["locale"] == "zh-CN"
+    assert defaults["configuration"]["admin"]["token"] == ""
+    assert defaults["secret_status"]["admin.token"] == {
+        "configured": True,
+        "last4": "cret",
     }
     assert {item["type"] for item in status.json()["providers"]} >= {"openai", "deepseek"}
 
@@ -1433,18 +1428,57 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
             "api_key": "sk-first-run",
             "base_url": "https://example.test/v1",
             "coworker_name": "Nova",
-            "locale": "en",
-            "max_tokens": 4096,
-            "passive_mode": True,
-            "advanced": {
-                "idle_sleep_seconds": 90,
-                "short_term_max_tokens": 48_000,
-                "compress_ratio": 0.4,
-                "auto_recall_enabled": False,
-                "auto_recall_relevance_threshold": 0.72,
-                "auto_recall_limit": 3,
-                "bubble_max_concurrent": 2,
-                "persona_enabled": False,
+            "configuration": {
+                "llm": {
+                    "max_tokens": 4096,
+                    "summary_provider": "openai",
+                    "summary_model": "gpt-5.2",
+                },
+                "memory": {
+                    "short_term_max_tokens": 48_000,
+                    "compress_ratio": 0.4,
+                    "tree_backfill_max_leaves": 32,
+                    "auto_recall_enabled": False,
+                    "auto_recall_relevance_threshold": 0.72,
+                    "auto_recall_limit": 3,
+                    "persona_enabled": False,
+                },
+                "i18n": {"locale": "en"},
+                "agent": {
+                    "passive_mode": True,
+                    "idle_sleep_seconds": 90,
+                    "bubble_max_concurrent": 2,
+                    "inbox_batch_max": 4,
+                },
+                "api": {
+                    "port": 8124,
+                    "development_mode": True,
+                    "cors_origins": ["https://desktop.example"],
+                },
+                "relay": {
+                    "enabled": False,
+                    "url": "https://relay.example.test",
+                    "instance_id": "cw_abcdefgh",
+                    "auth_epoch": 2,
+                },
+                "channel_access": {
+                    "wecom": {"inbound_allow": ["wecom:single:*"]}
+                },
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "bot-first-run",
+                    "ws_url": "wss://wecom.example.test/ws",
+                },
+                "weixin": {"enabled": False},
+                "desktop_updates": {
+                    "sync_interval_seconds": 600,
+                    "sync_on_start": False,
+                },
+            },
+            "secrets": {
+                "api.communication_token": "desktop-first-run",
+                "relay.instance_private_key": "relay-private",
+                "wecom.secret": "wecom-first-run",
             },
         },
     )
@@ -1454,10 +1488,11 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["llm"]["default_provider"] == "openai"
     assert saved["llm"]["default_model"] == "gpt-5.2"
     assert saved["llm"]["max_tokens"] == 4096
+    assert saved["llm"]["summary_provider"] == "openai"
     assert saved["llm"]["managed_providers"][0]["api_key"] == "sk-first-run"
-    assert saved["memory"]["mem0_llm_provider"] == "openai"
     assert saved["memory"]["short_term_max_tokens"] == 48_000
     assert saved["memory"]["compress_ratio"] == 0.4
+    assert saved["memory"]["tree_backfill_max_leaves"] == 32
     assert saved["memory"]["auto_recall_enabled"] is False
     assert saved["memory"]["auto_recall_relevance_threshold"] == 0.72
     assert saved["memory"]["auto_recall_limit"] == 3
@@ -1466,6 +1501,15 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["agent"]["passive_mode"] is True
     assert saved["agent"]["idle_sleep_seconds"] == 90
     assert saved["agent"]["bubble_max_concurrent"] == 2
+    assert saved["agent"]["inbox_batch_max"] == 4
+    assert saved["api"]["port"] == 8124
+    assert saved["api"]["communication_token"] == "desktop-first-run"
+    assert saved["relay"]["instance_id"] == "cw_abcdefgh"
+    assert saved["relay"]["instance_private_key"] == "relay-private"
+    assert saved["channel_access"]["wecom"]["inbound_allow"] == ["wecom:single:*"]
+    assert saved["wecom"]["secret"] == "wecom-first-run"
+    assert saved["weixin"]["enabled"] is False
+    assert saved["desktop_updates"]["sync_interval_seconds"] == 600
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"
     intent = json.loads(
         (tmp_path / "memory" / "startup_intent.json").read_text(encoding="utf-8")
@@ -1598,10 +1642,14 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
     base = {"provider_type": "openai", "model": "gpt-5.2", "api_key": "sk-test"}
 
     assert client.post(
-        "/api/admin/bootstrap", headers=headers, json={**base, "max_tokens": 0}
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"llm": {"max_tokens": 0}}},
     ).status_code == 422
     assert client.post(
-        "/api/admin/bootstrap", headers=headers, json={**base, "locale": "fr"}
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"i18n": {"locale": "fr"}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap", headers=headers, json={**base, "model": "   "}
@@ -1612,17 +1660,27 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
     assert client.post(
         "/api/admin/bootstrap",
         headers=headers,
-        json={**base, "advanced": {"idle_sleep_seconds": -1}},
+        json={**base, "configuration": {"memory": {"compress_ratio": 1}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap",
         headers=headers,
-        json={**base, "advanced": {"compress_ratio": 1}},
+        json={
+            **base,
+            "configuration": {
+                "memory": {"auto_recall_relevance_threshold": 1.1}
+            },
+        },
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap",
         headers=headers,
-        json={**base, "advanced": {"auto_recall_relevance_threshold": 1.1}},
+        json={**base, "configuration": {"llm": {"default_model": "managed"}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "secrets": {"admin.token": "replacement"}},
     ).status_code == 422
     assert not (tmp_path / "admin_config.json").exists()
     assert not (tmp_path / "memory" / "startup_intent.json").exists()

@@ -463,6 +463,53 @@ html:has(.admin-login),
 .bootstrap-advanced-switch > span small { display: block; }
 .bootstrap-advanced-switch > span b { font-size: 10px; }
 .bootstrap-advanced-switch > span small { margin-top: 4px; color: var(--admin-muted); font-size: 9px; line-height: 1.4; }
+.bootstrap-config-intro { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid color-mix(in oklch, var(--admin-vital) 20%, var(--admin-line)); border-radius: 10px; background: color-mix(in oklch, var(--admin-vital) 6%, var(--admin-surface)); }
+.bootstrap-config-intro > svg { flex: 0 0 auto; margin-top: 1px; color: var(--admin-vital); }
+.bootstrap-config-intro p { margin: 0; }
+.bootstrap-config-intro b,
+.bootstrap-config-intro span { display: block; }
+.bootstrap-config-intro b { font-size: 11px; }
+.bootstrap-config-intro span { margin-top: 4px; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
+.bootstrap-config-workbench { display: grid; grid-template-columns: 142px minmax(0, 1fr); min-height: 410px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-surface); }
+.bootstrap-config-workbench > nav { display: flex; flex-direction: column; padding: 7px; border-right: 1px solid var(--admin-line); background: color-mix(in oklch, var(--admin-paper) 72%, var(--admin-surface)); }
+.bootstrap-config-workbench > nav button { display: flex; align-items: center; justify-content: space-between; gap: 5px; min-height: 37px; padding: 0 8px 0 10px; border: 0; border-radius: 8px; color: var(--admin-muted); background: transparent; font-size: 10px; text-align: left; cursor: pointer; }
+.bootstrap-config-workbench > nav button span { display: flex; align-items: center; min-width: 0; }
+.bootstrap-config-workbench > nav button span i { flex: 0 0 auto; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--admin-vital); }
+.bootstrap-config-workbench > nav button svg { flex: 0 0 auto; opacity: .45; }
+.bootstrap-config-workbench > nav button:hover { color: var(--admin-ink); background: var(--admin-surface); }
+.bootstrap-config-workbench > nav button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 1px 4px color-mix(in oklch, var(--admin-ink) 8%, transparent); font-weight: 720; }
+.bootstrap-config-workbench > nav button.active svg { opacity: 1; }
+.bootstrap-config-panel { min-width: 0; padding: 15px; }
+.bootstrap-config-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 13px; border-bottom: 1px solid var(--admin-line); }
+.bootstrap-config-panel > header b,
+.bootstrap-config-panel > header small { display: block; }
+.bootstrap-config-panel > header b { font-size: 12px; }
+.bootstrap-config-panel > header small { max-width: 430px; margin-top: 4px; color: var(--admin-muted); font-size: 9px; line-height: 1.5; }
+.bootstrap-config-panel > header button { flex: 0 0 auto; }
+.bootstrap-config-managed { display: flex; align-items: flex-start; gap: 8px; margin-top: 13px; padding: 10px 11px; border-radius: 9px; color: var(--admin-vital); background: var(--admin-soft); }
+.bootstrap-config-managed > svg { flex: 0 0 auto; margin-top: 1px; }
+.bootstrap-config-managed b,
+.bootstrap-config-managed small { display: block; }
+.bootstrap-config-managed b { color: var(--admin-ink); font-size: 10px; }
+.bootstrap-config-managed small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; line-height: 1.45; }
+.bootstrap-config-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 13px; margin-top: 14px; }
+.bootstrap-config-grid .field { gap: 5px; }
+.bootstrap-config-grid .field > span { min-height: 17px; font-size: 10px; }
+.bootstrap-config-grid .field small { font-size: 9px; }
+.bootstrap-config-grid .field :is(input, select) { height: 40px; padding: 0 10px; font-size: 10px; }
+.bootstrap-config-grid > :has(.code-area),
+.bootstrap-config-json-field { grid-column: 1 / -1; }
+.bootstrap-config-json-field { display: grid; gap: 6px; min-width: 0; margin-top: 14px; }
+.bootstrap-config-grid .bootstrap-config-json-field { margin-top: 0; }
+.bootstrap-config-json-field > span { color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 10px; font-weight: 650; }
+.bootstrap-config-json-field .code-area.compact { min-height: 104px; padding: 10px; font-size: 10px; }
+.bootstrap-config-switch { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-top: 22px; padding: 9px 10px; border: 1px solid var(--admin-line); border-radius: 9px; background: color-mix(in oklch, var(--admin-paper) 56%, var(--admin-surface)); cursor: pointer; }
+.bootstrap-config-switch input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--admin-vital); }
+.bootstrap-config-switch span { font-size: 10px; font-weight: 650; line-height: 1.35; }
+.bootstrap-source-secret { display: grid; gap: 5px; margin-top: 5px; padding: 9px 10px; border: 1px dashed var(--admin-line); border-radius: 8px; }
+.bootstrap-source-secret span { color: var(--admin-muted); font-size: 9px; }
+.bootstrap-source-secret input { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--admin-line); border-radius: 8px; outline: 0; color: var(--admin-ink); background: var(--admin-surface); font-size: 10px; }
+.bootstrap-config-panel > .field-error { margin: 12px 0 0; color: var(--admin-red); font-size: 10px; }
 .bootstrap-form > .primary { width: 100%; min-height: 48px; }
 .bootstrap-model-warning { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid color-mix(in oklch, var(--admin-amber) 32%, var(--admin-line)); border-radius: 10px; color: color-mix(in oklch, var(--admin-amber) 68%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
 .bootstrap-model-warning > svg { flex: 0 0 auto; margin-top: 1px; }
@@ -2947,6 +2994,15 @@ html:has(.admin-login),
   .bootstrap-advanced > summary small { white-space: normal; }
   .bootstrap-advanced-grid { grid-template-columns: 1fr; }
   .bootstrap-advanced-grid > label.wide { grid-column: auto; }
+  .bootstrap-config-workbench { display: block; }
+  .bootstrap-config-workbench > nav { position: sticky; top: 0; z-index: 2; flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--admin-line); scrollbar-width: none; }
+  .bootstrap-config-workbench > nav::-webkit-scrollbar { display: none; }
+  .bootstrap-config-workbench > nav button { flex: 0 0 auto; }
+  .bootstrap-config-workbench > nav button svg { display: none; }
+  .bootstrap-config-grid { grid-template-columns: 1fr; }
+  .bootstrap-config-switch { margin-top: 0; }
+  .bootstrap-config-panel > header { display: grid; }
+  .bootstrap-config-panel > header button { width: max-content; }
   .bootstrap-footnote { align-items: flex-start; line-height: 1.5; }
   .access-step { margin-bottom: 30px; }
   .admin-topbar { min-height: 72px; padding: 10px 14px; }

@@ -170,7 +170,7 @@ class MemoryConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="MEMORY__", env_file=".env", extra="ignore")
 
     db_path: str = "data/memory"
-    short_term_max_tokens: int = 80_000
+    short_term_max_tokens: int = Field(default=80_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。
     compress_ratio: float = Field(default=0.30, gt=0, lt=1)
 
@@ -184,8 +184,8 @@ class MemoryConfig(_EnvSettings):
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
 
     auto_recall_enabled: bool = True
-    auto_recall_relevance_threshold: float = 0.5
-    auto_recall_limit: int = 5
+    auto_recall_relevance_threshold: float = Field(default=0.5, ge=0, le=1)
+    auto_recall_limit: int = Field(default=5, gt=0)
 
     recent_activity_enabled: bool = True
     recent_activity_days: int = 7
@@ -422,7 +422,7 @@ class AgentConfig(_EnvSettings):
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"
 
-    idle_sleep_seconds: int = 30
+    idle_sleep_seconds: int = Field(default=30, ge=0)
     inbox_poll_interval: float = 2.0
     inbox_batch_max: int = 10
     tick: bool = True
@@ -434,7 +434,7 @@ class AgentConfig(_EnvSettings):
     image_max_dimension: int = 960
     message_time_prefix: bool = True
     bubble_thinking: bool = True
-    bubble_max_concurrent: int = 5
+    bubble_max_concurrent: int = Field(default=5, gt=0)
     # participant_id 整串匹配这些 glob 时，向对方显式说明泡泡转交并标识回复。
     # 环境变量传 JSON 数组；不含通配符的条目表示精确匹配，[] 可关闭全部默认匹配。
     bubble_handoff_transparency_participant_matches: list[str] = Field(

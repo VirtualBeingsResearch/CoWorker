@@ -234,10 +234,106 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
+const BOOTSTRAP_CONFIG_GROUPS = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'desktop_updates'];
+const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
+  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行时语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', desktop_updates: '桌面更新',
+};
+const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
+  llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
+  memory: '短期上下文、压缩树、自动召回、近期活动、记忆抽取与人物记忆。',
+  agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
+  i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
+  api: '监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
+  relay: '自托管 Relay 的连接、实例身份与认证参数。',
+  channel_access: '所有信道的入站和出站 participant 匹配规则。',
+  wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
+  weixin: '个人微信 ClawBot 的全局启用状态；账号配对需初始化后完成。',
+  desktop_updates: '桌面发布目录、同步来源、周期、容量限制和 Feed 凭据。',
+};
+const BOOTSTRAP_CONFIG_EXCLUSIONS = new Set([
+  'llm.default_provider', 'llm.default_model', 'llm.managed_providers', 'llm.providers_file', 'llm.runtime_config_file',
+  'admin.token', 'admin.config_file', 'desktop_updates.admin_token',
+]);
+const BOOTSTRAP_CONFIG_SECRETS = new Set([
+  'api.communication_token', 'relay.instance_private_key', 'desktop_updates.feed_token', 'wecom.secret',
+]);
+
+function bootstrapFieldVisible(group: string, key: string) {
+  const path = `${group}.${key}`;
+  if (BOOTSTRAP_CONFIG_EXCLUSIONS.has(path)) return false;
+  return !(group === 'llm' && /_(api_key|base_url)$/.test(key));
+}
+
+function bootstrapConfigurationChanges(baseline: Json, draft: Json) {
+  const changes: Json = {};
+  for (const group of BOOTSTRAP_CONFIG_GROUPS) {
+    if (group === 'channel_access') {
+      if (JSON.stringify(baseline[group] || {}) !== JSON.stringify(draft[group] || {})) changes[group] = structuredClone(draft[group] || {});
+      continue;
+    }
+    const groupChanges: Json = {};
+    for (const [key, value] of Object.entries(draft[group] || {})) {
+      if (!bootstrapFieldVisible(group, key)) continue;
+      if (JSON.stringify(baseline[group]?.[key]) !== JSON.stringify(value)) groupChanges[key] = structuredClone(value);
+    }
+    if (Object.keys(groupChanges).length) changes[group] = groupChanges;
+  }
+  return changes;
+}
+
+function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, secretInputs, setSecretInputs, secretStatus, invalidPaths, setJsonValidity }: {
+  baseline: Json;
+  value: Json;
+  change: (group: string, key: string, value: unknown) => void;
+  replaceGroup: (group: string, value: Json) => void;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Json;
+  invalidPaths: Set<string>;
+  setJsonValidity: (path: string, valid: boolean) => void;
+}) {
+  const [group, setGroup] = useState('llm');
+  const groups = BOOTSTRAP_CONFIG_GROUPS.filter(key => value[key] !== undefined);
+  const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
+  const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
+    || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${group}.`) && secret);
+  const reset = () => {
+    replaceGroup(group, structuredClone(baseline[group] || {}));
+    setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => !path.startsWith(`${group}.`))));
+  };
+  const renderJsonField = (key: string, fieldValue: unknown) => {
+    const path = `${group}.${key}`;
+    return <div className="bootstrap-config-json-field" key={key}><span>{t(CONFIG_LABELS[path] || humanize(key))}</span><JsonEditor value={fieldValue} onChange={next => change(group, key, next)} onValidityChange={valid => setJsonValidity(path, valid)} />{path === 'desktop_updates.sync_sources' && Array.isArray(fieldValue) && fieldValue.map((source: Json) => source?.id ? <label className="bootstrap-source-secret" key={source.id}><span>{t('来源“{{name}}”的访问 Token', { name: source.name || source.id })}</span><input type="password" value={secretInputs[`desktop_updates.sync_sources.${source.id}.token`] || ''} onChange={event => setSecretInputs({ ...secretInputs, [`desktop_updates.sync_sources.${source.id}.token`]: event.target.value })} placeholder={secretStatus[`desktop_updates.sync_sources.${source.id}.token`]?.configured ? t('留空保留当前 Token') : t('可选')} /></label> : null)}</div>;
+  };
+  return <div className="bootstrap-config-workbench">
+    <nav aria-label={t('完整初始化配置组')}>{groups.map(key => {
+      const dirty = JSON.stringify(baseline[key] || {}) !== JSON.stringify(value[key] || {}) || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${key}.`) && secret);
+      return <button type="button" className={group === key ? 'active' : ''} onClick={() => setGroup(key)} key={key}><span>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[key] || key)}{dirty && <i />}</span><ChevronRight size={13} /></button>;
+    })}</nav>
+    <section className="bootstrap-config-panel">
+      <header><div><b>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[group] || group)}</b><small>{t(BOOTSTRAP_CONFIG_GROUP_NOTES[group] || '')}</small></div><button type="button" className="ghost mini" disabled={!groupDirty} onClick={reset}><RotateCcw size={13} />{t('恢复推荐值')}</button></header>
+      {group === 'llm' && <div className="bootstrap-config-managed"><ShieldCheck size={15} /><span><b>{t('首个连接由基础设置管理')}</b><small>{t('Provider、启动模型、API Key 和 Base URL 会以页面上方填写的连接为准。')}</small></span></div>}
+      {group === 'channel_access' ? <div className="bootstrap-config-json-field"><span>{t('完整信道访问规则')}</span><JsonEditor value={value.channel_access || {}} onChange={next => replaceGroup('channel_access', next as Json)} onValidityChange={valid => setJsonValidity('channel_access', valid)} /></div> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
+        const path = `${group}.${key}`;
+        if (BOOTSTRAP_CONFIG_SECRETS.has(path)) {
+          const status = secretStatus[path];
+          return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint={status?.configured ? t('当前已配置；留空保持不变') : t('敏感值只会写入本机配置，页面不会回显')}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={status?.configured ? t('留空保留当前值') : t('可选')} /></Field>;
+        }
+        if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]}><select value={String(fieldValue)} onChange={event => change(group, key, event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+        if (typeof fieldValue === 'boolean') return <label className="bootstrap-config-switch" key={key}><input type="checkbox" checked={fieldValue} onChange={event => change(group, key, event.target.checked)} /><span>{t(CONFIG_LABELS[path] || humanize(key))}</span></label>;
+        if (typeof fieldValue === 'number') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input type="number" step="any" value={fieldValue} onChange={event => change(group, key, Number(event.target.value))} /></Field>;
+        if (typeof fieldValue === 'string') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input value={fieldValue} onChange={event => change(group, key, event.target.value)} /></Field>;
+        return renderJsonField(key, fieldValue);
+      })}</div>}
+      {invalidPaths.size > 0 && Array.from(invalidPaths).some(path => path === group || path.startsWith(`${group}.`)) && <p className="field-error" role="alert">{t('请先修正这个配置组中的 JSON 格式。')}</p>}
+    </section>
+  </div>;
+}
+
 function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) {
   const { language } = useAdminI18n();
   const catalogs = data.providers || [];
-  const advancedDefaults = data.defaults?.advanced || {};
+  const configurationDefaults = data.defaults?.configuration || {};
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
   const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
@@ -246,17 +342,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [name, setName] = useState('');
-  const [locale, setLocale] = useState(data.defaults?.locale === 'en' ? 'en' : 'zh-CN');
-  const [maxTokens, setMaxTokens] = useState(String(data.defaults?.max_tokens || 8192));
-  const [passiveMode, setPassiveMode] = useState(Boolean(data.defaults?.passive_mode));
-  const [idleSleepSeconds, setIdleSleepSeconds] = useState(String(advancedDefaults.idle_sleep_seconds ?? 30));
-  const [shortTermMaxTokens, setShortTermMaxTokens] = useState(String(advancedDefaults.short_term_max_tokens ?? 80_000));
-  const [compressRatioPercent, setCompressRatioPercent] = useState(String(Math.round(Number(advancedDefaults.compress_ratio ?? 0.3) * 10_000) / 100));
-  const [autoRecallEnabled, setAutoRecallEnabled] = useState(advancedDefaults.auto_recall_enabled !== false);
-  const [autoRecallThreshold, setAutoRecallThreshold] = useState(String(advancedDefaults.auto_recall_relevance_threshold ?? 0.5));
-  const [autoRecallLimit, setAutoRecallLimit] = useState(String(advancedDefaults.auto_recall_limit ?? 5));
-  const [bubbleMaxConcurrent, setBubbleMaxConcurrent] = useState(String(advancedDefaults.bubble_max_concurrent ?? 5));
-  const [personaEnabled, setPersonaEnabled] = useState(advancedDefaults.persona_enabled !== false);
+  const [configuration, setConfiguration] = useState<Json>(() => structuredClone(configurationDefaults));
+  const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
+  const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
   const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string | null>(null);
@@ -272,20 +360,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
-  const parsedMaxTokens = Number(maxTokens);
-  const validMaxTokens = Number.isInteger(parsedMaxTokens) && parsedMaxTokens > 0;
-  const parsedIdleSleepSeconds = Number(idleSleepSeconds);
-  const parsedShortTermMaxTokens = Number(shortTermMaxTokens);
-  const parsedCompressRatio = Number(compressRatioPercent) / 100;
-  const parsedAutoRecallThreshold = Number(autoRecallThreshold);
-  const parsedAutoRecallLimit = Number(autoRecallLimit);
-  const parsedBubbleMaxConcurrent = Number(bubbleMaxConcurrent);
-  const validAdvanced = Number.isInteger(parsedIdleSleepSeconds) && parsedIdleSleepSeconds >= 0
-    && Number.isInteger(parsedShortTermMaxTokens) && parsedShortTermMaxTokens > 0
-    && parsedCompressRatio > 0 && parsedCompressRatio < 1
-    && parsedAutoRecallThreshold >= 0 && parsedAutoRecallThreshold <= 1
-    && Number.isInteger(parsedAutoRecallLimit) && parsedAutoRecallLimit > 0
-    && Number.isInteger(parsedBubbleMaxConcurrent) && parsedBubbleMaxConcurrent > 0;
+  const passiveMode = Boolean(configuration.agent?.passive_mode);
   const modelListboxId = `bootstrap-model-listbox-${providerType}`;
   const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
   const filteredModels = useMemo(() => {
@@ -293,6 +368,14 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     const filter = modelFilter.toLowerCase();
     return models.filter(item => item.toLowerCase().includes(filter));
   }, [modelFilter, models]);
+  const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
+  const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
+  const setConfigurationJsonValidity = (path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
+    const next = new Set(current);
+    if (valid) next.delete(path); else next.add(path);
+    return next;
+  });
+  const setPassiveMode = (next: boolean) => changeConfiguration('agent', 'passive_mode', next);
 
   const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
   const openAllModels = () => {
@@ -352,20 +435,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         api_key: apiKey,
         base_url: baseUrl,
         coworker_name: normalizedName,
-        locale,
-        max_tokens: parsedMaxTokens,
-        passive_mode: passiveMode,
         allow_unverified_model: customModel && allowUnverifiedModel,
-        advanced: {
-          idle_sleep_seconds: parsedIdleSleepSeconds,
-          short_term_max_tokens: parsedShortTermMaxTokens,
-          compress_ratio: parsedCompressRatio,
-          auto_recall_enabled: autoRecallEnabled,
-          auto_recall_relevance_threshold: parsedAutoRecallThreshold,
-          auto_recall_limit: parsedAutoRecallLimit,
-          bubble_max_concurrent: parsedBubbleMaxConcurrent,
-          persona_enabled: personaEnabled,
-        },
+        configuration: bootstrapConfigurationChanges(configurationDefaults, configuration),
+        secrets: Object.fromEntries(Object.entries(configurationSecrets).filter(([, value]) => value !== '')),
       }) });
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
@@ -417,6 +489,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
                 </div>
               </div>
               <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+              <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
                 <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
@@ -431,34 +504,15 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               </div>
             </div>
             <details className="bootstrap-advanced">
-              <summary><span><SlidersHorizontal size={17} /><span><b>{t('高级初始化')}</b><small>{t('在第一次运行前调整模型、生命循环与记忆参数。使用推荐值也可以直接开始。')}</small></span></span><ChevronRight size={16} /></summary>
+              <summary><span><SlidersHorizontal size={17} /><span><b>{t('高级初始化 · 全部参数')}</b><small>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</small></span></span><ChevronRight size={16} /></summary>
               <div className="bootstrap-advanced-body">
-                <section>
-                  <header><b>{t('模型与运行')}</b><small>{t('连接兼容性、运行语言和每轮生成预算')}</small></header>
-                  <div className="bootstrap-advanced-grid">
-                    <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
-                    <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
-                    <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
-                    <label><span>{t('主动模式自唤醒间隔（秒）')}</span><input required type="number" min="0" step="1" value={idleSleepSeconds} onChange={e => setIdleSleepSeconds(e.target.value)} /><small>{t(passiveMode ? 'Passive 模式会忽略此间隔。' : '空闲后等待多久进入下一轮；0 表示立即继续。')}</small></label>
-                    <label><span>{t('Bubble 最大并发数')}</span><input required type="number" min="1" step="1" value={bubbleMaxConcurrent} onChange={e => setBubbleMaxConcurrent(e.target.value)} /><small>{t('限制可同时运行的并行思考分支。')}</small></label>
-                  </div>
-                </section>
-                <section>
-                  <header><b>{t('记忆行为')}</b><small>{t('决定最初上下文的容量、压缩节奏和长期记忆召回')}</small></header>
-                  <div className="bootstrap-advanced-grid">
-                    <label><span>{t('短期上下文容量（Token）')}</span><input required type="number" min="1" step="1" value={shortTermMaxTokens} onChange={e => setShortTermMaxTokens(e.target.value)} /></label>
-                    <label><span>{t('每次自动压缩比例（%）')}</span><input required type="number" min="0.1" max="99.9" step="0.1" value={compressRatioPercent} onChange={e => setCompressRatioPercent(e.target.value)} /></label>
-                    <label className="bootstrap-advanced-switch"><input type="checkbox" checked={autoRecallEnabled} onChange={e => setAutoRecallEnabled(e.target.checked)} /><span><b>{t('自动召回长期记忆')}</b><small>{t('根据当前对话自动查找相关经历。')}</small></span></label>
-                    <label className="bootstrap-advanced-switch"><input type="checkbox" checked={personaEnabled} onChange={e => setPersonaEnabled(e.target.checked)} /><span><b>{t('人物记忆')}</b><small>{t('跨信道整理人物、称呼和关系。')}</small></span></label>
-                    <label><span>{t('自动召回相关性阈值')}</span><input disabled={!autoRecallEnabled} required type="number" min="0" max="1" step="0.01" value={autoRecallThreshold} onChange={e => setAutoRecallThreshold(e.target.value)} /></label>
-                    <label><span>{t('单次自动召回数量')}</span><input disabled={!autoRecallEnabled} required type="number" min="1" step="1" value={autoRecallLimit} onChange={e => setAutoRecallLimit(e.target.value)} /></label>
-                  </div>
-                </section>
+                <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、语言、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
+                <BootstrapConfigurationEditor baseline={configurationDefaults} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
               </div>
             </details>
             {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || !validAdvanced || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -939,12 +993,69 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
+  'llm.summary_provider': '摘要 Provider',
+  'llm.summary_model': '摘要模型',
+  'llm.summary_thinking': '摘要 Thinking',
+  'llm.fallbacks': '主模型降级链',
+  'llm.vision_provider': '视觉 Provider',
+  'llm.vision_model': '视觉模型',
+  'llm.vision_thinking': '视觉 Thinking',
   'i18n.locale': '模型与运行时语言',
+  'memory.db_path': '记忆数据目录',
+  'memory.short_term_max_tokens': '短期上下文容量',
+  'memory.compress_ratio': '每次自动压缩比例',
+  'memory.tree_enabled': '启用记忆块树',
+  'memory.tree_spine_cap_fraction': '记忆脊柱预算比例',
+  'memory.tree_backfill_max_leaves': '回溯叶子数量上限',
+  'memory.tree_backfill_concurrency': '回溯并发数',
+  'memory.tree_merge_reach_depth': '高层合并下探深度',
+  'memory.auto_recall_enabled': '自动召回长期记忆',
+  'memory.auto_recall_relevance_threshold': '自动召回相关性阈值',
+  'memory.auto_recall_limit': '单次自动召回数量',
+  'memory.recent_activity_enabled': '记录近期活动',
+  'memory.recent_activity_days': '近期活动保留天数',
+  'memory.recent_activity_chunk_tokens': '近期活动分块大小',
+  'memory.recent_activity_overlap_tokens': '近期活动分块重叠',
+  'memory.recent_activity_query_limit': '近期活动查询数量',
+  'memory.recent_activity_auto_recall_enabled': '自动召回近期活动',
+  'memory.recent_activity_auto_recall_limit': '近期活动自动召回数量',
+  'memory.recent_activity_auto_recall_relevance_threshold': '近期活动召回相关性阈值',
   'agent.passive_mode': 'Passive 模式（开发者控制）',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.inbox_dir': '收件箱目录',
+  'agent.outbox_dir': '发件箱目录',
+  'agent.desktop_registry_dir': '桌面连接注册目录',
+  'agent.identity_dir': '身份数据目录',
+  'agent.logs_dir': '运行日志目录',
+  'agent.interaction_log_rotation_bytes': '交互日志轮换大小',
+  'agent.skills_dir': 'Skill 目录',
+  'agent.palaces_dir': 'Palace 目录',
+  'agent.subconscious_dir': '潜意识模式目录',
+  'agent.inbox_poll_interval': '收件箱轮询间隔（秒）',
+  'agent.inbox_batch_max': '单批收件数量上限',
+  'agent.tick': '启用生命循环 Tick',
+  'agent.code_hard_timeout': '代码执行硬超时（秒）',
+  'agent.image_max_dimension': '图片最大边长',
+  'agent.message_time_prefix': '消息附加时间前缀',
+  'agent.bubble_thinking': 'Bubble 启用 Thinking',
+  'agent.bubble_max_concurrent': 'Bubble 最大并发数',
   'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
   'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
+  'agent.bubble_timeout_resume_seconds': 'Bubble 超时续跑窗口（秒）',
+  'agent.subconscious_thinking': '潜意识启用 Thinking',
+  'agent.subconscious_summarize_before_compress': '压缩前生成潜意识摘要',
+  'agent.subconscious_max_cycles': '潜意识最大循环次数',
+  'api.host': 'API 监听地址',
+  'api.port': 'API 监听端口',
   'api.communication_token': '桌面通信令牌',
+  'api.development_mode': 'API 开发模式',
+  'api.cors_origins': '允许的跨域来源',
+  'relay.enabled': '启用 Relay',
+  'relay.url': 'Relay 地址',
+  'relay.instance_id': 'Relay 实例 ID',
+  'relay.instance_private_key': 'Relay 实例私钥',
+  'relay.relay_public_key': 'Relay 公钥',
+  'relay.auth_epoch': 'Relay 认证 Epoch',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
   'desktop_updates.sync_active_source': '当前上游',
@@ -952,9 +1063,18 @@ const CONFIG_LABELS: Record<string, string> = {
   'desktop_updates.sync_on_start': '服务启动时立即检测',
   'desktop_updates.sync_max_asset_bytes': '单个制品大小上限（字节）',
   'desktop_updates.sync_max_run_bytes': '单次同步总量上限（字节）',
+  'desktop_updates.feed_token': '下游同步 Feed Token',
   'memory.mem0_llm_provider': '记忆抽取 Provider（mem0）',
   'memory.mem0_llm_model': '记忆抽取模型（mem0）',
   'memory.mem0_llm_thinking': '记忆抽取 Thinking（mem0）',
+  'memory.mem0_embedder_model': '记忆向量模型（mem0）',
+  'memory.persona_enabled': '启用人物记忆',
+  'memory.persona_store_path': '人物记忆文件',
+  'wecom.enabled': '启用企业微信',
+  'wecom.bot_id': '企业微信 Bot ID',
+  'wecom.secret': '企业微信 Secret',
+  'wecom.ws_url': '企业微信 WebSocket 地址',
+  'weixin.enabled': '启用微信 Claw',
 };
 
 function Settings() {

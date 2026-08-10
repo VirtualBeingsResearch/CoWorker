@@ -156,6 +156,15 @@ class AdminConfigService:
         sparse = sparse_admin_overrides(overrides, self._dependencies.inherited_config)
         write_admin_overrides(path, cast(JsonObject, sparse))
 
+    def prepare_overrides(
+        self,
+        current_overrides: JsonObject,
+        update: ConfigUpdate,
+    ) -> JsonObject:
+        """Build sanitized overrides without applying them to the running process."""
+
+        return self._prepare_overrides(current_overrides, update)
+
     def snapshot(self) -> ConfigSnapshot:
         data, statuses, effective_providers = self._masked_config()
         config = self._dependencies.config
