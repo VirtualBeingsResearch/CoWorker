@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { resolveBootstrapAdminTarget } from '../src/admin/bootstrapReconnect.ts';
+
+test('keeps the current origin when the API binding is unchanged', () => {
+  const target = resolveBootstrapAdminTarget(
+    'http://localhost:8000/admin?step=setup',
+    { host: '127.0.0.1', port: 8000 },
+    { host: '127.0.0.1', port: 8000 },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'http://localhost:8000/admin',
+    originChanged: false,
+  });
+});
+
+test('moves to the configured port after bootstrap', () => {
+  const target = resolveBootstrapAdminTarget(
+    'http://localhost:8000/admin',
+    { host: '127.0.0.1', port: 8000 },
+    { host: '127.0.0.1', port: 8124 },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'http://localhost:8124/admin',
+    originChanged: true,
+  });
+});
+
+test('keeps the browser hostname for a wildcard bind address', () => {
+  const target = resolveBootstrapAdminTarget(
+    'http://coworker.local:8000/admin',
+    { host: '127.0.0.1', port: 8000 },
+    { host: '0.0.0.0', port: 8000 },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'http://coworker.local:8000/admin',
+    originChanged: false,
+  });
+});
+
+test('moves to an explicitly changed host and supports IPv6 literals', () => {
+  const target = resolveBootstrapAdminTarget(
+    'http://localhost:8000/admin',
+    { host: '127.0.0.1', port: 8000 },
+    { host: '::1', port: 8124 },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'http://[::1]:8124/admin',
+    originChanged: true,
+  });
+});

@@ -11,6 +11,7 @@ import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
+import { resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import type { UsageStats } from '../api/types';
@@ -355,6 +356,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'form' | 'restarting'>('form');
+  const [restartTarget, setRestartTarget] = useState<BootstrapAdminTarget | null>(null);
   const normalizedModel = model.trim();
   const normalizedName = name.trim();
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
@@ -429,6 +431,11 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     setSubmitting(true);
     setError('');
     try {
+      const target = resolveBootstrapAdminTarget(
+        window.location.href,
+        configurationDefaults.api || {},
+        configuration.api || {},
+      );
       await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({
         provider_type: providerType,
         model: normalizedModel,
@@ -439,17 +446,25 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         configuration: bootstrapConfigurationChanges(configurationDefaults, configuration),
         secrets: Object.fromEntries(Object.entries(configurationSecrets).filter(([, value]) => value !== '')),
       }) });
+      setRestartTarget(target);
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
       const waitUntilReady = async () => {
         while (Date.now() < deadline) {
           await new Promise(resolve => window.setTimeout(resolve, 1500));
           try {
+            if (target.originChanged) {
+              await fetch(target.adminUrl, { mode: 'no-cors', cache: 'no-store' });
+              window.location.replace(target.adminUrl);
+              return;
+            }
             const status = await api<Json>('/api/admin/bootstrap');
             if (!status.required) { onComplete(); return; }
           } catch { /* Restart temporarily closes the connection. */ }
         }
-        setError(t('配置已经保存，但服务仍在重启。请稍后刷新页面。'));
+        setError(t(target.originChanged
+          ? '新管理员地址暂时无法访问，请稍后通过下方地址打开。'
+          : '配置已经保存，但服务仍在重启。请稍后刷新页面。'));
       };
       void waitUntilReady();
     } catch (e) {
@@ -474,7 +489,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         </ol>
       </aside>
       <section className="bootstrap-form-stage">
-        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t('页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
+        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? 'API 监听地址已变更。服务恢复后会自动前往新的管理员地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">

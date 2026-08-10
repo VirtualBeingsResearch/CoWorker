@@ -521,6 +521,10 @@ html:has(.admin-login),
 
 .bootstrap-restarting { max-width: 430px; text-align: center; align-self: center; }
 .bootstrap-restarting .access-step { margin: 32px 0 18px; }
+.bootstrap-reconnect-target { display: grid; gap: 8px; margin-top: 22px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 12px; text-align: left; background: color-mix(in oklch, var(--admin-paper) 62%, var(--admin-surface)); }
+.bootstrap-reconnect-target > span { color: var(--admin-muted); font-size: 10px; font-weight: 650; }
+.bootstrap-reconnect-target > code { overflow-wrap: anywhere; color: var(--admin-ink); font: 11px/1.55 var(--admin-data); }
+.bootstrap-reconnect-target > .primary { margin-top: 3px; text-decoration: none; }
 .restart-orbit { position: relative; display: grid; place-items: center; width: 96px; height: 96px; margin: 0 auto; color: var(--admin-vital); }
 .restart-orbit i { position: absolute; inset: 5px; border: 1px solid currentColor; border-radius: 45% 55%; opacity: .35; animation: admin-orbit 3s linear infinite; }
 .restart-orbit i:last-child { inset: 18px; animation-direction: reverse; animation-duration: 2s; }
