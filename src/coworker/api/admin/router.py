@@ -155,9 +155,6 @@ class BootstrapPayload(BaseModel):
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
-    locale: Literal["zh-CN", "en"] | None = None
-    max_tokens: int | None = Field(default=None, gt=0)
-    passive_mode: bool | None = None
     allow_unverified_model: bool = False
     configuration: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
@@ -961,7 +958,6 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
 
     brain = _require_brain()
-    config = _require_config()
     snapshot = _require_admin_config_service().snapshot()
     from coworker.brain.factory import available_models, available_types
 
@@ -974,9 +970,6 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "active_model": brain.current_model,
         "providers": providers,
         "defaults": {
-            "locale": config.i18n.locale.value,
-            "max_tokens": config.llm.max_tokens,
-            "passive_mode": config.agent.passive_mode,
             "configuration": snapshot.config,
             "secret_status": snapshot.secret_status,
         },
@@ -1061,14 +1054,6 @@ async def complete_bootstrap(
                 status_code=error.status_code,
                 detail=error.detail,
             ) from error
-        legacy_changes: JsonObject = {}
-        if payload.locale is not None:
-            legacy_changes["i18n"] = {"locale": payload.locale}
-        if payload.max_tokens is not None:
-            legacy_changes["llm"] = {"max_tokens": payload.max_tokens}
-        if payload.passive_mode is not None:
-            legacy_changes["agent"] = {"passive_mode": payload.passive_mode}
-        next_overrides = config_service.merge_overrides(next_overrides, legacy_changes)
         connection_changes: JsonObject = {
             "llm": {
                 "default_provider": provider_type,
