@@ -1560,6 +1560,30 @@ def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
     assert blocked_patch.status_code == 409
 
 
+def test_bootstrap_accepts_legacy_runtime_fields(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+
+    response = client.post(
+        "/api/admin/bootstrap",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "openai",
+            "model": "gpt-5.2",
+            "api_key": "sk-legacy-client",
+            "locale": "en",
+            "max_tokens": 2048,
+            "passive_mode": True,
+        },
+    )
+
+    assert response.status_code == 202
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["i18n"]["locale"] == "en"
+    assert saved["llm"]["max_tokens"] == 2048
+    assert saved["agent"]["passive_mode"] is True
+
+
 def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path):
     client, _ = _client(tmp_path)
     admin._brain.active_provider = None
