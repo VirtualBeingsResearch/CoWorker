@@ -90,6 +90,31 @@ def test_api_port_must_be_in_tcp_range(port):
         APIConfig(port=port, _env_file=None)
 
 
+def test_api_public_url_accepts_and_normalizes_reverse_proxy_origin():
+    config = APIConfig(public_url=" https://coworker.example.com/ ", _env_file=None)
+
+    assert config.public_url == "https://coworker.example.com"
+
+
+@pytest.mark.parametrize(
+    "public_url",
+    [
+        "coworker.example.com",
+        "ftp://coworker.example.com",
+        "https://coworker.example.com:not-a-port",
+        "http://0.0.0.0:8000",
+        "http://[::]:8000",
+        "https://admin:secret@coworker.example.com",
+        "https://coworker.example.com/coworker",
+        "https://coworker.example.com?source=proxy",
+        "https://coworker.example.com#admin",
+    ],
+)
+def test_api_public_url_rejects_non_origin_values(public_url):
+    with pytest.raises(ValidationError):
+        APIConfig(public_url=public_url, _env_file=None)
+
+
 def test_effective_cors_origins_are_applied_to_the_api():
     try:
         api_app.setup_cors([" https://admin.example "])

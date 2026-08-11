@@ -7,6 +7,7 @@ export type BootstrapAdminTarget = {
 type ApiBinding = {
   host?: unknown;
   port?: unknown;
+  public_url?: unknown;
 };
 
 function browserHostname(bindHost: unknown, currentHostname: string) {
@@ -17,6 +18,19 @@ function browserHostname(bindHost: unknown, currentHostname: string) {
     : normalized;
   if (!unwrapped || unwrapped === '0.0.0.0' || unwrapped === '::') return currentHostname;
   return unwrapped.includes(':') ? `[${unwrapped}]` : unwrapped;
+}
+
+function browserPublicOrigin(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const parsed = new URL(value.trim());
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) return '';
+    if (parsed.pathname !== '/' && parsed.pathname !== '') return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
 }
 
 export function createBootstrapReconnectProof() {
@@ -30,14 +44,18 @@ export function resolveBootstrapAdminTarget(
   desiredApi: ApiBinding,
 ): BootstrapAdminTarget {
   const current = new URL(currentHref);
-  const target = new URL('/admin', current);
-  const hostChanged = desiredApi.host !== baselineApi.host;
-  const portChanged = desiredApi.port !== baselineApi.port;
+  const publicOrigin = browserPublicOrigin(desiredApi.public_url);
+  const target = new URL('/admin', publicOrigin ? `${publicOrigin}/` : current);
 
-  if (hostChanged) target.hostname = browserHostname(desiredApi.host, current.hostname);
-  if (portChanged) {
-    const port = Number(desiredApi.port);
-    if (Number.isInteger(port) && port >= 1 && port <= 65_535) target.port = String(port);
+  if (!publicOrigin) {
+    const hostChanged = desiredApi.host !== baselineApi.host;
+    const portChanged = desiredApi.port !== baselineApi.port;
+
+    if (hostChanged) target.hostname = browserHostname(desiredApi.host, current.hostname);
+    if (portChanged) {
+      const port = Number(desiredApi.port);
+      if (Number.isInteger(port) && port >= 1 && port <= 65_535) target.port = String(port);
+    }
   }
 
   return {

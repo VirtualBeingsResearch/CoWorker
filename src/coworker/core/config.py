@@ -218,6 +218,7 @@ class APIConfig(_EnvSettings):
     # development server directly.
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65_535)
+    public_url: str = Field(default="", max_length=2048)
     communication_token: str = ""
     development_mode: bool = False
     # JSON list in environment/.env, e.g.
@@ -228,6 +229,31 @@ class APIConfig(_EnvSettings):
             "http://127.0.0.1:8000",
         ]
     )
+
+    @field_validator("public_url")
+    @classmethod
+    def _validate_public_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        try:
+            parsed.port
+        except ValueError as error:
+            raise ValueError(tr("config.api.public_url_absolute")) from error
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(tr("config.api.public_url_absolute"))
+        if parsed.hostname in {"0.0.0.0", "::"}:
+            raise ValueError(tr("config.api.public_url_wildcard"))
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(tr("config.api.public_url_origin_only"))
+        return value
 
 
 class RelayConfig(_EnvSettings):

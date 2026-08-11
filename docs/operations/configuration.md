@@ -123,6 +123,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 |---|---|---|
 | `API__HOST` | `127.0.0.1` | API 监听地址；如需对外提供服务，应由显式配置的反向代理/TLS 层接入 |
 | `API__PORT` | `8000` | API 监听端口 |
+| `API__PUBLIC_URL` | 空 | 反向代理后浏览器访问的公开 HTTP(S) 根地址，只能包含 scheme、host 和可选端口；首次初始化重连优先使用它，而不是内部监听地址 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop 开发模式；关闭 Bearer/HTTPS 校验，仅应为本机 HTTP 调试显式开启 |
 | `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | Desktop 生产通信 Bearer 令牌；需要与管理权限隔离时单独配置 |
@@ -143,6 +144,13 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
+
+反向代理同时代理 `/admin`、`/api/*` 和静态资源时，将 `API__PUBLIC_URL` 设置为浏览器
+实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或
+`API__PORT` 的内部监听行为，只让首次初始化和重启后的管理员页面继续通过稳定的公开地址
+连接；不要填写 `/admin`、路径、查询参数或凭据。如果前端与 API 使用不同 origin，仍需将
+前端 origin 精确加入 `API__CORS_ORIGINS`。修改内部端口时，也必须在 Coworker 恢复前让
+反向代理 upstream 指向新端口。
 
 `CHANNEL_ACCESS` 的键是信道名，四类规则都是大小写敏感的整串 participant ID glob。deny
 优先；allow 非空时只允许命中项；未配置或四个列表都为空时允许全部。该配置可在管理端

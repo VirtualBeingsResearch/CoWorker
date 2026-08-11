@@ -133,6 +133,7 @@ language-transition system notice when it detects a locale change.
 |---|---|---|
 | `API__HOST` | `127.0.0.1` | API listen address; expose it only through an explicitly configured reverse proxy/TLS layer |
 | `API__PORT` | `8000` | API listen port |
+| `API__PUBLIC_URL` | Empty | Browser-facing public HTTP(S) root URL behind a reverse proxy; it may contain only a scheme, host, and optional port, and first-run reconnect prefers it over the internal bind address |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop development mode; disables Bearer/HTTPS checks and should be enabled explicitly only for local HTTP debugging |
 | `API__COMMUNICATION_TOKEN` | Empty (administrator-token fallback) | Bearer token for production Desktop communication; configure it separately to isolate permissions |
@@ -153,6 +154,14 @@ language-transition system notice when it detects a locale change.
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
+
+When a reverse proxy serves `/admin`, `/api/*`, and static assets together, set
+`API__PUBLIC_URL` to the origin the browser actually opens, such as
+`https://coworker.example.com`. It does not change the internal `API__HOST` or `API__PORT` bind;
+it keeps first-run and post-restart administrator navigation on the stable public address. Do not
+include `/admin`, another path, query parameters, or credentials. If the frontend and API use
+different origins, add the exact frontend origin to `API__CORS_ORIGINS` as well. When changing the
+internal port, update the reverse-proxy upstream before Coworker becomes ready on the new port.
 
 `CHANNEL_ACCESS` keys are channel names, and all four rule lists contain case-sensitive, full-ID
 participant globs. Deny takes precedence; a non-empty allow list admits only matches; an omitted

@@ -244,7 +244,7 @@ const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   memory: '短期上下文、压缩树、自动召回、近期活动、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
   i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
-  api: '监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
+  api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
   channel_access: '所有信道的入站和出站 participant 匹配规则。',
   wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
@@ -323,7 +323,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]}><select value={String(fieldValue)} onChange={event => change(group, key, event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
         if (typeof fieldValue === 'boolean') return <label className="bootstrap-config-switch" key={key}><input type="checkbox" checked={fieldValue} onChange={event => change(group, key, event.target.checked)} /><span>{t(CONFIG_LABELS[path] || humanize(key))}</span></label>;
         if (typeof fieldValue === 'number') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input type="number" min={path === 'api.port' ? 1 : undefined} max={path === 'api.port' ? 65_535 : undefined} step={path === 'api.port' ? 1 : 'any'} value={fieldValue} onChange={event => change(group, key, Number(event.target.value))} /></Field>;
-        if (typeof fieldValue === 'string') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input value={fieldValue} onChange={event => change(group, key, event.target.value)} /></Field>;
+        if (typeof fieldValue === 'string') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'api.public_url' ? t('反向代理下浏览器实际访问的 HTTP(S) 地址；留空时根据监听地址推导。') : undefined}><input type={path === 'api.public_url' ? 'url' : undefined} value={fieldValue} onChange={event => change(group, key, event.target.value)} placeholder={path === 'api.public_url' ? 'https://coworker.example.com' : undefined} /></Field>;
         return renderJsonField(key, fieldValue);
       })}</div>}
       {invalidPaths.size > 0 && Array.from(invalidPaths).some(path => path === group || path.startsWith(`${group}.`)) && <p className="field-error" role="alert">{t('请先修正这个配置组中的 JSON 格式。')}</p>}
@@ -494,7 +494,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         </ol>
       </aside>
       <section className="bootstrap-form-stage">
-        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? 'API 监听地址已变更。服务恢复后会自动前往新的管理员地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
+        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? '管理员访问地址已变更。服务恢复后会自动前往新地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
@@ -1067,6 +1067,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'agent.subconscious_max_cycles': '潜意识最大循环次数',
   'api.host': 'API 监听地址',
   'api.port': 'API 监听端口',
+  'api.public_url': 'API 公开访问地址',
   'api.communication_token': '桌面通信令牌',
   'api.development_mode': 'API 开发模式',
   'api.cors_origins': '允许的跨域来源',
@@ -1210,7 +1211,7 @@ function Settings() {
           const step = path === 'llm.max_tokens' || path === 'api.port' ? 1 : 'any';
           return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} max={maximum} step={step} onChange={e => change(key, Number(e.target.value))} /></Field>;
         }
-        if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
+        if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : path === 'api.public_url' ? '反向代理下浏览器实际访问的 HTTP(S) 地址；留空时根据监听地址推导。' : undefined}><input type={path === 'api.public_url' ? 'url' : undefined} value={value} onChange={e => change(key, e.target.value)} placeholder={path === 'api.public_url' ? 'https://coworker.example.com' : undefined} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}

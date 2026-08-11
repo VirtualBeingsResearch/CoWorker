@@ -59,6 +59,34 @@ test('moves to an explicitly changed host and supports IPv6 literals', () => {
   });
 });
 
+test('keeps a stable reverse-proxy URL when the internal bind port changes', () => {
+  const target = resolveBootstrapAdminTarget(
+    'https://coworker.example.com/admin',
+    { host: '127.0.0.1', port: 8000, public_url: 'https://coworker.example.com' },
+    { host: '0.0.0.0', port: 8124, public_url: 'https://coworker.example.com' },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'https://coworker.example.com/admin',
+    reconnectUrl: 'https://coworker.example.com/api/bootstrap/reconnect',
+    originChanged: false,
+  });
+});
+
+test('moves from a direct address to a newly configured public URL', () => {
+  const target = resolveBootstrapAdminTarget(
+    'http://localhost:8000/admin',
+    { host: '127.0.0.1', port: 8000, public_url: '' },
+    { host: '127.0.0.1', port: 8000, public_url: 'https://coworker.example.com/' },
+  );
+
+  assert.deepEqual(target, {
+    adminUrl: 'https://coworker.example.com/admin',
+    reconnectUrl: 'https://coworker.example.com/api/bootstrap/reconnect',
+    originChanged: true,
+  });
+});
+
 test('creates an unguessable reconnect proof accepted by the bootstrap API', () => {
   const first = createBootstrapReconnectProof();
   const second = createBootstrapReconnectProof();

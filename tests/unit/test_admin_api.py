@@ -699,6 +699,20 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_config_patch_marks_public_url_for_restart(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"api": {"public_url": "https://coworker.example.com"}}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requires_restart"] == ["api.public_url"]
+    assert response.json()["pending_restart"] is True
+
+
 def test_config_patch_persists_only_changed_fields(tmp_path):
     client, _ = _client(tmp_path)
 
@@ -1387,6 +1401,12 @@ def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsy
     assert "saved-token" in captured.err
     assert "http://127.0.0.1:8123/admin" in captured.err
 
+    config.api.public_url = "https://coworker.example.com"
+    _print_setup_admin_token(config)
+    captured = capsys.readouterr()
+    assert "https://coworker.example.com/admin" in captured.err
+    assert "http://127.0.0.1:8123/admin" not in captured.err
+
     config.admin.token = ""
     config.desktop_updates.admin_token = "legacy-token"
     _print_setup_admin_token(config)
@@ -1453,6 +1473,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
                 },
                 "api": {
                     "port": 8124,
+                    "public_url": "https://coworker.example.com",
                     "development_mode": True,
                     "cors_origins": ["https://desktop.example"],
                 },
@@ -1504,6 +1525,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["agent"]["bubble_max_concurrent"] == 2
     assert saved["agent"]["inbox_batch_max"] == 4
     assert saved["api"]["port"] == 8124
+    assert saved["api"]["public_url"] == "https://coworker.example.com"
     assert saved["api"]["communication_token"] == "desktop-first-run"
     assert saved["relay"]["instance_id"] == "cw_abcdefgh"
     assert saved["relay"]["instance_private_key"] == "relay-private"
@@ -1664,6 +1686,11 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
         "/api/admin/bootstrap",
         headers=headers,
         json={**base, "configuration": {"api": {"port": 65_536}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"api": {"public_url": "https://example.com/path"}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap",

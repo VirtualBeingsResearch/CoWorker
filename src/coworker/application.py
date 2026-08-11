@@ -400,13 +400,18 @@ def _print_setup_admin_token(config: Config) -> None:
     token = effective_admin_token(config)
     if not token:
         return
+    admin_url = (
+        f"{config.api.public_url}/admin"
+        if config.api.public_url
+        else f"http://127.0.0.1:{config.api.port}/admin"
+    )
     print(
         "\n"
         + "=" * 68
         + "\n"
         + tr(
             "cli.first_run_token",
-            admin_url=f"http://127.0.0.1:{config.api.port}/admin",
+            admin_url=admin_url,
             token=token,
         )
         + "\n"

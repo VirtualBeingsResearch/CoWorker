@@ -138,6 +138,11 @@ names_must_be_strings = "信道访问名称必须是字符串"
 names_must_not_be_empty = "信道访问名称不能为空"
 duplicate_name = "去除首尾空白后出现重复信道访问名称：{{channel}}"
 
+[config.api]
+public_url_absolute = "API 公开访问地址必须是绝对 HTTP(S) URL"
+public_url_wildcard = "API 公开访问地址必须使用浏览器可访问的主机名，不能使用通配监听地址"
+public_url_origin_only = "API 公开访问地址不能包含凭据、路径、查询参数或片段"
+
 [channel.desktop]
 command_rejected = "命令未被接受"
 reported_error = "桌面端报告错误"
