@@ -12,6 +12,7 @@ from loguru import logger
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
+from coworker.core.timezone import local_wall_now
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import tr
 from coworker.memory.recent_activity import render_recent_activity_replay
@@ -746,7 +747,7 @@ class AgentLoop:
                     participant_id="system",
                     content=tr("loop.task_wakeup", count=len(active)),
                     source="task_reminder",
-                    timestamp=datetime.now(),
+                    timestamp=local_wall_now(),
                 )
             )
             if self._ilog:

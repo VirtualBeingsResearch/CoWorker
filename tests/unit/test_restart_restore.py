@@ -9,6 +9,7 @@ from coworker.agent.interaction_log import InteractionLogger
 from coworker.application import (
     _append_recovered_tool_result,
     _diff_runtime_locale,
+    _diff_runtime_timezone,
     _enqueue_startup_event,
 )
 from coworker.core.types import IncomingEvent, Message
@@ -101,6 +102,27 @@ def test_runtime_locale_change_notice_is_emitted_only_for_an_actual_change():
     assert notice is not None
     assert "runtime language changed from zh-CN to en" in notice
     assert "existing user content and memories remain" in notice
+
+
+def test_runtime_timezone_change_notice_is_emitted_only_for_an_actual_change():
+    assert _diff_runtime_timezone({}, {"runtime_timezone": "Asia/Shanghai"}) is None
+    assert (
+        _diff_runtime_timezone(
+            {"runtime_timezone": "Asia/Shanghai"},
+            {"runtime_timezone": "Asia/Shanghai"},
+        )
+        is None
+    )
+
+    with locale_context("en"):
+        notice = _diff_runtime_timezone(
+            {"runtime_timezone": "system"},
+            {"runtime_timezone": "Asia/Shanghai"},
+        )
+
+    assert notice is not None
+    assert "runtime timezone changed from system to Asia/Shanghai" in notice
+    assert "alarms, and date boundaries" in notice
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from coworker.core.timezone import as_local, local_from_timestamp, local_now
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -36,14 +37,12 @@ class DetailsPatchError(ValueError):
 
 
 def _now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return local_now().isoformat(timespec="seconds")
 
 
 def _timestamp_from_path(path: Path) -> str | None:
     try:
-        return (
-            datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
-        )
+        return local_from_timestamp(path.stat().st_mtime).isoformat(timespec="seconds")
     except OSError:
         return None
 
@@ -55,12 +54,12 @@ def _parse_task_time(value: str) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed.astimezone()
+    return as_local(parsed)
 
 
 def _relative_time(value: datetime, *, now: datetime | None = None) -> str:
-    now = (now or datetime.now().astimezone()).astimezone()
-    value = value.astimezone()
+    now = as_local(now) if now is not None else local_now()
+    value = as_local(value)
     seconds = int((now - value).total_seconds())
     future = seconds < 0
     seconds = abs(seconds)
@@ -105,8 +104,8 @@ def _relative_time(value: datetime, *, now: datetime | None = None) -> str:
 
 
 def _should_show_absolute_date(value: datetime, *, now: datetime | None = None) -> bool:
-    now = (now or datetime.now().astimezone()).astimezone()
-    value = value.astimezone()
+    now = as_local(now) if now is not None else local_now()
+    value = as_local(value)
     return abs((now.date() - value.date()).days) >= 30
 
 

@@ -3,24 +3,16 @@ from __future__ import annotations
 import os
 import platform
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from coworker.core.constants import TICK_TAG
+from coworker.core.timezone import timezone_description
 from coworker.i18n import get_locale, locale_context, tr
 
 
 def _tz_info() -> str:
-    offset_secs = -time.timezone
-    if time.daylight and time.localtime().tm_isdst:
-        offset_secs = -time.altzone
-    hours, remainder = divmod(abs(offset_secs), 3600)
-    minutes = remainder // 60
-    sign = "+" if offset_secs >= 0 else "-"
-    offset_str = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
-    tz_name = time.tzname[1 if (time.daylight and time.localtime().tm_isdst) else 0]
-    return f"{tz_name} ({offset_str})"
+    return timezone_description()
 
 
 def _build_env_section(git_commit: str | None = None) -> str:

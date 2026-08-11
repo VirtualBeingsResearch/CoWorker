@@ -11,12 +11,12 @@ import time
 from asyncio.subprocess import Process
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import psutil
 
+from coworker.core.timezone import local_wall_now
 from coworker.core.types import IncomingEvent, ToolResult
 from coworker.i18n import (
     SupportedLocale,
@@ -377,7 +377,7 @@ class ExecuteCodeTool(Tool):
             event = IncomingEvent(
                 participant_id="code_job",
                 content="\n".join(lines),
-                timestamp=datetime.now(),
+                timestamp=local_wall_now(),
                 source="code_job",
             )
             job.notification_event_id = await target.push(event)

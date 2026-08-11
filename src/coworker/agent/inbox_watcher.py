@@ -5,12 +5,12 @@ import base64
 import secrets
 import shutil
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
 
 from coworker.core.ids import new_compact_id
+from coworker.core.timezone import local_wall_now
 from coworker.core.types import AttachmentData, IncomingEvent
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -171,7 +171,7 @@ class InboxWatcher:
         event = IncomingEvent(
             participant_id=sender_id,
             content=content,
-            timestamp=datetime.now(),
+            timestamp=local_wall_now(),
             source="file",
         )
         await self.push(event)
@@ -199,7 +199,7 @@ class InboxWatcher:
         event = IncomingEvent(
             participant_id=sender_id,
             content="",
-            timestamp=datetime.now(),
+            timestamp=local_wall_now(),
             source="file",
             attachments=[att],
         )
@@ -225,7 +225,7 @@ class InboxWatcher:
         event = IncomingEvent(
             participant_id=sender_id,
             content="",
-            timestamp=datetime.now(),
+            timestamp=local_wall_now(),
             source="file",
             attachments=[att],
         )

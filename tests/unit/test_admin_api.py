@@ -1235,28 +1235,35 @@ def test_registered_channel_settings_are_hot_applied_generically(tmp_path):
     assert settings.applied[0].enabled is True
 
 
-def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
+def test_runtime_language_and_timezone_round_trip_and_require_restart(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
 
     body = client.get("/api/admin/config", headers=headers).json()
-    assert body["config"]["i18n"] == {"locale": "zh-CN"}
+    assert body["config"]["i18n"] == {"locale": "zh-CN", "timezone": ""}
     assert "i18n.locale" not in body["hot_reloadable"]
+    assert "i18n.timezone" not in body["hot_reloadable"]
 
     response = client.patch(
         "/api/admin/config",
         headers=headers,
-        json={"changes": {"i18n": {"locale": "en-US"}}, "secrets": {}},
+        json={
+            "changes": {"i18n": {"locale": "en-US", "timezone": "Asia/Shanghai"}},
+            "secrets": {},
+        },
     )
     assert response.status_code == 200
     assert response.json()["applied_now"] == []
-    assert response.json()["requires_restart"] == ["i18n.locale"]
+    assert response.json()["requires_restart"] == ["i18n.locale", "i18n.timezone"]
     assert config.i18n.locale.value == "zh-CN"
+    assert config.i18n.timezone == ""
 
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved["i18n"]["locale"] == "en-US"
+    assert saved["i18n"]["timezone"] == "Asia/Shanghai"
     desired = client.get("/api/admin/config", headers=headers).json()
     assert desired["config"]["i18n"]["locale"] == "en"
+    assert desired["config"]["i18n"]["timezone"] == "Asia/Shanghai"
 
 
 def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
@@ -1487,6 +1494,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
     assert defaults["configuration"]["agent"]["passive_mode"] is False
     assert defaults["configuration"]["i18n"]["locale"] == "zh-CN"
+    assert defaults["configuration"]["i18n"]["timezone"] == ""
     assert defaults["configuration"]["admin"]["token"] == ""
     assert defaults["secret_status"]["admin.token"] == {
         "configured": True,
@@ -1519,7 +1527,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
                     "auto_recall_limit": 3,
                     "persona_enabled": False,
                 },
-                "i18n": {"locale": "en"},
+                "i18n": {"locale": "en", "timezone": "Asia/Shanghai"},
                 "agent": {
                     "passive_mode": True,
                     "idle_sleep_seconds": 90,
@@ -1575,6 +1583,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["memory"]["auto_recall_limit"] == 3
     assert saved["memory"]["persona_enabled"] is False
     assert saved["i18n"]["locale"] == "en"
+    assert saved["i18n"]["timezone"] == "Asia/Shanghai"
     assert saved["agent"]["passive_mode"] is True
     assert saved["agent"]["idle_sleep_seconds"] == 90
     assert saved["agent"]["bubble_max_concurrent"] == 2
@@ -1779,6 +1788,11 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
         "/api/admin/bootstrap",
         headers=headers,
         json={**base, "configuration": {"i18n": {"locale": "fr"}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"i18n": {"timezone": "Mars/Olympus_Mons"}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap", headers=headers, json={**base, "model": "   "}

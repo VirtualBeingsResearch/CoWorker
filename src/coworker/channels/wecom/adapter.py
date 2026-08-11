@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from coworker.core.ids import new_compact_id
+from coworker.core.timezone import local_wall_now
 from coworker.core.types import AttachmentData, IncomingEvent
 from coworker.i18n import tr
 
@@ -289,7 +289,7 @@ def frame_to_event(
         participant_id=pid,
         content=content,
         conversation_id=conversation_id_for(frame),
-        timestamp=datetime.now(),
+        timestamp=local_wall_now(),
         source="wecom",
         attachments=attachments,
     )

@@ -12,6 +12,7 @@ from loguru import logger
 
 from coworker.agent.bubble_loop import BubbleMiniLoop, _bubble_base_intercepts
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+from coworker.core.timezone import local_from_timestamp
 from coworker.i18n import bind_locale, tr
 
 if TYPE_CHECKING:
@@ -577,7 +578,7 @@ class SubconsciousScheduler:
             run_count = self._mode_run_count.get(mode.name, 0)
             last_run_wall = self._mode_last_run_wall.get(mode.name)
             last_run_str = (
-                datetime.fromtimestamp(last_run_wall).strftime("%Y-%m-%d %H:%M")
+                local_from_timestamp(last_run_wall).strftime("%Y-%m-%d %H:%M")
                 if last_run_wall is not None
                 else tr("subconscious.never_run")
             )
@@ -587,7 +588,7 @@ class SubconsciousScheduler:
             # Change status relative to last meta review.
             changed_wall = self._mode_last_changed_wall.get(mode.name)
             if changed_wall is not None and mode.name != "meta":
-                changed_str = datetime.fromtimestamp(changed_wall).strftime("%Y-%m-%d %H:%M")
+                changed_str = local_from_timestamp(changed_wall).strftime("%Y-%m-%d %H:%M")
                 if meta_last_run is None or changed_wall > meta_last_run:
                     change_tag = tr("subconscious.changed_unreviewed", time=changed_str)
                     changed_since_meta.append((mode.name, changed_wall))
@@ -645,12 +646,12 @@ class SubconsciousScheduler:
         if changed_since_meta:
             lines.append(tr("subconscious.change_summary", count=len(changed_since_meta)))
             for name, wall in sorted(changed_since_meta, key=lambda x: -x[1]):
-                when = datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M")
+                when = local_from_timestamp(wall).strftime("%Y-%m-%d %H:%M")
                 lines.append(tr("subconscious.change_item", name=name, time=when))
             lines.append(tr("subconscious.change_advice"))
         else:
             meta_last_str = (
-                datetime.fromtimestamp(meta_last_run).strftime("%Y-%m-%d %H:%M")
+                local_from_timestamp(meta_last_run).strftime("%Y-%m-%d %H:%M")
                 if meta_last_run
                 else tr("subconscious.never")
             )

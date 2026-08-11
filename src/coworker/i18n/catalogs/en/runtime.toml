@@ -143,6 +143,9 @@ public_url_absolute = "The public API URL must be an absolute HTTP(S) URL"
 public_url_wildcard = "The public API URL must use a browser-reachable hostname, not a wildcard bind address"
 public_url_origin_only = "The public API URL must not contain credentials, a path, query parameters, or a fragment"
 
+[config.timezone]
+invalid = "Unknown IANA timezone: {{timezone}}"
+
 [config.provider]
 model_required = "A model capability declaration requires a model ID"
 video_requires_vision = "A video-capable model must also be marked as vision-capable"
@@ -410,6 +413,7 @@ env_changed = "Environment changed: {{changes}}"
 alarm_fragment = ", {{count}} alarms"
 environment_fragment = " {{changes}}."
 locale_changed = "The runtime language changed from {{old}} to {{new}}; new framework prompts and autonomous notices use {{new}}, while existing user content and memories remain in their original language"
+timezone_changed = "The runtime timezone changed from {{old}} to {{new}}; current time, alarms, and date boundaries now use {{new}}"
 restart_tool_result = "Restart complete. Current time: {{time}}. Restored {{messages}} messages{{alarms}}.{{environment}}"
 sleep_interrupted = "Sleep was interrupted by a system restart. Current time: {{time}}."
 system_restarted = "The system restarted. Current time: {{time}}."

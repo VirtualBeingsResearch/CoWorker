@@ -143,6 +143,9 @@ public_url_absolute = "API 公开访问地址必须是绝对 HTTP(S) URL"
 public_url_wildcard = "API 公开访问地址必须使用浏览器可访问的主机名，不能使用通配监听地址"
 public_url_origin_only = "API 公开访问地址不能包含凭据、路径、查询参数或片段"
 
+[config.timezone]
+invalid = "未知的 IANA 时区：{{timezone}}"
+
 [config.provider]
 model_required = "模型能力声明必须填写模型 ID"
 video_requires_vision = "支持视频的模型也必须标记为支持视觉"
@@ -410,6 +413,7 @@ env_changed = "环境变化：{{changes}}"
 alarm_fragment = "，{{count}} 个闹钟"
 environment_fragment = " {{changes}}。"
 locale_changed = "运行时语言已从 {{old}} 切换为 {{new}}；新的框架提示词和自主通知使用 {{new}}，已有用户内容和记忆保持原文"
+timezone_changed = "运行时区已从 {{old}} 切换为 {{new}}；当前时间、闹钟和日期边界现在使用 {{new}}"
 restart_tool_result = "重启成功。当前时间：{{time}}。已恢复 {{messages}} 条消息{{alarms}}。{{environment}}"
 sleep_interrupted = "睡眠被系统重启中断。当前时间：{{time}}。"
 system_restarted = "系统已重启。当前时间：{{time}}。"

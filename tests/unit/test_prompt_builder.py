@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 
+from coworker.core.timezone import configure_timezone
 from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.palaces.loader import PalaceLoader
@@ -135,6 +136,15 @@ class TestSystemPromptBuilder:
         prompt = builder.build()
         assert "时区" in prompt
         assert "UTC" in prompt
+
+    def test_build_environment_uses_configured_timezone(self, tmp_path):
+        configure_timezone("Asia/Shanghai")
+        try:
+            prompt = make_builder(tmp_path).build()
+        finally:
+            configure_timezone("")
+
+        assert "Asia/Shanghai (UTC+8)" in prompt
 
     def test_build_reuses_cached_prompt_until_refresh(self, tmp_path):
         builder = make_builder(tmp_path)

@@ -25,16 +25,17 @@ overrides remain intact. Runtime Settings lists the admin overrides in the curre
 allows individual fields to be restored to inherited configuration. Unsaved drafts and secret
 inputs remain isolated by section, and saving submits only the current section.
 
-Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
+Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard automatically detects the browser timezone, can set the runtime language and maximum output tokens, and accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 
-### Runtime language
+### Runtime language and timezone
 
 | Variable | Default | Description |
 |---|---|---|
 | `I18N__LOCALE` | `zh-CN` | Instance-wide model/runtime language; accepts `zh-CN`, `en`, and common aliases such as `zh`, `zh_CN`, and `en-US`, then takes effect after restart |
+| `I18N__TIMEZONE` | Empty (follows server) | Instance-wide IANA timezone such as `Asia/Shanghai`; first-run setup uses the browser-detected value by default, and changes take effect after restart |
 
 The runtime locale is independent of the Web/Desktop interface language and can also be changed
-under Runtime language in the administration page. It controls Coworker-owned system prompts,
+under Language & timezone in the administration page. It controls Coworker-owned system prompts,
 tool schemas and result wrappers, summarization and memory framework text, Bubbles, subconscious
 modes, vision requests, API errors and response notes, cataloged operational warnings and notices,
 and participant-facing
@@ -44,6 +45,13 @@ output without a current user message falls back to the runtime locale. Switchin
 translate user content, historical data, third-party text, or existing Identity, Skill, Palace,
 task, or memory data, so mixed-language history is expected for compatibility. Restart injects a
 language-transition system notice when it detects a locale change.
+
+The runtime timezone controls current time in the system prompt and `get_context`, message-time
+prefixes, how alarms interpret timestamps without an explicit offset, and date boundaries in task
+views. First-run setup adopts the IANA timezone detected through `Intl.DateTimeFormat` only when the
+server default is empty; it remains editable in Advanced setup and Runtime Settings. Existing
+instances that leave it empty continue to follow the server or container timezone. A reverse proxy
+does not affect detection because it runs in the administrator's browser, not on the proxy or server.
 
 ### LLM
 
