@@ -3300,21 +3300,103 @@ html:has(.admin-login),
 }
 
 /* ── 通信录（People） ── */
-.person-create { margin-bottom: 14px; }
-.person-create-row { display: flex; gap: 8px; align-items: center; }
+.people-panel { max-width: 1180px; }
+.people-panel > .notice { margin-bottom: 14px; }
+.people-workbench { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); min-height: 620px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 14px; background: var(--admin-surface); }
+.people-directory { display: flex; min-width: 0; flex-direction: column; padding: 14px; border-right: 1px solid var(--admin-line); background: var(--admin-paper); }
+.person-create { margin-bottom: 16px; }
+.person-create > label { display: block; margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; font-weight: 680; }
+.person-create-row { display: flex; align-items: center; gap: 7px; }
 .person-create-row input { flex: 1; }
-.person-create-row button { white-space: nowrap; }
-.person-list { display: flex; flex-direction: column; gap: 10px; }
-.person-row { border: 1px solid var(--admin-line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-.person-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.person-name-input { font-weight: 600; min-width: 180px; }
-.person-id { color: var(--admin-muted, #8a8a8e); font-size: 12px; }
-.person-aliases { display: flex; flex-wrap: wrap; gap: 6px; }
-.alias-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--admin-line); color: var(--admin-text, inherit); }
-.person-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.person-merge-select { font-size: 13px; padding: 3px 6px; }
-.person-card-preview { border: 1px solid var(--admin-line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--admin-bg, transparent); }
-.person-card-preview pre { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+.person-create-row button { flex: 0 0 40px; width: 40px; min-height: 40px; padding: 0; }
+.people-directory-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 3px; color: var(--admin-muted); font-size: 10px; font-weight: 680; }
+.people-directory-heading b { display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 99px; color: var(--admin-ink); background: var(--admin-soft); font-size: 10px; }
+.person-list { display: flex; max-height: min(62vh, 680px); overflow-y: auto; flex-direction: column; gap: 6px; padding-right: 2px; scrollbar-width: thin; }
+.person-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-width: 0; padding: 9px; border: 1px solid transparent; border-radius: 10px; color: var(--admin-ink); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.person-row:hover { border-color: var(--admin-line); background: var(--admin-surface); }
+.person-row.selected { border-color: color-mix(in oklch, var(--admin-vital) 34%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 8%, var(--admin-surface)); box-shadow: inset 3px 0 0 var(--admin-vital); }
+.person-row > svg { color: var(--admin-muted); }
+.person-row.selected > svg { color: var(--admin-vital); }
+.person-avatar { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid color-mix(in oklch, var(--admin-vital) 24%, var(--admin-line)); border-radius: 12px; color: var(--admin-vital); background: color-mix(in oklch, var(--admin-vital) 8%, var(--admin-paper)); font-size: 13px; font-weight: 760; }
+.person-avatar.large { flex: 0 0 54px; width: 54px; height: 54px; border-radius: 16px; font-size: 19px; }
+.person-list-copy { min-width: 0; }
+.person-list-copy b,
+.person-list-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-list-copy b { font-size: 12px; }
+.person-list-copy small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; font-weight: 450; }
+.person-directory-empty { padding: 22px 10px; color: var(--admin-muted); font-size: 10px; line-height: 1.55; text-align: center; }
+.person-detail { min-width: 0; padding: 22px; }
+.person-profile-head { display: flex; align-items: center; gap: 14px; padding-bottom: 20px; }
+.person-identity-copy { flex: 1; min-width: 0; }
+.person-name-display { display: flex; align-items: center; gap: 10px; }
+.person-name-display h3 { min-width: 0; overflow: hidden; margin: 0; font-size: 22px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.person-name-display button { flex: 0 0 auto; }
+.person-name-editor { display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; align-items: center; gap: 7px; max-width: 560px; }
+.person-name-editor input { min-width: 0; font-size: 14px; font-weight: 680; }
+.person-id { display: block; width: max-content; max-width: 100%; overflow: hidden; margin-top: 6px; color: var(--admin-muted); font-size: 10px; text-overflow: ellipsis; user-select: all; white-space: nowrap; }
+.person-detail-section { padding: 18px 0; border-top: 1px solid var(--admin-line); }
+.person-detail-section > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.person-detail-section > header b,
+.person-detail-section > header small { display: block; }
+.person-detail-section > header b { font-size: 12px; }
+.person-detail-section > header small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; font-weight: 450; }
+.person-detail-section > header > span { display: grid; min-width: 24px; height: 24px; place-items: center; border-radius: 99px; color: var(--admin-muted); background: var(--admin-soft); font-size: 10px; font-weight: 720; }
+.person-detail-section > header > svg { color: var(--admin-vital); }
+.person-aliases { display: flex; flex-wrap: wrap; gap: 7px; }
+.alias-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 7px; padding: 6px 9px 6px 7px; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-ink); background: var(--admin-paper); }
+.alias-chip em { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--admin-vital); background: var(--admin-soft); font-size: 8px; font-style: normal; font-weight: 720; text-transform: uppercase; }
+.alias-chip code { min-width: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.person-section-empty { margin: 0; color: var(--admin-muted); font-size: 10px; }
+.person-card-preview { min-height: 116px; max-height: 280px; overflow: auto; margin-bottom: 14px; padding: 13px 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.person-card-preview.loading { display: grid; place-items: center; }
+.person-card-preview .state-box { min-height: 80px; }
+.person-card-preview pre { margin: 0; color: var(--admin-ink); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.person-card-section .field { width: 100%; }
+.person-card-section textarea { min-height: 136px; resize: vertical; }
+.person-note-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; }
+.person-note-actions small { color: var(--admin-muted); font-size: 9px; }
+.person-note-actions button { flex: 0 0 auto; }
+.person-maintenance { margin-top: 2px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.person-maintenance > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 11px 12px; cursor: pointer; list-style: none; }
+.person-maintenance > summary::-webkit-details-marker { display: none; }
+.person-maintenance > summary > svg:first-child { color: var(--admin-muted); }
+.person-maintenance > summary > svg:last-child { color: var(--admin-muted); transition: transform .16s ease; }
+.person-maintenance[open] > summary > svg:last-child { transform: rotate(90deg); }
+.person-maintenance > summary b,
+.person-maintenance > summary small { display: block; }
+.person-maintenance > summary b { font-size: 10px; }
+.person-maintenance > summary small { margin-top: 2px; color: var(--admin-muted); font-size: 9px; font-weight: 450; }
+.person-maintenance > div { display: grid; gap: 14px; padding: 2px 12px 12px 36px; }
+.person-maintenance section > label { display: block; margin-bottom: 6px; font-size: 10px; font-weight: 650; }
+.person-maintenance section > div { display: flex; gap: 8px; }
+.person-maintenance section > small { display: block; margin-top: 6px; color: var(--admin-muted); font-size: 9px; line-height: 1.45; }
+.person-merge-select { flex: 1; min-width: 0; font-size: 11px; }
+.person-delete-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--admin-line); }
+.person-delete-zone > label { margin: 0 !important; }
+.person-detail-empty { display: grid; min-height: 460px; place-items: center; align-content: center; color: var(--admin-muted); text-align: center; }
+.person-detail-empty svg { margin-bottom: 10px; color: var(--admin-vital); }
+.person-detail-empty b { color: var(--admin-ink); font-size: 14px; }
+.person-detail-empty p { max-width: 280px; margin: 5px 0 0; font-size: 10px; line-height: 1.55; }
+
+@media (max-width: 700px) {
+  .people-workbench { grid-template-columns: 1fr; }
+  .people-directory { border-right: 0; border-bottom: 1px solid var(--admin-line); }
+  .person-list { max-height: 240px; }
+  .person-detail { padding: 18px; }
+  .person-detail-empty { min-height: 220px; }
+}
+
+@media (max-width: 480px) {
+  .person-name-editor { grid-template-columns: 1fr auto; }
+  .person-name-editor input { grid-column: 1 / -1; }
+  .person-name-display { align-items: flex-start; }
+  .person-name-display h3 { white-space: normal; }
+  .person-note-actions { align-items: stretch; flex-direction: column; }
+  .person-note-actions button { width: 100%; }
+  .person-maintenance > div { padding-left: 12px; }
+  .person-maintenance section > div { align-items: stretch; flex-direction: column; }
+  .person-delete-zone { align-items: stretch; flex-direction: column; }
+}
 
 @media (max-width: 820px) {
   .overview-status-strip { grid-template-columns: minmax(0, 1fr) auto; gap: 13px; }

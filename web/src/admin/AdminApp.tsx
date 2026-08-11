@@ -2048,20 +2048,52 @@ type PersonView = {
 function PeopleView() {
   const people = useLoad(() => api<{ persons: PersonView[] }>('/api/admin/persons'), []);
   const [draftName, setDraftName] = useState('');
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editingCard, setEditingCard] = useState<PersonView | null>(null);
+  const [cardLoading, setCardLoading] = useState(false);
   const [renderedCard, setRenderedCard] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+  const [mergeTargetId, setMergeTargetId] = useState('');
 
   useEffect(() => {
-    if (people.data) {
-      setNames(Object.fromEntries(people.data.persons.map(p => [p.person_id, p.display_name])));
-    }
+    const data = people.data;
+    if (!data) return;
+    setSelectedPersonId(current => (
+      current && data.persons.some(person => person.person_id === current)
+        ? current
+        : data.persons[0]?.person_id ?? null
+    ));
   }, [people.data]);
+
+  const selectedPerson = people.data?.persons.find(person => person.person_id === selectedPersonId) ?? null;
+
+  useEffect(() => {
+    if (!selectedPerson) {
+      setRenderedCard('');
+      setNotesDraft('');
+      setCardLoading(false);
+      return;
+    }
+    let active = true;
+    setError(null);
+    setCardLoading(true);
+    setNotesDraft((selectedPerson.notes ?? []).join('\n'));
+    api<{ content: string }>(`/api/admin/persons/${selectedPerson.person_id}/card`)
+      .then(card => { if (active) setRenderedCard(card.content); })
+      .catch(loadError => { if (active) setError(String(loadError)); })
+      .finally(() => { if (active) setCardLoading(false); });
+    return () => { active = false; };
+  }, [selectedPerson]);
+
+  useEffect(() => {
+    setRenamingId(null);
+    setDeletingId(null);
+    setMergeTargetId('');
+  }, [selectedPersonId]);
 
   if (people.loading || !people.data) return <Loading error={people.error} />;
 
@@ -2070,18 +2102,25 @@ function PeopleView() {
     if (!name) return;
     setBusy(true); setError(null);
     try {
-      await api<Json>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
+      const created = await api<PersonView>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
       setDraftName('');
+      setSelectedPersonId(created.person_id);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
+  const startRename = (person: PersonView) => {
+    setRenamingId(person.person_id);
+    setNameDraft(person.display_name);
+  };
+
   const rename = async (person: PersonView) => {
-    const name = (names[person.person_id] ?? '').trim();
+    const name = nameDraft.trim();
     if (name === person.display_name) return;
     setBusy(true); setError(null);
     try {
       await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'PATCH', body: JSON.stringify({ display_name: name }) });
+      setRenamingId(null);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
@@ -2091,74 +2130,93 @@ function PeopleView() {
     try {
       await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'DELETE' });
       setDeletingId(null);
+      setSelectedPersonId(null);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
   const merge = async (keep: PersonView) => {
-    const dropId = mergeTargets[keep.person_id];
-    if (!dropId) return;
+    if (!mergeTargetId) return;
     setBusy(true); setError(null);
     try {
-      await api<Json>(`/api/admin/persons/${keep.person_id}/merge`, { method: 'POST', body: JSON.stringify({ other_person_id: dropId }) });
+      await api<Json>(`/api/admin/persons/${keep.person_id}/merge`, { method: 'POST', body: JSON.stringify({ other_person_id: mergeTargetId }) });
+      setMergeTargetId('');
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
-  };
-
-  const openCard = async (person: PersonView) => {
-    setError(null);
-    try {
-      const card = await api<{ content: string }>(`/api/admin/persons/${person.person_id}/card`);
-      setRenderedCard(card.content);
-      setNotesDraft((person.notes ?? []).join('\n'));
-      setEditingCard(person);
-    } catch (e) { setError(String(e)); }
   };
 
   const saveNotes = async () => {
-    if (!editingCard) return;
+    if (!selectedPerson) return;
     setBusy(true); setError(null);
     try {
       const notes = notesDraft.split('\n').map(s => s.trim()).filter(Boolean);
-      await api<Json>(`/api/admin/persons/${editingCard.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
-      setEditingCard(null);
+      await api<Json>(`/api/admin/persons/${selectedPerson.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
-  const others = (person: PersonView) => people.data?.persons.filter(p => p.person_id !== person.person_id) ?? [];
+  const others = selectedPerson
+    ? people.data.persons.filter(person => person.person_id !== selectedPerson.person_id)
+    : [];
+  const notesChanged = selectedPerson
+    ? notesDraft !== (selectedPerson.notes ?? []).join('\n')
+    : false;
+  const personName = (person: PersonView) => person.display_name || t('未命名人物');
+  const personInitial = (person: PersonView) => Array.from(personName(person))[0]?.toUpperCase() || '?';
 
   return <div className="page-stack">
-    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
-      <div className="person-create">
-        <Field label="新建人物"><div className="person-create-row"><input value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); }} placeholder={t('称呼（可留空，由搭档在对话中完善）')} /><button className="primary" disabled={busy} onClick={() => void create()}><Plus size={15} />{t('新建')}</button></div></Field>
-      </div>
+    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" className="people-panel" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
       {error && <div className="notice error">{error}</div>}
-      {people.data.persons.length === 0 ? <div className="notice">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> :
-        <div className="person-list">{people.data.persons.map(person => <div className="person-row" key={person.person_id}>
-          <div className="person-head">
-            <input className="person-name-input" value={names[person.person_id] ?? ''} onChange={event => setNames({ ...names, [person.person_id]: event.target.value })} onBlur={() => void rename(person)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-            <code className="person-id">{person.person_id}</code>
+      <div className="people-workbench">
+        <aside className="people-directory">
+          <div className="person-create">
+            <label htmlFor="person-create-name">{t('添加人物')}</label>
+            <div className="person-create-row"><input id="person-create-name" value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); }} placeholder={t('输入人物称呼')} /><button className="primary" aria-label={t('新建人物')} title={t('新建人物')} disabled={busy || !draftName.trim()} onClick={() => void create()}><Plus size={15} /></button></div>
           </div>
-          {person.aliases.length > 0 && <div className="person-aliases">{person.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</span>)}</div>}
-          <div className="person-actions">
-            <button className="ghost mini" disabled={busy} onClick={() => void openCard(person)}><FileText size={14} />{t('画像')}</button>
-            {others(person).length > 0 && <>
-              <select className="person-merge-select" value={mergeTargets[person.person_id] ?? ''} onChange={event => setMergeTargets({ ...mergeTargets, [person.person_id]: event.target.value })}>
-                <option value="">{t('合并到…')}</option>
-                {others(person).map(other => <option key={other.person_id} value={other.person_id}>{other.display_name || other.person_id}</option>)}
-              </select>
-              <button className="ghost mini" disabled={busy || !mergeTargets[person.person_id]} onClick={() => void merge(person)}>{t('合并')}</button>
-            </>}
-            <button className={deletingId === person.person_id ? 'danger-solid mini' : 'ghost mini'} disabled={busy} onClick={() => { if (deletingId === person.person_id) void remove(person); else setDeletingId(person.person_id); }}><Trash2 size={14} />{deletingId === person.person_id ? t('确认删除？') : t('删除')}</button>
-          </div>
-        </div>)}</div>}
+          <div className="people-directory-heading"><span>{t('人物')}</span><b>{people.data.persons.length}</b></div>
+          {people.data.persons.length === 0 ? <div className="person-directory-empty">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> : <div className="person-list">{people.data.persons.map(person => {
+            const selected = person.person_id === selectedPersonId;
+            return <button type="button" className={`person-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => setSelectedPersonId(person.person_id)} key={person.person_id}>
+              <span className="person-avatar">{personInitial(person)}</span>
+              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
+              <ChevronRight size={15} />
+            </button>;
+          })}</div>}
+        </aside>
+        <section className="person-detail">
+          {selectedPerson ? <>
+            <header className="person-profile-head">
+              <span className="person-avatar large">{personInitial(selectedPerson)}</span>
+              <div className="person-identity-copy">
+                {renamingId === selectedPerson.person_id ? <div className="person-name-editor">
+                  <input autoFocus aria-label={t('人物名称')} value={nameDraft} onChange={event => setNameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void rename(selectedPerson); if (event.key === 'Escape') setRenamingId(null); }} />
+                  <button className="primary mini" disabled={busy || nameDraft.trim() === selectedPerson.display_name} onClick={() => void rename(selectedPerson)}><Check size={13} />{t('保存')}</button>
+                  <button className="ghost mini" disabled={busy} onClick={() => setRenamingId(null)}>{t('取消')}</button>
+                </div> : <div className="person-name-display"><h3>{personName(selectedPerson)}</h3><button className="ghost mini" disabled={busy} onClick={() => startRename(selectedPerson)}><Pencil size={13} />{t('编辑名称')}</button></div>}
+                <code className="person-id">{selectedPerson.person_id}</code>
+              </div>
+            </header>
+            <section className="person-detail-section">
+              <header><div><b>{t('联系地址')}</b><small>{t('来自不同信道、但属于同一个人的身份')}</small></div><span>{selectedPerson.aliases.length}</span></header>
+              {selectedPerson.aliases.length > 0 ? <div className="person-aliases">{selectedPerson.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}><em>{alias.channel || t('信道')}</em><code>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</code></span>)}</div> : <p className="person-section-empty">{t('还没有联系地址；搭档可以在对话中绑定。')}</p>}
+            </section>
+            <section className="person-detail-section person-card-section">
+              <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>
+              <div className={`person-card-preview${cardLoading ? ' loading' : ''}`}>{cardLoading ? <Loading /> : <pre>{renderedCard || t('暂无记录')}</pre>}</div>
+              <Field label={t('个性化备注（每行一条）')}><textarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+              <div className="person-note-actions"><small>{t('保存后会立即更新人物画像')}</small><button className="primary" disabled={busy || !notesChanged} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
+            </section>
+            <details className="person-maintenance">
+              <summary><SlidersHorizontal size={15} /><span><b>{t('整理人物资料')}</b><small>{t('合并重复人物或删除当前人物')}</small></span><ChevronRight size={14} /></summary>
+              <div>
+                {others.length > 0 && <section><label>{t('把重复人物并入当前人物')}</label><div><select className="person-merge-select" value={mergeTargetId} onChange={event => setMergeTargetId(event.target.value)}><option value="">{t('选择要并入的人物…')}</option>{others.map(other => <option key={other.person_id} value={other.person_id}>{personName(other)}</option>)}</select><button className="ghost" disabled={busy || !mergeTargetId} onClick={() => void merge(selectedPerson)}>{t('合并资料')}</button></div><small>{t('当前 person_id 会保留，另一个人物的地址和备注会合并进来。')}</small></section>}
+                <section className="person-delete-zone"><label>{t('删除当前人物')}</label><button className={deletingId === selectedPerson.person_id ? 'danger-solid' : 'danger-outline'} disabled={busy} onClick={() => { if (deletingId === selectedPerson.person_id) void remove(selectedPerson); else setDeletingId(selectedPerson.person_id); }}><Trash2 size={14} />{deletingId === selectedPerson.person_id ? t('确认删除？') : t('删除人物')}</button></section>
+              </div>
+            </details>
+          </> : <div className="person-detail-empty"><Users size={28} /><b>{t('选择一个人物')}</b><p>{t('在左侧选择人物后，这里会显示名称、联系地址和画像。')}</p></div>}
+        </section>
+      </div>
     </Panel>
-    {editingCard && <Panel title="人物画像" note={t('画像是一个框架：个性化信息通过备注记录')} action={<button className="ghost mini" onClick={() => setEditingCard(null)}><X size={14} />{t('关闭面板')}</button>}>
-      <div className="person-card-preview"><pre>{renderedCard || t('暂无记录')}</pre></div>
-      <Field label={t('个性化备注（每行一条）')}><textarea rows={8} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
-      <div className="panel-actions"><button className="primary" disabled={busy} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
-    </Panel>}
   </div>;
 }
 
