@@ -2116,7 +2116,10 @@ function PeopleView() {
 
   const rename = async (person: PersonView) => {
     const name = nameDraft.trim();
-    if (name === person.display_name) return;
+    if (name === person.display_name) {
+      setRenamingId(null);
+      return;
+    }
     setBusy(true); setError(null);
     try {
       await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'PATCH', body: JSON.stringify({ display_name: name }) });
@@ -2190,8 +2193,10 @@ function PeopleView() {
               <div className="person-identity-copy">
                 {renamingId === selectedPerson.person_id ? <div className="person-name-editor">
                   <input autoFocus aria-label={t('人物名称')} value={nameDraft} onChange={event => setNameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void rename(selectedPerson); if (event.key === 'Escape') setRenamingId(null); }} />
-                  <button className="primary mini" disabled={busy || nameDraft.trim() === selectedPerson.display_name} onClick={() => void rename(selectedPerson)}><Check size={13} />{t('保存')}</button>
-                  <button className="ghost mini" disabled={busy} onClick={() => setRenamingId(null)}>{t('取消')}</button>
+                  <span className="person-name-editor-actions">
+                    <button type="button" className="person-name-confirm" aria-label={t('保存')} title={t('保存')} disabled={busy} onClick={() => void rename(selectedPerson)}><Check size={16} /></button>
+                    <button type="button" className="person-name-cancel" aria-label={t('取消')} title={t('取消')} disabled={busy} onClick={() => setRenamingId(null)}><X size={15} /></button>
+                  </span>
                 </div> : <div className="person-name-display"><h3>{personName(selectedPerson)}</h3><button className="ghost mini" disabled={busy} onClick={() => startRename(selectedPerson)}><Pencil size={13} />{t('编辑名称')}</button></div>}
                 <code className="person-id">{selectedPerson.person_id}</code>
               </div>
