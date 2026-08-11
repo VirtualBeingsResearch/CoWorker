@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
 
 from coworker.api import app as api_app
@@ -64,10 +65,13 @@ def client(tmp_path):
     api_app._channel_system = None
     api_app._collector = None
     api_app._shutting_down = False
+    api_app.setup_cors(api_app._api_defaults.cors_origins)
+    api_app.setup_bootstrap_reconnect_proof("")
     api_app.set_setup_required(False)
     with TestClient(api_app.app) as test_client:
         yield test_client
     api_app.set_setup_required(False)
+    api_app.setup_bootstrap_reconnect_proof("")
 
 
 def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatch):
@@ -78,6 +82,53 @@ def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatc
     assert config.host == "127.0.0.1"
     assert config.development_mode is False
     assert "*" not in config.cors_origins
+
+
+@pytest.mark.parametrize("port", [0, 65_536])
+def test_api_port_must_be_in_tcp_range(port):
+    with pytest.raises(ValidationError):
+        APIConfig(port=port, _env_file=None)
+
+
+def test_effective_cors_origins_are_applied_to_the_api():
+    try:
+        api_app.setup_cors([" https://admin.example "])
+        with TestClient(api_app.app) as test_client:
+            allowed = test_client.options(
+                "/messages",
+                headers={
+                    "Origin": "https://admin.example",
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+            denied = test_client.options(
+                "/messages",
+                headers={
+                    "Origin": "https://other.example",
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+
+        assert allowed.status_code == 200
+        assert allowed.headers["access-control-allow-origin"] == "https://admin.example"
+        assert denied.status_code == 400
+        assert "access-control-allow-origin" not in denied.headers
+    finally:
+        api_app.setup_cors(api_app._api_defaults.cors_origins)
+
+
+def test_bootstrap_reconnect_probe_returns_the_running_instance_proof(client):
+    api_app.setup_bootstrap_reconnect_proof("ab" * 32)
+
+    response = client.get(
+        "/api/bootstrap/reconnect",
+        headers={"Origin": "https://old-admin.example"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"proof": "ab" * 32}
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_admin_ui_is_bundled(client):

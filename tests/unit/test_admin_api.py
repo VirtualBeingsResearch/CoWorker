@@ -1428,6 +1428,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
             "api_key": "sk-first-run",
             "base_url": "https://example.test/v1",
             "coworker_name": "Nova",
+            "reconnect_proof": "ab" * 32,
             "configuration": {
                 "llm": {
                     "max_tokens": 4096,
@@ -1519,6 +1520,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
         "reason": "bootstrap",
         "provider": "openai",
         "model": "gpt-5.2",
+        "reconnect_proof": "ab" * 32,
     }
     assert "sk-first-run" not in json.dumps(intent)
     assert config.admin.token == "secret"
@@ -1588,11 +1590,16 @@ def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path)
 
     assert not (tmp_path / "admin_config.json").exists()
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
+    assert not (tmp_path / "identity" / "name.txt").exists()
 
 
 def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypatch):
     client, _ = _client(tmp_path)
     admin._brain.active_provider = None
+    admin._agent._identity._dir = tmp_path / "identity"
+    admin._agent._identity.load = lambda: None
+    (tmp_path / "identity").mkdir()
+    (tmp_path / "identity" / "name.txt").write_text("Luna", encoding="utf-8")
 
     def fail_config_write(path, payload):
         raise OSError("config write failed")
@@ -1610,6 +1617,7 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
                 "provider_type": "openai",
                 "model": "gpt-5.2",
                 "api_key": "sk-test",
+                "coworker_name": "Nova",
             },
         )
     except OSError as error:
@@ -1618,6 +1626,7 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
         raise AssertionError("bootstrap should propagate the config write failure")
 
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
+    assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Luna"
 
 
 def test_bootstrap_custom_model_confirmation_does_not_trust_provider_capability(tmp_path):
@@ -1650,6 +1659,11 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
         "/api/admin/bootstrap",
         headers=headers,
         json={**base, "configuration": {"llm": {"max_tokens": 0}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"api": {"port": 65_536}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap",

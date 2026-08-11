@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveBootstrapAdminTarget } from '../src/admin/bootstrapReconnect.ts';
+import { createBootstrapReconnectProof, resolveBootstrapAdminTarget } from '../src/admin/bootstrapReconnect.ts';
 
 test('keeps the current origin when the API binding is unchanged', () => {
   const target = resolveBootstrapAdminTarget(
@@ -12,6 +12,7 @@ test('keeps the current origin when the API binding is unchanged', () => {
 
   assert.deepEqual(target, {
     adminUrl: 'http://localhost:8000/admin',
+    reconnectUrl: 'http://localhost:8000/api/bootstrap/reconnect',
     originChanged: false,
   });
 });
@@ -25,6 +26,7 @@ test('moves to the configured port after bootstrap', () => {
 
   assert.deepEqual(target, {
     adminUrl: 'http://localhost:8124/admin',
+    reconnectUrl: 'http://localhost:8124/api/bootstrap/reconnect',
     originChanged: true,
   });
 });
@@ -38,6 +40,7 @@ test('keeps the browser hostname for a wildcard bind address', () => {
 
   assert.deepEqual(target, {
     adminUrl: 'http://coworker.local:8000/admin',
+    reconnectUrl: 'http://coworker.local:8000/api/bootstrap/reconnect',
     originChanged: false,
   });
 });
@@ -51,6 +54,15 @@ test('moves to an explicitly changed host and supports IPv6 literals', () => {
 
   assert.deepEqual(target, {
     adminUrl: 'http://[::1]:8124/admin',
+    reconnectUrl: 'http://[::1]:8124/api/bootstrap/reconnect',
     originChanged: true,
   });
+});
+
+test('creates an unguessable reconnect proof accepted by the bootstrap API', () => {
+  const first = createBootstrapReconnectProof();
+  const second = createBootstrapReconnectProof();
+
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.notEqual(first, second);
 });

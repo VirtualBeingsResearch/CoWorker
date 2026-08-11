@@ -45,7 +45,6 @@ from coworker.core.config import (
     load_admin_overrides,
 )
 from coworker.core.startup_intent import (
-    clear_startup_intent,
     write_bootstrap_startup_intent,
 )
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
@@ -155,6 +154,7 @@ class BootstrapPayload(BaseModel):
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
+    reconnect_proof: str = Field(default="", pattern=r"^(?:[0-9a-f]{64})?$")
     allow_unverified_model: bool = False
     configuration: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
@@ -1082,38 +1082,68 @@ async def complete_bootstrap(
             raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
 
         agent = _require_agent()
-        if payload.coworker_name.strip():
-            identity = agent._identity
-            identity_dir = identity._dir
-            agent_changes = payload.configuration.get("agent")
-            if isinstance(agent_changes, dict) and "identity_dir" in agent_changes:
-                identity_dir = Path(desired.agent.identity_dir)
-            identity_dir.mkdir(parents=True, exist_ok=True)
-            (identity_dir / "name.txt").write_text(
-                payload.coworker_name.strip(), encoding="utf-8"
+        identity = agent._identity
+        name_path: Path | None = None
+        previous_name: bytes | None = None
+        name_snapshot_captured = False
+        reload_identity = False
+        startup_intent_path: Path | None = None
+        restart_pending = False
+        try:
+            if payload.coworker_name.strip():
+                current_identity_dir = Path(identity._dir)
+                identity_dir = current_identity_dir
+                agent_changes = payload.configuration.get("agent")
+                if isinstance(agent_changes, dict) and "identity_dir" in agent_changes:
+                    identity_dir = Path(desired.agent.identity_dir)
+                name_path = identity_dir / "name.txt"
+                previous_name = name_path.read_bytes() if name_path.exists() else None
+                name_snapshot_captured = True
+                identity_dir.mkdir(parents=True, exist_ok=True)
+                name_path.write_text(payload.coworker_name.strip(), encoding="utf-8")
+                reload_identity = identity_dir == current_identity_dir
+                if reload_identity:
+                    identity.load()
+
+            startup_intent_path = write_bootstrap_startup_intent(
+                desired.memory.db_path,
+                provider=provider_type,
+                model=model,
+                reconnect_proof=payload.reconnect_proof,
             )
-            if identity_dir == identity._dir:
-                identity.load()
-
-        write_bootstrap_startup_intent(
-            desired.memory.db_path,
-            provider=provider_type,
-            model=model,
-        )
-        try:
             config_service.write_sparse_overrides(path, next_overrides)
-        except Exception:
-            clear_startup_intent(config.memory.db_path)
-            raise
-
-        config_service.mark_restart_pending("bootstrap")
-        try:
+            config_service.mark_restart_pending("bootstrap")
+            restart_pending = True
             asyncio.get_running_loop().call_later(
                 0.5, lambda: agent.request_restart(reason="bootstrap")
             )
         except Exception:
-            config_service.clear_restart_pending("bootstrap")
-            clear_startup_intent(config.memory.db_path)
+            if name_path is not None and name_snapshot_captured:
+                try:
+                    if previous_name is None:
+                        name_path.unlink(missing_ok=True)
+                    else:
+                        name_path.write_bytes(previous_name)
+                    if reload_identity:
+                        identity.load()
+                except Exception as rollback_error:
+                    logger.warning(
+                        f"Failed to roll back bootstrap identity name: {rollback_error}"
+                    )
+            if restart_pending:
+                try:
+                    config_service.clear_restart_pending("bootstrap")
+                except Exception as rollback_error:
+                    logger.warning(
+                        f"Failed to clear bootstrap restart state: {rollback_error}"
+                    )
+            if startup_intent_path is not None:
+                try:
+                    startup_intent_path.unlink(missing_ok=True)
+                except OSError as rollback_error:
+                    logger.warning(
+                        f"Failed to clear bootstrap startup intent: {rollback_error}"
+                    )
             raise
         try:
             _audit(

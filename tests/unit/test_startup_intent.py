@@ -14,6 +14,7 @@ def test_bootstrap_startup_intent_persists_until_cleared(tmp_path):
         tmp_path,
         provider="openai",
         model="custom-tool-model",
+        reconnect_proof="ab" * 32,
     )
 
     intent = load_bootstrap_startup_intent(
@@ -27,6 +28,7 @@ def test_bootstrap_startup_intent_persists_until_cleared(tmp_path):
     assert intent.reason == "bootstrap"
     assert intent.provider == "openai"
     assert intent.model == "custom-tool-model"
+    assert intent.reconnect_proof == "ab" * 32
     assert path.exists()
     assert "api_key" not in path.read_text(encoding="utf-8")
 

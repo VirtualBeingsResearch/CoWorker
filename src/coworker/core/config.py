@@ -217,7 +217,7 @@ class APIConfig(_EnvSettings):
     # reverse proxy/TLS boundary in front of the API instead of exposing the
     # development server directly.
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = Field(default=8000, ge=1, le=65_535)
     communication_token: str = ""
     development_mode: bool = False
     # JSON list in environment/.env, e.g.

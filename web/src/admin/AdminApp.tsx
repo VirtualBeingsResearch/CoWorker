@@ -11,7 +11,7 @@ import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
-import { resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
+import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import type { UsageStats } from '../api/types';
@@ -322,7 +322,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
         }
         if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]}><select value={String(fieldValue)} onChange={event => change(group, key, event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
         if (typeof fieldValue === 'boolean') return <label className="bootstrap-config-switch" key={key}><input type="checkbox" checked={fieldValue} onChange={event => change(group, key, event.target.checked)} /><span>{t(CONFIG_LABELS[path] || humanize(key))}</span></label>;
-        if (typeof fieldValue === 'number') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input type="number" step="any" value={fieldValue} onChange={event => change(group, key, Number(event.target.value))} /></Field>;
+        if (typeof fieldValue === 'number') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input type="number" min={path === 'api.port' ? 1 : undefined} max={path === 'api.port' ? 65_535 : undefined} step={path === 'api.port' ? 1 : 'any'} value={fieldValue} onChange={event => change(group, key, Number(event.target.value))} /></Field>;
         if (typeof fieldValue === 'string') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input value={fieldValue} onChange={event => change(group, key, event.target.value)} /></Field>;
         return renderJsonField(key, fieldValue);
       })}</div>}
@@ -436,12 +436,14 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         configurationDefaults.api || {},
         configuration.api || {},
       );
+      const reconnectProof = createBootstrapReconnectProof();
       await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({
         provider_type: providerType,
         model: normalizedModel,
         api_key: apiKey,
         base_url: baseUrl,
         coworker_name: normalizedName,
+        reconnect_proof: reconnectProof,
         allow_unverified_model: customModel && allowUnverifiedModel,
         configuration: bootstrapConfigurationChanges(configurationDefaults, configuration),
         secrets: Object.fromEntries(Object.entries(configurationSecrets).filter(([, value]) => value !== '')),
@@ -454,7 +456,10 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           await new Promise(resolve => window.setTimeout(resolve, 1500));
           try {
             if (target.originChanged) {
-              await fetch(target.adminUrl, { mode: 'no-cors', cache: 'no-store' });
+              const response = await fetch(target.reconnectUrl, { cache: 'no-store' });
+              if (!response.ok) throw new Error('Coworker reconnect probe is not ready');
+              const probe = await response.json();
+              if (probe.proof !== reconnectProof) throw new Error('Coworker reconnect proof mismatch');
               window.location.replace(target.adminUrl);
               return;
             }
@@ -1200,8 +1205,10 @@ function Settings() {
                 ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
                 : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
               : undefined;
-          const minimum = path === 'llm.max_tokens' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
-          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
+          const minimum = path === 'llm.max_tokens' || path === 'api.port' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
+          const maximum = path === 'api.port' ? 65_535 : undefined;
+          const step = path === 'llm.max_tokens' || path === 'api.port' ? 1 : 'any';
+          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} max={maximum} step={step} onChange={e => change(key, Number(e.target.value))} /></Field>;
         }
         if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
         return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;

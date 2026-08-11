@@ -1,5 +1,6 @@
 export type BootstrapAdminTarget = {
   adminUrl: string;
+  reconnectUrl: string;
   originChanged: boolean;
 };
 
@@ -16,6 +17,11 @@ function browserHostname(bindHost: unknown, currentHostname: string) {
     : normalized;
   if (!unwrapped || unwrapped === '0.0.0.0' || unwrapped === '::') return currentHostname;
   return unwrapped.includes(':') ? `[${unwrapped}]` : unwrapped;
+}
+
+export function createBootstrapReconnectProof() {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function resolveBootstrapAdminTarget(
@@ -36,6 +42,7 @@ export function resolveBootstrapAdminTarget(
 
   return {
     adminUrl: target.href,
+    reconnectUrl: new URL('/api/bootstrap/reconnect', target).href,
     originChanged: target.origin !== current.origin,
   };
 }
