@@ -1397,6 +1397,11 @@ html:has(.admin-login),
 .log-filters select,
 .row-actions select,
 .editor-meta input,
+.weixin-verify input,
+.weixin-account-copy input,
+.provider-model-id input,
+.relay-enroll input,
+.person-create-row input,
 .tiny-input {
   min-width: 0;
   min-height: 42px;
@@ -1416,6 +1421,11 @@ html:has(.admin-login),
 .search-box input:focus,
 .log-filters :where(input, select):focus,
 .editor-meta input:focus,
+.weixin-verify input:focus,
+.weixin-account-copy input:focus,
+.provider-model-id input:focus,
+.relay-enroll input:focus,
+.person-create-row input:focus,
 .source-editor:focus,
 .code-area:focus {
   border-color: var(--admin-vital);
@@ -3304,11 +3314,25 @@ html:has(.admin-login),
 .people-panel > .notice { margin-bottom: 14px; }
 .people-workbench { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); min-height: 620px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 14px; background: var(--admin-surface); }
 .people-directory { display: flex; min-width: 0; flex-direction: column; padding: 14px; border-right: 1px solid var(--admin-line); background: var(--admin-paper); }
-.person-create { margin-bottom: 16px; }
+.people-directory-tools { display: grid; grid-template-columns: minmax(0, 1fr) 40px; align-items: center; gap: 7px; margin-bottom: 13px; }
+.person-search { display: flex; min-width: 0; min-height: 40px; align-items: center; gap: 7px; padding: 0 7px 0 10px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-muted); background: var(--admin-surface); transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.person-search:focus-within { border-color: var(--admin-vital); background: white; box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
+.person-search > svg { flex: 0 0 auto; }
+.person-search input { width: 100%; min-width: 0; height: 38px; padding: 0; border: 0; outline: 0; color: var(--admin-ink); background: transparent; appearance: none; font-size: 11px; }
+.person-search input::-webkit-search-cancel-button { display: none; }
+.person-search input:focus-visible { outline: 0; }
+.person-search-clear { display: grid; flex: 0 0 26px; width: 26px; min-height: 26px; padding: 0; place-items: center; border: 0; border-radius: 7px; color: var(--admin-muted); background: transparent; }
+.person-search-clear:hover { color: var(--admin-ink); background: var(--admin-paper); }
+.person-add-toggle { display: grid; width: 40px; min-height: 40px; padding: 0; place-items: center; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-vital); background: var(--admin-surface); transition: color .16s ease, border-color .16s ease, background .16s ease; }
+.person-add-toggle svg { transition: transform .16s ease; }
+.person-add-toggle:hover,
+.person-add-toggle.active { color: white; border-color: var(--admin-vital); background: var(--admin-vital); }
+.person-add-toggle.active svg { transform: rotate(45deg); }
+.person-create { margin: -3px 0 14px; padding: 11px; border: 1px solid var(--admin-line); border-radius: 10px; background: var(--admin-surface); box-shadow: 0 8px 22px color-mix(in oklch, var(--admin-ink) 5%, transparent); }
 .person-create > label { display: block; margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; font-weight: 680; }
 .person-create-row { display: flex; align-items: center; gap: 7px; }
 .person-create-row input { flex: 1; }
-.person-create-row button { flex: 0 0 40px; width: 40px; min-height: 40px; padding: 0; }
+.person-create-row button { flex: 0 0 42px; width: 42px; min-height: 42px; padding: 0; }
 .people-directory-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 3px; color: var(--admin-muted); font-size: 10px; font-weight: 680; }
 .people-directory-heading b { display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 99px; color: var(--admin-ink); background: var(--admin-soft); font-size: 10px; }
 .person-list { display: flex; max-height: min(62vh, 680px); overflow-y: auto; flex-direction: column; gap: 6px; padding-right: 2px; scrollbar-width: thin; }
@@ -3325,6 +3349,8 @@ html:has(.admin-login),
 .person-list-copy b { font-size: 12px; }
 .person-list-copy small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; font-weight: 450; }
 .person-directory-empty { padding: 22px 10px; color: var(--admin-muted); font-size: 10px; line-height: 1.55; text-align: center; }
+.person-directory-empty.searched { display: grid; place-items: center; gap: 7px; }
+.person-directory-empty.searched svg { color: var(--admin-vital); }
 .person-detail { min-width: 0; padding: 22px; }
 .person-profile-head { display: flex; align-items: center; gap: 14px; padding-bottom: 20px; }
 .person-identity-copy { flex: 1; min-width: 0; }

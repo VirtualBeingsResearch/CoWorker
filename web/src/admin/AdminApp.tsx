@@ -2045,9 +2045,19 @@ type PersonView = {
   updated_at: string;
 };
 
+function personMatchesQuery(person: PersonView, query: string) {
+  return [
+    person.display_name,
+    person.person_id,
+    ...person.aliases.flatMap(alias => [alias.channel, alias.participant_id, alias.conversation_id || '']),
+  ].some(value => value.toLocaleLowerCase().includes(query));
+}
+
 function PeopleView() {
   const people = useLoad(() => api<{ persons: PersonView[] }>('/api/admin/persons'), []);
   const [draftName, setDraftName] = useState('');
+  const [personQuery, setPersonQuery] = useState('');
+  const [addingPerson, setAddingPerson] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -2068,6 +2078,17 @@ function PeopleView() {
         : data.persons[0]?.person_id ?? null
     ));
   }, [people.data]);
+
+  useEffect(() => {
+    const data = people.data;
+    const query = personQuery.trim().toLocaleLowerCase();
+    if (!data || !query) return;
+    const matches = data.persons.filter(person => personMatchesQuery(person, query));
+    if (!matches.length) return;
+    setSelectedPersonId(current => current && matches.some(person => person.person_id === current)
+      ? current
+      : matches[0].person_id);
+  }, [people.data, personQuery]);
 
   const selectedPerson = people.data?.persons.find(person => person.person_id === selectedPersonId) ?? null;
 
@@ -2104,6 +2125,8 @@ function PeopleView() {
     try {
       const created = await api<PersonView>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
       setDraftName('');
+      setPersonQuery('');
+      setAddingPerson(false);
       setSelectedPersonId(created.person_id);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
@@ -2161,6 +2184,10 @@ function PeopleView() {
   const others = selectedPerson
     ? people.data.persons.filter(person => person.person_id !== selectedPerson.person_id)
     : [];
+  const normalizedQuery = personQuery.trim().toLocaleLowerCase();
+  const visiblePeople = normalizedQuery
+    ? people.data.persons.filter(person => personMatchesQuery(person, normalizedQuery))
+    : people.data.persons;
   const notesChanged = selectedPerson
     ? notesDraft !== (selectedPerson.notes ?? []).join('\n')
     : false;
@@ -2172,12 +2199,16 @@ function PeopleView() {
       {error && <div className="notice error">{error}</div>}
       <div className="people-workbench">
         <aside className="people-directory">
-          <div className="person-create">
-            <label htmlFor="person-create-name">{t('添加人物')}</label>
-            <div className="person-create-row"><input id="person-create-name" value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); }} placeholder={t('输入人物称呼')} /><button className="primary" aria-label={t('新建人物')} title={t('新建人物')} disabled={busy || !draftName.trim()} onClick={() => void create()}><Plus size={15} /></button></div>
+          <div className="people-directory-tools">
+            <div className="person-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t('搜索人物')} value={personQuery} onChange={event => setPersonQuery(event.target.value)} placeholder={t('搜索人物')} />{personQuery && <button type="button" className="person-search-clear" aria-label={t('清空搜索')} title={t('清空')} onClick={() => setPersonQuery('')}><X size={13} /></button>}</div>
+            <button type="button" className={`person-add-toggle${addingPerson ? ' active' : ''}`} aria-expanded={addingPerson} aria-controls="person-create-form" aria-label={t('添加人物')} title={t('添加人物')} onClick={() => setAddingPerson(open => !open)}><Plus size={16} /></button>
           </div>
-          <div className="people-directory-heading"><span>{t('人物')}</span><b>{people.data.persons.length}</b></div>
-          {people.data.persons.length === 0 ? <div className="person-directory-empty">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> : <div className="person-list">{people.data.persons.map(person => {
+          {addingPerson && <div className="person-create" id="person-create-form">
+            <label htmlFor="person-create-name">{t('添加人物')}</label>
+            <div className="person-create-row"><input autoFocus id="person-create-name" value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); if (event.key === 'Escape') setAddingPerson(false); }} placeholder={t('输入人物称呼')} /><button className="primary" aria-label={t('新建人物')} title={t('新建人物')} disabled={busy || !draftName.trim()} onClick={() => void create()}><Check size={15} /></button></div>
+          </div>}
+          <div className="people-directory-heading"><span>{normalizedQuery ? t('搜索结果') : t('人物')}</span><b>{normalizedQuery ? `${visiblePeople.length}/${people.data.persons.length}` : people.data.persons.length}</b></div>
+          {people.data.persons.length === 0 ? <div className="person-directory-empty">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> : visiblePeople.length === 0 ? <div className="person-directory-empty searched"><Search size={18} /><span>{t('没有匹配的人物')}</span></div> : <div className="person-list">{visiblePeople.map(person => {
             const selected = person.person_id === selectedPersonId;
             return <button type="button" className={`person-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => setSelectedPersonId(person.person_id)} key={person.person_id}>
               <span className="person-avatar">{personInitial(person)}</span>
