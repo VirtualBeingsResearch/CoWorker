@@ -79,7 +79,7 @@ language-transition system notice when it detects a locale change.
 | Variable | Default | Description |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Long-term memory database directory |
-| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
+| `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | Fraction of the oldest primary-message tokens processed by each compression pass; shared by tree and legacy modes |
 | `MEMORY__TREE_ENABLED` | `true` | Enable the multiresolution memory tree; disabling it restores the legacy single-anchor compression behavior |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | Token cap for the memory-tree spine as a fraction of the total |

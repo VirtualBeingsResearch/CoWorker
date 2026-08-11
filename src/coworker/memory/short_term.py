@@ -63,7 +63,7 @@ class _CompressionUsage:
 class ShortTermMemory:
     def __init__(
         self,
-        max_tokens: int = 80_000,
+        max_tokens: int = 120_000,
         compress_ratio: float = 0.30,
         log_store: LogStore | None = None,
         tree_enabled: bool = True,

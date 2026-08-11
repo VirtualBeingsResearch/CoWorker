@@ -1429,7 +1429,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert status.json()["required"] is True
     defaults = status.json()["defaults"]
     assert defaults["configuration"]["llm"]["max_tokens"] == 8192
-    assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 80_000
+    assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
     assert defaults["configuration"]["agent"]["passive_mode"] is False
     assert defaults["configuration"]["i18n"]["locale"] == "zh-CN"
     assert defaults["configuration"]["admin"]["token"] == ""

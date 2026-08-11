@@ -69,7 +69,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | 长期记忆数据库目录 |
-| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
+| `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | 记忆树脊柱 token 上限占比 |
