@@ -17,6 +17,37 @@ missing = "Alarm [{{id}}] not found"
 breathe = "🌬️ Breathe. What just happened? What comes next? Continue."
 unknown_action = "Unknown action: {{action}}"
 
+[environment.manage]
+needs_source_id = "Action {{action}} requires a source_id"
+empty = "No environment sources configured. Create one with write_file under .coworker/environment/<name>/, then use manage_environment reload."
+list_header = "{{count}} environment source(s):"
+list_entry = "[{{status}}] {{name}} ({{mode}}, {{schedule}})"
+list_tail = "Use write_file to create new sources under .coworker/environment/<name>/, then reload."
+reloaded = "Reloaded: {{count}} source(s) found."
+reloaded_with_warnings = "Reloaded: {{count}} source(s) found.\nWarnings:\n{{warnings}}"
+not_found = "Environment source '{{source_id}}' not found"
+enabled = "enabled"
+disabled = "disabled"
+set_enabled = "Source '{{source_id}}' is now {{action}}."
+triggered = "Triggered immediate poll for '{{source_id}}'."
+
+[environment.system_status]
+header = "System resource snapshot:"
+cpu = "CPU usage: {{percent}}%"
+memory = "Memory: {{used}} GB / {{total}} GB ({{percent}}%)"
+disk = "Disk: {{used}} GB / {{total}} GB ({{percent}}%)"
+processes = "Processes: {{count}}"
+own_memory = "Own RSS: {{rss}} MB"
+
+[environment.runtime_context]
+header = "Runtime environment:"
+container = "Running inside {{runtime}} container"
+no_container = "Running on host (not in a container)"
+cloud = "Cloud provider: {{provider}}"
+hostname = "Hostname: {{name}}"
+platform = "Platform: {{platform}}"
+python = "Python: {{version}}"
+
 [tool_result.browser]
 screenshot_saved = "Screenshot saved: {{path}}"
 navigated = "Navigated to {{url}}"

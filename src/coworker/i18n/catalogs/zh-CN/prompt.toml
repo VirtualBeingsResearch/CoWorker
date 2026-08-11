@@ -64,3 +64,17 @@ wecom = '''企业微信：
 stream = '''Stream / 桌面：
 - participant_id 是注册客户端或桌面 actor 的地址（如 `coworker-desktop:d:{actor}:{random}`），也可能是客户端自选的 id。
 - 存在 `conversation_id` 时表示该 participant 下的某个会话。一个人可能跨多个会话使用多个地址。'''
+environment = '''你通过环境源（environment sources）感知外部世界（只接收，不能回复）。入站信号以 [环境信号 · <源>] 开头。用 manage_environment（action=list/reload/enable/disable/run_now）查看和调整感知。用 write_file 在 .coworker/environment/<名称>/ 下创建新源（SOURCE.md frontmatter + 定义 poll(ctx) 的 source.py），然后 reload 激活。'''
+
+[channel.environment]
+instructions_intro = "活跃的环境源（对外部世界的感知）："
+source_entry = "- {{name}}（{{schedule}}）{{description}}"
+adjust_hint = "用 manage_environment 启停、重载或触发源。用 write_file 创建新源。"
+send_not_supported = "环境源 '{{participant}}' 只接收，你不能回复它。"
+schedule_every_seconds = "每 {{n}} 秒"
+schedule_interval_seconds = "每 {{n}} 秒"
+schedule_every_n_cycles = "每 {{n}} 个周期"
+schedule_every_n_tool_calls = "每 {{n}} 次工具调用"
+schedule_cron = "cron {{expr}}"
+schedule_cold_floor = "启动后 {{n}} 秒一次"
+schedule_manual = "仅手动"

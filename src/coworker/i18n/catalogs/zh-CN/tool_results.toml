@@ -17,6 +17,37 @@ missing = "未找到闹钟 [{{id}}]"
 breathe = "🌬️ 呼吸。刚才做了什么？接下来想做什么？继续。"
 unknown_action = "未知 action: {{action}}"
 
+[environment.manage]
+needs_source_id = "操作 {{action}} 需要提供 source_id"
+empty = "尚未配置环境源。用 write_file 在 .coworker/environment/<名称>/ 下创建后，用 manage_environment reload 发现。"
+list_header = "共 {{count}} 个环境源："
+list_entry = "[{{status}}] {{name}}（{{mode}}，{{schedule}}）"
+list_tail = "用 write_file 在 .coworker/environment/<名称>/ 下创建新源，然后 reload。"
+reloaded = "已重新加载：发现 {{count}} 个源。"
+reloaded_with_warnings = "已重新加载：发现 {{count}} 个源。\n警告：\n{{warnings}}"
+not_found = "未找到环境源 '{{source_id}}'"
+enabled = "已启用"
+disabled = "已停用"
+set_enabled = "源 '{{source_id}}' 现在{{action}}。"
+triggered = "已立即触发 '{{source_id}}' 的一次采集。"
+
+[environment.system_status]
+header = "系统资源快照："
+cpu = "CPU 使用率：{{percent}}%"
+memory = "内存：{{used}} GB / {{total}} GB（{{percent}}%）"
+disk = "磁盘：{{used}} GB / {{total}} GB（{{percent}}%）"
+processes = "进程数：{{count}}"
+own_memory = "自身 RSS：{{rss}} MB"
+
+[environment.runtime_context]
+header = "运行时环境："
+container = "运行在 {{runtime}} 容器中"
+no_container = "运行在宿主机上（非容器）"
+cloud = "云厂商：{{provider}}"
+hostname = "主机名：{{name}}"
+platform = "平台：{{platform}}"
+python = "Python：{{version}}"
+
 [tool_result.browser]
 screenshot_saved = "截图已保存：{{path}}"
 navigated = "已导航到 {{url}}"

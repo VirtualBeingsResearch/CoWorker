@@ -532,6 +532,34 @@ class WeixinConfig(_EnvSettings):
     enabled: bool = True
 
 
+class EnvironmentConfig(_EnvSettings):
+    """Environment sensing channel configuration (``ENVIRONMENT__`` prefix).
+
+    Individual sources are discovered by scanning ``sources_dir`` for
+    subdirectories containing ``SOURCE.md``.  This config governs global
+    behaviour (timeouts, concurrency, persistence path), not per-source
+    definitions — those live in each source's frontmatter.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="ENVIRONMENT__",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    enabled: bool = True
+    # Directory scanned for source scripts (SOURCE.md + source.py per subdirectory).
+    sources_dir: str = ".coworker/environment"
+    # Persistent per-source state (cursor, fingerprints, run history).
+    state_path: str = "data/environment/state.json"
+    # Hard timeout per poll, unless a source overrides it in frontmatter.
+    default_timeout_seconds: float = 60.0
+    # Cap concurrent polls across all sources.
+    max_concurrent_polls: int = 5
+    # Inject container/cloud/runtime info into the [ENVIRONMENT] prompt section.
+    container_detect_in_prompt: bool = True
+
+
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -546,6 +574,7 @@ class Config(_EnvSettings):
     channel_access: ChannelAccessConfig = Field(default_factory=ChannelAccessConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
+    environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

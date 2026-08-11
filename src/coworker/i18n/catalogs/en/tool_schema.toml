@@ -48,6 +48,9 @@ visual_analyze = "Analyze an image or video with the vision model; the result is
 search_web = "Search the internet and return summarized results."
 fetch_url = "Fetch the main content of a URL."
 persona = "Manage people: bind a communication address and notes to a known or new person (bind), record personalized notes (note), read the rendered card framework (card), unbind an address (unbind), delete a person (delete), merge duplicate people (merge)."
+manage_environment = "Manage environment sensing sources: list sources, enable/disable a source, reload the source directory to discover newly created sources, or trigger an immediate poll."
+get_system_status = "Get a real-time snapshot of system resources: CPU usage, memory, disk space, process count, and own process RSS."
+get_runtime_context = "Get runtime environment information: whether running in a container, the container runtime, cloud provider, hostname, platform, and Python version."
 
 [tool_schema.parameter.set_alarm]
 trigger_at = "First trigger time in YYYY-MM-DD HH:MM:SS format."
@@ -205,6 +208,10 @@ notes = "Person-level notes for note (required): add or remove several notes in 
 remove = "Optional for note: true removes the note (forgetting outdated knowledge); default appends."
 keep_person_id = "Person id to keep; required for merge."
 drop_person_id = "Person id to merge away and delete; required for merge."
+
+[tool_schema.parameter.manage_environment]
+action = "Operation: list, enable, disable, reload, or run_now."
+source_id = "Source name; required for enable, disable, and run_now."
 
 [tool_schema.parameter.manage_pinned_context]
 action = "Operation: pin (add or update), unpin (remove), or list."

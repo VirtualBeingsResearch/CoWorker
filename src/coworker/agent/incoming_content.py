@@ -17,9 +17,9 @@ _SOURCE_LABEL_KEYS: dict[str, str] = {
     "codex": "source.codex",
 }
 
-# 内容已自带 [闹钟提醒]/[代码任务完成] 等自描述前缀的来源：原样透传，
+# 内容已自带 [闹钟提醒]/[代码任务完成]/[环境信号] 等自描述前缀的来源：原样透传，
 # 不再套「[来自X][participant]的消息:」外壳，避免三重冗余。
-_SELF_DESCRIBING_SOURCES = {"alarm", "code_job", "task_reminder"}
+_SELF_DESCRIBING_SOURCES = {"alarm", "code_job", "task_reminder", "environment"}
 
 # 系统通知：participant_id 是占位符，但 content 不一定自带来源标记
 # （如「记忆树回溯完成…」「图片分析结果…」），统一加 [系统] 前缀以标明来自系统。

@@ -29,6 +29,11 @@ from coworker.api.admin import setup_admin, setup_channel_admin
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.environment.channel import EnvironmentChannel
+from coworker.channels.environment.executor import SourceExecutor
+from coworker.channels.environment.loader import EnvironmentLoader
+from coworker.channels.environment.runtime import EnvironmentRuntime
+from coworker.channels.environment.state import SourceStateStore
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -92,6 +97,11 @@ from coworker.tools.code_tools import (
     KillCodeJobTool,
 )
 from coworker.tools.communicate_tool import CommunicateTool, ListConnectionTool
+from coworker.tools.environment_tools import (
+    GetRuntimeContextTool,
+    GetSystemStatusTool,
+    ManageEnvironmentTool,
+)
 from coworker.tools.file_tools import (
     FindFilesTool,
     GrepFilesTool,
@@ -673,6 +683,27 @@ async def _main() -> bool:
             channel_system.activity,
         )
         channel_system.install(weixin_module)
+    # Environment sensing channel — receive-only sensors (GitHub issues, RSS, etc.)
+    environment_loader: EnvironmentLoader | None = None
+    environment_runtime: EnvironmentRuntime | None = None
+    if config.environment.enabled and not setup_required:
+        environment_loader = EnvironmentLoader(config.environment.sources_dir)
+        environment_state_store = SourceStateStore(config.environment.state_path)
+        environment_executor = SourceExecutor()
+        environment_channel = EnvironmentChannel(
+            loader=environment_loader,
+            runtime=None,  # set below after runtime is created
+        )
+        environment_runtime = EnvironmentRuntime(
+            loader=environment_loader,
+            executor=environment_executor,
+            state_store=environment_state_store,
+            channel=environment_channel,
+            max_concurrent_polls=config.environment.max_concurrent_polls,
+        )
+        # Late-bind the runtime on the channel (circular dependency resolved).
+        environment_channel._env_runtime = environment_runtime
+        channel_system.registry.register(environment_channel)
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
@@ -755,6 +786,14 @@ async def _main() -> bool:
             *(  # 可选的 Person 子机制：绑定地址、维护画像、合并人物。
                 [PersonaTool(person_store, persona_cards)]
                 if person_store is not None and persona_cards is not None
+                else []
+            ),
+            # Environment sensing tools (always available; sources may be empty).
+            GetSystemStatusTool(),
+            GetRuntimeContextTool(),
+            *(
+                [ManageEnvironmentTool(environment_runtime, environment_loader)]
+                if environment_runtime is not None and environment_loader is not None
                 else []
             ),
         ]
@@ -905,6 +944,7 @@ async def _main() -> bool:
         subconscious=subconscious,
         recent_activity=recent_activity,
         persona=persona_context,
+        environment_runtime=environment_runtime,
     )
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from coworker.agent.interaction_log import InteractionLogger
     from coworker.agent.subconscious import SubconsciousScheduler
     from coworker.brain.brain import Brain
+    from coworker.channels.environment.runtime import EnvironmentRuntime
     from coworker.core.config import Config
     from coworker.identity.identity import Identity
     from coworker.memory.long_term import LongTermMemory
@@ -64,6 +65,7 @@ class AgentLoop:
         subconscious: SubconsciousScheduler | None = None,
         recent_activity: RecentActivityMemory | None = None,
         persona: PersonaContext | None = None,
+        environment_runtime: EnvironmentRuntime | None = None,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -86,6 +88,7 @@ class AgentLoop:
         self._subconscious = subconscious
         self._recent_activity = recent_activity
         self._persona = persona
+        self._environment_runtime = environment_runtime
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -442,6 +445,10 @@ class AgentLoop:
                 short_term_snapshot=list(self._short_term.primary),
                 tool_calls_this_cycle=len(response.tool_calls),
             )
+        if self._environment_runtime is not None:
+            self._environment_runtime.notify_cycle_complete()
+            for _ in response.tool_calls or []:
+                self._environment_runtime.notify_tool_call()
 
     @staticmethod
     def _build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:

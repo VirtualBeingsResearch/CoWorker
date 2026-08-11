@@ -64,3 +64,17 @@ wecom = '''WeCom:
 stream = '''Stream / desktop:
 - participant_id is a registered client or desktop actor address (e.g. `coworker-desktop:d:{actor}:{random}`) or a client-chosen id.
 - `conversation_id`, when present, names a specific conversation under that participant. A person may use several participant_ids across sessions.'''
+environment = '''You perceive the external world through environment sources (receive-only — you cannot reply to them). Inbound signals arrive as [ENVIRONMENT SIGNAL · <source>] messages. Use `manage_environment` (action=list/reload/enable/disable/run_now) to inspect and adjust your perception. Create new sources with write_file under .coworker/environment/<name>/ (SOURCE.md frontmatter + source.py defining poll(ctx)), then reload to activate.'''
+
+[channel.environment]
+instructions_intro = "Active environment sources (perception of the external world):"
+source_entry = "- {{name}} ({{schedule}}){{description}}"
+adjust_hint = "Use manage_environment to enable, disable, reload, or trigger sources. Create new ones with write_file."
+send_not_supported = "Environment source '{{participant}}' is receive-only; you cannot reply to it."
+schedule_every_seconds = "every {{n}}s"
+schedule_interval_seconds = "every {{n}}s"
+schedule_every_n_cycles = "every {{n}} cycles"
+schedule_every_n_tool_calls = "every {{n}} tool calls"
+schedule_cron = "cron {{expr}}"
+schedule_cold_floor = "once after {{n}}s startup"
+schedule_manual = "manual only"

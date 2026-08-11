@@ -32,6 +32,7 @@ scratch/
 /data
 .coworker/*
 !.coworker/subconscious
+!.coworker/environment
 
 # OS / 编辑器噪声
 .DS_Store
