@@ -143,6 +143,11 @@ public_url_absolute = "API 公开访问地址必须是绝对 HTTP(S) URL"
 public_url_wildcard = "API 公开访问地址必须使用浏览器可访问的主机名，不能使用通配监听地址"
 public_url_origin_only = "API 公开访问地址不能包含凭据、路径、查询参数或片段"
 
+[config.provider]
+model_required = "模型能力声明必须填写模型 ID"
+video_requires_vision = "支持视频的模型也必须标记为支持视觉"
+duplicate_model_capability = "模型能力声明重复：{{model}}"
+
 [channel.desktop]
 command_rejected = "命令未被接受"
 reported_error = "桌面端报告错误"

@@ -455,6 +455,7 @@ class AdminConfigService:
                 name=spec.name,
                 default_model=spec.default_model,
                 tool_use_models=spec.tool_use_models,
+                model_capabilities=spec.model_capabilities,
             )
             await brain.upsert_provider(provider)
         if current_specs.keys() - desired_specs.keys():

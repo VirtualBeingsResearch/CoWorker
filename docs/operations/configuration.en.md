@@ -216,7 +216,13 @@ image build arguments.
 ## Supported models
 
 The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
-`minimax`. The recommended catalog contains models that the corresponding provider statically marks as tool-capable. The exact list changes with the source; use the first-run wizard and the provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth. During first-run setup, an administrator may enter a model outside that catalog only after explicitly confirming that the model and API gateway support tool/function calling. The wizard does not perform a potentially billable online capability probe; an incompatible model will fail on its first real call. Normal model switching after setup continues to follow the provider capability catalog.
+`minimax`. The recommended catalog contains models that the corresponding provider statically marks
+as tool-capable. The exact list changes with the source; use the first-run wizard and the provider
+implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth.
+First-run setup can accept a model outside the catalog after the administrator declares whether it
+supports tools, images, and video on this connection. No potentially billable online probe is
+performed, and a primary model must be declared tool-capable. These declarations remain editable
+under Runtime settings → Models & Providers.
 
 Only providers with a corresponding API key are registered. `LLM__DEFAULT_PROVIDER` must refer to
 a registered provider instance name.
@@ -227,14 +233,17 @@ The flat fields above, such as `LLM__ZHIPU_API_KEY`, allow only one instance of 
 
 ```json
 [
-  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1" },
+  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1", "model_capabilities": [{ "model": "custom-omni-model", "tools": true, "vision": true, "video": false }] },
   { "name": "zhipu-userB", "type": "zhipu", "api_key": "...", "base_url": "...", "default_model": "glm-4.7" }
 ]
 ```
 
 Fields: `name` (required, unique registration name), `type` (required; one of the built-in provider
-types above), `api_key`, optional `base_url`, and optional `default_model` (used when `switch_model`
-selects the instance without specifying a model).
+types above), `api_key`, optional `base_url`, optional `default_model` (used when `switch_model`
+selects the instance without specifying a model), and optional `model_capabilities`. Each capability
+entry contains an exact `model` ID plus `tools`, `vision`, and `video` booleans. Explicit declarations
+override the Provider type's built-in detection; unlisted models keep using the built-in catalog.
+Video capability also requires vision capability.
 
 - Flat fields still work and are merged automatically as the default instance where `name == type`; an entry with the same `name` in the file overrides it.
 - A missing file is ignored, so existing configurations continue to work unchanged.

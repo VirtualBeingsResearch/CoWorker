@@ -260,6 +260,7 @@ def _register_providers(brain: Brain, config: Config) -> None:
                     name=spec.name,
                     default_model=spec.default_model,
                     tool_use_models=spec.tool_use_models,
+                    model_capabilities=spec.model_capabilities,
                 )
             )
         except ValueError as e:

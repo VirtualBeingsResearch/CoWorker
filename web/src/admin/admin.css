@@ -517,6 +517,15 @@ html:has(.admin-login),
 .bootstrap-model-warning p { margin: 4px 0 10px; color: var(--admin-muted); font-size: 11px; line-height: 1.55; }
 .bootstrap-model-warning label { display: flex; align-items: flex-start; gap: 8px; color: var(--admin-ink); font-size: 11px; line-height: 1.45; cursor: pointer; }
 .bootstrap-model-warning input { width: 15px; height: 15px; margin: 1px 0 0; accent-color: var(--admin-vital); }
+.bootstrap-model-capabilities > div { flex: 1; min-width: 0; }
+.bootstrap-model-capabilities .field-error { margin: 9px 0 0; color: var(--admin-red); }
+.model-capability-toggles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.model-capability-toggles label { align-items: center; min-width: 0; padding: 9px 10px; border: 1px solid var(--admin-line); border-radius: 8px; background: var(--admin-paper); }
+.model-capability-toggles label:has(input:checked) { border-color: color-mix(in oklch, var(--admin-vital) 42%, var(--admin-line)); background: var(--admin-soft); }
+.model-capability-toggles span,
+.model-capability-toggles small { display: block; }
+.model-capability-toggles span { min-width: 0; font-size: 11px; font-weight: 650; }
+.model-capability-toggles small { margin-top: 2px; color: var(--admin-muted); font-size: 9px; font-weight: 450; }
 .bootstrap-footnote { display: flex; align-items: center; gap: 7px; margin: 22px 0 0; color: var(--admin-muted); font-size: 10px; }
 
 .bootstrap-restarting { max-width: 430px; text-align: center; align-self: center; }
@@ -1594,6 +1603,23 @@ html:has(.admin-login),
 .provider-row .field:nth-of-type(3) { grid-column: 1 / -1; }
 .provider-row .field > span { font-size: 11px; }
 .provider-row .field small { font-size: 10px; }
+.provider-model-capabilities { grid-column: 1 / -1; display: grid; min-width: 0; gap: 9px; padding-top: 13px; border-top: 1px solid var(--admin-line); }
+.provider-model-capabilities > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.provider-model-capabilities > header > div { flex: 1; min-width: 0; }
+.provider-model-capabilities > header b,
+.provider-model-capabilities > header small { display: block; }
+.provider-model-capabilities > header b { font-size: 12px; }
+.provider-model-capabilities > header small,
+.provider-model-capabilities > p { margin: 3px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
+.provider-model-list { display: grid; gap: 7px; }
+.provider-model-list > article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-surface); }
+.provider-model-id span { display: block; margin-bottom: 5px; color: var(--admin-muted); font-size: 9px; font-weight: 650; }
+.provider-model-id input { width: 100%; }
+.provider-model-list .model-capability-toggles { grid-column: 1 / -1; grid-row: 2; }
+.model-capability-toggles.compact { gap: 5px; }
+.model-capability-toggles.compact label { min-height: 38px; padding: 6px 8px; }
+.model-capability-toggles.compact span { font-size: 10px; }
+.provider-model-list .danger-icon { grid-column: 2; grid-row: 1; }
 .provider-remove { position: absolute; top: 14px; right: 14px; }
 .provider-empty { padding: 22px; border: 1px dashed var(--admin-line); border-radius: 11px; color: var(--admin-muted); background: var(--admin-paper); font-size: 11px; text-align: center; }
 .desktop-update-settings { display: grid; gap: 16px; margin-top: 17px; }
@@ -3092,6 +3118,8 @@ html:has(.admin-login),
   .alarm-record .danger-icon { align-self: center; }
   .provider-row { grid-template-columns: 1fr; padding-top: 52px; }
   .provider-row .field:nth-of-type(n) { grid-column: auto; }
+  .provider-model-capabilities { grid-column: auto; }
+  .model-capability-toggles { grid-template-columns: 1fr; }
   .llm-config-facts { grid-template-columns: 1fr; }
   .llm-config-facts span { border-right: 0; border-bottom: 1px solid var(--admin-line); }
   .llm-config-facts span:last-child { border-bottom: 0; }

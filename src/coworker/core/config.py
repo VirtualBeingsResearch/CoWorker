@@ -44,6 +44,36 @@ _PRE_WEIXIN_HANDOFF_DEFAULTS = (
 )
 
 
+class ModelCapabilities(BaseModel):
+    """Capabilities that Coworker can rely on for a model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tools: bool = False
+    vision: bool = False
+    video: bool = False
+
+    @model_validator(mode="after")
+    def _video_requires_vision(self) -> ModelCapabilities:
+        if self.video and not self.vision:
+            raise ValueError(tr("config.provider.video_requires_vision"))
+        return self
+
+
+class ModelCapabilitySpec(ModelCapabilities):
+    """Administrator-declared capabilities for one model on a provider connection."""
+
+    model: str = Field(min_length=1, max_length=256)
+
+    @field_validator("model")
+    @classmethod
+    def _normalize_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError(tr("config.provider.model_required"))
+        return value
+
+
 class ProviderSpec(BaseModel):
     """一个命名 provider 实例的配置规格。
 
@@ -57,6 +87,21 @@ class ProviderSpec(BaseModel):
     base_url: str = ""
     default_model: str | None = None
     tool_use_models: list[str] = Field(default_factory=list)
+    model_capabilities: list[ModelCapabilitySpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_model_capabilities(self) -> ProviderSpec:
+        seen: set[str] = set()
+        for capability in self.model_capabilities:
+            if capability.model in seen:
+                raise ValueError(
+                    tr(
+                        "config.provider.duplicate_model_capability",
+                        model=capability.model,
+                    )
+                )
+            seen.add(capability.model)
+        return self
 
 
 class _EnvSettings(BaseSettings):

@@ -156,6 +156,8 @@ class AnthropicProvider(BaseLLMProvider):
     def _adapt_content(self, content, model_id):
         if isinstance(content, str):
             return content
+        if not self.can_use_vision(model_id):
+            return super()._adapt_content(content, model_id)
         return [{k: v for k, v in block.items() if not k.startswith("_")} for block in content]
 
     async def count_tokens(self, messages: list[Message], model_id: str) -> int:

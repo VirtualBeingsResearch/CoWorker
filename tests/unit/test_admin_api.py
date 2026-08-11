@@ -588,7 +588,14 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     built: list[str] = []
 
     def fake_build_provider(
-        type_, api_key, *, base_url=None, name=None, default_model=None, tool_use_models=None
+        type_,
+        api_key,
+        *,
+        base_url=None,
+        name=None,
+        default_model=None,
+        tool_use_models=None,
+        model_capabilities=None,
     ):
         built.append(str(name or type_))
         return SimpleNamespace(provider_name=name or type_)
@@ -626,6 +633,54 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
         "sk-a",
         "sk-b",
     ]
+
+
+def test_config_patch_hot_applies_managed_provider_model_capabilities(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    built_capabilities = []
+
+    def fake_build_provider(type_, api_key, *, model_capabilities=None, **kwargs):
+        built_capabilities.extend(model_capabilities or [])
+        return SimpleNamespace(
+            provider_name=kwargs.get("name") or type_,
+            model_capabilities=model_capabilities or [],
+        )
+
+    monkeypatch.setattr("coworker.brain.factory.build_provider", fake_build_provider)
+    declared = {
+        "model": "gateway-omni",
+        "tools": True,
+        "vision": True,
+        "video": False,
+    }
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "llm": {
+                    "managed_providers": [
+                        {
+                            "name": "admin-custom",
+                            "type": "openai",
+                            "api_key": "",
+                            "model_capabilities": [declared],
+                        }
+                    ]
+                }
+            },
+            "secrets": {"llm.managed_providers.0.api_key": "sk-custom"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert [capability.model_dump() for capability in built_capabilities] == [declared]
+    hot_provider = admin._brain.upsert_provider.await_args.args[0]
+    assert [capability.model_dump() for capability in hot_provider.model_capabilities] == [declared]
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["llm"]["managed_providers"][0]["model_capabilities"] == [declared]
 
 
 def test_readding_removed_provider_clears_pending_restart(tmp_path, monkeypatch):
@@ -1566,13 +1621,21 @@ def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
     accepted = client.post(
         "/api/admin/bootstrap",
         headers=headers,
-        json={**payload, "allow_unverified_model": True},
+        json={
+            **payload,
+            "model_capabilities": {"tools": True, "vision": True, "video": False},
+        },
     )
     assert accepted.status_code == 202
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved["llm"]["default_model"] == "custom-tool-model"
-    assert saved["llm"]["managed_providers"][0]["tool_use_models"] == [
-        "custom-tool-model"
+    assert saved["llm"]["managed_providers"][0]["model_capabilities"] == [
+        {
+            "model": "custom-tool-model",
+            "tools": True,
+            "vision": True,
+            "video": False,
+        }
     ]
     assert "max_tokens" not in saved["llm"]
     assert "i18n" not in saved
@@ -1664,6 +1727,26 @@ def test_bootstrap_custom_model_confirmation_does_not_trust_provider_capability(
         },
     )
     assert response.status_code == 422
+
+
+def test_bootstrap_custom_primary_model_requires_declared_tool_support(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+
+    response = client.post(
+        "/api/admin/bootstrap",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "openai",
+            "model": "custom-vision-model",
+            "api_key": "sk-test",
+            "model_capabilities": {"tools": False, "vision": True, "video": False},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "必须支持工具调用" in response.json()["detail"]
+    assert not (tmp_path / "admin_config.json").exists()
 
 
 def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_path):

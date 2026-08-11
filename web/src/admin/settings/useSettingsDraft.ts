@@ -89,7 +89,7 @@ export function useSettingsDraft({
     window.history.pushState(null, '', `?${params.toString()}`);
   }, []);
 
-  const changeProvider = useCallback((index: number, key: string, value: string) => {
+  const changeProvider = useCallback((index: number, key: string, value: unknown) => {
     if (!draft) return;
     const providers = [...(draft.llm?.managed_providers || [])];
     providers[index] = { ...providers[index], [key]: value };
@@ -253,6 +253,15 @@ function settingsValidationMessage(
   const maxTokens = Number(draft.llm?.max_tokens);
   if (group === 'llm' && (!Number.isInteger(maxTokens) || maxTokens <= 0)) {
     return t('单次输出上限必须是正整数。');
+  }
+  if (group === 'llm') {
+    for (const provider of draft.llm?.managed_providers || []) {
+      const models = Array.isArray(provider.model_capabilities) ? provider.model_capabilities : [];
+      const ids = models.map((item: Json) => String(item.model || '').trim());
+      if (ids.some((model: string) => !model)) return t('模型能力声明必须填写模型 ID。');
+      if (new Set(ids).size !== ids.length) return t('同一个 Provider 中不能重复声明模型能力。');
+      if (models.some((item: Json) => item.video && !item.vision)) return t('支持视频的模型也必须支持图片理解。');
+    }
   }
   return '';
 }

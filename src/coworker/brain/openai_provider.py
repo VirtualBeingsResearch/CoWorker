@@ -156,7 +156,7 @@ class OpenAIProvider(BaseLLMProvider):
     def _adapt_content(self, content, model_id):
         if isinstance(content, str):
             return content
-        if not self.supports_vision(model_id):
+        if not self.can_use_vision(model_id):
             return super()._adapt_content(content, model_id)
         result = []
         for block in content:

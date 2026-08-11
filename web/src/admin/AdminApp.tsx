@@ -346,7 +346,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configuration, setConfiguration] = useState<Json>(() => structuredClone(configurationDefaults));
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
-  const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
+  const [customModelCapabilities, setCustomModelCapabilities] = useState({ tools: false, vision: false, video: false });
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
@@ -388,14 +388,14 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   };
   const chooseRecommendedModel = (value: string) => {
     setModel(value);
-    setAllowUnverifiedModel(false);
+    setCustomModelCapabilities({ tools: false, vision: false, video: false });
     closeModelMenu();
   };
   const changeProvider = (nextProvider: string) => {
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
-    setAllowUnverifiedModel(false);
+    setCustomModelCapabilities({ tools: false, vision: false, video: false });
     closeModelMenu();
   };
   const moveHighlight = (direction: 1 | -1) => {
@@ -444,7 +444,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         base_url: baseUrl,
         coworker_name: normalizedName,
         reconnect_proof: reconnectProof,
-        allow_unverified_model: customModel && allowUnverifiedModel,
+        model_capabilities: customModel ? customModelCapabilities : null,
         configuration: bootstrapConfigurationChanges(configurationDefaults, configuration),
         secrets: Object.fromEntries(Object.entries(configurationSecrets).filter(([, value]) => value !== '')),
       }) });
@@ -502,7 +502,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
                 <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
                 <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
-                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); setAllowUnverifiedModel(false); }} placeholder={t('选择推荐模型或输入模型 ID')} />
+                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); }} placeholder={t('选择推荐模型或输入模型 ID')} />
                   {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
                     {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
                   </ul>}
@@ -530,9 +530,13 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
                 <BootstrapConfigurationEditor baseline={configurationDefaults} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
               </div>
             </details>
-            {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
+            {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
+              <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
+              <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
+              <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
+            </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !customModelCapabilities.tools)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -749,6 +753,30 @@ function StringListEditor({ label, hint, value, onChange, placeholder }: {
     </div>
     <small>{t(hint)}</small>
   </div>;
+}
+
+function ProviderModelCapabilityEditor({ value, onChange }: {
+  value: Json[];
+  onChange: (value: Json[]) => void;
+}) {
+  const changeCapability = (index: number, key: string, nextValue: string | boolean) => {
+    const next = value.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: nextValue } : item);
+    if (key === 'video' && nextValue === true) next[index].vision = true;
+    if (key === 'vision' && nextValue === false) next[index].video = false;
+    onChange(next);
+  };
+  return <section className="provider-model-capabilities">
+    <header><div><b>{t('自定义模型能力')}</b><small>{t('为当前连接声明目录外模型或覆盖内置判断；能力按模型 ID 精确匹配。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, { model: '', tools: false, vision: false, video: false }])}><Plus size={13} />{t('添加模型')}</button></header>
+    {value.length ? <div className="provider-model-list">{value.map((capability, index) => <article key={index}>
+      <label className="provider-model-id"><span>{t('模型 ID')}</span><input value={capability.model || ''} onChange={event => changeCapability(index, 'model', event.target.value)} placeholder="model-id" /></label>
+      <div className="model-capability-toggles compact">
+        <label><input type="checkbox" checked={Boolean(capability.tools)} onChange={event => changeCapability(index, 'tools', event.target.checked)} /><span>{t('工具调用')}</span></label>
+        <label><input type="checkbox" checked={Boolean(capability.vision)} onChange={event => changeCapability(index, 'vision', event.target.checked)} /><span>{t('图片理解')}</span></label>
+        <label><input type="checkbox" checked={Boolean(capability.video)} onChange={event => changeCapability(index, 'video', event.target.checked)} /><span>{t('视频理解')}</span></label>
+      </div>
+      <button type="button" className="danger-icon" title={t('移除模型能力')} aria-label={t('移除模型能力')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+    </article>)}</div> : <p>{t('尚未声明自定义模型；未列出的模型继续使用接口协议的内置能力目录。')}</p>}
+  </section>;
 }
 
 function TransportListEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
@@ -1163,7 +1191,7 @@ function Settings() {
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
         if (key === 'managed_providers' && Array.isArray(value)) return <div className="provider-editor" key={key}>
-          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议和访问密钥。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '' }])}><Plus size={14} />{t('添加连接')}</button></div>
+          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
           <div className="provider-source-note"><Database size={16} /><p><b>{t('配置来源彼此独立')}</b><span><code>.env</code> {t('和')} <code>providers.json</code>{t('中的连接只读展示；下方只编辑管理端覆盖，不会复制或接管外部密钥。')}</span></p></div>
           {externalProviders.length > 0 && <div className="provider-effective"><b>{t('外部有效连接（只读）')}</b>{externalProviders.map((provider: Json) => <span key={provider.name}><strong>{provider.name}</strong><code>{provider.type}</code><small>{provider.base_url || t('协议默认地址')}</small></span>)}</div>}
           {value.length ? value.map((provider: Json, index: number) => {
@@ -1175,6 +1203,7 @@ function Settings() {
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
+              <ProviderModelCapabilityEditor value={Array.isArray(provider.model_capabilities) ? provider.model_capabilities : []} onChange={next => changeProvider(index, 'model_capabilities', next)} />
               <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}

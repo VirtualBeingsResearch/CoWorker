@@ -57,6 +57,7 @@ def build_provider(
     name: str | None = None,
     default_model: str | None = None,
     tool_use_models: list[str] | None = None,
+    model_capabilities: list[Any] | None = None,
 ) -> BaseLLMProvider:
     """按类型实例化一个 provider，并以 name 作为注册名（缺省等于类型名）。
 
@@ -74,4 +75,11 @@ def build_provider(
         provider.default_model = default_model
     for model_id in tool_use_models or []:
         provider.allow_tool_use_model(model_id)
+    for capability in model_capabilities or []:
+        provider.declare_model_capabilities(
+            capability.model,
+            tools=capability.tools,
+            vision=capability.vision,
+            video=capability.video,
+        )
     return provider

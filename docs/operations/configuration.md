@@ -197,7 +197,9 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和
 `minimax`。推荐模型目录只包含对应 Provider 静态标记为支持工具调用的模型；精确列表
 会随代码更新，以首次初始化向导和 [`src/coworker/brain/`](../../src/coworker/brain/)
-中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，但管理员必须明确确认该模型及其 API 网关支持 tool/function calling。向导不会发起可能计费的在线能力探测；若实际能力不匹配，首次真实调用会失败。初始化后的普通模型切换仍遵循 Provider 的能力目录。
+中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，并声明该连接上的模型是否
+支持工具调用、图片和视频。向导不会发起可能计费的在线能力探测；主模型必须声明支持工具
+调用。初始化后可在“运行设置 → 模型与 Provider”继续维护这些能力。
 
 只有在对应 API Key 存在时，该 Provider 才会被注册。`LLM__DEFAULT_PROVIDER`
 必须指向已注册的 Provider 实例名。
@@ -208,14 +210,16 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 
 ```json
 [
-  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1" },
+  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1", "model_capabilities": [{ "model": "custom-omni-model", "tools": true, "vision": true, "video": false }] },
   { "name": "zhipu-userB", "type": "zhipu", "api_key": "...", "base_url": "...", "default_model": "glm-4.7" }
 ]
 ```
 
 字段：`name`（必填，注册名，需唯一）、`type`（必填，取上面的内置 Provider
 类型之一）、`api_key`、`base_url`（可选）、`default_model`（可选，`switch_model`
-切到该实例但不指定模型时使用）。
+切到该实例但不指定模型时使用），以及 `model_capabilities`（可选的模型能力声明列表）。
+每条能力声明包含精确 `model` ID 和 `tools`、`vision`、`video` 布尔值；显式声明覆盖
+Provider 类型的内置判断，未声明模型继续使用内置目录。视频能力要求同时启用视觉能力。
 
 - 扁平字段仍然有效，会自动并入为 `name == type` 的默认实例；文件中的同名条目按 `name` 覆盖它。
 - 文件不存在则忽略，老配置零改动照常运行。

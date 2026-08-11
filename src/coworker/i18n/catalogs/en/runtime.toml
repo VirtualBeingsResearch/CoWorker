@@ -143,6 +143,11 @@ public_url_absolute = "The public API URL must be an absolute HTTP(S) URL"
 public_url_wildcard = "The public API URL must use a browser-reachable hostname, not a wildcard bind address"
 public_url_origin_only = "The public API URL must not contain credentials, a path, query parameters, or a fragment"
 
+[config.provider]
+model_required = "A model capability declaration requires a model ID"
+video_requires_vision = "A video-capable model must also be marked as vision-capable"
+duplicate_model_capability = "Duplicate model capability declaration: {{model}}"
+
 [channel.desktop]
 command_rejected = "Command was not accepted"
 reported_error = "Desktop reported an error"

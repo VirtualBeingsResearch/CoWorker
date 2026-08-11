@@ -40,6 +40,8 @@ from coworker.channels.traffic import (
 )
 from coworker.core.config import (
     Config,
+    ModelCapabilities,
+    ModelCapabilitySpec,
     _deep_merge,
     effective_admin_token,
     load_admin_overrides,
@@ -155,7 +157,7 @@ class BootstrapPayload(BaseModel):
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
     reconnect_proof: str = Field(default="", pattern=r"^(?:[0-9a-f]{64})?$")
-    allow_unverified_model: bool = False
+    model_capabilities: ModelCapabilities | None = None
     configuration: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
 
@@ -1002,16 +1004,9 @@ async def complete_bootstrap(
         if not api_key:
             raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
 
-        provider = build_provider(
-            provider_type,
-            api_key,
-            base_url=base_url or None,
-            name=provider_type,
-            default_model=model,
-        )
         catalog_models = available_models(provider_type)
         custom_model = model not in catalog_models
-        if custom_model and not payload.allow_unverified_model:
+        if custom_model and payload.model_capabilities is None:
             raise HTTPException(
                 status_code=422,
                 detail=tr(
@@ -1020,7 +1015,20 @@ async def complete_bootstrap(
                     provider=provider_type,
                 ),
             )
-        if not custom_model and not provider.supports_tool_use(model):
+        declared_models = (
+            [ModelCapabilitySpec(model=model, **payload.model_capabilities.model_dump())]
+            if payload.model_capabilities is not None
+            else []
+        )
+        provider = build_provider(
+            provider_type,
+            api_key,
+            base_url=base_url or None,
+            name=provider_type,
+            default_model=model,
+            model_capabilities=declared_models,
+        )
+        if not provider.can_use_tools(model):
             raise HTTPException(
                 status_code=422,
                 detail=tr(
@@ -1065,7 +1073,10 @@ async def complete_bootstrap(
                         "api_key": api_key,
                         "base_url": base_url,
                         "default_model": model,
-                        "tool_use_models": [model] if custom_model else [],
+                        "model_capabilities": [
+                            capability.model_dump(mode="json")
+                            for capability in declared_models
+                        ],
                     }
                 ],
             },
