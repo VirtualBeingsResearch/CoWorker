@@ -1,4 +1,4 @@
-import { createContext, FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -283,7 +283,7 @@ function bootstrapConfigurationChanges(baseline: Json, draft: Json) {
   return changes;
 }
 
-function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, secretInputs, setSecretInputs, secretStatus, invalidPaths, setJsonValidity }: {
+function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, secretInputs, setSecretInputs, secretStatus, invalidPaths, setJsonValidity, initialGroup = 'llm' }: {
   baseline: Json;
   value: Json;
   change: (group: string, key: string, value: unknown) => void;
@@ -293,8 +293,9 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
   secretStatus: Json;
   invalidPaths: Set<string>;
   setJsonValidity: (path: string, valid: boolean) => void;
+  initialGroup?: string;
 }) {
-  const [group, setGroup] = useState('llm');
+  const [group, setGroup] = useState(initialGroup);
   const groups = BOOTSTRAP_CONFIG_GROUPS.filter(key => value[key] !== undefined);
   const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
   const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
@@ -360,6 +361,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'form' | 'restarting'>('form');
   const [restartTarget, setRestartTarget] = useState<BootstrapAdminTarget | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedInitialGroup, setAdvancedInitialGroup] = useState('llm');
+  const advancedReturnFocus = useRef<HTMLButtonElement | null>(null);
   const normalizedModel = model.trim();
   const normalizedName = name.trim();
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
@@ -383,6 +387,15 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     return next;
   });
   const setPassiveMode = (next: boolean) => changeConfiguration('agent', 'passive_mode', next);
+  const openAdvanced = (group: string, trigger: HTMLButtonElement) => {
+    advancedReturnFocus.current = trigger;
+    setAdvancedInitialGroup(group);
+    setAdvancedOpen(true);
+  };
+  const closeAdvanced = () => {
+    setAdvancedOpen(false);
+    window.requestAnimationFrame(() => advancedReturnFocus.current?.focus());
+  };
 
   const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
   const openAllModels = () => {
@@ -407,7 +420,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
     setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
   };
-  const handleModelKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleModelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
     else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
@@ -428,6 +441,20 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   useEffect(() => {
     if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
   }, [highlightedModelIndex, filteredModels]);
+
+  useEffect(() => {
+    if (!advancedOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeAdvanced();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [advancedOpen]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -513,39 +540,50 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
                   </ul>}
                 </div>
               </div>
-              <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
-              <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+              <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
                 <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
                 <div className="bootstrap-name-examples" aria-label={t('名字示例')}>{nameExamples.map(example => <button type="button" onClick={() => setName(example)} key={example}>{example}</button>)}</div>
                 {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
               </div>
-              <div className="bootstrap-timezone wide">
-                <Clock3 size={18} />
-                <label><span>{t('运行时区')} <em>{t(timezoneDetected ? '已从浏览器检测' : runtimeTimezone ? '已手动设置' : '跟随服务器')}</em></span><input value={runtimeTimezone} onChange={event => changeConfiguration('i18n', 'timezone', event.target.value)} placeholder="Asia/Shanghai" spellCheck={false} /><small>{t('用于 Prompt 中的当前时间、闹钟和日期边界；请填写 IANA 时区名称。')}</small></label>
-              </div>
-              <div className="bootstrap-mode wide" role="radiogroup" aria-label={t('启动模式')}>
-                <span>{t('启动模式')}</span>
-                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><em>{t('推荐 · 适合大多数用户')}</em><b>{t('主动模式')}</b><small>{t('她会自己继续观察、思考和推进；一般使用请选择此模式。')}</small></button>
-                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><em>{t('面向开发者')}</em><b>{t('Passive 模式')}</b><small>{t('她只响应外部事件，不会在空闲时自行开始下一轮。')}</small></button>
+              <div className="bootstrap-runtime-defaults wide">
+                <div className="bootstrap-runtime-default">
+                  <Clock3 size={17} />
+                  <span><small>{t('运行时区')}<em> · {t(timezoneDetected ? '已从浏览器检测' : runtimeTimezone ? '已手动设置' : '跟随服务器')}</em></small><b><code>{runtimeTimezone || t('跟随服务器')}</code></b></span>
+                  <button type="button" className="ghost mini" onClick={event => openAdvanced('i18n', event.currentTarget)}>{t('调整')}</button>
+                </div>
+                <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
+                  <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
+                  <div>
+                    <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
+                    <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+                  </div>
+                </div>
                 {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
               </div>
             </div>
-            <details className="bootstrap-advanced">
-              <summary><span><SlidersHorizontal size={17} /><span><b>{t('高级初始化 · 全部参数')}</b><small>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</small></span></span><ChevronRight size={16} /></summary>
-              <div className="bootstrap-advanced-body">
-                <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、语言与时区、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
-                <BootstrapConfigurationEditor baseline={configurationBaseline} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
-              </div>
-            </details>
             {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
               <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
               <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
               <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
             </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !customModelCapabilities.tools)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <div className="bootstrap-submit-row">
+              <button type="button" className="bootstrap-advanced-trigger" onClick={event => openAdvanced('llm', event.currentTarget)}><SlidersHorizontal size={16} /><span><b>{t('高级初始化')}</b><small>{t('全部参数')}</small></span></button>
+              <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !customModelCapabilities.tools)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            </div>
+            {advancedOpen && <div className="modal-layer bootstrap-advanced-layer" onMouseDown={event => { if (event.target === event.currentTarget) closeAdvanced(); }}>
+              <section className="bootstrap-advanced-dialog" role="dialog" aria-modal="true" aria-labelledby="bootstrap-advanced-title">
+                <header><div><span>{t('高级初始化')}</span><h3 id="bootstrap-advanced-title">{t('高级初始化 · 全部参数')}</h3><p>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</p></div><button type="button" className="icon-btn" aria-label={t('关闭高级初始化')} title={t('关闭')} onClick={closeAdvanced} autoFocus><X size={16} /></button></header>
+                <div className="bootstrap-advanced-scroll">
+                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、语言与时区、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
+                  <BootstrapConfigurationEditor initialGroup={advancedInitialGroup} baseline={configurationBaseline} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
+                </div>
+                <footer><span>{t('这些修改会与基础设置一起保存。')}</span><button type="button" className="primary" onClick={closeAdvanced}>{t('完成')}</button></footer>
+              </section>
+            </div>}
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
