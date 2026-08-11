@@ -9,6 +9,7 @@ import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
+import { configFieldPresentation } from './settings/configFieldPresentation';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
@@ -236,7 +237,7 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
-const BOOTSTRAP_CONFIG_GROUPS = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'desktop_updates'];
+const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'desktop_updates'];
 const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
   llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '语言与时区', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', desktop_updates: '桌面更新',
 };
@@ -256,19 +257,21 @@ const BOOTSTRAP_CONFIG_EXCLUSIONS = new Set([
   'llm.default_provider', 'llm.default_model', 'llm.managed_providers', 'llm.providers_file', 'llm.runtime_config_file',
   'admin.token', 'admin.config_file', 'desktop_updates.admin_token',
 ]);
-const BOOTSTRAP_CONFIG_SECRETS = new Set([
-  'api.communication_token', 'relay.instance_private_key', 'desktop_updates.feed_token', 'wecom.secret',
-]);
-
 function bootstrapFieldVisible(group: string, key: string) {
   const path = `${group}.${key}`;
   if (BOOTSTRAP_CONFIG_EXCLUSIONS.has(path)) return false;
   return !(group === 'llm' && /_(api_key|base_url)$/.test(key));
 }
 
+function bootstrapConfigurationGroups(configuration: Json) {
+  const known = BOOTSTRAP_CONFIG_GROUP_ORDER.filter(group => configuration[group] !== undefined);
+  const extensions = Object.keys(configuration).filter(group => group !== 'admin' && !BOOTSTRAP_CONFIG_GROUP_ORDER.includes(group));
+  return [...known, ...extensions];
+}
+
 function bootstrapConfigurationChanges(baseline: Json, draft: Json) {
   const changes: Json = {};
-  for (const group of BOOTSTRAP_CONFIG_GROUPS) {
+  for (const group of bootstrapConfigurationGroups(draft)) {
     if (group === 'channel_access') {
       if (JSON.stringify(baseline[group] || {}) !== JSON.stringify(draft[group] || {})) changes[group] = structuredClone(draft[group] || {});
       continue;
@@ -296,7 +299,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
   initialGroup?: string;
 }) {
   const [group, setGroup] = useState(initialGroup);
-  const groups = BOOTSTRAP_CONFIG_GROUPS.filter(key => value[key] !== undefined);
+  const groups = bootstrapConfigurationGroups(value);
   const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
   const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
     || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${group}.`) && secret);
@@ -304,10 +307,11 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     replaceGroup(group, structuredClone(baseline[group] || {}));
     setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => !path.startsWith(`${group}.`))));
   };
-  const renderJsonField = (key: string, fieldValue: unknown) => {
-    const path = `${group}.${key}`;
-    return <div className="bootstrap-config-json-field" key={key}><span>{t(CONFIG_LABELS[path] || humanize(key))}</span><JsonEditor value={fieldValue} onChange={next => change(group, key, next)} onValidityChange={valid => setJsonValidity(path, valid)} />{path === 'desktop_updates.sync_sources' && Array.isArray(fieldValue) && fieldValue.map((source: Json) => source?.id ? <label className="bootstrap-source-secret" key={source.id}><span>{t('来源“{{name}}”的访问 Token', { name: source.name || source.id })}</span><input type="password" value={secretInputs[`desktop_updates.sync_sources.${source.id}.token`] || ''} onChange={event => setSecretInputs({ ...secretInputs, [`desktop_updates.sync_sources.${source.id}.token`]: event.target.value })} placeholder={secretStatus[`desktop_updates.sync_sources.${source.id}.token`]?.configured ? t('留空保留当前 Token') : t('可选')} /></label> : null)}</div>;
-  };
+  const ChannelAccessEditor = settingsPanelRegistration('channel_access')?.component;
+  const setDesktopValidation = useCallback(
+    (message: string) => setJsonValidity('desktop_updates', !message),
+    [setJsonValidity],
+  );
   return <div className="bootstrap-config-workbench">
     <nav aria-label={t('完整初始化配置组')}>{groups.map(key => {
       const dirty = JSON.stringify(baseline[key] || {}) !== JSON.stringify(value[key] || {}) || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${key}.`) && secret);
@@ -316,17 +320,9 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     <section className="bootstrap-config-panel">
       <header><div><b>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[group] || group)}</b><small>{t(BOOTSTRAP_CONFIG_GROUP_NOTES[group] || '')}</small></div><button type="button" className="ghost mini" disabled={!groupDirty} onClick={reset}><RotateCcw size={13} />{t('恢复推荐值')}</button></header>
       {group === 'llm' && <div className="bootstrap-config-managed"><ShieldCheck size={15} /><span><b>{t('首个连接由基础设置管理')}</b><small>{t('Provider、启动模型、API Key 和 Base URL 会以页面上方填写的连接为准。')}</small></span></div>}
-      {group === 'channel_access' ? <div className="bootstrap-config-json-field"><span>{t('完整信道访问规则')}</span><JsonEditor value={value.channel_access || {}} onChange={next => replaceGroup('channel_access', next as Json)} onValidityChange={valid => setJsonValidity('channel_access', valid)} /></div> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
+      {group === 'channel_access' && ChannelAccessEditor ? <ChannelAccessEditor value={value.channel_access || {}} change={(key, next) => change('channel_access', key, next)} apply={async () => true} dirty={groupDirty} saving={false} request={api} /> : group === 'desktop_updates' ? <DesktopUpdateSettings value={value.desktop_updates || {}} change={(key, next) => change('desktop_updates', key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} onValidationChange={setDesktopValidation} updateUrl={false} /> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
         const path = `${group}.${key}`;
-        if (BOOTSTRAP_CONFIG_SECRETS.has(path)) {
-          const status = secretStatus[path];
-          return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint={status?.configured ? t('当前已配置；留空保持不变') : t('敏感值只会写入本机配置，页面不会回显')}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={status?.configured ? t('留空保留当前值') : t('可选')} /></Field>;
-        }
-        if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]}><select value={String(fieldValue)} onChange={event => change(group, key, event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (typeof fieldValue === 'boolean') return <label className="bootstrap-config-switch" key={key}><input type="checkbox" checked={fieldValue} onChange={event => change(group, key, event.target.checked)} /><span>{t(CONFIG_LABELS[path] || humanize(key))}</span></label>;
-        if (typeof fieldValue === 'number') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)}><input type="number" min={path === 'api.port' ? 1 : undefined} max={path === 'api.port' ? 65_535 : undefined} step={path === 'api.port' ? 1 : 'any'} value={fieldValue} onChange={event => change(group, key, Number(event.target.value))} /></Field>;
-        if (typeof fieldValue === 'string') return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'api.public_url' ? t('反向代理下浏览器实际访问的 HTTP(S) 地址；留空时根据监听地址推导。') : path === 'i18n.timezone' ? t('使用 IANA 时区名称；留空则跟随服务器时区。') : undefined}><input type={path === 'api.public_url' ? 'url' : undefined} value={fieldValue} onChange={event => change(group, key, event.target.value)} placeholder={path === 'api.public_url' ? 'https://coworker.example.com' : path === 'i18n.timezone' ? 'Asia/Shanghai' : undefined} /></Field>;
-        return renderJsonField(key, fieldValue);
+        return <ConfigurationField key={key} path={path} value={fieldValue} change={next => change(group, key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} setJsonValidity={setJsonValidity} passiveMode={Boolean(value.agent?.passive_mode)} />;
       })}</div>}
       {invalidPaths.size > 0 && Array.from(invalidPaths).some(path => path === group || path.startsWith(`${group}.`)) && <p className="field-error" role="alert">{t('请先修正这个配置组中的 JSON 格式。')}</p>}
     </section>
@@ -381,11 +377,12 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   }, [modelFilter, models]);
   const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
   const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
-  const setConfigurationJsonValidity = (path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
+  const setConfigurationJsonValidity = useCallback((path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
     const next = new Set(current);
     if (valid) next.delete(path); else next.add(path);
+    if (next.size === current.size && Array.from(next).every(item => current.has(item))) return current;
     return next;
-  });
+  }), []);
   const setPassiveMode = (next: boolean) => changeConfiguration('agent', 'passive_mode', next);
   const openAdvanced = (group: string, trigger: HTMLButtonElement) => {
     advancedReturnFocus.current = trigger;
@@ -885,6 +882,45 @@ function JsonEditor({ value, onChange, onValidityChange }: {
   </>;
 }
 
+function ConfigurationField({ path, value, change, secretInputs, setSecretInputs, secretStatus, setJsonValidity, hot = false, passiveMode = false, activeAdminToken }: {
+  path: string;
+  value: unknown;
+  change: (value: unknown) => void;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Json;
+  setJsonValidity: (path: string, valid: boolean) => void;
+  hot?: boolean;
+  passiveMode?: boolean;
+  activeAdminToken?: Json;
+}) {
+  const segments = path.split('.');
+  const key = segments[segments.length - 1] || path;
+  const label = CONFIG_LABELS[path] || humanize(key);
+  const presentation = configFieldPresentation(path, { passiveMode });
+  if (presentation.editor === 'locale') return <Field label={label} hint={presentation.hint} hot={hot}><select value={String(value)} onChange={event => change(event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+  if (presentation.editor === 'fallback-list' || presentation.editor === 'cors-list' || presentation.editor === 'participant-list') return <Fragment>
+    {presentation.editor === 'participant-list' && <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>}
+    <StringListEditor label={label} hint={presentation.hint || ''} value={Array.isArray(value) ? value.map(String) : []} onChange={change} placeholder={presentation.placeholder || ''} />
+  </Fragment>;
+  if (presentation.editor === 'transport-list') return <TransportListEditor value={Array.isArray(value) ? value.map(String) : []} onChange={change} />;
+  if (secretStatus[path] !== undefined) {
+    const status = secretStatus[path] || {};
+    const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
+    const hint = status.configured
+      ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
+      : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置；敏感值不会回显');
+    const placeholder = status.configured
+      ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
+      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（可选）');
+    return <Field label={label} hot={hot} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} /></Field>;
+  }
+  if (typeof value === 'boolean') return <label className="switch config-switch"><input type="checkbox" checked={value} onChange={event => change(event.target.checked)} /><i /><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
+  if (typeof value === 'number') return <Field label={label} hint={presentation.hint} hot={hot}><input type="number" value={value} min={presentation.minimum} max={presentation.maximum} step={presentation.step ?? 'any'} onChange={event => change(Number(event.target.value))} /></Field>;
+  if (typeof value === 'string') return <Field label={label} hint={presentation.hint} hot={hot}><input type={presentation.inputType} value={value} onChange={event => change(event.target.value)} placeholder={presentation.placeholder} /></Field>;
+  return <Field label={label} hint="JSON 结构" hot={hot}><JsonEditor value={value} onChange={change} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
+}
+
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '语言与时区', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
@@ -974,10 +1010,10 @@ function describeDesktopUpdateSave(before: Json = {}, after: Json = {}, fallback
   return fallback;
 }
 
-function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, secretStatus, onValidationChange }: { value: Json; change: (key: string, value: any) => void; secretInputs: Record<string, string>; setSecretInputs: (value: Record<string, string>) => void; secretStatus: Record<string, { configured?: boolean; last4?: string }>; onValidationChange: (message: string) => void }) {
+function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, secretStatus, onValidationChange, updateUrl = true }: { value: Json; change: (key: string, value: any) => void; secretInputs: Record<string, string>; setSecretInputs: (value: Record<string, string>) => void; secretStatus: Record<string, { configured?: boolean; last4?: string }>; onValidationChange: (message: string) => void; updateUrl?: boolean }) {
   const sources = (Array.isArray(value.sync_sources) ? value.sync_sources : []) as DesktopUpdateSourceConfig[];
   const active = value.sync_active_source || '';
-  const sourceFromUrl = new URLSearchParams(window.location.search).get('source') || '';
+  const sourceFromUrl = updateUrl ? new URLSearchParams(window.location.search).get('source') || '' : '';
   const [selectedSourceId, setSelectedSourceId] = useState(() => sourceFromUrl || active || sources[0]?.id || '');
   const selectedSource = sources.find(source => source.id === selectedSourceId) || null;
   const activeSource = sources.find(source => source.id === active) || null;
@@ -991,6 +1027,7 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
   const updateSources = (next: DesktopUpdateSourceConfig[], nextActive = active) => { change('sync_sources', next); change('sync_active_source', nextActive || null); };
   const patchSource = (id: string, patch: Partial<DesktopUpdateSourceConfig>) => updateSources(sources.map(source => source.id === id ? { ...source, ...patch } : source));
   const setUrlSource = (id: string, replace = false) => {
+    if (!updateUrl) return;
     const params = new URLSearchParams(window.location.search);
     params.set('section', 'settings'); params.set('group', 'desktop_updates');
     if (id) params.set('source', id); else params.delete('source');
@@ -1030,18 +1067,19 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
   }, [sources, value.sync_interval_seconds, value.sync_max_asset_bytes, value.sync_max_run_bytes]);
   useEffect(() => { onValidationChange(validationError); }, [onValidationChange, validationError]);
   useEffect(() => {
-    const current = new URLSearchParams(window.location.search).get('source') || '';
+    const current = updateUrl ? new URLSearchParams(window.location.search).get('source') || '' : '';
     if (current && sources.some(source => source.id === current)) { setSelectedSourceId(current); return; }
     if (selectedSourceId && !sources.some(source => source.id === selectedSourceId)) setSelectedSourceId(active || sources[0]?.id || '');
-  }, [active, selectedSourceId, sources]);
+  }, [active, selectedSourceId, sources, updateUrl]);
   useEffect(() => {
+    if (!updateUrl) return;
     const syncSourceFromLocation = () => {
       const current = new URLSearchParams(window.location.search).get('source') || '';
       setSelectedSourceId(current && sources.some(source => source.id === current) ? current : active || sources[0]?.id || '');
     };
     window.addEventListener('popstate', syncSourceFromLocation);
     return () => window.removeEventListener('popstate', syncSourceFromLocation);
-  }, [active, sources]);
+  }, [active, sources, updateUrl]);
   const feedStatus = secretStatus['desktop_updates.feed_token'];
   const activeConfigured = isSourceConfigured(activeSource || undefined);
   return <div className="desktop-update-settings">
@@ -1050,13 +1088,13 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
       <Field label="当前上游" hint="切换后保存即可立即应用，不需要重启"><select value={active || ''} onChange={event => setActive(event.target.value)}><option value="">{t('关闭上游同步')}</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name || sourceProviderLabel(source)}</option>)}</select></Field>
     </section>
     {validationError && <div className="notice error"><TriangleAlert size={15} /><span>{validationError}</span></div>}
-    <div className="desktop-source-toolbar"><div><b>{t('上游来源')}</b><small>{t('可以保存多个同类型来源，但同一时间只有当前上游会运行。')}</small></div><div><button className="ghost mini" onClick={() => addSource('github')}><Plus size={14} />{t('添加 GitHub 来源')}</button><button className="ghost mini" onClick={() => addSource('coworker')}><Plus size={14} />{t('添加 Coworker 来源')}</button></div></div>
+    <div className="desktop-source-toolbar"><div><b>{t('上游来源')}</b><small>{t('可以保存多个同类型来源，但同一时间只有当前上游会运行。')}</small></div><div><button type="button" className="ghost mini" onClick={() => addSource('github')}><Plus size={14} />{t('添加 GitHub 来源')}</button><button type="button" className="ghost mini" onClick={() => addSource('coworker')}><Plus size={14} />{t('添加 Coworker 来源')}</button></div></div>
     {sources.length ? <div className="desktop-source-workbench">
       <div className="desktop-source-list" role="list">{sources.map((source, index) => {
         const configured = isSourceConfigured(source); const isActive = active === source.id; const isSelected = selectedSourceId === source.id;
         return <article role="listitem" className={'desktop-source-item ' + (isActive ? 'active ' : '') + (isSelected ? 'selected ' : '') + (!configured ? 'warning' : '')} key={source.id}>
           <button type="button" onClick={() => selectSource(source.id)}><span><b>{source.name || t('未命名来源')}</b><small>{sourceProviderLabel(source)}{sourceTarget(source) ? ` · ${sourceTarget(source)}` : ''}</small></span><em className={'desktop-source-badge ' + (isActive ? 'active' : !configured ? 'warning' : '')}>{isActive ? t('当前') : configured ? t('备用') : t('待补全')}</em></button>
-          <div className="desktop-source-row-actions"><button className="ghost mini" disabled={isActive} onClick={() => setActive(source.id)}>{t('设为当前')}</button><button className="ghost mini" disabled={index === 0} onClick={() => move(index, -1)}>{t('上移')}</button><button className="ghost mini" disabled={index === sources.length - 1} onClick={() => move(index, 1)}>{t('下移')}</button><button className="ghost mini" onClick={() => duplicate(source)}>{t('复制')}</button><button className="danger-outline mini" onClick={() => remove(source.id)}>{t('删除')}</button></div>
+          <div className="desktop-source-row-actions"><button type="button" className="ghost mini" disabled={isActive} onClick={() => setActive(source.id)}>{t('设为当前')}</button><button type="button" className="ghost mini" disabled={index === 0} onClick={() => move(index, -1)}>{t('上移')}</button><button type="button" className="ghost mini" disabled={index === sources.length - 1} onClick={() => move(index, 1)}>{t('下移')}</button><button type="button" className="ghost mini" onClick={() => duplicate(source)}>{t('复制')}</button><button type="button" className="danger-outline mini" onClick={() => remove(source.id)}>{t('删除')}</button></div>
         </article>;
       })}</div>
       <section className="desktop-source-detail" ref={detailRef}>{selectedSource ? <>
@@ -1257,39 +1295,7 @@ function Settings() {
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
-        if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (path === 'agent.bubble_handoff_transparency_participant_matches') return <Fragment key={key}>
-          <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>
-          <StringListEditor label={CONFIG_LABELS[path]} hint="支持完整 participant_id 和 glob（例如 weixin:*）。留空表示不按 participant 匹配。" value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} placeholder="weixin:*" />
-        </Fragment>;
-        if (path === 'agent.bubble_handoff_transparency_stream_transports') return <TransportListEditor key={key} value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} />;
-        if (data.secret_status[path]) {
-          const status = data.secret_status[path];
-          const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
-          const hint = status.configured
-            ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
-            : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置');
-          const placeholder = status.configured
-            ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
-            : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值');
-          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={placeholder} /></Field>;
-        }
-        if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
-        if (typeof value === 'number') {
-          const hint = path === 'llm.max_tokens'
-            ? '模型单次响应允许生成的最大 token 数'
-            : path === 'agent.idle_sleep_seconds'
-              ? draft.agent.passive_mode
-                ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
-                : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
-              : undefined;
-          const minimum = path === 'llm.max_tokens' || path === 'api.port' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
-          const maximum = path === 'api.port' ? 65_535 : undefined;
-          const step = path === 'llm.max_tokens' || path === 'api.port' ? 1 : 'any';
-          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} max={maximum} step={step} onChange={e => change(key, Number(e.target.value))} /></Field>;
-        }
-        if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : path === 'api.public_url' ? '反向代理下浏览器实际访问的 HTTP(S) 地址；留空时根据监听地址推导。' : path === 'i18n.timezone' ? '使用 IANA 时区名称；留空则跟随服务器时区。' : undefined}><input type={path === 'api.public_url' ? 'url' : undefined} value={value} onChange={e => change(key, e.target.value)} placeholder={path === 'api.public_url' ? 'https://coworker.example.com' : path === 'i18n.timezone' ? 'Asia/Shanghai' : undefined} /></Field>;
-        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
+        return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
       <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}

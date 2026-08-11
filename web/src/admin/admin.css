@@ -496,19 +496,11 @@ html:has(.admin-login),
 .bootstrap-config-grid .field > span { min-height: 17px; font-size: 10px; }
 .bootstrap-config-grid .field small { font-size: 9px; }
 .bootstrap-config-grid .field :is(input, select) { height: 40px; padding: 0 10px; font-size: 10px; }
-.bootstrap-config-grid > :has(.code-area),
-.bootstrap-config-json-field { grid-column: 1 / -1; }
-.bootstrap-config-json-field { display: grid; gap: 6px; min-width: 0; margin-top: 14px; }
-.bootstrap-config-grid .bootstrap-config-json-field { margin-top: 0; }
-.bootstrap-config-json-field > span { color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 10px; font-weight: 650; }
-.bootstrap-config-json-field .code-area.compact { min-height: 104px; padding: 10px; font-size: 10px; }
-.bootstrap-config-switch { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-top: 22px; padding: 9px 10px; border: 1px solid var(--admin-line); border-radius: 9px; background: color-mix(in oklch, var(--admin-paper) 56%, var(--admin-surface)); cursor: pointer; }
-.bootstrap-config-switch input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--admin-vital); }
-.bootstrap-config-switch span { font-size: 10px; font-weight: 650; line-height: 1.35; }
-.bootstrap-source-secret { display: grid; gap: 5px; margin-top: 5px; padding: 9px 10px; border: 1px dashed var(--admin-line); border-radius: 8px; }
-.bootstrap-source-secret span { color: var(--admin-muted); font-size: 9px; }
-.bootstrap-source-secret input { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--admin-line); border-radius: 8px; outline: 0; color: var(--admin-ink); background: var(--admin-surface); font-size: 10px; }
+.bootstrap-config-grid > :has(.code-area) { grid-column: 1 / -1; }
 .bootstrap-config-panel > .field-error { margin: 12px 0 0; color: var(--admin-red); font-size: 10px; }
+.bootstrap-advanced-dialog .desktop-sync-overview,
+.bootstrap-advanced-dialog .desktop-source-workbench { grid-template-columns: 1fr; }
+.bootstrap-advanced-dialog .desktop-sync-overview-copy p { overflow: visible; text-overflow: clip; white-space: normal; }
 .bootstrap-model-warning { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid color-mix(in oklch, var(--admin-amber) 32%, var(--admin-line)); border-radius: 10px; color: color-mix(in oklch, var(--admin-amber) 68%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
 .bootstrap-model-warning > svg { flex: 0 0 auto; margin-top: 1px; }
 .bootstrap-model-warning b { display: block; color: var(--admin-ink); font-size: 12px; }
@@ -3044,7 +3036,6 @@ html:has(.admin-login),
   .bootstrap-config-workbench > nav button { flex: 0 0 auto; }
   .bootstrap-config-workbench > nav button svg { display: none; }
   .bootstrap-config-grid { grid-template-columns: 1fr; }
-  .bootstrap-config-switch { margin-top: 0; }
   .bootstrap-config-panel > header { display: grid; }
   .bootstrap-config-panel > header button { width: max-content; }
   .bootstrap-footnote { align-items: flex-start; line-height: 1.5; }
