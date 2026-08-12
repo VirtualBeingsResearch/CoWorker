@@ -173,6 +173,12 @@ html {
   transform: translateX(-50%) scale(1.1);
 }
 .card-flip-arrow:active { transform: translateX(-50%) scale(0.93); }
+.card-flip-arrow:focus-visible {
+  color: var(--fg);
+  border-color: color-mix(in oklch, var(--active-color, var(--coral)) 55%, var(--border));
+  outline: 2px solid color-mix(in oklch, var(--active-color, var(--coral)) 62%, transparent);
+  outline-offset: 2px;
+}
 
 .id-flip {
   width: 100%;
@@ -503,6 +509,8 @@ h1, h2, h3, p { margin: 0; }
 .capsule strong {
   font-size: 13px; font-family: var(--font-meta);
   font-weight: 600; white-space: nowrap; color: var(--fg);
+  /* 现居地等长文本超出胶囊时省略而不是撑破布局 */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 
 .state-visual {
@@ -526,6 +534,8 @@ h1, h2, h3, p { margin: 0; }
 .state-wave i {
   width: 10px; height: var(--h); border-radius: 999px;
   background: var(--active-color, var(--coral)); opacity: 0.72;
+  /* 以底线为轴缩放：基线不动，均衡器起伏才稳（默认中心缩放会让整列上下漂） */
+  transform-origin: bottom;
   animation: state-wave calc(var(--mood-tempo, 1) * 1.5s) ease-in-out infinite; animation-delay: calc(var(--n) * -0.12s);
 }
 .id-card[data-mood="休息中"] .state-wave i { opacity: 0.45; }
@@ -1952,6 +1962,37 @@ h1, h2, h3, p { margin: 0; }
   .chat-view-toggle span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* 状态页装饰性连续动画收敛为静态，信息元素全部保留 */
+  .id-card::after,
+  .avatar-wrap::before,
+  .kaomoji-face,
+  .kaomoji-z,
+  .dream-scene-icon,
+  .state-wave i,
+  .sk-bone::after,
+  .ledger .le:is(.thinking, .sleep.active, .tool_call),
+  .ledger .le:is(.thinking, .sleep.active, .tool_call)::after,
+  .ledger .le:is(.thinking, .sleep.active, .tool_call) .le-icon,
+  .ledger .dots::after { animation: none; }
+  /* 静态的 z·z·z 残影没有动效语境，直接隐藏（💤 图标已表达睡眠态） */
+  .ledger .le.sleep.active::after { content: none; }
+  /* thinking 微光文字停在渐变半截会发灰，回落为实色 */
+  .ledger .le.thinking .le-text {
+    animation: none;
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: color-mix(in oklch, var(--accent) 32%, var(--ink));
+  }
+  /* 打字机首帧 width:0，停掉动画会让整行不可见，直接展开全文 */
+  .ledger .le.tool_call .le-text {
+    animation: none;
+    width: auto;
+    border-right: 0;
+  }
+  /* 巨型 emoji 冲屏与冲击波整体隐藏（清理由定时器负责，不依赖 animationend） */
+  .ledger .hero, .ledger .hero-shock { animation: none; opacity: 0; }
+  .ledger .hero-flash { animation: none; }
   .chat-name-mark .sprite-orbit, .chat-name-mark .sprite-node { animation: none; }
   .sprite-btn.has-unread { animation: none; }
 }
