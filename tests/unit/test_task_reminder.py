@@ -31,6 +31,7 @@ def _make_loop(task_store, *, interval=10, seconds=300, is_sleeping=False, coold
     loop._last_task_reminder_cycle = 0
     loop._last_task_reminder_time = 0.0 if cooldown_exhausted else time.monotonic()
     loop._stop_event = asyncio.Event()
+    loop._environment_runtime = None
     loop.state = state
     return loop
 

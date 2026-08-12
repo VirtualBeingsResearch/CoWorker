@@ -222,6 +222,7 @@ def _make_loop(context: PersonaContext | None) -> AgentLoop:
     loop = AgentLoop.__new__(AgentLoop)
     loop._persona = context
     loop._short_term = ShortTermMemory(max_tokens=10_000, tree_enabled=False)
+    loop._environment_runtime = None
     return loop
 
 

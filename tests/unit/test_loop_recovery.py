@@ -19,6 +19,7 @@ def _make_recovery_loop(memory: ShortTermMemory, snapshot_path) -> AgentLoop:
     loop._stop_event = asyncio.Event()
     loop._task_store = None
     loop._bubble_store = None
+    loop._environment_runtime = None
     loop._config = MagicMock()
     loop._config.agent.passive_mode = False
     loop.state = AgentState()

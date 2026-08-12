@@ -55,6 +55,7 @@ def _make_minimal_loop():
     loop._ilog = None
     loop._tools = MagicMock()
     loop._tools.execute = AsyncMock()
+    loop._environment_runtime = None
     return loop
 
 

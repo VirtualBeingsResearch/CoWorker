@@ -64,6 +64,7 @@ def _make_loop(brain, mem, events=None):
     loop._bubble_store = None
     loop._subconscious = None
     loop._recent_activity = None
+    loop._environment_runtime = None
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     return loop
 

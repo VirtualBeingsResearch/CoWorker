@@ -445,11 +445,10 @@ class AgentLoop:
                 short_term_snapshot=list(self._short_term.primary),
                 tool_calls_this_cycle=len(response.tool_calls),
             )
-        environment_runtime = getattr(self, "_environment_runtime", None)
-        if environment_runtime is not None:
-            environment_runtime.notify_cycle_complete()
+        if self._environment_runtime is not None:
+            self._environment_runtime.notify_cycle_complete()
             for _ in response.tool_calls or []:
-                environment_runtime.notify_tool_call()
+                self._environment_runtime.notify_tool_call()
 
     @staticmethod
     def _build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
