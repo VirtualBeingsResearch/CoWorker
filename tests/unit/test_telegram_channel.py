@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.agent.incoming_content import format_event_text
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.telegram import adapter
@@ -29,7 +30,7 @@ from coworker.core.config import (
     TelegramBotConfig,
     TelegramConfig,
 )
-from coworker.core.types import CommunicateRequest
+from coworker.core.types import CommunicateRequest, IncomingEvent
 from coworker.i18n import locale_context
 
 
@@ -450,6 +451,19 @@ def test_telegram_content_header_identifies_chat_type(
         assert adapter.message_content(message, None).splitlines()[0] == zh_label
     with locale_context("en"):
         assert adapter.message_content(message, None).splitlines()[0] == en_label
+
+
+def test_telegram_source_uses_the_generic_localized_label() -> None:
+    event = IncomingEvent(
+        participant_id="tg:main:123",
+        source="telegram",
+        content="hello",
+    )
+
+    with locale_context("zh-CN"):
+        assert format_event_text(event).startswith("[来自Telegram][tg:main:123]")
+    with locale_context("en"):
+        assert "from Telegram" in format_event_text(event)
 
 
 def test_split_telegram_text_obeys_limit_and_prefers_newlines() -> None:
