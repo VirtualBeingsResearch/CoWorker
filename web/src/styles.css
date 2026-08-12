@@ -188,6 +188,7 @@ html {
   position: relative;
   transform-style: preserve-3d;
   transition: transform 0.9s cubic-bezier(0.62, 0.04, 0.3, 0.97);
+  will-change: transform;
 }
 .id-flip.flipped .id-flip-inner {
   transform: rotateY(180deg);
@@ -465,6 +466,7 @@ h1, h2, h3, p { margin: 0; }
   border-radius: 999px;
   background: linear-gradient(90deg, var(--lavender), var(--sky), var(--lime));
   opacity: 0.22; animation: drift 18s ease-in-out infinite reverse;
+  will-change: transform;
 }
 /* D: 证件照定位角标 —— 四角 L 形线框，随状态色切换 */
 .avatar-wrap::after {
@@ -504,6 +506,7 @@ h1, h2, h3, p { margin: 0; }
   transition: color 0.9s ease, text-shadow 0.9s ease;
   user-select: none; white-space: pre; text-align: center;
   animation: kaomoji-float calc(var(--mood-tempo, 1) * 4.8s) ease-in-out infinite;
+  will-change: transform;
 }
 @keyframes kaomoji-float {
   0%, 100% { transform: translateY(0)    scale(1)    rotate(-3deg); }
@@ -526,6 +529,7 @@ h1, h2, h3, p { margin: 0; }
   animation: kaomoji-z-rise 2.4s ease-in-out infinite;
   animation-delay: var(--kz-d, 0s);
   transition: font-size 0.22s ease;
+  will-change: opacity, transform;
 }
 @keyframes kaomoji-z-rise {
   0%   { opacity: 0;   transform: translateY(0) scale(0.85); }
@@ -557,6 +561,7 @@ h1, h2, h3, p { margin: 0; }
   font-size: 22px;
   line-height: 1;
   animation: dream-drift 4s ease-in-out infinite;
+  will-change: transform;
 }
 @keyframes dream-drift {
   0%, 100% { transform: translateY(0) rotate(-4deg); }
@@ -630,6 +635,7 @@ h1, h2, h3, p { margin: 0; }
   width: 10px; height: var(--h); border-radius: 999px;
   background: var(--active-color, var(--coral)); opacity: 0.72;
   animation: state-wave calc(var(--mood-tempo, 1) * 1.5s) ease-in-out infinite; animation-delay: calc(var(--n) * -0.12s);
+  will-change: transform;
 }
 .id-card[data-mood="休息中"] .state-wave i { opacity: 0.45; }
 
@@ -1444,6 +1450,25 @@ h1, h2, h3, p { margin: 0; }
   border-left: 3px solid var(--accent, var(--muted));
   --accent: var(--muted);
 }
+.ledger .le:is(.thinking:not(.done), .sleep.active, .tool_call)::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1.5px solid color-mix(in oklch, var(--accent) 36%, transparent);
+  border-radius: inherit;
+  box-shadow: 0 6px 22px -8px color-mix(in oklch, var(--accent) 40%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: ledger-row-glow var(--ledger-glow-duration, 2.4s) ease-in-out infinite;
+  will-change: opacity;
+}
+.ledger .le.thinking { --ledger-glow-duration: 2.4s; }
+.ledger .le.sleep.active { --ledger-glow-duration: 3.8s; }
+.ledger .le.tool_call { --ledger-glow-duration: 1.9s; }
+@keyframes ledger-row-glow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
 .ledger .le-time { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
 .ledger .le-icon { font-size: 15px; text-align: center; line-height: 1; }
 .ledger .le-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -1501,11 +1526,7 @@ h1, h2, h3, p { margin: 0; }
 @keyframes le-in-soft { from { opacity: 0; } to { opacity: 1; } }
 
 /* thinking — 长态：呼吸光晕 + 扫描光 + 发光脑 + 微光文字 + 省略号 */
-.ledger .le.thinking { animation: le-in-soft .4s ease both, think-breathe 2.4s ease-in-out infinite; overflow: hidden; }
-@keyframes think-breathe {
-  0%,100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ledger-thinking) 0%, transparent); border-color: oklch(91% 0.008 95 / 0.7); }
-  50% { box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--ledger-thinking) 28%, transparent), 0 6px 22px -8px color-mix(in oklch, var(--ledger-thinking) 38%, transparent); border-color: color-mix(in oklch, var(--ledger-thinking) 42%, transparent); }
-}
+.ledger .le.thinking { animation: le-in-soft .4s ease both; overflow: hidden; }
 .ledger .le.thinking::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 42%; pointer-events: none;
   background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ledger-thinking) 18%, transparent), transparent);
@@ -1539,11 +1560,8 @@ h1, h2, h3, p { margin: 0; }
 }
 
 /* sleep — 自有的缓慢蓝色呼吸态（与 thinking 相反），💤 轻浮动 + 上升 z·z·z */
-.ledger .le.sleep.active { animation: le-in-soft .4s ease both, sleep-breathe 3.8s ease-in-out infinite; }
-@keyframes sleep-breathe {
-  0%,100% { opacity: .82; box-shadow: 0 0 0 0 color-mix(in oklch, var(--ledger-sleep) 0%, transparent); }
-  50% { opacity: 1; box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--ledger-sleep) 24%, transparent), 0 6px 20px -10px color-mix(in oklch, var(--ledger-sleep) 34%, transparent); }
-}
+.ledger .le.sleep.active { animation: le-in-soft .4s ease both, sleep-opacity 3.8s ease-in-out infinite; }
+@keyframes sleep-opacity { 0%,100% { opacity: .82; } 50% { opacity: 1; } }
 .ledger .le.sleep.active .le-icon { animation: sleep-bob 3.8s ease-in-out infinite; }
 @keyframes sleep-bob { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.08); } }
 .ledger .le.sleep.active::after {
@@ -1566,13 +1584,9 @@ h1, h2, h3, p { margin: 0; }
 }
 
 /* tool_call — 文字打字机；图标按工具家族有不同的「工作中」动效 */
-.ledger .le.tool_call { animation: le-in-soft .4s ease both, tool-breathe 1.9s ease-in-out infinite; }
+.ledger .le.tool_call { animation: le-in-soft .4s ease both; }
 .ledger .le.tool_call .le-icon { animation: tool-work 1.4s ease-in-out infinite; transform-origin: 50% 50%; }
 @keyframes tool-work { 0%,100% { transform: scale(1); opacity: .82; } 50% { transform: scale(1.16); opacity: 1; } }
-@keyframes tool-breathe {
-  0%,100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 0%, transparent); }
-  50% { box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--accent) 26%, transparent), 0 6px 20px -10px color-mix(in oklch, var(--accent) 36%, transparent); }
-}
 /* 默认（未知工具）= 齿轮旋转 */
 .ledger .le.tool_call.t-spin .le-icon { animation: tool-gear 2.4s linear infinite; }
 @keyframes tool-gear { to { transform: rotate(360deg); } }
@@ -1651,9 +1665,9 @@ h1, h2, h3, p { margin: 0; }
 .ledger .le.state::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 55%; pointer-events: none;
   background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ledger-in) 26%, transparent), color-mix(in oklch, var(--ledger-out) 24%, transparent), transparent);
-  transform: translateX(-180%); animation: state-wave 1.2s ease-in-out .1s 1;
+  transform: translateX(-180%); animation: ledger-state-sweep 1.2s ease-in-out .1s 1;
 }
-@keyframes state-wave { to { transform: translateX(320%); } }
+@keyframes ledger-state-sweep { to { transform: translateX(320%); } }
 .ledger .le.state .le-icon { animation: state-flip .8s cubic-bezier(.3,1.2,.4,1) 1; }
 @keyframes state-flip { 0% { transform: perspective(260px) rotateX(85deg); } 100% { transform: perspective(260px) rotateX(0); } }
 
@@ -1783,6 +1797,7 @@ h1, h2, h3, p { margin: 0; }
     transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
     box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease;
   animation: sprite-bob 3s ease-in-out infinite;
+  will-change: transform;
 }
 .sprite-btn:active { cursor: pointer; }
 .sprite-btn:hover {
@@ -1843,13 +1858,14 @@ h1, h2, h3, p { margin: 0; }
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .sprite-node { transform-origin: center; transition: transform 0.22s ease, opacity 0.22s ease; }
-.sprite-orbit { transform-origin: 22px 22px; animation: spin 7s linear infinite; }
+.sprite-orbit { transform-origin: 22px 22px; animation: spin 7s linear infinite; will-change: transform; }
 .sprite-orbit.slow { animation-duration: 11s; animation-direction: reverse; }
 .sprite-pulse {
   position: absolute; inset: -6px; border-radius: 50%;
   border: 2px solid var(--coral); opacity: 0;
   animation: sprite-ring 2.5s ease-out infinite;
   pointer-events: none;
+  will-change: opacity, transform;
 }
 .sprite-btn::before {
   content: ''; position: absolute; inset: -10px; border-radius: 50%;

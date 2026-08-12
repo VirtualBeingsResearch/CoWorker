@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RuntimeLogEvent } from '../api/types';
 import { deriveFeedRows, type FeedRow } from '../lib/runtimeFeed';
+import { DEFAULT_FRAME_MS, frameSmoothingAlpha } from '../lib/animationFrame';
 import { t, useAdminI18n } from '../i18n/admin';
 
 // 运行日志的数据源形状（useRuntimeLogStream 的返回值）：events 来自后端
@@ -250,15 +251,19 @@ export function RuntimeLedger({
     if (!el) return;
     let target = el.scrollTop;
     let raf = 0;
-    const tick = () => {
+    let previousFrame = 0;
+    const tick = (now: number) => {
       const cur = el.scrollTop;
       const diff = target - cur;
       if (Math.abs(diff) < 0.5) {
         el.scrollTop = target;
         raf = 0;
+        previousFrame = 0;
         return;
       }
-      el.scrollTop = cur + diff * 0.18;
+      const elapsed = previousFrame === 0 ? DEFAULT_FRAME_MS : now - previousFrame;
+      previousFrame = now;
+      el.scrollTop = cur + diff * frameSmoothingAlpha(elapsed);
       raf = requestAnimationFrame(tick);
     };
     const onWheel = (e: WheelEvent) => {
@@ -266,7 +271,10 @@ export function RuntimeLedger({
       const max = el.scrollHeight - el.clientHeight;
       if (max <= 0) return;
       autoRef.current = false; // 用户接管滚动
-      if (!raf) target = el.scrollTop; // 静止时重新对齐起点，避免与自动贴底冲突后跳变
+      if (!raf) {
+        target = el.scrollTop; // 静止时重新对齐起点，避免与自动贴底冲突后跳变
+        previousFrame = 0;
+      }
       let delta = e.deltaY;
       if (e.deltaMode === 1) delta *= 16; // 行 → 像素
       else if (e.deltaMode === 2) delta *= el.clientHeight; // 页 → 像素

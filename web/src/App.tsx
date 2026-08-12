@@ -20,6 +20,7 @@ import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
 import { activityStateFromEvents } from './lib/runtimeFeed';
+import { DEFAULT_FRAME_MS, frameSmoothingAlpha } from './lib/animationFrame';
 import {
   USAGE_SCOPE_LABELS,
   USAGE_WINDOWS,
@@ -254,16 +255,20 @@ function useSmoothWheelScroll<T extends HTMLElement>(ref: React.RefObject<T | nu
 
     let target = el.scrollTop;
     let raf = 0;
+    let previousFrame = 0;
 
-    const tick = () => {
+    const tick = (now: number) => {
       const current = el.scrollTop;
       const diff = target - current;
       if (Math.abs(diff) < 0.5) {
         el.scrollTop = target;
         raf = 0;
+        previousFrame = 0;
         return;
       }
-      el.scrollTop = current + diff * 0.18;
+      const elapsed = previousFrame === 0 ? DEFAULT_FRAME_MS : now - previousFrame;
+      previousFrame = now;
+      el.scrollTop = current + diff * frameSmoothingAlpha(elapsed);
       raf = requestAnimationFrame(tick);
     };
 
@@ -272,7 +277,10 @@ function useSmoothWheelScroll<T extends HTMLElement>(ref: React.RefObject<T | nu
       const max = el.scrollHeight - el.clientHeight;
       if (max <= 0) return;
 
-      if (!raf) target = el.scrollTop;
+      if (!raf) {
+        target = el.scrollTop;
+        previousFrame = 0;
+      }
 
       let delta = e.deltaY;
       if (e.deltaMode === 1) delta *= 16;
