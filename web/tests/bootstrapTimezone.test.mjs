@@ -6,6 +6,7 @@ import { bootstrapTimezoneAdvice } from '../src/admin/bootstrapTimezone.ts';
 
 const adminApp = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
 const adminCss = await readFile(new URL('../src/admin/admin.css', import.meta.url), 'utf8');
+const adminI18n = await readFile(new URL('../src/i18n/admin.tsx', import.meta.url), 'utf8');
 
 test('recommends TZ without creating a runtime timezone setting', () => {
   assert.deepEqual(bootstrapTimezoneAdvice('Asia/Shanghai'), {
@@ -45,4 +46,10 @@ test('keeps the timezone recommendation visible when translated text wraps', () 
 test('keeps the translated active-mode recommendation readable', () => {
   assert.match(adminCss, /\.bootstrap-mode-inline > span b \{[^}]*text-wrap: balance;[^}]*white-space: normal;/);
   assert.doesNotMatch(adminCss, /\.bootstrap-mode-inline > span b \{[^}]*text-overflow: ellipsis;/);
+});
+
+test('keeps the translated runtime-timezone heading on one compact line', () => {
+  assert.match(adminApp, /className="bootstrap-runtime-label"/);
+  assert.match(adminCss, /\.bootstrap-runtime-default \.bootstrap-runtime-label \{ white-space: nowrap; \}/);
+  assert.match(adminI18n, /'由系统环境决定': 'System-managed'/);
 });

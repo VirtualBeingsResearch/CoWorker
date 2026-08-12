@@ -405,6 +405,7 @@ html:has(.admin-login),
 .bootstrap-mode-inline > span { flex: 1; min-width: 0; }
 .bootstrap-runtime-default small,
 .bootstrap-mode-inline small { display: block; color: var(--admin-muted); font-size: 9px; font-weight: 600; }
+.bootstrap-runtime-default .bootstrap-runtime-label { white-space: nowrap; }
 .bootstrap-runtime-default b { display: block; min-width: 0; margin-top: 4px; }
 .bootstrap-runtime-default code { overflow: hidden; color: var(--admin-ink); font: 650 10px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
 .bootstrap-runtime-default small em { color: var(--admin-vital); font-size: 8px; font-style: normal; font-weight: 680; }

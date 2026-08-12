@@ -557,7 +557,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <div className="bootstrap-runtime-defaults wide">
                 <div className="bootstrap-runtime-default">
                   <Clock3 size={17} />
-                  <span><small>{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
+                  <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
                 </div>
                 <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
                   <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>

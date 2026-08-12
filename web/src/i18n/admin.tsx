@@ -238,7 +238,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '控制系统 Prompt、工具说明和运行时通知所使用的语言。': 'Controls the language used by system prompts, tool descriptions, and runtime notices.',
   '运行语言': 'Runtime language',
   '运行时区': 'Runtime timezone',
-  '由系统环境决定': 'Controlled by system environment',
+  '由系统环境决定': 'System-managed',
   '服务器': 'Server',
   '未能读取': 'Unavailable',
   '仅提醒 · 建议': 'Browser suggestion',
