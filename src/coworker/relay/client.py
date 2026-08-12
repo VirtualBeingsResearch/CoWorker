@@ -333,6 +333,10 @@ class _TLSSession:
             raw_headers = metadata.get("headers", [])
             headers = _validated_headers(raw_headers)
             relay_header_start = len(headers)
+            public_base_url = (
+                f"{self.public_origin.rstrip('/')}/i/"
+                f"{self.owner._config.relay.instance_id}"
+            )
             public_target = f"/i/{self.owner._config.relay.instance_id}{raw_target}"
             original_url = self.public_origin.rstrip("/") + public_target
             trusted_headers = [
@@ -377,6 +381,7 @@ class _TLSSession:
                         "request_id": request_id,
                         "relay_header_start": relay_header_start,
                         "source_ip": self.source_ip,
+                        "public_base_url": public_base_url,
                     }
                 },
             }
