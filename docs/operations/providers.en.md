@@ -16,8 +16,9 @@ For a main model, confirm at least:
 - output limit, thinking mode, latency, and price are acceptable;
 - service terms allow the conversation, memory, and attachment data required by tasks.
 
-The recommended catalog lists models statically declared to support tools. Administrators are
-responsible for models entered outside the catalog.
+The recommended catalog lists models statically declared to support tools. For a model outside the
+catalog, declare whether it supports tools, images, and video during first-time setup or on its
+Provider connection. Coworker does not run an online capability probe.
 
 ## Configure
 
@@ -45,13 +46,21 @@ Copy `providers.json.example` to an untracked `providers.json`:
     "type": "zhipu",
     "api_key": "...",
     "base_url": "",
-    "default_model": "glm-5.1"
+    "default_model": "glm-5.1",
+    "model_capabilities": [
+      { "model": "custom-omni-model", "tools": true, "vision": true, "video": false }
+    ]
   }
 ]
 ```
 
 `name` is the unique registry name used by `switch_model` and fallback. `type` selects the API
 dialect. A file entry overrides a flat environment Provider with the same name.
+
+`model_capabilities` declares `tools`, `vision`, and `video` for an exact model ID. A declaration
+overrides the protocol's built-in model detection; unlisted models continue to use the built-in
+catalog. A model with `video: true` must also set `vision: true`. Primary and fallback models require
+`tools`, while a vision specialist requires `vision`.
 
 ## Model roles
 

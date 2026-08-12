@@ -4,7 +4,15 @@
     "type": "zhipu",
     "api_key": "用户A的智谱key",
     "base_url": "",
-    "default_model": "glm-5.1"
+    "default_model": "glm-5.1",
+    "model_capabilities": [
+      {
+        "model": "custom-omni-model",
+        "tools": true,
+        "vision": true,
+        "video": false
+      }
+    ]
   },
   {
     "name": "zhipu-userB",

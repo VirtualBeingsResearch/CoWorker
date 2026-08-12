@@ -153,7 +153,7 @@ class QwenProvider(BaseLLMProvider):
     def _adapt_content(self, content, model_id):
         if isinstance(content, str):
             return content
-        if not self.supports_vision(model_id):
+        if not self.can_use_vision(model_id):
             return super()._adapt_content(content, model_id)
         result = []
         for block in content:
@@ -167,7 +167,7 @@ class QwenProvider(BaseLLMProvider):
                     result.append({"type": "text", "text": unsupported_image_fallback()})
             elif btype == "video":
                 src = block.get("source", {})
-                if self.supports_video(model_id) and src.get("type") == "base64":
+                if self.can_use_video(model_id) and src.get("type") == "base64":
                     data_url = f"data:{src['media_type']};base64,{src['data']}"
                     result.append({"type": "video_url", "video_url": {"url": data_url}})
                 else:

@@ -44,6 +44,36 @@ _PRE_WEIXIN_HANDOFF_DEFAULTS = (
 )
 
 
+class ModelCapabilities(BaseModel):
+    """Capabilities that Coworker can rely on for a model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tools: bool = False
+    vision: bool = False
+    video: bool = False
+
+    @model_validator(mode="after")
+    def _video_requires_vision(self) -> ModelCapabilities:
+        if self.video and not self.vision:
+            raise ValueError(tr("config.provider.video_requires_vision"))
+        return self
+
+
+class ModelCapabilitySpec(ModelCapabilities):
+    """Administrator-declared capabilities for one model on a provider connection."""
+
+    model: str = Field(min_length=1, max_length=256)
+
+    @field_validator("model")
+    @classmethod
+    def _normalize_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError(tr("config.provider.model_required"))
+        return value
+
+
 class ProviderSpec(BaseModel):
     """一个命名 provider 实例的配置规格。
 
@@ -57,6 +87,21 @@ class ProviderSpec(BaseModel):
     base_url: str = ""
     default_model: str | None = None
     tool_use_models: list[str] = Field(default_factory=list)
+    model_capabilities: list[ModelCapabilitySpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_model_capabilities(self) -> ProviderSpec:
+        seen: set[str] = set()
+        for capability in self.model_capabilities:
+            if capability.model in seen:
+                raise ValueError(
+                    tr(
+                        "config.provider.duplicate_model_capability",
+                        model=capability.model,
+                    )
+                )
+            seen.add(capability.model)
+        return self
 
 
 class _EnvSettings(BaseSettings):
@@ -170,7 +215,7 @@ class MemoryConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="MEMORY__", env_file=".env", extra="ignore")
 
     db_path: str = "data/memory"
-    short_term_max_tokens: int = 80_000
+    short_term_max_tokens: int = Field(default=120_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。
     compress_ratio: float = Field(default=0.30, gt=0, lt=1)
 
@@ -184,8 +229,8 @@ class MemoryConfig(_EnvSettings):
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
 
     auto_recall_enabled: bool = True
-    auto_recall_relevance_threshold: float = 0.5
-    auto_recall_limit: int = 5
+    auto_recall_relevance_threshold: float = Field(default=0.5, ge=0, le=1)
+    auto_recall_limit: int = Field(default=5, gt=0)
 
     # mem0 的独立 LLM 配置。留空表示跟随主线（llm.default_provider / 该 provider 的
     # default_model，无则 llm.default_model），与摘要/压缩的跟随逻辑一致。
@@ -208,7 +253,8 @@ class APIConfig(_EnvSettings):
     # reverse proxy/TLS boundary in front of the API instead of exposing the
     # development server directly.
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = Field(default=8000, ge=1, le=65_535)
+    public_url: str = Field(default="", max_length=2048)
     communication_token: str = ""
     development_mode: bool = False
     # JSON list in environment/.env, e.g.
@@ -219,6 +265,31 @@ class APIConfig(_EnvSettings):
             "http://127.0.0.1:8000",
         ]
     )
+
+    @field_validator("public_url")
+    @classmethod
+    def _validate_public_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        try:
+            parsed.port
+        except ValueError as error:
+            raise ValueError(tr("config.api.public_url_absolute")) from error
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(tr("config.api.public_url_absolute"))
+        if parsed.hostname in {"0.0.0.0", "::"}:
+            raise ValueError(tr("config.api.public_url_wildcard"))
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(tr("config.api.public_url_origin_only"))
+        return value
 
 
 class RelayConfig(_EnvSettings):
@@ -386,7 +457,7 @@ class AdminConfig(_EnvSettings):
 
 
 class I18NConfig(_EnvSettings):
-    """Instance-wide runtime locale, independent from Web/Desktop UI language."""
+    """Instance-wide runtime language, independent from the Web UI."""
 
     model_config = SettingsConfigDict(env_prefix="I18N__", env_file=".env", extra="ignore")
 
@@ -398,7 +469,6 @@ class I18NConfig(_EnvSettings):
         if isinstance(value, SupportedLocale):
             return value
         return normalize_locale(str(value))
-
 
 class AgentConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT__", env_file=".env", extra="ignore")
@@ -413,7 +483,7 @@ class AgentConfig(_EnvSettings):
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"
 
-    idle_sleep_seconds: int = 30
+    idle_sleep_seconds: int = Field(default=30, ge=0)
     inbox_poll_interval: float = 2.0
     inbox_batch_max: int = 10
     tick: bool = True
@@ -425,7 +495,7 @@ class AgentConfig(_EnvSettings):
     image_max_dimension: int = 960
     message_time_prefix: bool = True
     bubble_thinking: bool = True
-    bubble_max_concurrent: int = 5
+    bubble_max_concurrent: int = Field(default=5, gt=0)
     # participant_id 整串匹配这些 glob 时，向对方显式说明泡泡转交并标识回复。
     # 环境变量传 JSON 数组；不含通配符的条目表示精确匹配，[] 可关闭全部默认匹配。
     bubble_handoff_transparency_participant_matches: list[str] = Field(

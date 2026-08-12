@@ -25,13 +25,14 @@ overrides remain intact. Runtime Settings lists the admin overrides in the curre
 allows individual fields to be restored to inherited configuration. Unsaved drafts and secret
 inputs remain isolated by section, and saving submits only the current section.
 
-Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard can set the runtime language and maximum output tokens, and it accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
+Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard displays the server's current timezone read-only, detects the browser timezone, and recommends the corresponding `TZ` environment variable, but quick setup does not automatically change the server or container timezone. It can also set the runtime language and maximum output tokens, and accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 
-### Runtime language
+### Runtime language and system timezone
 
 | Variable | Default | Description |
 |---|---|---|
 | `I18N__LOCALE` | `zh-CN` | Instance-wide model/runtime language; accepts `zh-CN`, `en`, and common aliases such as `zh`, `zh_CN`, and `en-US`, then takes effect after restart |
+| `TZ` | Follows the operating system; Docker Compose defaults to `Asia/Shanghai` | Process or container IANA timezone such as `Asia/Shanghai`; Coworker reads this system environment and never changes it at runtime |
 
 The runtime locale is independent of the Web/Desktop interface language and can also be changed
 under Runtime language in the administration page. It controls Coworker-owned system prompts,
@@ -44,6 +45,15 @@ output without a current user message falls back to the runtime locale. Switchin
 translate user content, historical data, third-party text, or existing Identity, Skill, Palace,
 task, or memory data, so mixed-language history is expected for compatibility. Restart injects a
 language-transition system notice when it detects a locale change.
+
+The system timezone controls current time in the system prompt and `get_context`, message-time
+prefixes, how alarms interpret timestamps without an explicit offset, and date boundaries in task
+views. Coworker has no separate timezone override and the administration page never changes it; set
+`TZ` through the operating system, container, or service startup environment, then restart the process.
+First-run setup displays the process's current timezone read-only as a reference and detects the
+browser's IANA timezone through `Intl.DateTimeFormat` only to display a corresponding `TZ`
+recommendation. It never writes either value into configuration. A reverse proxy does not affect
+detection because it runs in the administrator's browser, not on the proxy or server.
 
 ### LLM
 
@@ -79,7 +89,7 @@ language-transition system notice when it detects a locale change.
 | Variable | Default | Description |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Long-term memory database directory |
-| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
+| `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | Fraction of the oldest primary-message tokens processed by each compression pass; shared by tree and legacy modes |
 | `MEMORY__TREE_ENABLED` | `true` | Enable the multiresolution memory tree; disabling it restores the legacy single-anchor compression behavior |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | Token cap for the memory-tree spine as a fraction of the total |
@@ -125,6 +135,7 @@ language-transition system notice when it detects a locale change.
 |---|---|---|
 | `API__HOST` | `127.0.0.1` | API listen address; expose it only through an explicitly configured reverse proxy/TLS layer |
 | `API__PORT` | `8000` | API listen port |
+| `API__PUBLIC_URL` | Empty | Browser-facing public HTTP(S) root URL behind a reverse proxy; it may contain only a scheme, host, and optional port, and first-run reconnect prefers it over the internal bind address |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop development mode; disables Bearer/HTTPS checks and should be enabled explicitly only for local HTTP debugging |
 | `API__COMMUNICATION_TOKEN` | Empty (administrator-token fallback) | Bearer token for production Desktop communication; configure it separately to isolate permissions |
@@ -145,6 +156,14 @@ language-transition system notice when it detects a locale change.
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
+
+When a reverse proxy serves `/admin`, `/api/*`, and static assets together, set
+`API__PUBLIC_URL` to the origin the browser actually opens, such as
+`https://coworker.example.com`. It does not change the internal `API__HOST` or `API__PORT` bind;
+it keeps first-run and post-restart administrator navigation on the stable public address. Do not
+include `/admin`, another path, query parameters, or credentials. If the frontend and API use
+different origins, add the exact frontend origin to `API__CORS_ORIGINS` as well. When changing the
+internal port, update the reverse-proxy upstream before Coworker becomes ready on the new port.
 
 `CHANNEL_ACCESS` keys are channel names, and all four rule lists contain case-sensitive, full-ID
 participant globs. Deny takes precedence; a non-empty allow list admits only matches; an omitted
@@ -199,7 +218,13 @@ image build arguments.
 ## Supported models
 
 The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
-`minimax`. The recommended catalog contains models that the corresponding provider statically marks as tool-capable. The exact list changes with the source; use the first-run wizard and the provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth. During first-run setup, an administrator may enter a model outside that catalog only after explicitly confirming that the model and API gateway support tool/function calling. The wizard does not perform a potentially billable online capability probe; an incompatible model will fail on its first real call. Normal model switching after setup continues to follow the provider capability catalog.
+`minimax`. The recommended catalog contains models that the corresponding provider statically marks
+as tool-capable. The exact list changes with the source; use the first-run wizard and the provider
+implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth.
+First-run setup can accept a model outside the catalog after the administrator declares whether it
+supports tools, images, and video on this connection. No potentially billable online probe is
+performed, and a primary model must be declared tool-capable. These declarations remain editable
+under Runtime settings → Models & Providers.
 
 Only providers with a corresponding API key are registered. `LLM__DEFAULT_PROVIDER` must refer to
 a registered provider instance name.
@@ -210,14 +235,17 @@ The flat fields above, such as `LLM__ZHIPU_API_KEY`, allow only one instance of 
 
 ```json
 [
-  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1" },
+  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1", "model_capabilities": [{ "model": "custom-omni-model", "tools": true, "vision": true, "video": false }] },
   { "name": "zhipu-userB", "type": "zhipu", "api_key": "...", "base_url": "...", "default_model": "glm-4.7" }
 ]
 ```
 
 Fields: `name` (required, unique registration name), `type` (required; one of the built-in provider
-types above), `api_key`, optional `base_url`, and optional `default_model` (used when `switch_model`
-selects the instance without specifying a model).
+types above), `api_key`, optional `base_url`, optional `default_model` (used when `switch_model`
+selects the instance without specifying a model), and optional `model_capabilities`. Each capability
+entry contains an exact `model` ID plus `tools`, `vision`, and `video` booleans. Explicit declarations
+override the Provider type's built-in detection; unlisted models keep using the built-in catalog.
+Video capability also requires vision capability.
 
 - Flat fields still work and are merged automatically as the default instance where `name == type`; an entry with the same `name` in the file overrides it.
 - A missing file is ignored, so existing configurations continue to work unchanged.

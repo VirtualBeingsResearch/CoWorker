@@ -16,7 +16,8 @@ Provider。首次调用可能计费；项目不会在向导中主动探测模型
 - 输出 Token 上限、thinking 模式、延迟和价格可接受；
 - 服务条款允许发送任务所需的对话、记忆和附件。
 
-推荐目录只列静态声明支持工具调用的模型。手动输入目录外模型时，能力验证由管理员负责。
+推荐目录只列静态声明支持工具调用的模型。手动输入目录外模型时，需要在首次设置或
+Provider 连接中声明它是否支持工具、图片和视频；系统不会发起在线能力探测。
 
 ## 配置方式
 
@@ -44,13 +45,20 @@ Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网
     "type": "zhipu",
     "api_key": "...",
     "base_url": "",
-    "default_model": "glm-5.1"
+    "default_model": "glm-5.1",
+    "model_capabilities": [
+      { "model": "custom-omni-model", "tools": true, "vision": true, "video": false }
+    ]
   }
 ]
 ```
 
 `name` 是 `switch_model` 和 fallback 使用的注册名，必须唯一；`type` 决定 API 方言。
 文件同名实例覆盖扁平环境配置。
+
+`model_capabilities` 按精确模型 ID 声明 `tools`、`vision` 和 `video`。声明项会覆盖接口
+协议的内置模型判断；未列出的模型继续使用内置目录。`video: true` 时也必须设置
+`vision: true`。主线和 fallback 模型必须支持 `tools`，视觉专用模型必须支持 `vision`。
 
 ## 模型分工
 

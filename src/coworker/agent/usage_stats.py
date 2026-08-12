@@ -790,6 +790,8 @@ class UsageStatsCollector:
         self._bubble_history_key: tuple[int, str] | None = None
         self._bubble_history_scanned = False
         self._loading_history = False
+        self._snapshot_cache_date: date | None = None
+        self._snapshot_cache: dict[str, Any] | None = None
         if log_store is not None:
             self.load_history(log_store)
 
@@ -879,6 +881,7 @@ class UsageStatsCollector:
     ) -> None:
         if not self._should_process(entry, stream_id):
             return
+        self._snapshot_cache = None
         t = entry.get("type")
         if t == "thinking_start":
             self._record_thinking_start(entry, stream_id)
@@ -949,7 +952,13 @@ class UsageStatsCollector:
             self._persist_state()
 
     def snapshot(self) -> dict[str, Any]:
-        return self._snapshot_for_date(self._now_fn().date(), detailed=False)
+        today = self._now_fn().date()
+        if self._snapshot_cache_date == today and self._snapshot_cache is not None:
+            return self._snapshot_cache
+        snapshot = self._snapshot_for_date(today, detailed=False)
+        self._snapshot_cache_date = today
+        self._snapshot_cache = snapshot
+        return snapshot
 
     def _snapshot_for_date(self, today: date, *, detailed: bool) -> dict[str, Any]:
         last_7_start = today - timedelta(days=6)

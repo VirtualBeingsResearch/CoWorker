@@ -20,20 +20,28 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 自定义值、密钥和显式覆盖保持不变。运行设置页会列出当前分组中的管理端覆盖，并允许将
 单个字段恢复为继承配置；每个分组独立保留未保存草稿和密钥，只会提交当前分组。
 
-未完成首次初始化时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息接收轮询或企业微信等外部通道。命令行每次启动都会显示当前有效的管理员令牌，浏览器访问 `/admin` 之外的页面或普通 API 会被引导到 `/admin`；管理页静态资源、登录校验和 bootstrap 接口仍正常放行。首次初始化向导可以设置运行时语言、单次输出 Token 上限，并从推荐目录选择或手动输入启动模型；保存后通过一次干净重启进入正常运行，不恢复首设阶段的短期快照，也不生成普通重启通知。
+未完成首次初始化时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息接收轮询或企业微信等外部通道。命令行每次启动都会显示当前有效的管理员令牌，浏览器访问 `/admin` 之外的页面或普通 API 会被引导到 `/admin`；管理页静态资源、登录校验和 bootstrap 接口仍正常放行。首次初始化向导会只读显示服务器当前时区，并检测浏览器时区来推荐相应的 `TZ` 环境变量，但快速体验不会自动修改服务器或容器时区；向导也可以设置运行时语言、单次输出 Token 上限，并从推荐目录选择或手动输入启动模型。保存后通过一次干净重启进入正常运行，不恢复首设阶段的短期快照，也不生成普通重启通知。
 
-### 运行时语言
+### 运行时语言与系统时区
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `I18N__LOCALE` | `zh-CN` | 实例级模型与运行时语言；支持 `zh-CN`、`en` 及常见别名（如 `zh`、`zh_CN`、`en-US`），规范化后重启生效 |
+| `TZ` | 跟随操作系统；Docker Compose 默认为 `Asia/Shanghai` | 进程或容器的 IANA 时区（如 `Asia/Shanghai`）；Coworker 只读取该系统环境，不会在运行时修改 |
 
-运行时 locale 独立于 Web/Desktop 界面语言，也可以在管理页「运行时语言」中修改。
+运行时 locale 独立于 Web/Desktop 界面语言，也可以在管理页「运行语言」中修改。
 它控制 Coworker 自有的 system prompt、工具 schema/结果包装、摘要/记忆框架、Bubble、
 潜意识、视觉请求、API 错误/响应说明、纳入 catalog 的运维警告与通知，以及参与者系统通知。Agent 对参与者的回复默认跟随当前消息语言；参与者
 明确指定语言时优先；没有当前用户消息的自主输出回退到运行时 locale。切换 locale 不会
 翻译用户内容、历史数据、第三方原文或已有 Identity/Skill/Palace/任务/记忆，因此新旧语言
 混合属于兼容行为；重启检测到变化后会注入一条语言切换系统通知。
+
+系统时区控制 system prompt 和 `get_context` 中的当前时间、消息时间前缀、闹钟对无偏移
+时间的解释，以及任务等界面的日期边界。Coworker 没有独立的时区覆盖配置，管理员界面也
+不会修改时区；请通过操作系统、容器或服务启动环境设置 `TZ`，再重启进程。首次初始化界面
+只读显示进程当前时区作为对照，并通过 `Intl.DateTimeFormat` 检测浏览器的 IANA
+时区，仅显示相应的 `TZ` 建议，不会写入配置。
+反向代理不会改变检测结果，因为检测发生在管理员浏览器中，而不是代理或服务器上。
 
 ### LLM
 
@@ -69,7 +77,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | 长期记忆数据库目录 |
-| `MEMORY__SHORT_TERM_MAX_TOKENS` | `80000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
+| `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | 记忆树脊柱 token 上限占比 |
@@ -115,6 +123,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 |---|---|---|
 | `API__HOST` | `127.0.0.1` | API 监听地址；如需对外提供服务，应由显式配置的反向代理/TLS 层接入 |
 | `API__PORT` | `8000` | API 监听端口 |
+| `API__PUBLIC_URL` | 空 | 反向代理后浏览器访问的公开 HTTP(S) 根地址，只能包含 scheme、host 和可选端口；首次初始化重连优先使用它，而不是内部监听地址 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__DEVELOPMENT_MODE` | `false` | Desktop 开发模式；关闭 Bearer/HTTPS 校验，仅应为本机 HTTP 调试显式开启 |
 | `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | Desktop 生产通信 Bearer 令牌；需要与管理权限隔离时单独配置 |
@@ -135,6 +144,13 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
+
+反向代理同时代理 `/admin`、`/api/*` 和静态资源时，将 `API__PUBLIC_URL` 设置为浏览器
+实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或
+`API__PORT` 的内部监听行为，只让首次初始化和重启后的管理员页面继续通过稳定的公开地址
+连接；不要填写 `/admin`、路径、查询参数或凭据。如果前端与 API 使用不同 origin，仍需将
+前端 origin 精确加入 `API__CORS_ORIGINS`。修改内部端口时，也必须在 Coworker 恢复前让
+反向代理 upstream 指向新端口。
 
 `CHANNEL_ACCESS` 的键是信道名，四类规则都是大小写敏感的整串 participant ID glob。deny
 优先；allow 非空时只允许命中项；未配置或四个列表都为空时允许全部。该配置可在管理端
@@ -181,7 +197,9 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和
 `minimax`。推荐模型目录只包含对应 Provider 静态标记为支持工具调用的模型；精确列表
 会随代码更新，以首次初始化向导和 [`src/coworker/brain/`](../../src/coworker/brain/)
-中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，但管理员必须明确确认该模型及其 API 网关支持 tool/function calling。向导不会发起可能计费的在线能力探测；若实际能力不匹配，首次真实调用会失败。初始化后的普通模型切换仍遵循 Provider 的能力目录。
+中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，并声明该连接上的模型是否
+支持工具调用、图片和视频。向导不会发起可能计费的在线能力探测；主模型必须声明支持工具
+调用。初始化后可在“运行设置 → 模型与 Provider”继续维护这些能力。
 
 只有在对应 API Key 存在时，该 Provider 才会被注册。`LLM__DEFAULT_PROVIDER`
 必须指向已注册的 Provider 实例名。
@@ -192,14 +210,16 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 
 ```json
 [
-  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1" },
+  { "name": "zhipu-userA", "type": "zhipu", "api_key": "...", "default_model": "glm-5.1", "model_capabilities": [{ "model": "custom-omni-model", "tools": true, "vision": true, "video": false }] },
   { "name": "zhipu-userB", "type": "zhipu", "api_key": "...", "base_url": "...", "default_model": "glm-4.7" }
 ]
 ```
 
 字段：`name`（必填，注册名，需唯一）、`type`（必填，取上面的内置 Provider
 类型之一）、`api_key`、`base_url`（可选）、`default_model`（可选，`switch_model`
-切到该实例但不指定模型时使用）。
+切到该实例但不指定模型时使用），以及 `model_capabilities`（可选的模型能力声明列表）。
+每条能力声明包含精确 `model` ID 和 `tools`、`vision`、`video` 布尔值；显式声明覆盖
+Provider 类型的内置判断，未声明模型继续使用内置目录。视频能力要求同时启用视觉能力。
 
 - 扁平字段仍然有效，会自动并入为 `name == type` 的默认实例；文件中的同名条目按 `name` 覆盖它。
 - 文件不存在则忽略，老配置零改动照常运行。

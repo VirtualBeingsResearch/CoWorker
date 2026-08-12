@@ -153,6 +153,15 @@ class AdminConfigService:
         sparse = sparse_admin_overrides(overrides, self._dependencies.inherited_config)
         write_admin_overrides(path, cast(JsonObject, sparse))
 
+    def prepare_overrides(
+        self,
+        current_overrides: JsonObject,
+        update: ConfigUpdate,
+    ) -> JsonObject:
+        """Build sanitized overrides without applying them to the running process."""
+
+        return self._prepare_overrides(current_overrides, update)
+
     def snapshot(self) -> ConfigSnapshot:
         data, statuses, effective_providers = self._masked_config()
         config = self._dependencies.config
@@ -443,6 +452,7 @@ class AdminConfigService:
                 name=spec.name,
                 default_model=spec.default_model,
                 tool_use_models=spec.tool_use_models,
+                model_capabilities=spec.model_capabilities,
             )
             await brain.upsert_provider(provider)
         if current_specs.keys() - desired_specs.keys():

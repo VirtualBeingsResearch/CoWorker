@@ -193,6 +193,32 @@ class TestAdaptContentOpenAI:
         texts = [b.get("text", "") for b in result if b.get("type") == "text"]
         assert any("doc.pdf" in t and "/tmp/doc.pdf" in t for t in texts)
 
+    def test_declared_custom_vision_model_converts_images(self):
+        provider = self._provider()
+        provider.declare_model_capabilities(
+            "gateway-vision-model",
+            tools=False,
+            vision=True,
+            video=False,
+        )
+
+        result = provider._adapt_content(self._content(), "gateway-vision-model")
+
+        assert any(block.get("type") == "image_url" for block in result)
+
+    def test_declared_capabilities_can_disable_builtin_vision(self):
+        provider = self._provider()
+        provider.declare_model_capabilities(
+            self._VISION_MODEL,
+            tools=True,
+            vision=False,
+            video=False,
+        )
+
+        result = provider._adapt_content(self._content(), self._VISION_MODEL)
+
+        assert not any(block.get("type") == "image_url" for block in result)
+
 
 class TestAdaptContentQwen:
     _VIDEO_MODEL = "qwen3.7-plus"
@@ -219,6 +245,23 @@ class TestAdaptContentQwen:
             "video_url": {"url": "data:video/mp4;base64,abc"},
         }]
         assert "fps" not in result[0]
+
+    def test_declared_custom_video_model_converts_video(self):
+        provider = self._provider()
+        provider.declare_model_capabilities(
+            "gateway-video-model",
+            tools=False,
+            vision=True,
+            video=True,
+        )
+        content = [{
+            "type": "video",
+            "source": {"type": "base64", "media_type": "video/mp4", "data": "abc"},
+        }]
+
+        result = provider._adapt_content(content, "gateway-video-model")
+
+        assert result[0]["type"] == "video_url"
 
 
 class TestAdaptContentDeepSeek:

@@ -204,7 +204,7 @@ class Brain:
     @property
     def current_model_has_vision(self) -> bool:
         provider = self.active_provider
-        return bool(provider and provider.supports_vision(self._active_model))
+        return bool(provider and provider.can_use_vision(self._active_model))
 
     def _fallback_model_for(self, entry: str) -> tuple[str, str]:
         entry = entry.strip()
@@ -258,7 +258,7 @@ class Brain:
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ProviderNotFoundError(provider_name)
-        if not provider.supports_vision(model):
+        if not provider.can_use_vision(model):
             raise ModelNotSupportedError(
                 tr(
                     "brain.validation.vision_unsupported",
@@ -514,7 +514,7 @@ class Brain:
             raise RuntimeError(
                 tr("brain.validation.vision_provider_missing", provider=vision_provider)
             )
-        if not provider.supports_vision(vision_model):
+        if not provider.can_use_vision(vision_model):
             raise ModelNotSupportedError(
                 tr(
                     "brain.validation.vision_unsupported",
@@ -522,7 +522,7 @@ class Brain:
                     provider=vision_provider,
                 )
             )
-        if require_video and not provider.supports_video(vision_model):
+        if require_video and not provider.can_use_video(vision_model):
             raise ModelNotSupportedError(
                 tr(
                     "brain.validation.video_unsupported",
