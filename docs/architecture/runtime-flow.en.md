@@ -14,7 +14,7 @@ flowchart LR
     inbox --> loop["Agent main loop"]
     identity["Identity · System Prompt"] --> loop
     short["Short-term context · memory tree · pinned"] --> loop
-    long["Long-term memory · recent activity"] --> loop
+    long["Long-term memory"] --> loop
     loop --> brain["Brain / Provider"]
     brain --> loop
     loop --> tools["Files · code · browser · vision · tasks · communication"]
@@ -32,7 +32,7 @@ flowchart LR
   and owns connection and offline-outbox state.
 - **Agent Loop** decides when to think, sleep, use tools, compress context, and restart.
 - **Brain/Provider** normalizes model dialects, selection, fallback, summary, and vision calls.
-- **Memory** owns short-term messages, the multiscale tree, pinned content, semantic memory, and recent activity.
+- **Memory** owns short-term messages, the multiscale tree, pinned content, and semantic memory.
 - **Tool registry** exposes capabilities allowed in the current scope; Bubbles intercept some main-line tools.
 - **Persistence** includes identity, tasks, alarms, interaction logs, usage, snapshots, and capability assets.
 

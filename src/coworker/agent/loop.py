@@ -14,7 +14,6 @@ from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import tr
-from coworker.memory.recent_activity import render_recent_activity_replay
 from coworker.persona import PersonaContext
 
 if TYPE_CHECKING:
@@ -26,7 +25,6 @@ if TYPE_CHECKING:
     from coworker.core.config import Config
     from coworker.identity.identity import Identity
     from coworker.memory.long_term import LongTermMemory
-    from coworker.memory.recent_activity import RecentActivityMemory
     from coworker.memory.short_term import ShortTermMemory
     from coworker.prompts.system_prompt import SystemPromptBuilder
     from coworker.tools.reasoning_tools import Task, TaskStore
@@ -62,7 +60,6 @@ class AgentLoop:
         task_reminder_seconds: float = 300,
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
-        recent_activity: RecentActivityMemory | None = None,
         persona: PersonaContext | None = None,
     ) -> None:
         self._brain = brain
@@ -84,7 +81,6 @@ class AgentLoop:
         self._last_task_reminder_time = time.monotonic()
         self._bubble_store = bubble_store
         self._subconscious = subconscious
-        self._recent_activity = recent_activity
         self._persona = persona
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
@@ -298,10 +294,6 @@ class AgentLoop:
         # skills / palaces 内容仍在短期上下文里，等压缩导致上下文缓存失效时再统一进 prompt。
         if self._short_term.compress_generation != self._last_compress_generation:
             self._last_compress_generation = self._short_term.compress_generation
-            if self._recent_activity is not None:
-                self._recent_activity.schedule_sync_compressed_from_log(
-                    self._short_term.raw_primary_boundary()
-                )
             self._prompt_builder.refresh()
         system_prompt = self._prompt_builder.build()
         skill_load_warnings = self._prompt_builder.consume_skill_load_warnings()
@@ -613,39 +605,6 @@ class AgentLoop:
                 if self._ilog:
                     self._ilog.log_auto_recall(query_text, new)
                 logger.debug(f"Auto-recalled {len(new)} long-term memories")
-
-        if not getattr(cfg, "recent_activity_auto_recall_enabled", True):
-            return
-        if self._recent_activity is None:
-            return
-        try:
-            recent = await self._recent_activity.query(
-                query_text,
-                limit=getattr(cfg, "recent_activity_auto_recall_limit", 2),
-                min_relevance=getattr(cfg, "recent_activity_auto_recall_relevance_threshold", 0.72),
-            )
-        except Exception as e:
-            logger.opt(exception=True).warning(
-                f"Recent activity auto-recall query failed, skipping: {e}"
-            )
-            return
-        fresh = [m for m in recent if m.get("id") not in excluded]
-        if not fresh:
-            return
-        replay = render_recent_activity_replay(
-            fresh,
-            title=tr("loop.recent_activity_title"),
-            include_evidence=False,
-        )
-        self._short_term.primary.append(
-            Message(
-                role="user",
-                content=replay,
-                recalled_memory_ids=[m["id"] for m in fresh],
-                source="recent_activity_auto_recall",
-            )
-        )
-        logger.debug(f"Auto-recalled {len(fresh)} recent activities")
 
     def _build_task_board_content(self, active: list[Task]) -> str:
         """生成活动任务总览 pin 的内容（描述级，details 按需 task_get）。"""

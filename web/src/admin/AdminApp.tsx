@@ -1063,7 +1063,7 @@ const MEMORY_SOURCE: Record<string, string> = {
   code_job: '代码任务', task_reminder: '任务提醒', system: '系统', '并行思考': '并行思考',
   system_recovery: '系统恢复', system_error: '系统错误', skill_warning: '技能提醒',
   tick: '自主循环', model_switch: '模型切换', auto_recall: '自动回忆',
-  recent_activity_auto_recall: '近期回忆', compress_memory: '记忆压缩', sleep_interrupt: '唤醒消息',
+  compress_memory: '记忆压缩', sleep_interrupt: '唤醒消息',
 };
 
 function memorySourceName(source: unknown) {

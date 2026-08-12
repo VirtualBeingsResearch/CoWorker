@@ -14,7 +14,7 @@ flowchart LR
     inbox --> loop["Agent 主循环"]
     identity["Identity · System Prompt"] --> loop
     short["短期上下文 · 记忆树 · pinned"] --> loop
-    long["长期记忆 · 最近活动"] --> loop
+    long["长期记忆"] --> loop
     loop --> brain["Brain / Provider"]
     brain --> loop
     loop --> tools["文件 · 代码 · 浏览器 · 视觉 · 任务 · 通信"]
@@ -31,7 +31,7 @@ flowchart LR
 - **Channel System**：注册传输、规范化入站、路由出站、维护连接和离线 outbox。
 - **Agent Loop**：决定何时思考、休眠、调用工具、压缩上下文和处理重启。
 - **Brain/Provider**：统一模型方言、模型选择、fallback、summary 和 vision 调用。
-- **Memory**：短期消息、时间尺度记忆树、pinned 内容、长期语义记忆和最近活动索引。
+- **Memory**：短期消息、时间尺度记忆树、pinned 内容和长期语义记忆。
 - **工具注册表**：向模型暴露当前作用域允许的能力；Bubble 会拦截部分主线工具。
 - **持久化**：身份、任务、闹钟、交互日志、用量、短期快照和用户能力内容。
 

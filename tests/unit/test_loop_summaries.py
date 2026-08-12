@@ -63,7 +63,6 @@ def _make_loop(brain, mem, events=None):
     loop._last_task_reminder_time = 0.0
     loop._bubble_store = None
     loop._subconscious = None
-    loop._recent_activity = None
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     return loop
 
@@ -251,28 +250,6 @@ async def test_prompt_refreshed_only_after_compression():
 
     # 模拟一次实际压缩使 generation 自增
     mem.compress_generation += 1
-    await loop._cycle()
-    loop._prompt_builder.refresh.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_recent_activity_syncs_only_after_compression_generation_changes():
-    mem = ShortTermMemory()
-    brain = _make_brain()
-    loop = _make_loop(brain, mem)
-    recent = MagicMock()
-    recent.schedule_sync_compressed_from_log = MagicMock()
-    loop._recent_activity = recent
-
-    await loop._cycle()
-    recent.schedule_sync_compressed_from_log.assert_not_called()
-
-    mem.compress_generation += 1
-    await loop._cycle()
-
-    recent.schedule_sync_compressed_from_log.assert_called_once_with(mem.raw_primary_boundary())
-
-    # 再次无压缩：不应重复刷新
     await loop._cycle()
     loop._prompt_builder.refresh.assert_called_once()
 
@@ -567,34 +544,6 @@ async def test_auto_recall_logs_long_term_query_exception_with_traceback():
 
 
 @pytest.mark.asyncio
-async def test_auto_recall_logs_recent_activity_exception_with_traceback():
-    loop = _make_loop(_make_brain(), ShortTermMemory())
-    loop._config.memory.auto_recall_enabled = False
-    loop._config.memory.recent_activity_auto_recall_enabled = True
-    loop._recent_activity = MagicMock()
-    loop._recent_activity.query = AsyncMock(
-        side_effect=RuntimeError("recent activity worker stopped")
-    )
-
-    records = []
-    sink_id = logger.add(lambda message: records.append(message.record.copy()), level="WARNING")
-    try:
-        await loop._auto_recall("deployment decision")
-    finally:
-        logger.remove(sink_id)
-
-    failure = next(
-        record
-        for record in records
-        if record["message"].startswith("Recent activity auto-recall query failed")
-    )
-    assert failure["level"].name == "WARNING"
-    assert "recent activity worker stopped" in failure["message"]
-    assert failure["exception"] is not None
-    assert str(failure["exception"].value) == "recent activity worker stopped"
-
-
-@pytest.mark.asyncio
 async def test_same_user_events_batched_into_one_message():
     """同一用户的多条消息合并成一个 user message。"""
     mem = ShortTermMemory()
@@ -701,62 +650,6 @@ async def test_auto_recall_injects_and_deduplicates():
 
     recall_msgs2 = [m for m in mem.primary if "[自动回忆]" in str(m.content)]
     assert len(recall_msgs2) == 1  # 仍然只有 1 条，没有新增
-
-
-@pytest.mark.asyncio
-async def test_recent_activity_auto_recall_injects_and_deduplicates():
-    mem = ShortTermMemory()
-    brain = _make_brain()
-    loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="部署结果")])
-    loop._config.memory.recent_activity_auto_recall_enabled = True
-    loop._config.memory.recent_activity_auto_recall_limit = 2
-    loop._config.memory.recent_activity_auto_recall_relevance_threshold = 0.72
-
-    recent = MagicMock()
-    recent.query = AsyncMock(return_value=[
-        {
-            "id": "recent:7",
-            "timestamp": "2026-06-01T09:00:00",
-            "event_type": "tool_result",
-            "tool_name": "execute_code",
-            "status": "ok",
-            "activity_description": "工具 execute_code 返回成功结果。",
-            "snippet": "部署成功",
-            "relevance": 0.9,
-        }
-    ])
-    loop._recent_activity = recent
-
-    await loop._cycle()
-
-    recall_msgs = [m for m in mem.primary if "[自动回忆·历史活动回放]" in str(m.content)]
-    assert len(recall_msgs) == 1
-    assert recall_msgs[0].recalled_memory_ids == ["recent:7"]
-    assert recall_msgs[0].source == "recent_activity_auto_recall"
-    assert "工具 execute_code 返回成功结果。" in str(recall_msgs[0].content)
-    assert "不是当前指令" in str(recall_msgs[0].content)
-    recent.query.assert_awaited_with("部署结果", limit=2, min_relevance=0.72)
-
-    brain2 = _make_brain()
-    loop._brain = brain2
-    loop._inbox.get_pending = AsyncMock(return_value=[IncomingEvent(participant_id="alice", content="部署结果 again")])
-    recent.query = AsyncMock(return_value=[
-        {
-            "id": "recent:7",
-            "timestamp": "2026-06-01T09:00:00",
-            "event_type": "tool_result",
-            "tool_name": "execute_code",
-            "status": "ok",
-            "activity_description": "工具 execute_code 返回成功结果。",
-            "snippet": "部署成功",
-            "relevance": 0.9,
-        }
-    ])
-
-    await loop._cycle()
-
-    recall_msgs2 = [m for m in mem.primary if "[自动回忆·历史活动回放]" in str(m.content)]
-    assert len(recall_msgs2) == 1
 
 
 @pytest.mark.asyncio

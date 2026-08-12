@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,33 +35,6 @@ class TestShortTermMemory:
         mem = ShortTermMemory()
         ctx = mem.build_context()
         assert ctx == []
-
-    def test_summary_anchor_source_is_used_for_raw_primary_boundary(self):
-        raw_timestamp = datetime(2026, 7, 8, 9)
-        mem = ShortTermMemory.deserialize(
-            {
-                "primary": [
-                    {
-                        "role": "user",
-                        "content": "compressed summary",
-                        "source": "memory_summary",
-                        "timestamp": datetime(2026, 7, 8, 12).isoformat(),
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "still raw",
-                        "timestamp": raw_timestamp.isoformat(),
-                    },
-                ]
-            },
-            tree_enabled=False,
-        )
-
-        assert mem.raw_primary_boundary() == raw_timestamp
-
-    def test_raw_primary_boundary_none_when_no_compressed_context(self):
-        mem = ShortTermMemory()
-        assert mem.raw_primary_boundary() is None
 
     def test_estimate_tokens(self):
         from coworker.core.types import estimate_text_tokens

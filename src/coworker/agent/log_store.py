@@ -774,7 +774,7 @@ class LogStore:
         return (
             s
             if len(s) <= _MAX_ENTRY_CHARS
-            else s[:_MAX_ENTRY_CHARS] + tr("recent_activity.digest_truncated")
+            else s[:_MAX_ENTRY_CHARS] + tr("log_digest.truncated")
         )
 
     def _entry_to_text(self, e: dict[str, Any]) -> str:
@@ -789,7 +789,7 @@ class LogStore:
             if content:
                 parts.append(
                     tr(
-                        "recent_activity.digest_assistant",
+                        "log_digest.assistant",
                         content=self._truncate(content),
                     )
                 )
@@ -797,31 +797,31 @@ class LogStore:
                 args = self._truncate(json.dumps(tc.get("arguments", {}), ensure_ascii=False))
                 parts.append(
                     tr(
-                        "recent_activity.digest_tool_call",
+                        "log_digest.tool_call",
                         name=tc.get("name", "?"),
                         arguments=args,
                     )
                 )
             return "\n".join(parts)
         if t == "tool_call":
-            return tr("recent_activity.digest_tool_call_bare", name=e.get("name", "?"))
+            return tr("log_digest.tool_call_bare", name=e.get("name", "?"))
         if t == "tool_result":
             status = tr(
-                "recent_activity.digest_error"
+                "log_digest.error"
                 if e.get("is_error")
-                else "recent_activity.digest_result"
+                else "log_digest.result"
             )
             return tr(
-                "recent_activity.digest_tool_result",
+                "log_digest.tool_result",
                 name=e.get("name", "?"),
                 status=status,
                 content=self._truncate(e.get("content", "")),
             )
         if t == "task_reminder":
-            return tr("recent_activity.digest_task_reminder", count=len(e.get("tasks", [])))
+            return tr("log_digest.task_reminder", count=len(e.get("tasks", [])))
         if t == "subconscious_done":
             return tr(
-                "recent_activity.digest_subconscious",
+                "log_digest.subconscious",
                 mode=e.get("mode", "?"),
                 result=self._truncate(e.get("result", "")),
             )
