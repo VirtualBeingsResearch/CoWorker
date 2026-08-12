@@ -2342,21 +2342,58 @@ h1, h2, h3, p { margin: 0; }
   .chat-view-toggle { width: 36px; padding: 0; justify-content: center; }
   .chat-view-toggle span { display: none; }
 }
+/* Reduced motion keeps the interface alive with slower, smaller movement instead of
+   freezing every ambient layer. Large travel and elastic overshoot are removed. */
+@keyframes reduced-avatar-drift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(10px, -5px) rotate(2deg); }
+  66% { transform: translate(-8px, 5px) rotate(-2deg); }
+}
+@keyframes reduced-kaomoji-float {
+  0%, 100% { transform: translateY(0) scale(1) rotate(-1deg); }
+  50% { transform: translateY(-4px) scale(1.025) rotate(1deg); }
+}
+@keyframes reduced-z-rise {
+  0% { opacity: 0; transform: translateY(0) scale(.92); }
+  20% { opacity: .75; }
+  75% { opacity: .18; }
+  100% { opacity: 0; transform: translateY(-12px) scale(1); }
+}
+@keyframes reduced-dream-drift {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-2px) rotate(1deg); }
+}
+@keyframes reduced-state-wave {
+  0%, 100% { transform: scaleY(.82); }
+  50% { transform: scaleY(1.04); }
+}
+@keyframes reduced-sprite-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+@keyframes reduced-sprite-ring {
+  0% { transform: scale(.96); opacity: .42; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+@keyframes reduced-sprite-arrival {
+  0% { transform: scale(.94); }
+  55% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .shell::before,
-  .id-card::after,
-  .avatar-wrap::before,
-  .kaomoji-face,
-  .kaomoji-z,
-  .dream-scene-icon,
-  .state-wave i,
-  .sprite-btn,
-  .sprite-btn.has-unread,
-  .sprite-orbit,
-  .sprite-pulse,
-  .chat-name-mark .sprite-node {
-    animation: none;
-  }
+  .shell::before { animation-duration: calc(var(--mood-tempo, 1) * 11s); }
+  .id-card::after { animation-duration: 20s; }
+  .avatar-wrap::before { animation: reduced-avatar-drift 28s ease-in-out infinite reverse; }
+  .kaomoji-face { animation: reduced-kaomoji-float calc(var(--mood-tempo, 1) * 7s) ease-in-out infinite; }
+  .kaomoji-z { animation: reduced-z-rise 4.2s ease-in-out infinite; animation-delay: var(--kz-d, 0s); }
+  .dream-scene-icon { animation: reduced-dream-drift 6s ease-in-out infinite; }
+  .state-wave i { animation: reduced-state-wave calc(var(--mood-tempo, 1) * 2.8s) ease-in-out infinite; animation-delay: calc(var(--n) * -.12s); }
+  .sprite-btn { animation: reduced-sprite-bob 5s ease-in-out infinite; }
+  .sprite-btn.has-unread { animation: reduced-sprite-arrival .7s ease-out both; }
+  .sprite-orbit { animation-duration: 16s; }
+  .sprite-orbit.slow { animation-duration: 24s; }
+  .sprite-pulse { animation: reduced-sprite-ring 4.5s ease-out infinite; }
+  .chat-name-mark .sprite-node { animation-duration: 4.8s; }
 }
 
 /* 动画声明位于文件不同区域；最终兜底确保不可见面不会被后续 shorthand 重新启动。 */
