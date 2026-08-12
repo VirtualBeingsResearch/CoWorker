@@ -128,10 +128,6 @@ html {
   0%, 100% { opacity: 0.28; transform: scale(0.92); }
   50%      { opacity: 1; transform: scale(1.2); }
 }
-@keyframes reduced-bg-breathe {
-  0%, 100% { opacity: 0.62; }
-  50% { opacity: 0.78; }
-}
 /* 每个状态一个统一的节奏因子，背景呼吸与状态波形条共用，调一处两个动画同步 */
 .shell[data-mood="思考中"] { --mood-tempo: 1; }
 .shell[data-mood="待命中"] { --mood-tempo: 1.55; }
@@ -139,7 +135,7 @@ html {
 .shell[data-mood="沟通中"] { --mood-tempo: 0.55; }
 .shell[data-mood="探索中"] { --mood-tempo: 0.38; }
 @media (prefers-reduced-motion: reduce) {
-  .shell::before { animation: reduced-bg-breathe 12s ease-in-out infinite; }
+  .shell::before { animation: none; opacity: 0.75; }
 }
 
 /* === 身份证翻转卡：整卡在视口居中，正面身份 / 背面运行日志 === */
@@ -1965,62 +1961,14 @@ h1, h2, h3, p { margin: 0; }
   .chat-view-toggle { width: 36px; padding: 0; justify-content: center; }
   .chat-view-toggle span { display: none; }
 }
-
-/* “减少动态效果”保留生命感，但把位移、缩放和速度压到普通动画的一小部分。 */
-@keyframes reduced-holo-breathe {
-  0%, 100% { opacity: 0.58; }
-  50% { opacity: 0.82; }
-}
-@keyframes reduced-avatar-drift {
-  0%, 100% { transform: translate(-2px, 1px) rotate(-0.6deg); }
-  50% { transform: translate(3px, -2px) rotate(0.8deg); }
-}
-@keyframes reduced-kaomoji-float {
-  0%, 100% { transform: translateY(0) scale(1) rotate(-0.6deg); }
-  50% { transform: translateY(-4px) scale(1.02) rotate(0.8deg); }
-}
-@keyframes reduced-z-rise {
-  0% { opacity: 0.12; transform: translateY(0) scale(0.96); }
-  45% { opacity: 0.65; }
-  75% { opacity: 0.28; }
-  100% { opacity: 0.12; transform: translateY(-10px) scale(1.02); }
-}
-@keyframes reduced-dream-drift {
-  0%, 100% { transform: translateY(0) rotate(-1deg); }
-  50% { transform: translateY(-2px) rotate(1deg); }
-}
-@keyframes reduced-state-wave {
-  0%, 100% { transform: scaleY(0.82); }
-  50% { transform: scaleY(1.08); }
-}
-@keyframes reduced-sprite-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-@keyframes reduced-sprite-ring {
-  0% { transform: scale(0.98); opacity: 0.32; }
-  100% { transform: scale(1.16); opacity: 0; }
-}
-@keyframes reduced-sprite-node {
-  0%, 100% { opacity: 0.72; }
-  50% { opacity: 1; }
-}
 @media (prefers-reduced-motion: reduce) {
-  /* 身份页与聊天入口继续缓慢运动，避免整个生命体界面冻结。 */
-  .id-card::after { animation: reduced-holo-breathe 18s ease-in-out infinite; }
-  .avatar-wrap::before { animation: reduced-avatar-drift 24s ease-in-out infinite reverse; }
-  .kaomoji-face { animation: reduced-kaomoji-float 8s ease-in-out infinite; }
-  .kaomoji-z { animation: reduced-z-rise 4.8s ease-in-out infinite; animation-delay: var(--kz-d, 0s); }
-  .dream-scene-icon { animation: reduced-dream-drift 8s ease-in-out infinite; }
-  .state-wave i { animation: reduced-state-wave 3s ease-in-out infinite; animation-delay: calc(var(--n) * -0.24s); }
-  .sprite-btn:not(.open):not(.dragging) { animation: reduced-sprite-bob 5s ease-in-out infinite; }
-  .sprite-orbit { animation-duration: 14s; }
-  .sprite-orbit.slow { animation-duration: 20s; }
-  .sprite-pulse { animation: reduced-sprite-ring 5s ease-out infinite; }
-  .chat-name-mark .sprite-node,
-  .chat-empty .sprite-node { animation: reduced-sprite-node 5s ease-in-out infinite; }
-
-  /* 日志高频动效保持静态降级，同时保留完整信息。 */
+  /* 状态页装饰性连续动画收敛为静态，信息元素全部保留 */
+  .id-card::after,
+  .avatar-wrap::before,
+  .kaomoji-face,
+  .kaomoji-z,
+  .dream-scene-icon,
+  .state-wave i,
   .sk-bone::after,
   .ledger .le:is(.thinking, .sleep.active, .tool_call),
   .ledger .le:is(.thinking, .sleep.active, .tool_call)::after,
@@ -2045,4 +1993,6 @@ h1, h2, h3, p { margin: 0; }
   /* 巨型 emoji 冲屏与冲击波整体隐藏（清理由定时器负责，不依赖 animationend） */
   .ledger .hero, .ledger .hero-shock { animation: none; opacity: 0; }
   .ledger .hero-flash { animation: none; }
+  .chat-name-mark .sprite-orbit, .chat-name-mark .sprite-node { animation: none; }
+  .sprite-btn.has-unread { animation: none; }
 }
