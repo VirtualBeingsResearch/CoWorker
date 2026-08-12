@@ -36,7 +36,6 @@ dependencies = [
     "spacy==3.8.13",
     "en-core-web-sm>=3.8.0",
     "qrcode[pil]>=8.2",
-    "tzdata>=2025.2",
 ]
 
 [dependency-groups]

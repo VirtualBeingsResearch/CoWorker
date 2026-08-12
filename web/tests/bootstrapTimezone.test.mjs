@@ -1,26 +1,29 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { withDetectedTimezone } from '../src/admin/bootstrapTimezone.ts';
+import { bootstrapTimezoneAdvice } from '../src/admin/bootstrapTimezone.ts';
 
-test('fills an empty setup timezone from the browser', () => {
-  const defaults = { i18n: { locale: 'zh-CN', timezone: '' } };
-  const result = withDetectedTimezone(defaults, 'Asia/Shanghai');
+const adminApp = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
 
-  assert.equal(result.i18n.timezone, 'Asia/Shanghai');
-  assert.equal(defaults.i18n.timezone, '');
+test('recommends TZ without creating a runtime timezone setting', () => {
+  assert.deepEqual(bootstrapTimezoneAdvice('Asia/Shanghai'), {
+    available: true,
+    detectedTimezone: 'Asia/Shanghai',
+    recommendation: 'TZ=Asia/Shanghai',
+  });
 });
 
-test('preserves an explicitly configured setup timezone', () => {
-  const defaults = { i18n: { locale: 'en', timezone: 'America/New_York' } };
-  const result = withDetectedTimezone(defaults, 'Asia/Shanghai');
-
-  assert.equal(result.i18n.timezone, 'America/New_York');
+test('does not recommend an environment override when detection is unavailable', () => {
+  assert.deepEqual(bootstrapTimezoneAdvice(''), {
+    available: false,
+    detectedTimezone: '',
+    recommendation: '',
+  });
 });
 
-test('leaves host-timezone fallback intact when detection is unavailable', () => {
-  const defaults = { i18n: { locale: 'en', timezone: '' } };
-  const result = withDetectedTimezone(defaults, '');
-
-  assert.equal(result.i18n.timezone, '');
+test('keeps browser timezone detection outside bootstrap configuration', () => {
+  assert.match(adminApp, /configurationBaseline\] = useState<Json>\(\(\) => structuredClone\(configurationDefaults\)\)/);
+  assert.doesNotMatch(adminApp, /changeConfiguration\('i18n', 'timezone'/);
+  assert.doesNotMatch(adminApp, /configuration\.i18n\?\.timezone/);
 });

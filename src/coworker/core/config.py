@@ -28,7 +28,6 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
 )
-from coworker.core.timezone import normalize_timezone
 from coworker.i18n import SupportedLocale, normalize_locale, tr
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
@@ -467,12 +466,11 @@ class AdminConfig(_EnvSettings):
 
 
 class I18NConfig(_EnvSettings):
-    """Instance-wide runtime language and timezone, independent from the Web UI."""
+    """Instance-wide runtime language, independent from the Web UI."""
 
     model_config = SettingsConfigDict(env_prefix="I18N__", env_file=".env", extra="ignore")
 
     locale: SupportedLocale = SupportedLocale.ZH_CN
-    timezone: str = ""
 
     @field_validator("locale", mode="before")
     @classmethod
@@ -480,12 +478,6 @@ class I18NConfig(_EnvSettings):
         if isinstance(value, SupportedLocale):
             return value
         return normalize_locale(str(value))
-
-    @field_validator("timezone", mode="before")
-    @classmethod
-    def _normalize_timezone(cls, value: object) -> str:
-        return normalize_timezone(value)
-
 
 class AgentConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT__", env_file=".env", extra="ignore")

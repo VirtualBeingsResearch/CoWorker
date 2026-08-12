@@ -52,7 +52,7 @@ from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundErr
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
-from coworker.core.timezone import configure_timezone, local_now
+from coworker.core.timezone import local_now
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
@@ -141,9 +141,7 @@ def _setup_logging(logs_dir: str) -> None:
     intercept_standard_logging()
 
 
-def _get_env_snapshot(
-    *, runtime_locale: str | None = None, runtime_timezone: str | None = None
-) -> dict:
+def _get_env_snapshot(*, runtime_locale: str | None = None) -> dict:
     snapshot: dict = {
         "python_version": sys.version.split()[0],
         "python_executable": sys.executable,
@@ -164,8 +162,6 @@ def _get_env_snapshot(
         pass
     if runtime_locale:
         snapshot["runtime_locale"] = runtime_locale
-    if runtime_timezone:
-        snapshot["runtime_timezone"] = runtime_timezone
     return snapshot
 
 
@@ -196,14 +192,6 @@ def _diff_runtime_locale(old: dict, new: dict) -> str | None:
     if not old_locale or not new_locale or old_locale == new_locale:
         return None
     return tr("startup.locale_changed", old=old_locale, new=new_locale)
-
-
-def _diff_runtime_timezone(old: dict, new: dict) -> str | None:
-    old_timezone = str(old.get("runtime_timezone") or "")
-    new_timezone = str(new.get("runtime_timezone") or "")
-    if not old_timezone or not new_timezone or old_timezone == new_timezone:
-        return None
-    return tr("startup.timezone_changed", old=old_timezone, new=new_timezone)
 
 
 def _find_pending_tool_call(messages: list, tool_name: str) -> dict | None:
@@ -284,7 +272,6 @@ def _load_config_layers() -> tuple[Config, Config]:
     normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
-    configure_timezone(config.i18n.timezone)
     apply_runtime_model_config_file(config.llm)
     return inherited, config
 
@@ -504,10 +491,7 @@ async def _main() -> bool:
     alarm_persist_path = Path(config.memory.db_path) / "alarms.json"
     env_snapshot_path = Path(config.memory.db_path) / "env_snapshot.json"
 
-    current_env = _get_env_snapshot(
-        runtime_locale=config.i18n.locale.value,
-        runtime_timezone=config.i18n.timezone or "system",
-    )
+    current_env = _get_env_snapshot(runtime_locale=config.i18n.locale.value)
     prev_env: dict = {}
     if env_snapshot_path.exists():
         try:
@@ -516,7 +500,6 @@ async def _main() -> bool:
             pass
     env_diff = _diff_env(prev_env, current_env) if prev_env else None
     locale_diff = _diff_runtime_locale(prev_env, current_env) if prev_env else None
-    timezone_diff = _diff_runtime_timezone(prev_env, current_env) if prev_env else None
     env_snapshot_path.write_text(
         json.dumps(current_env, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -888,8 +871,6 @@ async def _main() -> bool:
             restart_msg += tr("startup.environment_fragment", changes=env_diff)
         if locale_diff:
             restart_msg += tr("startup.environment_fragment", changes=locale_diff)
-        if timezone_diff:
-            restart_msg += tr("startup.environment_fragment", changes=timezone_diff)
         await _enqueue_startup_event(
             inbox_watcher,
             IncomingEvent(
@@ -899,7 +880,7 @@ async def _main() -> bool:
             ),
             passive_mode=config.agent.passive_mode,
         )
-    elif not setup_required and (env_diff or locale_diff or timezone_diff):
+    elif not setup_required and (env_diff or locale_diff):
         now_str = local_now().strftime("%Y-%m-%d %H:%M")
         await _enqueue_startup_event(
             inbox_watcher,
@@ -909,7 +890,7 @@ async def _main() -> bool:
                     "startup.system_started",
                     time=now_str,
                     environment=tr("startup.env_separator").join(
-                        change for change in (env_diff, locale_diff, timezone_diff) if change
+                        change for change in (env_diff, locale_diff) if change
                     ),
                 ),
                 source="system",

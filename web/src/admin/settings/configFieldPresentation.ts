@@ -138,12 +138,5 @@ export function configFieldPresentation(
       inputType: 'url',
     };
   }
-  if (path === 'i18n.timezone') {
-    return {
-      editor: 'default',
-      hint: '使用 IANA 时区名称；留空则跟随服务器时区。',
-      placeholder: 'Asia/Shanghai',
-    };
-  }
   return { editor: 'default' };
 }

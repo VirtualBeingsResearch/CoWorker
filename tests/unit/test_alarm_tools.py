@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.core.timezone import configure_timezone
 from coworker.tools.alarm_tools import (
     AlarmManager,
     CancelAlarmTool,
@@ -45,20 +44,12 @@ async def cleanup_tasks():
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-@pytest.fixture(autouse=True)
-def reset_runtime_timezone():
-    configure_timezone("")
-    yield
-    configure_timezone("")
-
-
 class TestAlarmManager:
-    def test_naive_alarm_time_uses_configured_timezone(self):
-        configure_timezone("Asia/Shanghai")
+    def test_naive_alarm_time_uses_host_timezone(self):
+        naive = datetime(2026, 1, 2, 9, 30)
+        trigger_at = _local_datetime(naive)
 
-        trigger_at = _local_datetime(datetime(2026, 1, 2, 9, 30))
-
-        assert trigger_at.isoformat() == "2026-01-02T09:30:00+08:00"
+        assert trigger_at == naive.astimezone()
 
     async def test_set_and_fire_oneshot(self, manager, mock_inbox):
         trigger_at = datetime.now() + timedelta(milliseconds=50)

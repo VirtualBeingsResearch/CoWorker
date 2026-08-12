@@ -1,5 +1,3 @@
-import type { Json } from './settings/types';
-
 export function detectBrowserTimezone(): string {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -9,15 +7,19 @@ export function detectBrowserTimezone(): string {
   }
 }
 
-export function withDetectedTimezone(
-  defaults: Json,
+export type BootstrapTimezoneAdvice = {
+  available: boolean;
+  detectedTimezone: string;
+  recommendation: string;
+};
+
+export function bootstrapTimezoneAdvice(
   detectedTimezone = detectBrowserTimezone(),
-): Json {
-  const configuration = structuredClone(defaults);
-  const current = String(configuration.i18n?.timezone || '').trim();
+): BootstrapTimezoneAdvice {
   const detected = detectedTimezone.trim();
-  if (!current && detected) {
-    configuration.i18n = { ...(configuration.i18n || {}), timezone: detected };
-  }
-  return configuration;
+  return {
+    available: Boolean(detected),
+    detectedTimezone: detected,
+    recommendation: detected ? `TZ=${detected}` : '',
+  };
 }

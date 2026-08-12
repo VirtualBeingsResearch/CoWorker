@@ -13,7 +13,7 @@ import { configFieldPresentation } from './settings/configFieldPresentation';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
-import { detectBrowserTimezone, withDetectedTimezone } from './bootstrapTimezone';
+import { bootstrapTimezoneAdvice, detectBrowserTimezone } from './bootstrapTimezone';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import type { UsageStats } from '../api/types';
@@ -239,13 +239,13 @@ function preferredModelFor(providerType: string, models: string[]) {
 
 const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'desktop_updates'];
 const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
-  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '语言与时区', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', desktop_updates: '桌面更新',
+  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', desktop_updates: '桌面更新',
 };
 const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
   memory: '短期上下文、压缩树、自动召回、近期活动、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
-  i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言，以及当前时间、闹钟和日期边界所使用的时区。',
+  i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
   api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
   channel_access: '所有信道的入站和出站 participant 匹配规则。',
@@ -338,7 +338,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const catalogs = data.providers || [];
   const configurationDefaults = data.defaults?.configuration || {};
   const [detectedTimezone] = useState(() => detectBrowserTimezone());
-  const [configurationBaseline] = useState<Json>(() => withDetectedTimezone(configurationDefaults, detectedTimezone));
+  const [configurationBaseline] = useState<Json>(() => structuredClone(configurationDefaults));
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
   const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
@@ -370,8 +370,10 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
-  const runtimeTimezone = String(configuration.i18n?.timezone || '');
-  const timezoneDetected = Boolean(detectedTimezone && runtimeTimezone === detectedTimezone);
+  const timezoneAdvice = bootstrapTimezoneAdvice(detectedTimezone);
+  const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
+    browserTimezone: timezoneAdvice.detectedTimezone,
+  });
   const modelListboxId = `bootstrap-model-listbox-${providerType}`;
   const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
   const filteredModels = useMemo(() => {
@@ -552,8 +554,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <div className="bootstrap-runtime-defaults wide">
                 <div className="bootstrap-runtime-default">
                   <Clock3 size={17} />
-                  <span><small>{t('运行时区')}<em> · {t(timezoneDetected ? '已从浏览器检测' : runtimeTimezone ? '已手动设置' : '跟随服务器')}</em></small><b><code>{runtimeTimezone || t('跟随服务器')}</code></b></span>
-                  <button type="button" className="ghost mini" onClick={event => openAdvanced('i18n', event.currentTarget)}>{t('调整')}</button>
+                  <span><small>{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('跟随服务器或容器')}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span>{t('仅提醒 · 建议')} <code>{timezoneAdvice.recommendation}</code></span></small>}</span>
                 </div>
                 <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
                   <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
@@ -579,7 +580,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <section className="bootstrap-advanced-dialog" role="dialog" aria-modal="true" aria-labelledby="bootstrap-advanced-title">
                 <header><div><span>{t('高级初始化')}</span><h3 id="bootstrap-advanced-title">{t('高级初始化 · 全部参数')}</h3><p>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</p></div><button type="button" className="icon-btn" aria-label={t('关闭高级初始化')} title={t('关闭')} onClick={closeAdvanced} autoFocus><X size={16} /></button></header>
                 <div className="bootstrap-advanced-scroll">
-                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、语言与时区、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
+                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、运行语言、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
                   <BootstrapConfigurationEditor initialGroup={advancedInitialGroup} baseline={configurationBaseline} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
                 </div>
                 <footer><span>{t('这些修改会与基础设置一起保存。')}</span><button type="button" className="primary" onClick={closeAdvanced}>{t('完成')}</button></footer>
@@ -925,7 +926,7 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
   return <Field label={label} hint="JSON 结构" hot={hot}><JsonEditor value={value} onChange={change} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
 }
 
-const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '语言与时区', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
+const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
@@ -1138,7 +1139,6 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.vision_model': '视觉模型',
   'llm.vision_thinking': '视觉 Thinking',
   'i18n.locale': '模型与运行时语言',
-  'i18n.timezone': '运行时区',
   'memory.db_path': '记忆数据目录',
   'memory.short_term_max_tokens': '短期上下文容量',
   'memory.compress_ratio': '每次自动压缩比例',
@@ -1276,7 +1276,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级语言与时区')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；时区控制当前时间、闹钟与日期边界。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
