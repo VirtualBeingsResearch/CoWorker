@@ -457,8 +457,9 @@ html:has(.admin-login),
 .bootstrap-advanced-dialog > header h3 { margin: 5px 0 0; font: 660 21px/1.2 var(--admin-display); letter-spacing: -.025em; }
 .bootstrap-advanced-dialog > header p { margin: 6px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
 .bootstrap-advanced-dialog > header .icon-btn { flex: 0 0 auto; }
-.bootstrap-advanced-scroll { display: grid; align-content: start; gap: 14px; min-height: 0; padding: 16px 18px 20px; overflow: auto; overscroll-behavior: contain; }
-.bootstrap-advanced-dialog .bootstrap-config-workbench { min-height: 480px; }
+.bootstrap-advanced-scroll { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; min-height: 0; padding: 16px 18px 20px; overflow: hidden; }
+.bootstrap-advanced-dialog .bootstrap-config-workbench { min-height: 0; }
+.bootstrap-advanced-dialog .bootstrap-config-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .bootstrap-advanced-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 66px; padding: 10px 18px; border-top: 1px solid var(--admin-line); background: color-mix(in oklch, var(--admin-paper) 58%, var(--admin-surface)); }
 .bootstrap-advanced-dialog > footer span { color: var(--admin-muted); font-size: 10px; }
 .bootstrap-advanced-dialog > footer .primary { min-width: 112px; min-height: 40px; }
@@ -3030,7 +3031,7 @@ html:has(.admin-login),
   .bootstrap-advanced-dialog > footer { padding: 9px 12px; }
   .bootstrap-advanced-dialog > footer span { display: none; }
   .bootstrap-advanced-dialog > footer .primary { width: 100%; }
-  .bootstrap-config-workbench { display: block; }
+  .bootstrap-config-workbench { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .bootstrap-config-workbench > nav { position: sticky; top: 0; z-index: 2; flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--admin-line); scrollbar-width: none; }
   .bootstrap-config-workbench > nav::-webkit-scrollbar { display: none; }
   .bootstrap-config-workbench > nav button { flex: 0 0 auto; }

@@ -299,6 +299,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
   initialGroup?: string;
 }) {
   const [group, setGroup] = useState(initialGroup);
+  const panelRef = useRef<HTMLElement>(null);
   const groups = bootstrapConfigurationGroups(value);
   const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
   const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
@@ -312,12 +313,15 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     (message: string) => setJsonValidity('desktop_updates', !message),
     [setJsonValidity],
   );
+  useEffect(() => {
+    panelRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [group]);
   return <div className="bootstrap-config-workbench">
     <nav aria-label={t('完整初始化配置组')}>{groups.map(key => {
       const dirty = JSON.stringify(baseline[key] || {}) !== JSON.stringify(value[key] || {}) || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${key}.`) && secret);
       return <button type="button" className={group === key ? 'active' : ''} onClick={() => setGroup(key)} key={key}><span>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[key] || key)}{dirty && <i />}</span><ChevronRight size={13} /></button>;
     })}</nav>
-    <section className="bootstrap-config-panel">
+    <section className="bootstrap-config-panel" ref={panelRef}>
       <header><div><b>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[group] || group)}</b><small>{t(BOOTSTRAP_CONFIG_GROUP_NOTES[group] || '')}</small></div><button type="button" className="ghost mini" disabled={!groupDirty} onClick={reset}><RotateCcw size={13} />{t('恢复推荐值')}</button></header>
       {group === 'llm' && <div className="bootstrap-config-managed"><ShieldCheck size={15} /><span><b>{t('首个连接由基础设置管理')}</b><small>{t('Provider、启动模型、API Key 和 Base URL 会以页面上方填写的连接为准。')}</small></span></div>}
       {group === 'channel_access' && ChannelAccessEditor ? <ChannelAccessEditor value={value.channel_access || {}} change={(key, next) => change('channel_access', key, next)} apply={async () => true} dirty={groupDirty} saving={false} request={api} /> : group === 'desktop_updates' ? <DesktopUpdateSettings value={value.desktop_updates || {}} change={(key, next) => change('desktop_updates', key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} onValidationChange={setDesktopValidation} updateUrl={false} /> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
