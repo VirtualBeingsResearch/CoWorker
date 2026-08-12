@@ -26,25 +26,52 @@ export function useRuntimeLogStream() {
 
   useEffect(() => {
     setError(null);
-    const source = new EventSource(getRuntimeLogStreamUrl());
+    let active = true;
+    let source: EventSource | null = null;
 
-    source.onopen = () => setError(null);
-
-    source.onmessage = event => {
-      const parsed = parseEvent(event.data);
-      if (!parsed) return;
-      setEvents(prev => {
-        // 按 seq 去重：历史回放与实时流可能在连接窗口内重叠投递同一条
-        if (parsed.seq != null && prev.some(e => e.seq === parsed.seq)) return prev;
-        return [...prev.slice(-(MAX_EVENTS - 1)), parsed];
-      });
+    const disconnect = () => {
+      source?.close();
+      source = null;
     };
 
-    source.onerror = () => {
-      setError('日志流连接异常，正在自动重连…');
+    const connect = () => {
+      if (!active || source || document.visibilityState !== 'visible') return;
+      const nextSource = new EventSource(getRuntimeLogStreamUrl());
+      source = nextSource;
+
+      nextSource.onopen = () => {
+        if (source === nextSource) setError(null);
+      };
+
+      nextSource.onmessage = event => {
+        if (source !== nextSource) return;
+        const parsed = parseEvent(event.data);
+        if (!parsed) return;
+        setEvents(prev => {
+          // 按 seq 去重：历史回放与实时流可能在连接窗口内重叠投递同一条
+          if (parsed.seq != null && prev.some(e => e.seq === parsed.seq)) return prev;
+          return [...prev.slice(-(MAX_EVENTS - 1)), parsed];
+        });
+      };
+
+      nextSource.onerror = () => {
+        if (source === nextSource) setError('日志流连接异常，正在自动重连…');
+      };
     };
 
-    return () => source.close();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') connect();
+      else disconnect();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    connect();
+
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      disconnect();
+    };
   }, []);
 
   return { events, error };

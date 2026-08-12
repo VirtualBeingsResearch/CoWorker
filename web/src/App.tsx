@@ -608,8 +608,8 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
   // 大Z巡游：Zzz → zZz → zzZ → 循环
   useEffect(() => {
     if (!isSleeping) { setBigZIdx(0); return; }
-    const t = setInterval(() => setBigZIdx(i => (i + 1) % 4), 820);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setBigZIdx(i => (i + 1) % ZZZ_FRAMES.length), 820);
+    return () => clearInterval(timer);
   }, [isSleeping]);
 
   // 做梦场景：仅睡眠时循环随机展示

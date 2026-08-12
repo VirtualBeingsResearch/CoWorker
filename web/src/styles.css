@@ -110,36 +110,31 @@ html {
   z-index: 1;
   transition: --active-color 1.1s ease;
 }
-/* 跟随状态色的呼吸背景：铺满视口、置于内容之下，明暗+缩放形成律动 */
+/* 跟随状态色的呼吸背景：仅改变合成层透明度，避免 WebKit 缩放超大渐变时持续重栅格化。 */
 .shell::before {
   content: '';
   position: fixed;
-  inset: -25vmax;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
   background:
     radial-gradient(42vmax 42vmax at 14% 16%, color-mix(in oklch, var(--active-color) 52%, transparent), transparent 58%),
     radial-gradient(48vmax 48vmax at 86% 84%, color-mix(in oklch, var(--active-color) 44%, transparent), transparent 60%),
     linear-gradient(155deg, color-mix(in oklch, var(--active-color) 16%, transparent), transparent 55%);
-  animation: bg-breathe calc(var(--mood-tempo, 1) * 5.5s) ease-in-out infinite;
-  will-change: opacity, transform;
+  opacity: 0.72;
+  animation: bg-breathe-lite calc(var(--mood-tempo, 1) * 5.5s) ease-in-out infinite;
+  will-change: opacity;
 }
-@keyframes bg-breathe {
-  0%, 100% { opacity: 0.28; transform: scale(0.92); }
-  50%      { opacity: 1; transform: scale(1.2); }
+@keyframes bg-breathe-lite {
+  0%, 100% { opacity: 0.36; }
+  50% { opacity: 0.9; }
 }
-/* 每个状态一个统一的节奏因子，背景呼吸与状态波形条共用，调一处两个动画同步 */
+/* 每个状态一个统一的节奏因子，背景呼吸与状态波形条共用。 */
 .shell[data-mood="思考中"] { --mood-tempo: 1; }
 .shell[data-mood="待命中"] { --mood-tempo: 1.55; }
 .shell[data-mood="休息中"] { --mood-tempo: 2.2; }
 .shell[data-mood="沟通中"] { --mood-tempo: 0.55; }
 .shell[data-mood="探索中"] { --mood-tempo: 0.38; }
-@media (prefers-reduced-motion: reduce) {
-  .shell::before { animation: none; opacity: 0.8; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .shell::before { animation: none; opacity: 0.75; }
-}
 .shell-details {
   width: min(1360px, calc(100% - 32px));
   padding: 32px 0;
@@ -193,7 +188,6 @@ html {
   position: relative;
   transform-style: preserve-3d;
   transition: transform 0.9s cubic-bezier(0.62, 0.04, 0.3, 0.97);
-  will-change: transform;
 }
 .id-flip.flipped .id-flip-inner {
   transform: rotateY(180deg);
@@ -218,6 +212,14 @@ html {
 .id-face-back { pointer-events: none; }
 .id-flip.flipped .id-face-front { pointer-events: none; }
 .id-flip.flipped .id-face-back { pointer-events: auto; }
+.id-flip:not(.flipped) .id-face-back *,
+.id-flip:not(.flipped) .id-face-back *::before,
+.id-flip:not(.flipped) .id-face-back *::after,
+.id-flip.flipped .id-face-front *,
+.id-flip.flipped .id-face-front *::before,
+.id-flip.flipped .id-face-front *::after {
+  animation-play-state: paused !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .id-flip-inner { transition-duration: 1ms; }
 }
@@ -279,6 +281,12 @@ html {
 .back-card .ledger {
   flex: 1;
   min-height: 0;
+}
+.ledger:not(.ledger-visible),
+.ledger:not(.ledger-visible) *,
+.ledger:not(.ledger-visible) *::before,
+.ledger:not(.ledger-visible) *::after {
+  animation-play-state: paused !important;
 }
 
 @keyframes drift {
@@ -352,7 +360,7 @@ html {
   z-index: 3;
   pointer-events: none;
 }
-/* E: 全息浮光 —— 低透明度彩虹渐变漂移，screen 叠加不破坏文字可读性 */
+/* E: 全息浮光仅改变透明度，避免动画 background-position 导致整卡持续重绘。 */
 .id-card::after {
   content: '';
   position: absolute;
@@ -368,18 +376,18 @@ html {
     transparent 95%
   );
   background-size: 300% 300%;
-  animation: holo-drift 12s ease-in-out infinite;
+  background-position: 50% 50%;
+  animation: holo-breathe 12s ease-in-out infinite;
+  will-change: opacity;
   mix-blend-mode: screen;
   pointer-events: none;
   z-index: 2;
   border-radius: inherit;
 }
-@keyframes holo-drift {
-  0%, 100% { background-position: 0% 0%; }
-  33%       { background-position: 100% 40%; }
-  66%       { background-position: 40% 100%; }
+@keyframes holo-breathe {
+  0%, 100% { opacity: 0.58; }
+  50% { opacity: 1; }
 }
-
 /* —— 顶部证件带：名字 + 类型标识 —— */
 .id-band {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -1871,6 +1879,11 @@ h1, h2, h3, p { margin: 0; }
   transition: opacity 0.3s ease;
 }
 .chat-overlay.open { opacity: 1; visibility: visible; pointer-events: auto; }
+.chat-overlay:not(.open) *,
+.chat-overlay:not(.open) *::before,
+.chat-overlay:not(.open) *::after {
+  animation-play-state: paused !important;
+}
 .chat-overlay-page {
   align-items: stretch; justify-content: stretch; padding: 0;
   background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none;
@@ -2314,6 +2327,31 @@ h1, h2, h3, p { margin: 0; }
   .chat-view-toggle span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-name-mark .sprite-orbit, .chat-name-mark .sprite-node { animation: none; }
-  .sprite-btn.has-unread { animation: none; }
+  .shell::before,
+  .id-card::after,
+  .avatar-wrap::before,
+  .kaomoji-face,
+  .kaomoji-z,
+  .dream-scene-icon,
+  .state-wave i,
+  .sprite-btn,
+  .sprite-btn.has-unread,
+  .sprite-orbit,
+  .sprite-pulse,
+  .chat-name-mark .sprite-node {
+    animation: none;
+  }
+}
+
+/* 动画声明位于文件不同区域；最终兜底确保不可见面不会被后续 shorthand 重新启动。 */
+body .id-flip:not(.flipped) .id-face-back .ledger *,
+body .id-flip:not(.flipped) .id-face-back .ledger *::before,
+body .id-flip:not(.flipped) .id-face-back .ledger *::after,
+body .id-flip.flipped .id-face-front *,
+body .id-flip.flipped .id-face-front *::before,
+body .id-flip.flipped .id-face-front *::after,
+body .chat-overlay:not(.open) .chat-modal *,
+body .chat-overlay:not(.open) .chat-modal *::before,
+body .chat-overlay:not(.open) .chat-modal *::after {
+  animation-play-state: paused !important;
 }
