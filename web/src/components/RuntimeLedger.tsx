@@ -135,10 +135,30 @@ export function RuntimeLedger({
   const revealIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const canAnimate = visible && motionActive;
-    const became = canAnimate && !prevVisibleRef.current;
-    prevVisibleRef.current = !!canAnimate;
-    if (!became || hasRevealedRef.current) return;
+    const becameVisible = visible && !prevVisibleRef.current;
+    prevVisibleRef.current = !!visible;
+    if (!visible) {
+      // If the page becomes hidden mid-reveal, finish the data update instead of
+      // leaving a permanently partial feed when the animation timer is cleaned up.
+      if (hasRevealedRef.current) {
+        if (revealIvRef.current) clearInterval(revealIvRef.current);
+        setRevealCount(rows.length);
+        setRevealDone(true);
+      }
+      return;
+    }
+
+    // Motion is presentation only: reduced motion or a hidden page must never hide data.
+    // Finish any partial reveal immediately so stale scroll positions cannot leave the feed blank.
+    if (!motionActive) {
+      if (revealIvRef.current) clearInterval(revealIvRef.current);
+      hasRevealedRef.current = true;
+      setRevealCount(rows.length);
+      setRevealDone(true);
+      return;
+    }
+
+    if (!becameVisible || hasRevealedRef.current) return;
     hasRevealedRef.current = true;
 
     if (rows.length === 0) { setRevealDone(true); return; }
@@ -231,19 +251,19 @@ export function RuntimeLedger({
       });
     }
     prevLenRef.current = rows.length;
-    if (!visible || !motionActive) return;
+    if (!visible) return;
     if (followingRef.current) {
       scrollToBottom(first ? false : undefined);
     } else if (added > 0) {
       setUnseen(u => u + added);
     }
-  }, [motionActive, rows, visible]);
+  }, [rows, visible]);
 
   // 逐行插入完成后跳到最新行
   useEffect(() => {
-    if (!revealDone || !visible || !motionActive) return;
+    if (!revealDone || !visible) return;
     requestAnimationFrame(() => scrollToBottom(false));
-  }, [motionActive, revealDone, visible]);
+  }, [revealDone, visible]);
 
   // 像粒子引擎做视口裁剪一样，仅让滚动视口内的长态日志动画持续运行。
   useEffect(() => {
@@ -354,7 +374,7 @@ export function RuntimeLedger({
           ) : rows.length === 0 ? (
             <LedgerSkeleton />
           ) : (
-            (revealDone ? rows : rows.slice(0, Math.max(1, revealCount))).map(row =>
+            (revealDone ? rows : rows.slice(-Math.max(1, revealCount))).map(row =>
               <LedgerRow key={row.key} row={row} initial={initialKeysRef.current.has(row.key)} />
             )
           )}

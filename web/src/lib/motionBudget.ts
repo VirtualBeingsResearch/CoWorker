@@ -1,7 +1,16 @@
+export type MotionBudgetState = 'active' | 'paused' | 'reduced';
+
+export function motionBudgetState(
+  visibilityState: DocumentVisibilityState,
+  prefersReducedMotion: boolean,
+): MotionBudgetState {
+  if (prefersReducedMotion) return 'reduced';
+  return visibilityState === 'visible' ? 'active' : 'paused';
+}
+
 export function motionBudgetIsActive(
   visibilityState: DocumentVisibilityState,
-  hasFocus: boolean,
   prefersReducedMotion: boolean,
 ): boolean {
-  return visibilityState === 'visible' && hasFocus && !prefersReducedMotion;
+  return motionBudgetState(visibilityState, prefersReducedMotion) === 'active';
 }

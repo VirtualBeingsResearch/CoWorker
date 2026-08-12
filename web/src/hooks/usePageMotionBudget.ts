@@ -1,60 +1,37 @@
 import { useEffect, useState } from 'react';
-import { motionBudgetIsActive } from '../lib/motionBudget';
+import { motionBudgetIsActive, motionBudgetState } from '../lib/motionBudget';
 
-function currentMotionState(media: MediaQueryList, pageFocused: boolean): boolean {
+function currentMotionState(media: MediaQueryList): boolean {
   return motionBudgetIsActive(
     document.visibilityState,
-    pageFocused,
     media.matches,
   );
 }
 
-/** Pause ambient work when the page cannot present it, matching a particle engine's pause-on-blur budget. */
+/** Pause ambient work only when the page cannot present it or the user requests reduced motion. */
 export function usePageMotionBudget(): boolean {
   const [active, setActive] = useState(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return false;
-    return currentMotionState(
-      window.matchMedia('(prefers-reduced-motion: reduce)'),
-      document.visibilityState === 'visible',
-    );
+    return currentMotionState(window.matchMedia('(prefers-reduced-motion: reduce)'));
   });
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let pageFocused = document.visibilityState === 'visible';
 
     const apply = () => {
-      const next = currentMotionState(media, pageFocused);
-      document.documentElement.dataset.motion = next ? 'active' : 'paused';
+      const next = currentMotionState(media);
+      document.documentElement.dataset.motion = motionBudgetState(document.visibilityState, media.matches);
       setActive(current => current === next ? current : next);
-    };
-    const pause = () => {
-      pageFocused = false;
-      apply();
-    };
-    const resume = () => {
-      pageFocused = true;
-      apply();
-    };
-    const onVisibilityChange = () => {
-      pageFocused = document.visibilityState === 'visible';
-      apply();
     };
 
     apply();
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', resume);
-    window.addEventListener('blur', pause);
-    window.addEventListener('pageshow', resume);
-    window.addEventListener('pagehide', pause);
+    document.addEventListener('visibilitychange', apply);
+    window.addEventListener('pageshow', apply);
     media.addEventListener('change', apply);
 
     return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('focus', resume);
-      window.removeEventListener('blur', pause);
-      window.removeEventListener('pageshow', resume);
-      window.removeEventListener('pagehide', pause);
+      document.removeEventListener('visibilitychange', apply);
+      window.removeEventListener('pageshow', apply);
       media.removeEventListener('change', apply);
       delete document.documentElement.dataset.motion;
     };

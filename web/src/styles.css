@@ -1442,12 +1442,6 @@ h1, h2, h3, p { margin: 0; }
   border-left: 3px solid var(--accent, var(--muted));
   --accent: var(--muted);
 }
-@supports (content-visibility: auto) {
-  .ledger .le {
-    content-visibility: auto;
-    contain-intrinsic-block-size: 46px;
-  }
-}
 .ledger .le:is(.thinking:not(.done), .sleep.active, .tool_call)::before {
   content: "";
   position: absolute;
@@ -2357,11 +2351,22 @@ h1, h2, h3, p { margin: 0; }
   }
 }
 
-/* pauseOnBlur：不可见、失焦或系统要求减少动态效果时，不运行 React 之外的 CSS 动画。 */
+/* 页面不可见时冻结环境动画；重新可见时从原进度继续。 */
 html[data-motion="paused"] #root *,
 html[data-motion="paused"] #root *::before,
 html[data-motion="paused"] #root *::after {
   animation-play-state: paused !important;
+}
+
+/* 减少动态效果时让有限动画立即落到末态，避免 pause 卡在 opacity: 0 的首帧。 */
+html[data-motion="reduced"] #root *,
+html[data-motion="reduced"] #root *::before,
+html[data-motion="reduced"] #root *::after {
+  animation-delay: 0s !important;
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-delay: 0s !important;
+  transition-duration: 1ms !important;
 }
 
 /* 视口裁剪：长态日志离开滚动窗口后冻结，重新进入时从原进度继续。 */
