@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RuntimeLogEvent } from '../api/types';
 import { deriveFeedRows, type FeedRow } from '../lib/runtimeFeed';
-import { DEFAULT_FRAME_MS, frameSmoothingAlpha } from '../lib/animationFrame';
 import { t, useAdminI18n } from '../i18n/admin';
 
 // 运行日志的数据源形状（useRuntimeLogStream 的返回值）：events 来自后端
@@ -229,19 +228,18 @@ export function RuntimeLedger({
       });
     }
     prevLenRef.current = rows.length;
-    if (!visible) return;
     if (followingRef.current) {
       scrollToBottom(first ? false : undefined);
     } else if (added > 0) {
       setUnseen(u => u + added);
     }
-  }, [rows, visible]);
+  }, [rows]);
 
   // 逐行插入完成后跳到最新行
   useEffect(() => {
-    if (!revealDone || !visible) return;
+    if (!revealDone) return;
     requestAnimationFrame(() => scrollToBottom(false));
-  }, [revealDone, visible]);
+  }, [revealDone]);
 
   // 平滑滚轮：把离散的滚轮步进累积成目标位置，用 rAF 指数缓动逼近，得到丝滑滚动手感
   // （这块滚动区嵌在 preserve-3d 翻转卡内，原生滚轮多在主线程逐档重绘、又跳又顿）。
@@ -251,19 +249,15 @@ export function RuntimeLedger({
     if (!el) return;
     let target = el.scrollTop;
     let raf = 0;
-    let previousFrame = 0;
-    const tick = (now: number) => {
+    const tick = () => {
       const cur = el.scrollTop;
       const diff = target - cur;
       if (Math.abs(diff) < 0.5) {
         el.scrollTop = target;
         raf = 0;
-        previousFrame = 0;
         return;
       }
-      const elapsed = previousFrame === 0 ? DEFAULT_FRAME_MS : now - previousFrame;
-      previousFrame = now;
-      el.scrollTop = cur + diff * frameSmoothingAlpha(elapsed);
+      el.scrollTop = cur + diff * 0.18;
       raf = requestAnimationFrame(tick);
     };
     const onWheel = (e: WheelEvent) => {
@@ -271,10 +265,7 @@ export function RuntimeLedger({
       const max = el.scrollHeight - el.clientHeight;
       if (max <= 0) return;
       autoRef.current = false; // 用户接管滚动
-      if (!raf) {
-        target = el.scrollTop; // 静止时重新对齐起点，避免与自动贴底冲突后跳变
-        previousFrame = 0;
-      }
+      if (!raf) target = el.scrollTop; // 静止时重新对齐起点，避免与自动贴底冲突后跳变
       let delta = e.deltaY;
       if (e.deltaMode === 1) delta *= 16; // 行 → 像素
       else if (e.deltaMode === 2) delta *= el.clientHeight; // 页 → 像素
@@ -293,13 +284,6 @@ export function RuntimeLedger({
 
   // 新消息行触发巨型 emoji 冲屏（每个 key 仅一次）
   useEffect(() => {
-    if (!visible) {
-      rows.forEach(r => {
-        if (r.kind === 'msg_in' || r.kind === 'msg_out') seenMsgRef.current.add(r.key);
-      });
-      setHeroes(current => current.length > 0 ? [] : current);
-      return;
-    }
     const fresh: Hero[] = [];
     for (const r of rows) {
       if ((r.kind === 'msg_in' || r.kind === 'msg_out') && !seenMsgRef.current.has(r.key)) {
@@ -312,14 +296,10 @@ export function RuntimeLedger({
     const ids = new Set(fresh.map(f => f.id));
     const timer = setTimeout(() => setHeroes(h => h.filter(x => !ids.has(x.id))), 1250);
     return () => clearTimeout(timer);
-  }, [rows, visible]);
+  }, [rows]);
 
   return (
-    <div
-      className={`ledger${visible ? ' ledger-visible' : ''}`}
-      aria-hidden={!visible}
-      aria-label={t('{{name}} 的运行日志（实时事件流）', { name: t('搭档') })}
-    >
+    <div className="ledger" aria-label={t('{{name}} 的运行日志（实时事件流）', { name: t('搭档') })}>
       <div className="ledger-feed-wrap">
         <div
           className="ledger-feed"

@@ -20,7 +20,6 @@ import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
 import { activityStateFromEvents } from './lib/runtimeFeed';
-import { DEFAULT_FRAME_MS, frameSmoothingAlpha } from './lib/animationFrame';
 import {
   USAGE_SCOPE_LABELS,
   USAGE_WINDOWS,
@@ -255,20 +254,16 @@ function useSmoothWheelScroll<T extends HTMLElement>(ref: React.RefObject<T | nu
 
     let target = el.scrollTop;
     let raf = 0;
-    let previousFrame = 0;
 
-    const tick = (now: number) => {
+    const tick = () => {
       const current = el.scrollTop;
       const diff = target - current;
       if (Math.abs(diff) < 0.5) {
         el.scrollTop = target;
         raf = 0;
-        previousFrame = 0;
         return;
       }
-      const elapsed = previousFrame === 0 ? DEFAULT_FRAME_MS : now - previousFrame;
-      previousFrame = now;
-      el.scrollTop = current + diff * frameSmoothingAlpha(elapsed);
+      el.scrollTop = current + diff * 0.18;
       raf = requestAnimationFrame(tick);
     };
 
@@ -277,10 +272,7 @@ function useSmoothWheelScroll<T extends HTMLElement>(ref: React.RefObject<T | nu
       const max = el.scrollHeight - el.clientHeight;
       if (max <= 0) return;
 
-      if (!raf) {
-        target = el.scrollTop;
-        previousFrame = 0;
-      }
+      if (!raf) target = el.scrollTop;
 
       let delta = e.deltaY;
       if (e.deltaMode === 1) delta *= 16;
@@ -616,8 +608,8 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
   // 大Z巡游：Zzz → zZz → zzZ → 循环
   useEffect(() => {
     if (!isSleeping) { setBigZIdx(0); return; }
-    const timer = setInterval(() => setBigZIdx(i => (i + 1) % ZZZ_FRAMES.length), 820);
-    return () => clearInterval(timer);
+    const t = setInterval(() => setBigZIdx(i => (i + 1) % 4), 820);
+    return () => clearInterval(t);
   }, [isSleeping]);
 
   // 做梦场景：仅睡眠时循环随机展示
