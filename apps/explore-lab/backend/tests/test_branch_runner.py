@@ -106,6 +106,7 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
     loop._last_task_reminder_time = 0.0
     loop._bubble_store = None
     loop._subconscious = None
+    loop._environment_runtime = None
     loop._last_compress_generation = mem.compress_generation
 
     return Runtime(
