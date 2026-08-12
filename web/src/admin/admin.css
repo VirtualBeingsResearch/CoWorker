@@ -410,14 +410,15 @@ html:has(.admin-login),
 .bootstrap-runtime-default small em { color: var(--admin-vital); font-size: 8px; font-style: normal; font-weight: 680; }
 .bootstrap-runtime-default > button { flex: 0 0 auto; }
 .bootstrap-mode-inline { gap: 10px; }
-.bootstrap-mode-inline > span b { display: block; overflow: hidden; margin-top: 4px; color: var(--admin-ink); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.bootstrap-mode-inline > span b { display: block; margin-top: 4px; color: var(--admin-ink); font-size: 9px; line-height: 1.4; text-wrap: balance; white-space: normal; }
 .bootstrap-mode-inline > div { display: flex; flex: 0 0 auto; gap: 3px; padding: 3px; border-radius: 8px; background: color-mix(in oklch, var(--admin-line) 52%, transparent); }
 .bootstrap-mode-inline > div button { min-height: 32px; padding: 0 9px; border: 0; border-radius: 6px; color: var(--admin-muted); background: transparent; font-size: 9px; font-weight: 650; cursor: pointer; }
 .bootstrap-mode-inline > div button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 1px 4px color-mix(in oklch, var(--admin-ink) 9%, transparent); }
-.bootstrap-runtime-default .bootstrap-timezone-guidance { display: flex; align-items: center; gap: 4px; margin-top: 4px; color: color-mix(in oklch, var(--admin-amber) 78%, var(--admin-ink)); font-size: 8px; line-height: 1.35; }
-.bootstrap-timezone-guidance > svg { flex: 0 0 auto; }
-.bootstrap-timezone-guidance > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bootstrap-timezone-guidance code { color: inherit; font: 700 8px var(--admin-data); }
+.bootstrap-runtime-default .bootstrap-timezone-guidance { display: flex; align-items: flex-start; gap: 4px; margin-top: 4px; color: color-mix(in oklch, var(--admin-amber) 78%, var(--admin-ink)); font-size: 8px; line-height: 1.35; }
+.bootstrap-timezone-guidance > svg { flex: 0 0 auto; margin-top: 1px; }
+.bootstrap-timezone-guidance > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 4px; min-width: 0; white-space: normal; }
+.bootstrap-timezone-guidance > span > span { white-space: nowrap; }
+.bootstrap-timezone-guidance code { flex: 0 0 auto; color: inherit; font: 700 8px var(--admin-data); white-space: nowrap; }
 .bootstrap-passive-guidance { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid color-mix(in oklch, var(--admin-amber) 32%, var(--admin-line)); border-radius: 10px; color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
 .bootstrap-passive-guidance > svg { flex: 0 0 auto; margin-top: 1px; }
 .bootstrap-passive-guidance p { margin: 0; }
