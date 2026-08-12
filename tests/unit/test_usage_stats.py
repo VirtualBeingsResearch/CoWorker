@@ -63,6 +63,31 @@ def test_empty_snapshot_returns_zeroes():
     assert stats["lifetime"]["by_scope"]["mem0"]["total_tokens"] == 0
 
 
+def test_snapshot_is_cached_until_usage_or_date_changes():
+    now = [datetime(2026, 6, 29, 12, 0, 0)]
+    collector = UsageStatsCollector(now_fn=lambda: now[0])
+
+    first = collector.snapshot()
+    assert collector.snapshot() is first
+
+    collector.on_entry({
+        "type": "llm_response",
+        "ts": "2026-06-29T12:01:00",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    })
+    after_usage = collector.snapshot()
+    assert after_usage is not first
+    assert after_usage["today"]["total_tokens"] == 12
+    assert collector.snapshot() is after_usage
+
+    now[0] = datetime(2026, 6, 30, 0, 0, 1)
+    next_day = collector.snapshot()
+    assert next_day is not after_usage
+    assert next_day["today"]["total_tokens"] == 0
+
+
 def test_aggregates_llm_usage_and_cache_rate():
     collector = _collector()
     collector.load_entries([

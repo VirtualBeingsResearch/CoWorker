@@ -260,6 +260,7 @@ def _register_providers(brain: Brain, config: Config) -> None:
                     name=spec.name,
                     default_model=spec.default_model,
                     tool_use_models=spec.tool_use_models,
+                    model_capabilities=spec.model_capabilities,
                 )
             )
         except ValueError as e:
@@ -400,13 +401,18 @@ def _print_setup_admin_token(config: Config) -> None:
     token = effective_admin_token(config)
     if not token:
         return
+    admin_url = (
+        f"{config.api.public_url}/admin"
+        if config.api.public_url
+        else f"http://127.0.0.1:{config.api.port}/admin"
+    )
     print(
         "\n"
         + "=" * 68
         + "\n"
         + tr(
             "cli.first_run_token",
-            admin_url=f"http://127.0.0.1:{config.api.port}/admin",
+            admin_url=admin_url,
             token=token,
         )
         + "\n"
@@ -420,6 +426,7 @@ def _print_setup_admin_token(config: Config) -> None:
 async def _main() -> bool:
     """主入口。返回 True 表示请求重启，由 run_sync() 交给平台 launcher 处理。"""
     inherited_config, config = _load_config_layers()
+    api_app.setup_cors(config.api.cors_origins)
     _setup_logging(config.agent.logs_dir)
     ensure_admin_token(config)
     logger.info("Starting coworker")
@@ -491,6 +498,9 @@ async def _main() -> bool:
         provider=config.llm.default_provider,
         model=config.llm.default_model,
         available_providers=set(brain.list_providers()),
+    )
+    api_app.setup_bootstrap_reconnect_proof(
+        startup_intent.reconnect_proof if startup_intent is not None else ""
     )
     bootstrap_clean_start = startup_intent is not None
     if bootstrap_clean_start and snapshot_path.exists():

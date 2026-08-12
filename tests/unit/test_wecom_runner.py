@@ -15,6 +15,7 @@ from coworker.channels.wecom.runner import WeComRunner
 from coworker.channels.wecom.sender import split_markdown as _split_markdown
 from coworker.core.config import ChannelAccessConfig, WeComConfig
 from coworker.core.types import CommunicateRequest
+from coworker.i18n import locale_context
 
 
 def _frame_single(request_id: str = "r1", message_id: str = "M1") -> dict:
@@ -215,6 +216,114 @@ async def test_single_inbound_frame_supports_reply_without_conversation_id(tmp_p
     assert event.conversation_id is None
     assert event.content == "ping"
     assert runner._client.reply_stream.await_args.args[0] is frame
+
+
+@pytest.mark.asyncio
+async def test_text_inbound_downloads_quoted_attachment(tmp_path):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    runner.set_inbound_handler(handler)
+    frame = _frame_single()
+    frame["body"]["quote"] = {
+        "msgtype": "file",
+        "file": {
+            "url": "https://x/quoted-file",
+            "aeskey": "QF",
+            "name": "report.pdf",
+        },
+    }
+    runner._client.download_file = AsyncMock(
+        return_value={"buffer": b"%PDF-quoted", "filename": "report.pdf"}
+    )
+
+    await runner._on_text_like(frame)
+
+    handler.assert_awaited_once()
+    event = handler.await_args.args[0]
+    assert [(att.filename, att.media_type) for att in event.attachments] == [
+        ("report.pdf", "application/pdf")
+    ]
+    runner._client.download_file.assert_awaited_once_with(
+        "https://x/quoted-file",
+        "QF",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("locale", "quote_notice", "failure_notice"),
+    [
+        (
+            "zh-CN",
+            '[引用的文件 "report.pdf"]',
+            '[引用附件 文件 "report.pdf" 下载失败]',
+        ),
+        (
+            "en",
+            '[quoted file "report.pdf"]',
+            '[failed to download quoted attachment file "report.pdf"]',
+        ),
+    ],
+)
+async def test_text_inbound_identifies_quoted_attachment_download_failure(
+    tmp_path,
+    locale,
+    quote_notice,
+    failure_notice,
+):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    runner.set_inbound_handler(handler)
+    frame = _frame_single()
+    frame["body"]["quote"] = {
+        "msgtype": "file",
+        "file": {
+            "url": "https://secret.example/quoted-file",
+            "aeskey": "SECRET-AES-KEY",
+            "name": "report.pdf",
+        },
+    }
+    runner._client.download_file = AsyncMock(
+        side_effect=RuntimeError("sensitive transport detail")
+    )
+
+    with locale_context(locale):
+        await runner._on_text_like(frame)
+
+    handler.assert_awaited_once()
+    event = handler.await_args.args[0]
+    assert event.attachments == []
+    assert quote_notice in event.content
+    assert failure_notice in event.content
+    assert "https://secret.example" not in event.content
+    assert "SECRET-AES-KEY" not in event.content
+    assert "sensitive transport detail" not in event.content
+
+
+@pytest.mark.asyncio
+async def test_text_inbound_access_is_checked_before_quoted_attachment_download(
+    tmp_path,
+):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    runner.set_inbound_handler(handler)
+    runner.set_access_controller(
+        ChannelAccessController(
+            ChannelAccessConfig.model_validate(
+                {"wecom": {"inbound_deny": ["wecom:single:U123"]}}
+            )
+        )
+    )
+    frame = _frame_single()
+    frame["body"]["quote"] = {
+        "msgtype": "file",
+        "file": {"url": "https://x/quoted-file", "aeskey": "QF"},
+    }
+
+    await runner._on_text_like(frame)
+
+    runner._client.download_file.assert_not_awaited()
+    handler.assert_not_awaited()
 
 
 @pytest.mark.asyncio

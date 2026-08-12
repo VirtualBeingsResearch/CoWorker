@@ -32,7 +32,7 @@ ARG COWORKER_BUNDLE_REPOSITORY_REF
 
 # Install system deps + Node.js 24 via NodeSource
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git gnupg ffmpeg openssh-client \
+    curl ca-certificates git gnupg ffmpeg openssh-client tzdata \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \

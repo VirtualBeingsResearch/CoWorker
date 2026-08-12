@@ -59,6 +59,7 @@ class BaseLLMProvider(ABC):
     def __init__(self, name: str | None = None) -> None:
         self.provider_name = name or type(self).provider_type
         self._tool_use_models: set[str] = set()
+        self._model_capabilities: dict[str, dict[str, bool]] = {}
 
     @classmethod
     def resolve_base_url(cls, configured_base_url: str | None) -> str | None:
@@ -75,9 +76,41 @@ class BaseLLMProvider(ABC):
             models.add(model_id)
 
     def can_use_tools(self, model_id: str) -> bool:
+        declared = getattr(self, "_model_capabilities", {}).get(model_id)
+        if declared is not None:
+            return declared["tools"]
         return model_id in getattr(self, "_tool_use_models", set()) or self.supports_tool_use(
             model_id
         )
+
+    def declare_model_capabilities(
+        self,
+        model_id: str,
+        *,
+        tools: bool,
+        vision: bool,
+        video: bool,
+    ) -> None:
+        """Override the static catalog for one administrator-declared model."""
+
+        if model_id:
+            capabilities = getattr(self, "_model_capabilities", None)
+            if capabilities is None:
+                capabilities = {}
+                self._model_capabilities = capabilities
+            capabilities[model_id] = {
+                "tools": bool(tools),
+                "vision": bool(vision),
+                "video": bool(video),
+            }
+
+    def can_use_vision(self, model_id: str) -> bool:
+        declared = getattr(self, "_model_capabilities", {}).get(model_id)
+        return declared["vision"] if declared is not None else self.supports_vision(model_id)
+
+    def can_use_video(self, model_id: str) -> bool:
+        declared = getattr(self, "_model_capabilities", {}).get(model_id)
+        return declared["video"] if declared is not None else self.supports_video(model_id)
 
     @abstractmethod
     async def complete(
@@ -133,7 +166,7 @@ class BaseLLMProvider(ABC):
         """
         if isinstance(content, str):
             return content
-        if self.supports_vision(model_id):
+        if self.can_use_vision(model_id):
             return content
         result = []
         for block in content:

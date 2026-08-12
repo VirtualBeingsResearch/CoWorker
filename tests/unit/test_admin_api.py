@@ -591,7 +591,14 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
     built: list[str] = []
 
     def fake_build_provider(
-        type_, api_key, *, base_url=None, name=None, default_model=None, tool_use_models=None
+        type_,
+        api_key,
+        *,
+        base_url=None,
+        name=None,
+        default_model=None,
+        tool_use_models=None,
+        model_capabilities=None,
     ):
         built.append(str(name or type_))
         return SimpleNamespace(provider_name=name or type_)
@@ -629,6 +636,54 @@ def test_config_patch_rebuilds_only_changed_managed_provider(tmp_path, monkeypat
         "sk-a",
         "sk-b",
     ]
+
+
+def test_config_patch_hot_applies_managed_provider_model_capabilities(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    built_capabilities = []
+
+    def fake_build_provider(type_, api_key, *, model_capabilities=None, **kwargs):
+        built_capabilities.extend(model_capabilities or [])
+        return SimpleNamespace(
+            provider_name=kwargs.get("name") or type_,
+            model_capabilities=model_capabilities or [],
+        )
+
+    monkeypatch.setattr("coworker.brain.factory.build_provider", fake_build_provider)
+    declared = {
+        "model": "gateway-omni",
+        "tools": True,
+        "vision": True,
+        "video": False,
+    }
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "llm": {
+                    "managed_providers": [
+                        {
+                            "name": "admin-custom",
+                            "type": "openai",
+                            "api_key": "",
+                            "model_capabilities": [declared],
+                        }
+                    ]
+                }
+            },
+            "secrets": {"llm.managed_providers.0.api_key": "sk-custom"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert [capability.model_dump() for capability in built_capabilities] == [declared]
+    hot_provider = admin._brain.upsert_provider.await_args.args[0]
+    assert [capability.model_dump() for capability in hot_provider.model_capabilities] == [declared]
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["llm"]["managed_providers"][0]["model_capabilities"] == [declared]
 
 
 def test_readding_removed_provider_clears_pending_restart(tmp_path, monkeypatch):
@@ -700,6 +755,20 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
 
     # The form shows the saved desired value while the running Config remains unchanged.
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
+
+
+def test_config_patch_marks_public_url_for_restart(tmp_path):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"api": {"public_url": "https://coworker.example.com"}}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requires_restart"] == ["api.public_url"]
+    assert response.json()["pending_restart"] is True
 
 
 def test_config_patch_persists_only_changed_fields(tmp_path):
@@ -1282,7 +1351,7 @@ def test_registered_channel_settings_are_hot_applied_generically(tmp_path):
     assert settings.applied[0].enabled is True
 
 
-def test_runtime_locale_round_trips_and_only_requires_restart(tmp_path):
+def test_runtime_language_round_trip_requires_restart(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
 
@@ -1504,6 +1573,12 @@ def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsy
     assert "saved-token" in captured.err
     assert "http://127.0.0.1:8123/admin" in captured.err
 
+    config.api.public_url = "https://coworker.example.com"
+    _print_setup_admin_token(config)
+    captured = capsys.readouterr()
+    assert "https://coworker.example.com/admin" in captured.err
+    assert "http://127.0.0.1:8123/admin" not in captured.err
+
     config.admin.token = ""
     config.desktop_updates.admin_token = "legacy-token"
     _print_setup_admin_token(config)
@@ -1514,20 +1589,32 @@ def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsy
     assert capsys.readouterr().err == ""
 
 
-def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
+def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkeypatch):
     client, config = _client(tmp_path)
     admin._brain.active_provider = None
     admin._agent._identity._dir = tmp_path / "identity"
     admin._agent._identity.load = lambda: None
+    monkeypatch.setattr(
+        admin,
+        "_server_timezone_description",
+        lambda: "Asia/Shanghai (UTC+8)",
+    )
     headers = {"Authorization": "Bearer secret"}
 
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
-    assert status.json()["defaults"] == {
-        "locale": "zh-CN",
-        "max_tokens": 8192,
-        "passive_mode": False,
+    assert status.json()["server_timezone"] == "Asia/Shanghai (UTC+8)"
+    defaults = status.json()["defaults"]
+    assert defaults["configuration"]["llm"]["max_tokens"] == 8192
+    assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
+    assert defaults["configuration"]["agent"]["passive_mode"] is False
+    assert defaults["configuration"]["i18n"]["locale"] == "zh-CN"
+    assert "timezone" not in defaults["configuration"]["i18n"]
+    assert defaults["configuration"]["admin"]["token"] == ""
+    assert defaults["secret_status"]["admin.token"] == {
+        "configured": True,
+        "last4": "cret",
     }
     assert {item["type"] for item in status.json()["providers"]} >= {"openai", "deepseek"}
 
@@ -1540,9 +1627,60 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
             "api_key": "sk-first-run",
             "base_url": "https://example.test/v1",
             "coworker_name": "Nova",
-            "locale": "en",
-            "max_tokens": 4096,
-            "passive_mode": True,
+            "reconnect_proof": "ab" * 32,
+            "configuration": {
+                "llm": {
+                    "max_tokens": 4096,
+                    "summary_provider": "openai",
+                    "summary_model": "gpt-5.2",
+                },
+                "memory": {
+                    "short_term_max_tokens": 48_000,
+                    "compress_ratio": 0.4,
+                    "tree_backfill_max_leaves": 32,
+                    "auto_recall_enabled": False,
+                    "auto_recall_relevance_threshold": 0.72,
+                    "auto_recall_limit": 3,
+                    "persona_enabled": False,
+                },
+                "i18n": {"locale": "en"},
+                "agent": {
+                    "passive_mode": True,
+                    "idle_sleep_seconds": 90,
+                    "bubble_max_concurrent": 2,
+                    "inbox_batch_max": 4,
+                },
+                "api": {
+                    "port": 8124,
+                    "public_url": "https://coworker.example.com",
+                    "development_mode": True,
+                    "cors_origins": ["https://desktop.example"],
+                },
+                "relay": {
+                    "enabled": False,
+                    "url": "https://relay.example.test",
+                    "instance_id": "cw_abcdefgh",
+                    "auth_epoch": 2,
+                },
+                "channel_access": {
+                    "wecom": {"inbound_allow": ["wecom:single:*"]}
+                },
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "bot-first-run",
+                    "ws_url": "wss://wecom.example.test/ws",
+                },
+                "weixin": {"enabled": False},
+                "desktop_updates": {
+                    "sync_interval_seconds": 600,
+                    "sync_on_start": False,
+                },
+            },
+            "secrets": {
+                "api.communication_token": "desktop-first-run",
+                "relay.instance_private_key": "relay-private",
+                "wecom.secret": "wecom-first-run",
+            },
         },
     )
 
@@ -1551,10 +1689,29 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
     assert saved["llm"]["default_provider"] == "openai"
     assert saved["llm"]["default_model"] == "gpt-5.2"
     assert saved["llm"]["max_tokens"] == 4096
+    assert saved["llm"]["summary_provider"] == "openai"
     assert saved["llm"]["managed_providers"][0]["api_key"] == "sk-first-run"
-    assert saved["memory"]["mem0_llm_provider"] == "openai"
+    assert saved["memory"]["short_term_max_tokens"] == 48_000
+    assert saved["memory"]["compress_ratio"] == 0.4
+    assert saved["memory"]["tree_backfill_max_leaves"] == 32
+    assert saved["memory"]["auto_recall_enabled"] is False
+    assert saved["memory"]["auto_recall_relevance_threshold"] == 0.72
+    assert saved["memory"]["auto_recall_limit"] == 3
+    assert saved["memory"]["persona_enabled"] is False
     assert saved["i18n"]["locale"] == "en"
     assert saved["agent"]["passive_mode"] is True
+    assert saved["agent"]["idle_sleep_seconds"] == 90
+    assert saved["agent"]["bubble_max_concurrent"] == 2
+    assert saved["agent"]["inbox_batch_max"] == 4
+    assert saved["api"]["port"] == 8124
+    assert saved["api"]["public_url"] == "https://coworker.example.com"
+    assert saved["api"]["communication_token"] == "desktop-first-run"
+    assert saved["relay"]["instance_id"] == "cw_abcdefgh"
+    assert saved["relay"]["instance_private_key"] == "relay-private"
+    assert saved["channel_access"]["wecom"]["inbound_allow"] == ["wecom:single:*"]
+    assert saved["wecom"]["secret"] == "wecom-first-run"
+    assert saved["weixin"]["enabled"] is False
+    assert saved["desktop_updates"]["sync_interval_seconds"] == 600
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"
     intent = json.loads(
         (tmp_path / "memory" / "startup_intent.json").read_text(encoding="utf-8")
@@ -1564,6 +1721,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
         "reason": "bootstrap",
         "provider": "openai",
         "model": "gpt-5.2",
+        "reconnect_proof": "ab" * 32,
     }
     assert "sk-first-run" not in json.dumps(intent)
     assert config.admin.token == "secret"
@@ -1587,13 +1745,21 @@ def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
     accepted = client.post(
         "/api/admin/bootstrap",
         headers=headers,
-        json={**payload, "allow_unverified_model": True},
+        json={
+            **payload,
+            "model_capabilities": {"tools": True, "vision": True, "video": False},
+        },
     )
     assert accepted.status_code == 202
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved["llm"]["default_model"] == "custom-tool-model"
-    assert saved["llm"]["managed_providers"][0]["tool_use_models"] == [
-        "custom-tool-model"
+    assert saved["llm"]["managed_providers"][0]["model_capabilities"] == [
+        {
+            "model": "custom-tool-model",
+            "tools": True,
+            "vision": True,
+            "video": False,
+        }
     ]
     assert "max_tokens" not in saved["llm"]
     assert "i18n" not in saved
@@ -1633,11 +1799,16 @@ def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path)
 
     assert not (tmp_path / "admin_config.json").exists()
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
+    assert not (tmp_path / "identity" / "name.txt").exists()
 
 
 def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypatch):
     client, _ = _client(tmp_path)
     admin._brain.active_provider = None
+    admin._agent._identity._dir = tmp_path / "identity"
+    admin._agent._identity.load = lambda: None
+    (tmp_path / "identity").mkdir()
+    (tmp_path / "identity" / "name.txt").write_text("Luna", encoding="utf-8")
 
     def fail_config_write(path, payload):
         raise OSError("config write failed")
@@ -1655,6 +1826,7 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
                 "provider_type": "openai",
                 "model": "gpt-5.2",
                 "api_key": "sk-test",
+                "coworker_name": "Nova",
             },
         )
     except OSError as error:
@@ -1663,6 +1835,7 @@ def test_bootstrap_config_write_failure_clears_startup_intent(tmp_path, monkeypa
         raise AssertionError("bootstrap should propagate the config write failure")
 
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
+    assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Luna"
 
 
 def test_bootstrap_custom_model_confirmation_does_not_trust_provider_capability(tmp_path):
@@ -1680,6 +1853,26 @@ def test_bootstrap_custom_model_confirmation_does_not_trust_provider_capability(
     assert response.status_code == 422
 
 
+def test_bootstrap_custom_primary_model_requires_declared_tool_support(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.active_provider = None
+
+    response = client.post(
+        "/api/admin/bootstrap",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "openai",
+            "model": "custom-vision-model",
+            "api_key": "sk-test",
+            "model_capabilities": {"tools": False, "vision": True, "video": False},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "必须支持工具调用" in response.json()["detail"]
+    assert not (tmp_path / "admin_config.json").exists()
+
+
 def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_path):
     client, _ = _client(tmp_path)
     admin._brain.active_provider = None
@@ -1687,16 +1880,60 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
     base = {"provider_type": "openai", "model": "gpt-5.2", "api_key": "sk-test"}
 
     assert client.post(
-        "/api/admin/bootstrap", headers=headers, json={**base, "max_tokens": 0}
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "max_tokens": 2048},
     ).status_code == 422
     assert client.post(
-        "/api/admin/bootstrap", headers=headers, json={**base, "locale": "fr"}
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"llm": {"max_tokens": 0}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"api": {"port": 65_536}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"api": {"public_url": "https://example.com/path"}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"i18n": {"locale": "fr"}}},
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap", headers=headers, json={**base, "model": "   "}
     ).status_code == 422
     assert client.post(
         "/api/admin/bootstrap", headers=headers, json={**base, "api_key": "   "}
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"memory": {"compress_ratio": 1}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={
+            **base,
+            "configuration": {
+                "memory": {"auto_recall_relevance_threshold": 1.1}
+            },
+        },
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "configuration": {"llm": {"default_model": "managed"}}},
+    ).status_code == 422
+    assert client.post(
+        "/api/admin/bootstrap",
+        headers=headers,
+        json={**base, "secrets": {"admin.token": "replacement"}},
     ).status_code == 422
     assert not (tmp_path / "admin_config.json").exists()
     assert not (tmp_path / "memory" / "startup_intent.json").exists()
@@ -1706,6 +1943,11 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
     config.agent.passive_mode = True
     config.agent.idle_sleep_seconds = 0
+    status_path = Path(config.memory.db_path) / "instance_status.json"
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(
+        json.dumps({"startup_reason": "bootstrap"}), encoding="utf-8"
+    )
     short_term = ShortTermMemory(max_tokens=12_345)
     agent = SimpleNamespace(
         _identity=_Identity(),
@@ -1731,6 +1973,7 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     assert response.json()["memory"]["max_tokens"] == 12_345
     assert response.json()["status"]["passive_mode"] is True
     assert response.json()["status"]["idle_sleep_seconds"] == 0
+    assert response.json()["status"]["startup_reason"] == "bootstrap"
 
 
 def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):

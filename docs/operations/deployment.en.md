@@ -75,7 +75,9 @@ Do not run as root or grant file access beyond the intended workspace. Run
 
 - Keep `API__HOST=127.0.0.1`. A container may listen on `0.0.0.0` internally while the host mapping remains loopback-only.
 - For a trusted-network reverse proxy, terminate TLS there, set exact `API__CORS_ORIGINS`, use a
-  strong `API__COMMUNICATION_TOKEN`, and restrict source networks.
+  strong `API__COMMUNICATION_TOKEN`, and restrict source networks. Set `API__PUBLIC_URL` to the
+  browser-facing public origin so setup and restart return through the proxy instead of an internal
+  bind port.
 - `API__DEVELOPMENT_MODE=true` disables some Desktop Bearer and HTTPS checks. Use it only for
   deliberate local development.
 - For public Desktop access, deploy [Self-hosted Relay](relay.en.md). Relay is not a general HTTP/TCP proxy.

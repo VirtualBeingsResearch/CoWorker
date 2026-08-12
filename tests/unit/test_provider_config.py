@@ -9,7 +9,7 @@ from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
 from coworker.brain.zhipu_provider import ZhipuProvider
-from coworker.core.config import Config, LLMConfig
+from coworker.core.config import Config, LLMConfig, ModelCapabilitySpec, ProviderSpec
 from coworker.core.exceptions import ModelNotSupportedError
 from coworker.core.model_config import (
     RuntimeModelConfig,
@@ -81,6 +81,61 @@ def test_build_provider_sets_default_model():
 
 def test_build_provider_no_default_model_is_empty():
     assert build_provider("zhipu", "k").default_model == ""
+
+
+def test_build_provider_applies_declared_model_capabilities():
+    model = "custom-omni-model"
+    provider = build_provider(
+        "zhipu",
+        "k",
+        model_capabilities=[
+            ModelCapabilitySpec(
+                model=model,
+                tools=True,
+                vision=True,
+                video=True,
+            )
+        ],
+    )
+
+    assert provider.can_use_tools(model) is True
+    assert provider.can_use_vision(model) is True
+    assert provider.can_use_video(model) is True
+
+
+def test_declared_capabilities_override_static_provider_catalog():
+    model = "glm-5.1"
+    provider = build_provider(
+        "zhipu",
+        "k",
+        model_capabilities=[
+            ModelCapabilitySpec(
+                model=model,
+                tools=False,
+                vision=False,
+                video=False,
+            )
+        ],
+    )
+
+    assert provider.supports_tool_use(model) is True
+    assert provider.can_use_tools(model) is False
+    assert provider.can_use_vision(model) is False
+
+
+def test_provider_model_capabilities_require_unique_models_and_vision_for_video():
+    with pytest.raises(ValueError, match="支持视觉"):
+        ModelCapabilitySpec(model="video-only", video=True)
+
+    with pytest.raises(ValueError, match="重复"):
+        ProviderSpec(
+            name="custom",
+            type="openai",
+            model_capabilities=[
+                {"model": "same", "tools": True},
+                {"model": "same", "vision": True},
+            ],
+        )
 
 
 # ---- resolved_providers 合并逻辑 ----
@@ -239,6 +294,29 @@ async def test_switch_model_no_model_and_no_default_raises():
         await brain.switch_model("zhipu-b")
 
 
+@pytest.mark.asyncio
+async def test_declared_custom_model_can_be_selected_for_vision():
+    model = "custom-vision-model"
+    brain = Brain("zhipu", "glm-5.1")
+    brain.register_provider(
+        build_provider(
+            "zhipu",
+            "k",
+            model_capabilities=[
+                ModelCapabilitySpec(model=model, vision=True)
+            ],
+        )
+    )
+
+    snapshot = await brain.update_model_config(
+        vision_provider="zhipu",
+        vision_model=model,
+    )
+
+    assert snapshot["vision"]["provider"] == "zhipu"
+    assert snapshot["vision"]["model"] == model
+
+
 def test_register_providers_skips_empty_credentials():
     config = Config.model_validate(
         {
@@ -387,7 +465,7 @@ async def test_confirmed_custom_model_survives_provider_hot_update():
         "sk-original",
         name="openai",
         default_model=model,
-        tool_use_models=[model],
+        model_capabilities=[ModelCapabilitySpec(model=model, tools=True, vision=True)],
     )
     brain.register_provider(original)
     replacement = build_provider(
@@ -396,10 +474,11 @@ async def test_confirmed_custom_model_survives_provider_hot_update():
         base_url="https://example.test/v1",
         name="openai",
         default_model=model,
-        tool_use_models=[model],
+        model_capabilities=[ModelCapabilitySpec(model=model, tools=True, vision=True)],
     )
 
     await brain.upsert_provider(replacement)
 
     assert brain.active_provider is replacement
     assert replacement.can_use_tools(model) is True
+    assert replacement.can_use_vision(model) is True

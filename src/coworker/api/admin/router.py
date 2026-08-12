@@ -6,9 +6,11 @@ import asyncio
 import base64
 import binascii
 import json
+import os
 import re
 import secrets
 import shutil
+import time
 import uuid
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
@@ -40,12 +42,13 @@ from coworker.channels.traffic import (
 )
 from coworker.core.config import (
     Config,
+    ModelCapabilities,
+    ModelCapabilitySpec,
     _deep_merge,
     effective_admin_token,
     load_admin_overrides,
 )
 from coworker.core.startup_intent import (
-    clear_startup_intent,
     write_bootstrap_startup_intent,
 )
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
@@ -97,6 +100,19 @@ _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
+_BOOTSTRAP_MANAGED_CONFIG_PATHS = {
+    "admin.token",
+    "admin.config_file",
+    "desktop_updates.admin_token",
+    "llm.default_provider",
+    "llm.default_model",
+    "llm.managed_providers",
+    "llm.providers_file",
+    "llm.runtime_config_file",
+}
+_BOOTSTRAP_HIDDEN_LLM_SUFFIXES = ("_api_key", "_base_url")
+
+
 class ConfigPatch(BaseModel):
     changes: JsonObject = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
@@ -135,15 +151,17 @@ class PersonMergePayload(BaseModel):
 
 
 class BootstrapPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
     model: str = Field(min_length=1, max_length=120)
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
-    locale: Literal["zh-CN", "en"] | None = None
-    max_tokens: int | None = Field(default=None, gt=0)
-    passive_mode: bool = False
-    allow_unverified_model: bool = False
+    reconnect_proof: str = Field(default="", pattern=r"^(?:[0-9a-f]{64})?$")
+    model_capabilities: ModelCapabilities | None = None
+    configuration: JsonObject = Field(default_factory=dict)
+    secrets: dict[str, str | None] = Field(default_factory=dict)
 
 
 class SummaryModelPatch(BaseModel):
@@ -915,12 +933,49 @@ async def verify_session(_: None = Depends(require_admin)) -> ApiResponse:
     }
 
 
+def _bootstrap_managed_config_path(
+    configuration: JsonObject,
+    secrets: dict[str, str | None],
+) -> str | None:
+    for section, value in configuration.items():
+        if not isinstance(value, dict):
+            continue
+        for field_name in value:
+            path = f"{section}.{field_name}"
+            if path in _BOOTSTRAP_MANAGED_CONFIG_PATHS:
+                return path
+            if section == "llm" and field_name.endswith(
+                _BOOTSTRAP_HIDDEN_LLM_SUFFIXES
+            ):
+                return path
+    for path in secrets:
+        if path in _BOOTSTRAP_MANAGED_CONFIG_PATHS or path in {
+            "admin.token",
+            "desktop_updates.admin_token",
+        }:
+            return path
+    return None
+
+
+def _server_timezone_description() -> str:
+    """Describe the operating system timezone without creating app-level state."""
+
+    is_dst = bool(time.daylight and time.localtime().tm_isdst)
+    offset_seconds = -(time.altzone if is_dst else time.timezone)
+    hours, remainder = divmod(abs(offset_seconds), 3600)
+    minutes = remainder // 60
+    sign = "+" if offset_seconds >= 0 else "-"
+    offset = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
+    name = os.environ.get("TZ", "").strip() or time.tzname[1 if is_dst else 0]
+    return f"{name} ({offset})"
+
+
 @router.get("/bootstrap")
 async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
 
     brain = _require_brain()
-    config = _require_config()
+    snapshot = _require_admin_config_service().snapshot()
     from coworker.brain.factory import available_models, available_types
 
     providers: list[dict[str, object]] = []
@@ -930,11 +985,11 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
+        "server_timezone": _server_timezone_description(),
         "providers": providers,
         "defaults": {
-            "locale": config.i18n.locale.value,
-            "max_tokens": config.llm.max_tokens,
-            "passive_mode": config.agent.passive_mode,
+            "configuration": snapshot.config,
+            "secret_status": snapshot.secret_status,
         },
     }
 
@@ -965,16 +1020,9 @@ async def complete_bootstrap(
         if not api_key:
             raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
 
-        provider = build_provider(
-            provider_type,
-            api_key,
-            base_url=base_url or None,
-            name=provider_type,
-            default_model=model,
-        )
         catalog_models = available_models(provider_type)
         custom_model = model not in catalog_models
-        if custom_model and not payload.allow_unverified_model:
+        if custom_model and payload.model_capabilities is None:
             raise HTTPException(
                 status_code=422,
                 detail=tr(
@@ -983,7 +1031,20 @@ async def complete_bootstrap(
                     provider=provider_type,
                 ),
             )
-        if not custom_model and not provider.supports_tool_use(model):
+        declared_models = (
+            [ModelCapabilitySpec(model=model, **payload.model_capabilities.model_dump())]
+            if payload.model_capabilities is not None
+            else []
+        )
+        provider = build_provider(
+            provider_type,
+            api_key,
+            base_url=base_url or None,
+            name=provider_type,
+            default_model=model,
+            model_capabilities=declared_models,
+        )
+        if not provider.can_use_tools(model):
             raise HTTPException(
                 status_code=422,
                 detail=tr(
@@ -993,15 +1054,34 @@ async def complete_bootstrap(
                 ),
             )
 
-        locale = payload.locale or config.i18n.locale.value
-        max_tokens = payload.max_tokens if payload.max_tokens is not None else config.llm.max_tokens
+        managed_path = _bootstrap_managed_config_path(
+            payload.configuration,
+            payload.secrets,
+        )
+        if managed_path is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.admin.bootstrap_field_managed", path=managed_path),
+            )
         path = Path(config.admin.config_file)
         current_overrides = load_admin_overrides(path)
-        changes: JsonObject = {
+        try:
+            next_overrides = config_service.prepare_overrides(
+                current_overrides,
+                ConfigUpdate(
+                    changes=payload.configuration,
+                    secrets=payload.secrets,
+                ),
+            )
+        except ConfigUpdateError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=error.detail,
+            ) from error
+        connection_changes: JsonObject = {
             "llm": {
                 "default_provider": provider_type,
                 "default_model": model,
-                "max_tokens": max_tokens,
                 "managed_providers": [
                     {
                         "name": provider_type,
@@ -1009,54 +1089,94 @@ async def complete_bootstrap(
                         "api_key": api_key,
                         "base_url": base_url,
                         "default_model": model,
-                        "tool_use_models": [model] if custom_model else [],
+                        "model_capabilities": [
+                            capability.model_dump(mode="json")
+                            for capability in declared_models
+                        ],
                     }
                 ],
             },
-            "memory": {"mem0_llm_provider": provider_type, "mem0_llm_model": model},
-            "i18n": {"locale": locale},
-            "agent": {"passive_mode": payload.passive_mode},
         }
-        next_overrides = config_service.merge_overrides(current_overrides, changes)
+        next_overrides = config_service.merge_overrides(
+            next_overrides,
+            connection_changes,
+        )
         try:
-            Config.model_validate(_deep_merge(config.model_dump(mode="json"), next_overrides))
+            desired = Config.model_validate(
+                _deep_merge(config.model_dump(mode="json"), next_overrides)
+            )
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=json.loads(e.json())) from e
 
         agent = _require_agent()
-        if payload.coworker_name.strip():
-            identity = agent._identity
-            identity._dir.mkdir(parents=True, exist_ok=True)
-            (identity._dir / "name.txt").write_text(
-                payload.coworker_name.strip(), encoding="utf-8"
+        identity = agent._identity
+        name_path: Path | None = None
+        previous_name: bytes | None = None
+        name_snapshot_captured = False
+        reload_identity = False
+        startup_intent_path: Path | None = None
+        restart_pending = False
+        try:
+            if payload.coworker_name.strip():
+                current_identity_dir = Path(identity._dir)
+                identity_dir = current_identity_dir
+                agent_changes = payload.configuration.get("agent")
+                if isinstance(agent_changes, dict) and "identity_dir" in agent_changes:
+                    identity_dir = Path(desired.agent.identity_dir)
+                name_path = identity_dir / "name.txt"
+                previous_name = name_path.read_bytes() if name_path.exists() else None
+                name_snapshot_captured = True
+                identity_dir.mkdir(parents=True, exist_ok=True)
+                name_path.write_text(payload.coworker_name.strip(), encoding="utf-8")
+                reload_identity = identity_dir == current_identity_dir
+                if reload_identity:
+                    identity.load()
+
+            startup_intent_path = write_bootstrap_startup_intent(
+                desired.memory.db_path,
+                provider=provider_type,
+                model=model,
+                reconnect_proof=payload.reconnect_proof,
             )
-            identity.load()
-
-        write_bootstrap_startup_intent(
-            config.memory.db_path,
-            provider=provider_type,
-            model=model,
-        )
-        try:
             config_service.write_sparse_overrides(path, next_overrides)
-        except Exception:
-            clear_startup_intent(config.memory.db_path)
-            raise
-
-        config_service.mark_restart_pending("bootstrap")
-        try:
+            config_service.mark_restart_pending("bootstrap")
+            restart_pending = True
             asyncio.get_running_loop().call_later(
                 0.5, lambda: agent.request_restart(reason="bootstrap")
             )
         except Exception:
-            config_service.clear_restart_pending("bootstrap")
-            clear_startup_intent(config.memory.db_path)
+            if name_path is not None and name_snapshot_captured:
+                try:
+                    if previous_name is None:
+                        name_path.unlink(missing_ok=True)
+                    else:
+                        name_path.write_bytes(previous_name)
+                    if reload_identity:
+                        identity.load()
+                except Exception as rollback_error:
+                    logger.warning(
+                        f"Failed to roll back bootstrap identity name: {rollback_error}"
+                    )
+            if restart_pending:
+                try:
+                    config_service.clear_restart_pending("bootstrap")
+                except Exception as rollback_error:
+                    logger.warning(
+                        f"Failed to clear bootstrap restart state: {rollback_error}"
+                    )
+            if startup_intent_path is not None:
+                try:
+                    startup_intent_path.unlink(missing_ok=True)
+                except OSError as rollback_error:
+                    logger.warning(
+                        f"Failed to clear bootstrap startup intent: {rollback_error}"
+                    )
             raise
         try:
             _audit(
                 request,
                 "bootstrap.complete",
-                f"{provider_type}/{model} locale={locale} max_tokens={max_tokens} passive_mode={payload.passive_mode} custom_model={custom_model}",
+                f"{provider_type}/{model} locale={desired.i18n.locale.value} max_tokens={desired.llm.max_tokens} passive_mode={desired.agent.passive_mode} custom_model={custom_model}",
             )
         except OSError as error:
             logger.warning(f"Failed to write bootstrap audit entry: {error}")
@@ -1067,10 +1187,22 @@ async def complete_bootstrap(
 async def overview(_: None = Depends(require_admin)) -> ApiResponse:
     agent = _require_agent()
     brain = _require_brain()
+    config = _require_config()
     tasks = agent._task_store.list() if agent._task_store else []
     bubbles = agent._bubble_store.list_active() if agent._bubble_store else []
     memory_count = await agent._long_term.count()
     stm = agent._short_term
+    startup_reason = "unknown"
+    try:
+        instance_status = json.loads(
+            (Path(config.memory.db_path) / "instance_status.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if instance_status.get("startup_reason") in {"bootstrap", "restart", "start"}:
+            startup_reason = instance_status["startup_reason"]
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
     return {
         "status": {
             "is_running": agent.state.is_running,
@@ -1079,8 +1211,9 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
             "started_at": _process_started_at.isoformat(),
-            "passive_mode": _require_config().agent.passive_mode,
-            "idle_sleep_seconds": _require_config().agent.idle_sleep_seconds,
+            "startup_reason": startup_reason,
+            "passive_mode": config.agent.passive_mode,
+            "idle_sleep_seconds": config.agent.idle_sleep_seconds,
         },
         "counts": {
             "tasks": len(tasks),

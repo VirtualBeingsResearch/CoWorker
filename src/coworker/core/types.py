@@ -306,4 +306,3 @@ class AgentState:
                 text = text.replace(wid, name)
         text = text.replace("wecom:single:", "").replace("wecom:group:", "")
         return text
-

@@ -18,6 +18,7 @@ class StartupIntent:
     reason: Literal["bootstrap"]
     provider: str
     model: str
+    reconnect_proof: str = ""
 
 
 def _intent_path(db_path: str | Path) -> Path:
@@ -29,6 +30,7 @@ def write_bootstrap_startup_intent(
     *,
     provider: str,
     model: str,
+    reconnect_proof: str = "",
 ) -> Path:
     """Atomically record that the next process should perform a clean bootstrap start."""
 
@@ -40,6 +42,8 @@ def write_bootstrap_startup_intent(
         "provider": provider,
         "model": model,
     }
+    if reconnect_proof:
+        payload["reconnect_proof"] = reconnect_proof
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -83,8 +87,16 @@ def load_bootstrap_startup_intent(
             raise ValueError("unsupported startup intent reason")
         intent_provider = payload.get("provider")
         intent_model = payload.get("model")
+        reconnect_proof = payload.get("reconnect_proof", "")
         if not isinstance(intent_provider, str) or not isinstance(intent_model, str):
             raise ValueError("startup intent provider/model must be strings")
+        if not isinstance(reconnect_proof, str):
+            raise ValueError("startup intent reconnect proof must be a string")
+        if reconnect_proof and (
+            len(reconnect_proof) != 64
+            or any(character not in "0123456789abcdef" for character in reconnect_proof)
+        ):
+            raise ValueError("startup intent reconnect proof must be 64 lowercase hex characters")
         if (
             intent_provider != provider
             or intent_model != model
@@ -97,6 +109,7 @@ def load_bootstrap_startup_intent(
             reason="bootstrap",
             provider=intent_provider,
             model=intent_model,
+            reconnect_proof=reconnect_proof,
         )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         logger.warning(f"Discarding invalid startup intent: {error}")

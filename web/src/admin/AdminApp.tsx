@@ -1,4 +1,4 @@
-import { createContext, FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -9,8 +9,11 @@ import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
+import { configFieldPresentation } from './settings/configFieldPresentation';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
+import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
+import { bootstrapTimezoneAdvice, detectBrowserTimezone } from './bootstrapTimezone';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import type { UsageStats } from '../api/types';
@@ -234,8 +237,111 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
+const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'desktop_updates'];
+const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
+  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', desktop_updates: '桌面更新',
+};
+const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
+  llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
+  memory: '短期上下文、压缩树、自动召回、记忆抽取与人物记忆。',
+  agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
+  i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
+  api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
+  relay: '自托管 Relay 的连接、实例身份与认证参数。',
+  channel_access: '所有信道的入站和出站 participant 匹配规则。',
+  wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
+  weixin: '个人微信 ClawBot 的全局启用状态；账号配对需初始化后完成。',
+  telegram: '每个实例独立保存 Token、长轮询 offset 与已知 chat；同一 chat 可通过多个实例接入。',
+  desktop_updates: '桌面发布目录、同步来源、周期、容量限制和 Feed 凭据。',
+};
+const BOOTSTRAP_CONFIG_EXCLUSIONS = new Set([
+  'llm.default_provider', 'llm.default_model', 'llm.managed_providers', 'llm.providers_file', 'llm.runtime_config_file',
+  'admin.token', 'admin.config_file', 'desktop_updates.admin_token',
+]);
+function bootstrapFieldVisible(group: string, key: string) {
+  const path = `${group}.${key}`;
+  if (BOOTSTRAP_CONFIG_EXCLUSIONS.has(path)) return false;
+  return !(group === 'llm' && /_(api_key|base_url)$/.test(key));
+}
+
+function bootstrapConfigurationGroups(configuration: Json) {
+  const known = BOOTSTRAP_CONFIG_GROUP_ORDER.filter(group => configuration[group] !== undefined);
+  const extensions = Object.keys(configuration).filter(group => group !== 'admin' && !BOOTSTRAP_CONFIG_GROUP_ORDER.includes(group));
+  return [...known, ...extensions];
+}
+
+function bootstrapConfigurationChanges(baseline: Json, draft: Json) {
+  const changes: Json = {};
+  for (const group of bootstrapConfigurationGroups(draft)) {
+    if (group === 'channel_access') {
+      if (JSON.stringify(baseline[group] || {}) !== JSON.stringify(draft[group] || {})) changes[group] = structuredClone(draft[group] || {});
+      continue;
+    }
+    const groupChanges: Json = {};
+    for (const [key, value] of Object.entries(draft[group] || {})) {
+      if (!bootstrapFieldVisible(group, key)) continue;
+      if (JSON.stringify(baseline[group]?.[key]) !== JSON.stringify(value)) groupChanges[key] = structuredClone(value);
+    }
+    if (Object.keys(groupChanges).length) changes[group] = groupChanges;
+  }
+  return changes;
+}
+
+function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, secretInputs, setSecretInputs, secretStatus, invalidPaths, setJsonValidity, initialGroup = 'llm' }: {
+  baseline: Json;
+  value: Json;
+  change: (group: string, key: string, value: unknown) => void;
+  replaceGroup: (group: string, value: Json) => void;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Json;
+  invalidPaths: Set<string>;
+  setJsonValidity: (path: string, valid: boolean) => void;
+  initialGroup?: string;
+}) {
+  const [group, setGroup] = useState(initialGroup);
+  const panelRef = useRef<HTMLElement>(null);
+  const groups = bootstrapConfigurationGroups(value);
+  const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
+  const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
+    || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${group}.`) && secret);
+  const reset = () => {
+    replaceGroup(group, structuredClone(baseline[group] || {}));
+    setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => !path.startsWith(`${group}.`))));
+  };
+  const CustomSettingsPanel = ['channel_access', 'telegram'].includes(group)
+    ? settingsPanelRegistration(group)?.component
+    : undefined;
+  const setDesktopValidation = useCallback(
+    (message: string) => setJsonValidity('desktop_updates', !message),
+    [setJsonValidity],
+  );
+  useEffect(() => {
+    panelRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [group]);
+  return <div className="bootstrap-config-workbench">
+    <nav aria-label={t('完整初始化配置组')}>{groups.map(key => {
+      const dirty = JSON.stringify(baseline[key] || {}) !== JSON.stringify(value[key] || {}) || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${key}.`) && secret);
+      return <button type="button" className={group === key ? 'active' : ''} onClick={() => setGroup(key)} key={key}><span>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[key] || key)}{dirty && <i />}</span><ChevronRight size={13} /></button>;
+    })}</nav>
+    <section className="bootstrap-config-panel" ref={panelRef}>
+      <header><div><b>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[group] || group)}</b><small>{t(BOOTSTRAP_CONFIG_GROUP_NOTES[group] || '')}</small></div><button type="button" className="ghost mini" disabled={!groupDirty} onClick={reset}><RotateCcw size={13} />{t('恢复推荐值')}</button></header>
+      {group === 'llm' && <div className="bootstrap-config-managed"><ShieldCheck size={15} /><span><b>{t('首个连接由基础设置管理')}</b><small>{t('Provider、启动模型、API Key 和 Base URL 会以页面上方填写的连接为准。')}</small></span></div>}
+      {CustomSettingsPanel ? <CustomSettingsPanel value={value[group] || {}} change={(key, next) => change(group, key, next)} apply={async () => true} dirty={groupDirty} saving={false} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} /> : group === 'desktop_updates' ? <DesktopUpdateSettings value={value.desktop_updates || {}} change={(key, next) => change('desktop_updates', key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} onValidationChange={setDesktopValidation} updateUrl={false} /> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
+        const path = `${group}.${key}`;
+        return <ConfigurationField key={key} path={path} value={fieldValue} change={next => change(group, key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} setJsonValidity={setJsonValidity} passiveMode={Boolean(value.agent?.passive_mode)} />;
+      })}</div>}
+      {invalidPaths.size > 0 && Array.from(invalidPaths).some(path => path === group || path.startsWith(`${group}.`)) && <p className="field-error" role="alert">{t('请先修正这个配置组中的 JSON 格式。')}</p>}
+    </section>
+  </div>;
+}
+
 function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) {
+  const { language } = useAdminI18n();
   const catalogs = data.providers || [];
+  const configurationDefaults = data.defaults?.configuration || {};
+  const [detectedTimezone] = useState(() => detectBrowserTimezone());
+  const [configurationBaseline] = useState<Json>(() => structuredClone(configurationDefaults));
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
   const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
@@ -244,10 +350,10 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [name, setName] = useState('');
-  const [locale, setLocale] = useState(data.defaults?.locale === 'en' ? 'en' : 'zh-CN');
-  const [maxTokens, setMaxTokens] = useState(String(data.defaults?.max_tokens || 8192));
-  const [passiveMode, setPassiveMode] = useState(Boolean(data.defaults?.passive_mode));
-  const [allowUnverifiedModel, setAllowUnverifiedModel] = useState(false);
+  const [configuration, setConfiguration] = useState<Json>(() => structuredClone(configurationBaseline));
+  const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
+  const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
+  const [customModelCapabilities, setCustomModelCapabilities] = useState({ tools: false, vision: false, video: false });
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
@@ -257,10 +363,23 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'form' | 'restarting'>('form');
+  const [restartTarget, setRestartTarget] = useState<BootstrapAdminTarget | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedInitialGroup, setAdvancedInitialGroup] = useState('llm');
+  const advancedReturnFocus = useRef<HTMLButtonElement | null>(null);
   const normalizedModel = model.trim();
+  const normalizedName = name.trim();
+  const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
+  const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
-  const parsedMaxTokens = Number(maxTokens);
-  const validMaxTokens = Number.isInteger(parsedMaxTokens) && parsedMaxTokens > 0;
+  const passiveMode = Boolean(configuration.agent?.passive_mode);
+  const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
+    ? data.server_timezone.trim()
+    : t('未能读取');
+  const timezoneAdvice = bootstrapTimezoneAdvice(detectedTimezone);
+  const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
+    browserTimezone: timezoneAdvice.detectedTimezone,
+  });
   const modelListboxId = `bootstrap-model-listbox-${providerType}`;
   const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
   const filteredModels = useMemo(() => {
@@ -268,6 +387,24 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     const filter = modelFilter.toLowerCase();
     return models.filter(item => item.toLowerCase().includes(filter));
   }, [modelFilter, models]);
+  const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
+  const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
+  const setConfigurationJsonValidity = useCallback((path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
+    const next = new Set(current);
+    if (valid) next.delete(path); else next.add(path);
+    if (next.size === current.size && Array.from(next).every(item => current.has(item))) return current;
+    return next;
+  }), []);
+  const setPassiveMode = (next: boolean) => changeConfiguration('agent', 'passive_mode', next);
+  const openAdvanced = (group: string, trigger: HTMLButtonElement) => {
+    advancedReturnFocus.current = trigger;
+    setAdvancedInitialGroup(group);
+    setAdvancedOpen(true);
+  };
+  const closeAdvanced = () => {
+    setAdvancedOpen(false);
+    window.requestAnimationFrame(() => advancedReturnFocus.current?.focus());
+  };
 
   const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
   const openAllModels = () => {
@@ -278,21 +415,21 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   };
   const chooseRecommendedModel = (value: string) => {
     setModel(value);
-    setAllowUnverifiedModel(false);
+    setCustomModelCapabilities({ tools: false, vision: false, video: false });
     closeModelMenu();
   };
   const changeProvider = (nextProvider: string) => {
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
-    setAllowUnverifiedModel(false);
+    setCustomModelCapabilities({ tools: false, vision: false, video: false });
     closeModelMenu();
   };
   const moveHighlight = (direction: 1 | -1) => {
     if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
     setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
   };
-  const handleModelKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleModelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
     else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
@@ -314,6 +451,20 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
   }, [highlightedModelIndex, filteredModels]);
 
+  useEffect(() => {
+    if (!advancedOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeAdvanced();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [advancedOpen]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitInFlight.current) return;
@@ -321,18 +472,45 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     setSubmitting(true);
     setError('');
     try {
-      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ provider_type: providerType, model: normalizedModel, api_key: apiKey, base_url: baseUrl, coworker_name: name, locale, max_tokens: parsedMaxTokens, passive_mode: passiveMode, allow_unverified_model: customModel && allowUnverifiedModel }) });
+      const target = resolveBootstrapAdminTarget(
+        window.location.href,
+        configurationDefaults.api || {},
+        configuration.api || {},
+      );
+      const reconnectProof = createBootstrapReconnectProof();
+      await api('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({
+        provider_type: providerType,
+        model: normalizedModel,
+        api_key: apiKey,
+        base_url: baseUrl,
+        coworker_name: normalizedName,
+        reconnect_proof: reconnectProof,
+        model_capabilities: customModel ? customModelCapabilities : null,
+        configuration: bootstrapConfigurationChanges(configurationDefaults, configuration),
+        secrets: Object.fromEntries(Object.entries(configurationSecrets).filter(([, value]) => value !== '')),
+      }) });
+      setRestartTarget(target);
       setPhase('restarting');
       const deadline = Date.now() + 90_000;
       const waitUntilReady = async () => {
         while (Date.now() < deadline) {
           await new Promise(resolve => window.setTimeout(resolve, 1500));
           try {
+            if (target.originChanged) {
+              const response = await fetch(target.reconnectUrl, { cache: 'no-store' });
+              if (!response.ok) throw new Error('Coworker reconnect probe is not ready');
+              const probe = await response.json();
+              if (probe.proof !== reconnectProof) throw new Error('Coworker reconnect proof mismatch');
+              window.location.replace(target.adminUrl);
+              return;
+            }
             const status = await api<Json>('/api/admin/bootstrap');
             if (!status.required) { onComplete(); return; }
           } catch { /* Restart temporarily closes the connection. */ }
         }
-        setError(t('配置已经保存，但服务仍在重启。请稍后刷新页面。'));
+        setError(t(target.originChanged
+          ? '新管理员地址暂时无法访问，请稍后通过下方地址打开。'
+          : '配置已经保存，但服务仍在重启。请稍后刷新页面。'));
       };
       void waitUntilReady();
     } catch (e) {
@@ -357,34 +535,63 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         </ol>
       </aside>
       <section className="bootstrap-form-stage">
-        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t('页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
+        {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? '管理员访问地址已变更。服务恢复后会自动前往新地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
-              <label><span>{t('服务类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
+              <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
               <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
                 <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
                 <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
-                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); setAllowUnverifiedModel(false); }} placeholder={t('选择推荐模型或输入模型 ID')} />
+                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); }} placeholder={t('选择推荐模型或输入模型 ID')} />
                   {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
                     {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
                   </ul>}
                 </div>
               </div>
-              <label><span>{t('运行时语言')}</span><select value={locale} onChange={e => setLocale(e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></label>
-              <label><span>{t('单次输出 Token 上限')}</span><input required type="number" min="1" step="1" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} /></label>
-              <div className="bootstrap-mode wide" role="radiogroup" aria-label={t('启动模式')}>
-                <span>{t('启动模式')}</span>
-                <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}><b>{t('主动模式')}</b><small>{t('空闲后会周期性自我唤醒并继续观察。')}</small></button>
-                <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}><b>{t('Passive 模式')}</b><small>{t('空闲后只等待外部消息、闹钟或任务事件唤醒。')}</small></button>
+              <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+              <div className="bootstrap-name-field wide">
+                <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
+                <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
+                <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
+                {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
               </div>
-              <label className="wide"><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
-              <label className="wide"><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
-              <label className="wide"><span>{t('给 Coworker 起个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('之后也可以在身份档案中修改')} /></label>
+              <div className="bootstrap-runtime-defaults wide">
+                <div className="bootstrap-runtime-default">
+                  <Clock3 size={17} />
+                  <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
+                </div>
+                <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
+                  <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
+                  <div>
+                    <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
+                    <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+                  </div>
+                </div>
+                {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
+              </div>
             </div>
-            {customModel && <div className="bootstrap-model-warning"><TriangleAlert size={17} /><div><b>{t('这是推荐目录外的模型')}</b><p>{t('Coworker 主模型必须支持 tool/function calling；初始化不会发起在线能力探测。')}</p><label><input type="checkbox" checked={allowUnverifiedModel} onChange={e => setAllowUnverifiedModel(e.target.checked)} /><span>{t('我确认该模型及当前 API 服务支持工具调用')}</span></label></div></div>}
+            {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
+              <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
+              <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
+              <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
+            </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || !validMaxTokens || (customModel && !allowUnverifiedModel)}>{t(submitting ? '正在保存…' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            <div className="bootstrap-submit-row">
+              <button type="button" className="bootstrap-advanced-trigger" onClick={event => openAdvanced('llm', event.currentTarget)}><SlidersHorizontal size={16} /><span><b>{t('高级初始化')}</b><small>{t('全部参数')}</small></span></button>
+              <button className="primary" disabled={submitting || !apiKey.trim() || !normalizedModel || invalidConfigurationPaths.size > 0 || (customModel && !customModelCapabilities.tools)}>{t(submitting ? '正在保存…' : passiveMode ? '保存，等待第一次继续' : '保存并唤醒')} <ChevronRight size={16} /></button>
+            </div>
+            {advancedOpen && <div className="modal-layer bootstrap-advanced-layer" onMouseDown={event => { if (event.target === event.currentTarget) closeAdvanced(); }}>
+              <section className="bootstrap-advanced-dialog" role="dialog" aria-modal="true" aria-labelledby="bootstrap-advanced-title">
+                <header><div><span>{t('高级初始化')}</span><h3 id="bootstrap-advanced-title">{t('高级初始化 · 全部参数')}</h3><p>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</p></div><button type="button" className="icon-btn" aria-label={t('关闭高级初始化')} title={t('关闭')} onClick={closeAdvanced} autoFocus><X size={16} /></button></header>
+                <div className="bootstrap-advanced-scroll">
+                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、运行语言、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
+                  <BootstrapConfigurationEditor initialGroup={advancedInitialGroup} baseline={configurationBaseline} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
+                </div>
+                <footer><span>{t('这些修改会与基础设置一起保存。')}</span><button type="button" className="primary" onClick={closeAdvanced}>{t('完成')}</button></footer>
+              </section>
+            </div>}
           </form>
           <p className="bootstrap-footnote"><ShieldCheck size={13} />{t('配置保存在')} <code>data/admin_config.json</code>{t('，API Key 不会回显到页面。')}</p>
         </>}
@@ -451,6 +658,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   const status = data.status; const counts = data.counts;
   const running = status.is_running;
   const resting = running && Boolean(status.is_sleeping);
+  const firstPassiveStart = running && status.startup_reason === 'bootstrap' && Boolean(status.passive_mode) && Number(status.cycle_count || 0) === 0;
   const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
@@ -476,10 +684,11 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
       <div className="overview-status-actions">
-        {resting && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
+        {resting && !firstPassiveStart && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
         <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
       </div>
     </section>
+    {firstPassiveStart && <section className="overview-first-cycle" role="note"><div className="overview-first-cycle-mark"><Orbit size={22} /><i /></div><div><span>{t('Passive 模式 · 第一次运行')}</span><h2>{t('请由你开启她对世界的第一次观察')}</h2><p>{t('被动模式不会自行开始生命循环。点击“开始第一次运行”会在不添加对话消息的情况下主动继续；这次醒来所感知的环境，将参与形成她最初的世界记忆。')}</p></div>{resting ? <button type="button" className="primary" disabled={resuming} onClick={() => void resume()}><Play size={15} />{t(resuming ? '正在开始…' : '开始第一次运行')}</button> : <small>{t('正在准备第一次运行，请稍候刷新。')}</small>}</section>}
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
     <div className="overview-main-grid">
@@ -601,6 +810,30 @@ function StringListEditor({ label, hint, value, onChange, placeholder }: {
   </div>;
 }
 
+function ProviderModelCapabilityEditor({ value, onChange }: {
+  value: Json[];
+  onChange: (value: Json[]) => void;
+}) {
+  const changeCapability = (index: number, key: string, nextValue: string | boolean) => {
+    const next = value.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: nextValue } : item);
+    if (key === 'video' && nextValue === true) next[index].vision = true;
+    if (key === 'vision' && nextValue === false) next[index].video = false;
+    onChange(next);
+  };
+  return <section className="provider-model-capabilities">
+    <header><div><b>{t('自定义模型能力')}</b><small>{t('为当前连接声明目录外模型或覆盖内置判断；能力按模型 ID 精确匹配。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, { model: '', tools: false, vision: false, video: false }])}><Plus size={13} />{t('添加模型')}</button></header>
+    {value.length ? <div className="provider-model-list">{value.map((capability, index) => <article key={index}>
+      <label className="provider-model-id"><span>{t('模型 ID')}</span><input value={capability.model || ''} onChange={event => changeCapability(index, 'model', event.target.value)} placeholder="model-id" /></label>
+      <div className="model-capability-toggles compact">
+        <label><input type="checkbox" checked={Boolean(capability.tools)} onChange={event => changeCapability(index, 'tools', event.target.checked)} /><span>{t('工具调用')}</span></label>
+        <label><input type="checkbox" checked={Boolean(capability.vision)} onChange={event => changeCapability(index, 'vision', event.target.checked)} /><span>{t('图片理解')}</span></label>
+        <label><input type="checkbox" checked={Boolean(capability.video)} onChange={event => changeCapability(index, 'video', event.target.checked)} /><span>{t('视频理解')}</span></label>
+      </div>
+      <button type="button" className="danger-icon" title={t('移除模型能力')} aria-label={t('移除模型能力')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+    </article>)}</div> : <p>{t('尚未声明自定义模型；未列出的模型继续使用接口协议的内置能力目录。')}</p>}
+  </section>;
+}
+
 function TransportListEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
   const options = [
     { value: 'websocket', label: 'WebSocket', hint: '桌面与网页聊天的实时连接' },
@@ -660,7 +893,46 @@ function JsonEditor({ value, onChange, onValidityChange }: {
   </>;
 }
 
-const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行时语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
+function ConfigurationField({ path, value, change, secretInputs, setSecretInputs, secretStatus, setJsonValidity, hot = false, passiveMode = false, activeAdminToken }: {
+  path: string;
+  value: unknown;
+  change: (value: unknown) => void;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Json;
+  setJsonValidity: (path: string, valid: boolean) => void;
+  hot?: boolean;
+  passiveMode?: boolean;
+  activeAdminToken?: Json;
+}) {
+  const segments = path.split('.');
+  const key = segments[segments.length - 1] || path;
+  const label = CONFIG_LABELS[path] || humanize(key);
+  const presentation = configFieldPresentation(path, { passiveMode });
+  if (presentation.editor === 'locale') return <Field label={label} hint={presentation.hint} hot={hot}><select value={String(value)} onChange={event => change(event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+  if (presentation.editor === 'fallback-list' || presentation.editor === 'cors-list' || presentation.editor === 'participant-list') return <Fragment>
+    {presentation.editor === 'participant-list' && <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>}
+    <StringListEditor label={label} hint={presentation.hint || ''} value={Array.isArray(value) ? value.map(String) : []} onChange={change} placeholder={presentation.placeholder || ''} />
+  </Fragment>;
+  if (presentation.editor === 'transport-list') return <TransportListEditor value={Array.isArray(value) ? value.map(String) : []} onChange={change} />;
+  if (secretStatus[path] !== undefined) {
+    const status = secretStatus[path] || {};
+    const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
+    const hint = status.configured
+      ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
+      : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置；敏感值不会回显');
+    const placeholder = status.configured
+      ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
+      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（可选）');
+    return <Field label={label} hot={hot} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} /></Field>;
+  }
+  if (typeof value === 'boolean') return <label className="switch config-switch"><input type="checkbox" checked={value} onChange={event => change(event.target.checked)} /><i /><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
+  if (typeof value === 'number') return <Field label={label} hint={presentation.hint} hot={hot}><input type="number" value={value} min={presentation.minimum} max={presentation.maximum} step={presentation.step ?? 'any'} onChange={event => change(Number(event.target.value))} /></Field>;
+  if (typeof value === 'string') return <Field label={label} hint={presentation.hint} hot={hot}><input type={presentation.inputType} value={value} onChange={event => change(event.target.value)} placeholder={presentation.placeholder} /></Field>;
+  return <Field label={label} hint="JSON 结构" hot={hot}><JsonEditor value={value} onChange={change} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
+}
+
+const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
@@ -749,10 +1021,10 @@ function describeDesktopUpdateSave(before: Json = {}, after: Json = {}, fallback
   return fallback;
 }
 
-function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, secretStatus, onValidationChange }: { value: Json; change: (key: string, value: any) => void; secretInputs: Record<string, string>; setSecretInputs: (value: Record<string, string>) => void; secretStatus: Record<string, { configured?: boolean; last4?: string }>; onValidationChange: (message: string) => void }) {
+function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, secretStatus, onValidationChange, updateUrl = true }: { value: Json; change: (key: string, value: any) => void; secretInputs: Record<string, string>; setSecretInputs: (value: Record<string, string>) => void; secretStatus: Record<string, { configured?: boolean; last4?: string }>; onValidationChange: (message: string) => void; updateUrl?: boolean }) {
   const sources = (Array.isArray(value.sync_sources) ? value.sync_sources : []) as DesktopUpdateSourceConfig[];
   const active = value.sync_active_source || '';
-  const sourceFromUrl = new URLSearchParams(window.location.search).get('source') || '';
+  const sourceFromUrl = updateUrl ? new URLSearchParams(window.location.search).get('source') || '' : '';
   const [selectedSourceId, setSelectedSourceId] = useState(() => sourceFromUrl || active || sources[0]?.id || '');
   const selectedSource = sources.find(source => source.id === selectedSourceId) || null;
   const activeSource = sources.find(source => source.id === active) || null;
@@ -766,6 +1038,7 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
   const updateSources = (next: DesktopUpdateSourceConfig[], nextActive = active) => { change('sync_sources', next); change('sync_active_source', nextActive || null); };
   const patchSource = (id: string, patch: Partial<DesktopUpdateSourceConfig>) => updateSources(sources.map(source => source.id === id ? { ...source, ...patch } : source));
   const setUrlSource = (id: string, replace = false) => {
+    if (!updateUrl) return;
     const params = new URLSearchParams(window.location.search);
     params.set('section', 'settings'); params.set('group', 'desktop_updates');
     if (id) params.set('source', id); else params.delete('source');
@@ -805,18 +1078,19 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
   }, [sources, value.sync_interval_seconds, value.sync_max_asset_bytes, value.sync_max_run_bytes]);
   useEffect(() => { onValidationChange(validationError); }, [onValidationChange, validationError]);
   useEffect(() => {
-    const current = new URLSearchParams(window.location.search).get('source') || '';
+    const current = updateUrl ? new URLSearchParams(window.location.search).get('source') || '' : '';
     if (current && sources.some(source => source.id === current)) { setSelectedSourceId(current); return; }
     if (selectedSourceId && !sources.some(source => source.id === selectedSourceId)) setSelectedSourceId(active || sources[0]?.id || '');
-  }, [active, selectedSourceId, sources]);
+  }, [active, selectedSourceId, sources, updateUrl]);
   useEffect(() => {
+    if (!updateUrl) return;
     const syncSourceFromLocation = () => {
       const current = new URLSearchParams(window.location.search).get('source') || '';
       setSelectedSourceId(current && sources.some(source => source.id === current) ? current : active || sources[0]?.id || '');
     };
     window.addEventListener('popstate', syncSourceFromLocation);
     return () => window.removeEventListener('popstate', syncSourceFromLocation);
-  }, [active, sources]);
+  }, [active, sources, updateUrl]);
   const feedStatus = secretStatus['desktop_updates.feed_token'];
   const activeConfigured = isSourceConfigured(activeSource || undefined);
   return <div className="desktop-update-settings">
@@ -825,13 +1099,13 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
       <Field label="当前上游" hint="切换后保存即可立即应用，不需要重启"><select value={active || ''} onChange={event => setActive(event.target.value)}><option value="">{t('关闭上游同步')}</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name || sourceProviderLabel(source)}</option>)}</select></Field>
     </section>
     {validationError && <div className="notice error"><TriangleAlert size={15} /><span>{validationError}</span></div>}
-    <div className="desktop-source-toolbar"><div><b>{t('上游来源')}</b><small>{t('可以保存多个同类型来源，但同一时间只有当前上游会运行。')}</small></div><div><button className="ghost mini" onClick={() => addSource('github')}><Plus size={14} />{t('添加 GitHub 来源')}</button><button className="ghost mini" onClick={() => addSource('coworker')}><Plus size={14} />{t('添加 Coworker 来源')}</button></div></div>
+    <div className="desktop-source-toolbar"><div><b>{t('上游来源')}</b><small>{t('可以保存多个同类型来源，但同一时间只有当前上游会运行。')}</small></div><div><button type="button" className="ghost mini" onClick={() => addSource('github')}><Plus size={14} />{t('添加 GitHub 来源')}</button><button type="button" className="ghost mini" onClick={() => addSource('coworker')}><Plus size={14} />{t('添加 Coworker 来源')}</button></div></div>
     {sources.length ? <div className="desktop-source-workbench">
       <div className="desktop-source-list" role="list">{sources.map((source, index) => {
         const configured = isSourceConfigured(source); const isActive = active === source.id; const isSelected = selectedSourceId === source.id;
         return <article role="listitem" className={'desktop-source-item ' + (isActive ? 'active ' : '') + (isSelected ? 'selected ' : '') + (!configured ? 'warning' : '')} key={source.id}>
           <button type="button" onClick={() => selectSource(source.id)}><span><b>{source.name || t('未命名来源')}</b><small>{sourceProviderLabel(source)}{sourceTarget(source) ? ` · ${sourceTarget(source)}` : ''}</small></span><em className={'desktop-source-badge ' + (isActive ? 'active' : !configured ? 'warning' : '')}>{isActive ? t('当前') : configured ? t('备用') : t('待补全')}</em></button>
-          <div className="desktop-source-row-actions"><button className="ghost mini" disabled={isActive} onClick={() => setActive(source.id)}>{t('设为当前')}</button><button className="ghost mini" disabled={index === 0} onClick={() => move(index, -1)}>{t('上移')}</button><button className="ghost mini" disabled={index === sources.length - 1} onClick={() => move(index, 1)}>{t('下移')}</button><button className="ghost mini" onClick={() => duplicate(source)}>{t('复制')}</button><button className="danger-outline mini" onClick={() => remove(source.id)}>{t('删除')}</button></div>
+          <div className="desktop-source-row-actions"><button type="button" className="ghost mini" disabled={isActive} onClick={() => setActive(source.id)}>{t('设为当前')}</button><button type="button" className="ghost mini" disabled={index === 0} onClick={() => move(index, -1)}>{t('上移')}</button><button type="button" className="ghost mini" disabled={index === sources.length - 1} onClick={() => move(index, 1)}>{t('下移')}</button><button type="button" className="ghost mini" onClick={() => duplicate(source)}>{t('复制')}</button><button type="button" className="danger-outline mini" onClick={() => remove(source.id)}>{t('删除')}</button></div>
         </article>;
       })}</div>
       <section className="desktop-source-detail" ref={detailRef}>{selectedSource ? <>
@@ -863,12 +1137,62 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
+  'llm.summary_provider': '摘要 Provider',
+  'llm.summary_model': '摘要模型',
+  'llm.summary_thinking': '摘要 Thinking',
+  'llm.fallbacks': '主模型降级链',
+  'llm.vision_provider': '视觉 Provider',
+  'llm.vision_model': '视觉模型',
+  'llm.vision_thinking': '视觉 Thinking',
   'i18n.locale': '模型与运行时语言',
-  'agent.passive_mode': 'Passive 模式',
+  'memory.db_path': '记忆数据目录',
+  'memory.short_term_max_tokens': '短期上下文容量',
+  'memory.compress_ratio': '每次自动压缩比例',
+  'memory.tree_enabled': '启用记忆块树',
+  'memory.tree_spine_cap_fraction': '记忆脊柱预算比例',
+  'memory.tree_backfill_max_leaves': '回溯叶子数量上限',
+  'memory.tree_backfill_concurrency': '回溯并发数',
+  'memory.tree_merge_reach_depth': '高层合并下探深度',
+  'memory.auto_recall_enabled': '自动召回长期记忆',
+  'memory.auto_recall_relevance_threshold': '自动召回相关性阈值',
+  'memory.auto_recall_limit': '单次自动召回数量',
+  'agent.passive_mode': 'Passive 模式（开发者控制）',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.inbox_dir': '收件箱目录',
+  'agent.outbox_dir': '发件箱目录',
+  'agent.desktop_registry_dir': '桌面连接注册目录',
+  'agent.identity_dir': '身份数据目录',
+  'agent.logs_dir': '运行日志目录',
+  'agent.interaction_log_rotation_bytes': '交互日志轮换大小',
+  'agent.skills_dir': 'Skill 目录',
+  'agent.palaces_dir': 'Palace 目录',
+  'agent.subconscious_dir': '潜意识模式目录',
+  'agent.inbox_poll_interval': '收件箱轮询间隔（秒）',
+  'agent.inbox_batch_max': '单批收件数量上限',
+  'agent.tick': '启用生命循环 Tick',
+  'agent.code_hard_timeout': '代码执行硬超时（秒）',
+  'agent.image_max_dimension': '图片最大边长',
+  'agent.message_time_prefix': '消息附加时间前缀',
+  'agent.bubble_thinking': 'Bubble 启用 Thinking',
+  'agent.bubble_max_concurrent': 'Bubble 最大并发数',
   'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
   'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
+  'agent.bubble_timeout_resume_seconds': 'Bubble 超时续跑窗口（秒）',
+  'agent.subconscious_thinking': '潜意识启用 Thinking',
+  'agent.subconscious_summarize_before_compress': '压缩前生成潜意识摘要',
+  'agent.subconscious_max_cycles': '潜意识最大循环次数',
+  'api.host': 'API 监听地址',
+  'api.port': 'API 监听端口',
+  'api.public_url': 'API 公开访问地址',
   'api.communication_token': '桌面通信令牌',
+  'api.development_mode': 'API 开发模式',
+  'api.cors_origins': '允许的跨域来源',
+  'relay.enabled': '启用 Relay',
+  'relay.url': 'Relay 地址',
+  'relay.instance_id': 'Relay 实例 ID',
+  'relay.instance_private_key': 'Relay 实例私钥',
+  'relay.relay_public_key': 'Relay 公钥',
+  'relay.auth_epoch': 'Relay 认证 Epoch',
   'desktop_updates.dir': '本地发布目录',
   'desktop_updates.sync_sources': '上游来源',
   'desktop_updates.sync_active_source': '当前上游',
@@ -876,9 +1200,18 @@ const CONFIG_LABELS: Record<string, string> = {
   'desktop_updates.sync_on_start': '服务启动时立即检测',
   'desktop_updates.sync_max_asset_bytes': '单个制品大小上限（字节）',
   'desktop_updates.sync_max_run_bytes': '单次同步总量上限（字节）',
+  'desktop_updates.feed_token': '下游同步 Feed Token',
   'memory.mem0_llm_provider': '记忆抽取 Provider（mem0）',
   'memory.mem0_llm_model': '记忆抽取模型（mem0）',
   'memory.mem0_llm_thinking': '记忆抽取 Thinking（mem0）',
+  'memory.mem0_embedder_model': '记忆向量模型（mem0）',
+  'memory.persona_enabled': '启用人物记忆',
+  'memory.persona_store_path': '人物记忆文件',
+  'wecom.enabled': '启用企业微信',
+  'wecom.bot_id': '企业微信 Bot ID',
+  'wecom.secret': '企业微信 Secret',
+  'wecom.ws_url': '企业微信 WebSocket 地址',
+  'weixin.enabled': '启用微信 Claw',
 };
 
 function Settings() {
@@ -941,12 +1274,12 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行时语言')}</b><small>{t('控制系统 Prompt、工具说明和系统通知；与本页界面语言相互独立。修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('Passive 模式只等待消息、闹钟或任务等外部事件；主动模式才使用自唤醒间隔。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
         if (key === 'managed_providers' && Array.isArray(value)) return <div className="provider-editor" key={key}>
-          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议和访问密钥。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '' }])}><Plus size={14} />{t('添加连接')}</button></div>
+          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
           <div className="provider-source-note"><Database size={16} /><p><b>{t('配置来源彼此独立')}</b><span><code>.env</code> {t('和')} <code>providers.json</code>{t('中的连接只读展示；下方只编辑管理端覆盖，不会复制或接管外部密钥。')}</span></p></div>
           {externalProviders.length > 0 && <div className="provider-effective"><b>{t('外部有效连接（只读）')}</b>{externalProviders.map((provider: Json) => <span key={provider.name}><strong>{provider.name}</strong><code>{provider.type}</code><small>{provider.base_url || t('协议默认地址')}</small></span>)}</div>}
           {value.length ? value.map((provider: Json, index: number) => {
@@ -958,42 +1291,13 @@ function Settings() {
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
+              <ProviderModelCapabilityEditor value={Array.isArray(provider.model_capabilities) ? provider.model_capabilities : []} onChange={next => changeProvider(index, 'model_capabilities', next)} />
               <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
         if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
-        if (path === 'i18n.locale') return <Field key={key} label={CONFIG_LABELS[path]} hint="保存后需安全重启；不会自动翻译用户内容或历史数据"><select value={String(value)} onChange={e => change(key, e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
-        if (path === 'agent.bubble_handoff_transparency_participant_matches') return <Fragment key={key}>
-          <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>
-          <StringListEditor label={CONFIG_LABELS[path]} hint="支持完整 participant_id 和 glob（例如 weixin:*）。留空表示不按 participant 匹配。" value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} placeholder="weixin:*" />
-        </Fragment>;
-        if (path === 'agent.bubble_handoff_transparency_stream_transports') return <TransportListEditor key={key} value={Array.isArray(value) ? value : []} onChange={next => change(key, next)} />;
-        if (data.secret_status[path]) {
-          const status = data.secret_status[path];
-          const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
-          const hint = status.configured
-            ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
-            : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置');
-          const placeholder = status.configured
-            ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
-            : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值');
-          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={e => setSecretInputs({ ...secretInputs, [path]: e.target.value })} placeholder={placeholder} /></Field>;
-        }
-        if (typeof value === 'boolean') return <label className="switch config-switch" key={key}><input type="checkbox" checked={value} onChange={e => change(key, e.target.checked)} /><i /><span>{t(CONFIG_LABELS[path] || humanize(key))}{isHot(path) && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
-        if (typeof value === 'number') {
-          const hint = path === 'llm.max_tokens'
-            ? '模型单次响应允许生成的最大 token 数'
-            : path === 'agent.idle_sleep_seconds'
-              ? draft.agent.passive_mode
-                ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
-                : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
-              : undefined;
-          const minimum = path === 'llm.max_tokens' ? 1 : path === 'agent.idle_sleep_seconds' ? 0 : undefined;
-          return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={hint}><input type="number" value={value} min={minimum} step={path === 'llm.max_tokens' ? 1 : 'any'} onChange={e => change(key, Number(e.target.value))} /></Field>;
-        }
-        if (typeof value === 'string') return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint={path === 'llm.default_model' ? 'Provider 连接没有单独指定模型时使用' : undefined}><input value={value} onChange={e => change(key, e.target.value)} /></Field>;
-        return <Field key={key} hot={isHot(path)} label={CONFIG_LABELS[path] || humanize(key)} hint="JSON 结构"><JsonEditor value={value} onChange={next => change(key, next)} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
+        return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
       <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'telegram' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
@@ -1797,23 +2101,76 @@ type PersonView = {
   updated_at: string;
 };
 
+function personMatchesQuery(person: PersonView, query: string) {
+  return [
+    person.display_name,
+    person.person_id,
+    ...person.aliases.flatMap(alias => [alias.channel, alias.participant_id, alias.conversation_id || '']),
+  ].some(value => value.toLocaleLowerCase().includes(query));
+}
+
 function PeopleView() {
   const people = useLoad(() => api<{ persons: PersonView[] }>('/api/admin/persons'), []);
   const [draftName, setDraftName] = useState('');
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [personQuery, setPersonQuery] = useState('');
+  const [addingPerson, setAddingPerson] = useState(false);
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editingCard, setEditingCard] = useState<PersonView | null>(null);
+  const [cardLoading, setCardLoading] = useState(false);
   const [renderedCard, setRenderedCard] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+  const [mergeTargetId, setMergeTargetId] = useState('');
 
   useEffect(() => {
-    if (people.data) {
-      setNames(Object.fromEntries(people.data.persons.map(p => [p.person_id, p.display_name])));
-    }
+    const data = people.data;
+    if (!data) return;
+    setSelectedPersonId(current => (
+      current && data.persons.some(person => person.person_id === current)
+        ? current
+        : data.persons[0]?.person_id ?? null
+    ));
   }, [people.data]);
+
+  useEffect(() => {
+    const data = people.data;
+    const query = personQuery.trim().toLocaleLowerCase();
+    if (!data || !query) return;
+    const matches = data.persons.filter(person => personMatchesQuery(person, query));
+    if (!matches.length) return;
+    setSelectedPersonId(current => current && matches.some(person => person.person_id === current)
+      ? current
+      : matches[0].person_id);
+  }, [people.data, personQuery]);
+
+  const selectedPerson = people.data?.persons.find(person => person.person_id === selectedPersonId) ?? null;
+
+  useEffect(() => {
+    if (!selectedPerson) {
+      setRenderedCard('');
+      setNotesDraft('');
+      setCardLoading(false);
+      return;
+    }
+    let active = true;
+    setError(null);
+    setCardLoading(true);
+    setNotesDraft((selectedPerson.notes ?? []).join('\n'));
+    api<{ content: string }>(`/api/admin/persons/${selectedPerson.person_id}/card`)
+      .then(card => { if (active) setRenderedCard(card.content); })
+      .catch(loadError => { if (active) setError(String(loadError)); })
+      .finally(() => { if (active) setCardLoading(false); });
+    return () => { active = false; };
+  }, [selectedPerson]);
+
+  useEffect(() => {
+    setRenamingId(null);
+    setDeletingId(null);
+    setMergeTargetId('');
+  }, [selectedPersonId]);
 
   if (people.loading || !people.data) return <Loading error={people.error} />;
 
@@ -1822,18 +2179,30 @@ function PeopleView() {
     if (!name) return;
     setBusy(true); setError(null);
     try {
-      await api<Json>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
+      const created = await api<PersonView>('/api/admin/persons', { method: 'POST', body: JSON.stringify({ display_name: name }) });
       setDraftName('');
+      setPersonQuery('');
+      setAddingPerson(false);
+      setSelectedPersonId(created.person_id);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
+  const startRename = (person: PersonView) => {
+    setRenamingId(person.person_id);
+    setNameDraft(person.display_name);
+  };
+
   const rename = async (person: PersonView) => {
-    const name = (names[person.person_id] ?? '').trim();
-    if (name === person.display_name) return;
+    const name = nameDraft.trim();
+    if (name === person.display_name) {
+      setRenamingId(null);
+      return;
+    }
     setBusy(true); setError(null);
     try {
       await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'PATCH', body: JSON.stringify({ display_name: name }) });
+      setRenamingId(null);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
@@ -1843,74 +2212,103 @@ function PeopleView() {
     try {
       await api<Json>(`/api/admin/persons/${person.person_id}`, { method: 'DELETE' });
       setDeletingId(null);
+      setSelectedPersonId(null);
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
   const merge = async (keep: PersonView) => {
-    const dropId = mergeTargets[keep.person_id];
-    if (!dropId) return;
+    if (!mergeTargetId) return;
     setBusy(true); setError(null);
     try {
-      await api<Json>(`/api/admin/persons/${keep.person_id}/merge`, { method: 'POST', body: JSON.stringify({ other_person_id: dropId }) });
+      await api<Json>(`/api/admin/persons/${keep.person_id}/merge`, { method: 'POST', body: JSON.stringify({ other_person_id: mergeTargetId }) });
+      setMergeTargetId('');
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
-  };
-
-  const openCard = async (person: PersonView) => {
-    setError(null);
-    try {
-      const card = await api<{ content: string }>(`/api/admin/persons/${person.person_id}/card`);
-      setRenderedCard(card.content);
-      setNotesDraft((person.notes ?? []).join('\n'));
-      setEditingCard(person);
-    } catch (e) { setError(String(e)); }
   };
 
   const saveNotes = async () => {
-    if (!editingCard) return;
+    if (!selectedPerson) return;
     setBusy(true); setError(null);
     try {
       const notes = notesDraft.split('\n').map(s => s.trim()).filter(Boolean);
-      await api<Json>(`/api/admin/persons/${editingCard.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
-      setEditingCard(null);
+      await api<Json>(`/api/admin/persons/${selectedPerson.person_id}`, { method: 'PATCH', body: JSON.stringify({ notes }) });
       await people.reload();
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
-  const others = (person: PersonView) => people.data?.persons.filter(p => p.person_id !== person.person_id) ?? [];
+  const others = selectedPerson
+    ? people.data.persons.filter(person => person.person_id !== selectedPerson.person_id)
+    : [];
+  const normalizedQuery = personQuery.trim().toLocaleLowerCase();
+  const visiblePeople = normalizedQuery
+    ? people.data.persons.filter(person => personMatchesQuery(person, normalizedQuery))
+    : people.data.persons;
+  const notesChanged = selectedPerson
+    ? notesDraft !== (selectedPerson.notes ?? []).join('\n')
+    : false;
+  const personName = (person: PersonView) => person.display_name || t('未命名人物');
+  const personInitial = (person: PersonView) => Array.from(personName(person))[0]?.toUpperCase() || '?';
 
   return <div className="page-stack">
-    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
-      <div className="person-create">
-        <Field label="新建人物"><div className="person-create-row"><input value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); }} placeholder={t('称呼（可留空，由搭档在对话中完善）')} /><button className="primary" disabled={busy} onClick={() => void create()}><Plus size={15} />{t('新建')}</button></div></Field>
-      </div>
+    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" className="people-panel" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
       {error && <div className="notice error">{error}</div>}
-      {people.data.persons.length === 0 ? <div className="notice">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> :
-        <div className="person-list">{people.data.persons.map(person => <div className="person-row" key={person.person_id}>
-          <div className="person-head">
-            <input className="person-name-input" value={names[person.person_id] ?? ''} onChange={event => setNames({ ...names, [person.person_id]: event.target.value })} onBlur={() => void rename(person)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-            <code className="person-id">{person.person_id}</code>
+      <div className="people-workbench">
+        <aside className="people-directory">
+          <div className="people-directory-tools">
+            <div className="person-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t('搜索人物')} value={personQuery} onChange={event => setPersonQuery(event.target.value)} placeholder={t('搜索人物')} />{personQuery && <button type="button" className="person-search-clear" aria-label={t('清空搜索')} title={t('清空')} onClick={() => setPersonQuery('')}><X size={13} /></button>}</div>
+            <button type="button" className={`person-add-toggle${addingPerson ? ' active' : ''}`} aria-expanded={addingPerson} aria-controls="person-create-form" aria-label={t('添加人物')} title={t('添加人物')} onClick={() => setAddingPerson(open => !open)}><Plus size={16} /></button>
           </div>
-          {person.aliases.length > 0 && <div className="person-aliases">{person.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</span>)}</div>}
-          <div className="person-actions">
-            <button className="ghost mini" disabled={busy} onClick={() => void openCard(person)}><FileText size={14} />{t('画像')}</button>
-            {others(person).length > 0 && <>
-              <select className="person-merge-select" value={mergeTargets[person.person_id] ?? ''} onChange={event => setMergeTargets({ ...mergeTargets, [person.person_id]: event.target.value })}>
-                <option value="">{t('合并到…')}</option>
-                {others(person).map(other => <option key={other.person_id} value={other.person_id}>{other.display_name || other.person_id}</option>)}
-              </select>
-              <button className="ghost mini" disabled={busy || !mergeTargets[person.person_id]} onClick={() => void merge(person)}>{t('合并')}</button>
-            </>}
-            <button className={deletingId === person.person_id ? 'danger-solid mini' : 'ghost mini'} disabled={busy} onClick={() => { if (deletingId === person.person_id) void remove(person); else setDeletingId(person.person_id); }}><Trash2 size={14} />{deletingId === person.person_id ? t('确认删除？') : t('删除')}</button>
-          </div>
-        </div>)}</div>}
+          {addingPerson && <div className="person-create" id="person-create-form">
+            <label htmlFor="person-create-name">{t('添加人物')}</label>
+            <div className="person-create-row"><input autoFocus id="person-create-name" value={draftName} onChange={event => setDraftName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draftName.trim()) void create(); if (event.key === 'Escape') setAddingPerson(false); }} placeholder={t('输入人物称呼')} /><button className="primary" aria-label={t('新建人物')} title={t('新建人物')} disabled={busy || !draftName.trim()} onClick={() => void create()}><Check size={15} /></button></div>
+          </div>}
+          <div className="people-directory-heading"><span>{normalizedQuery ? t('搜索结果') : t('人物')}</span><b>{normalizedQuery ? `${visiblePeople.length}/${people.data.persons.length}` : people.data.persons.length}</b></div>
+          {people.data.persons.length === 0 ? <div className="person-directory-empty">{t('暂无人物：搭档会在对话中通过 persona 工具建立')}</div> : visiblePeople.length === 0 ? <div className="person-directory-empty searched"><Search size={18} /><span>{t('没有匹配的人物')}</span></div> : <div className="person-list">{visiblePeople.map(person => {
+            const selected = person.person_id === selectedPersonId;
+            return <button type="button" className={`person-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => setSelectedPersonId(person.person_id)} key={person.person_id}>
+              <span className="person-avatar">{personInitial(person)}</span>
+              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
+              <ChevronRight size={15} />
+            </button>;
+          })}</div>}
+        </aside>
+        <section className="person-detail">
+          {selectedPerson ? <>
+            <header className="person-profile-head">
+              <span className="person-avatar large">{personInitial(selectedPerson)}</span>
+              <div className="person-identity-copy">
+                {renamingId === selectedPerson.person_id ? <div className="person-name-editor">
+                  <input autoFocus aria-label={t('人物名称')} value={nameDraft} onChange={event => setNameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void rename(selectedPerson); if (event.key === 'Escape') setRenamingId(null); }} />
+                  <span className="person-name-editor-actions">
+                    <button type="button" className="person-name-confirm" aria-label={t('保存')} title={t('保存')} disabled={busy} onClick={() => void rename(selectedPerson)}><Check size={16} /></button>
+                    <button type="button" className="person-name-cancel" aria-label={t('取消')} title={t('取消')} disabled={busy} onClick={() => setRenamingId(null)}><X size={15} /></button>
+                  </span>
+                </div> : <div className="person-name-display"><h3>{personName(selectedPerson)}</h3><button className="ghost mini" disabled={busy} onClick={() => startRename(selectedPerson)}><Pencil size={13} />{t('编辑名称')}</button></div>}
+                <code className="person-id">{selectedPerson.person_id}</code>
+              </div>
+            </header>
+            <section className="person-detail-section">
+              <header><div><b>{t('联系地址')}</b><small>{t('来自不同信道、但属于同一个人的身份')}</small></div><span>{selectedPerson.aliases.length}</span></header>
+              {selectedPerson.aliases.length > 0 ? <div className="person-aliases">{selectedPerson.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}><em>{alias.channel || t('信道')}</em><code>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</code></span>)}</div> : <p className="person-section-empty">{t('还没有联系地址；搭档可以在对话中绑定。')}</p>}
+            </section>
+            <section className="person-detail-section person-card-section">
+              <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>
+              <div className={`person-card-preview${cardLoading ? ' loading' : ''}`}>{cardLoading ? <Loading /> : <pre>{renderedCard || t('暂无记录')}</pre>}</div>
+              <Field label={t('个性化备注（每行一条）')}><textarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+              <div className="person-note-actions"><small>{t('保存后会立即更新人物画像')}</small><button className="primary" disabled={busy || !notesChanged} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
+            </section>
+            <details className="person-maintenance">
+              <summary><SlidersHorizontal size={15} /><span><b>{t('整理人物资料')}</b><small>{t('合并重复人物或删除当前人物')}</small></span><ChevronRight size={14} /></summary>
+              <div>
+                {others.length > 0 && <section><label>{t('把重复人物并入当前人物')}</label><div><select className="person-merge-select" value={mergeTargetId} onChange={event => setMergeTargetId(event.target.value)}><option value="">{t('选择要并入的人物…')}</option>{others.map(other => <option key={other.person_id} value={other.person_id}>{personName(other)}</option>)}</select><button className="ghost" disabled={busy || !mergeTargetId} onClick={() => void merge(selectedPerson)}>{t('合并资料')}</button></div><small>{t('当前 person_id 会保留，另一个人物的地址和备注会合并进来。')}</small></section>}
+                <section className="person-delete-zone"><label>{t('删除当前人物')}</label><button className={deletingId === selectedPerson.person_id ? 'danger-solid' : 'danger-outline'} disabled={busy} onClick={() => { if (deletingId === selectedPerson.person_id) void remove(selectedPerson); else setDeletingId(selectedPerson.person_id); }}><Trash2 size={14} />{deletingId === selectedPerson.person_id ? t('确认删除？') : t('删除人物')}</button></section>
+              </div>
+            </details>
+          </> : <div className="person-detail-empty"><Users size={28} /><b>{t('选择一个人物')}</b><p>{t('在左侧选择人物后，这里会显示名称、联系地址和画像。')}</p></div>}
+        </section>
+      </div>
     </Panel>
-    {editingCard && <Panel title="人物画像" note={t('画像是一个框架：个性化信息通过备注记录')} action={<button className="ghost mini" onClick={() => setEditingCard(null)}><X size={14} />{t('关闭面板')}</button>}>
-      <div className="person-card-preview"><pre>{renderedCard || t('暂无记录')}</pre></div>
-      <Field label={t('个性化备注（每行一条）')}><textarea rows={8} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
-      <div className="panel-actions"><button className="primary" disabled={busy} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
-    </Panel>}
   </div>;
 }
 

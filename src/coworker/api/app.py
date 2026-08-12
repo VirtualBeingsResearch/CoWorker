@@ -24,7 +24,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles as _StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -64,12 +64,17 @@ if TYPE_CHECKING:
     from coworker.channels.stream import StreamRuntime
     from coworker.channels.system import ChannelSystem
 
+
+def _normalize_cors_origins(origins: list[str]) -> list[str]:
+    return [
+        origin.strip()
+        for origin in origins
+        if origin.strip() and origin.strip() != "*"
+    ]
+
+
 _api_defaults = APIConfig()
-_cors_origins = [
-    origin.strip()
-    for origin in _api_defaults.cors_origins
-    if origin.strip() and origin.strip() != "*"
-]
+_cors_origins = _normalize_cors_origins(_api_defaults.cors_origins)
 
 app = FastAPI(title="Coworker API", version=__version__)
 app.add_middleware(
@@ -81,6 +86,19 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(admin_router)
 app.state.setup_required = False
+_bootstrap_reconnect_proof = ""
+
+
+def setup_cors(origins: list[str]) -> None:
+    """Apply the effective runtime CORS policy before the API starts serving."""
+
+    _cors_origins[:] = _normalize_cors_origins(origins)
+    app.middleware_stack = None
+
+
+def setup_bootstrap_reconnect_proof(proof: str) -> None:
+    global _bootstrap_reconnect_proof
+    _bootstrap_reconnect_proof = proof
 
 
 def set_setup_required(required: bool) -> None:
@@ -97,6 +115,8 @@ def _setup_request_allowed(method: str, path: str) -> bool:
         return method == "POST"
     if path == "/api/admin/bootstrap":
         return method in {"GET", "POST"}
+    if path == "/api/bootstrap/reconnect":
+        return method in {"GET", "HEAD"}
     return False
 
 
@@ -109,6 +129,19 @@ async def redirect_to_setup(request: Request, call_next):
     response = RedirectResponse(url="/admin", status_code=303)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.get("/api/bootstrap/reconnect", include_in_schema=False)
+async def bootstrap_reconnect_probe():
+    if not _bootstrap_reconnect_proof:
+        raise HTTPException(status_code=404)
+    return JSONResponse(
+        {"proof": _bootstrap_reconnect_proof},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 _channel_system: ChannelSystem | None = None
