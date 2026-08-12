@@ -24,6 +24,12 @@ test('does not recommend an environment override when detection is unavailable',
 
 test('keeps browser timezone detection outside bootstrap configuration', () => {
   assert.match(adminApp, /configurationBaseline\] = useState<Json>\(\(\) => structuredClone\(configurationDefaults\)\)/);
+  assert.match(adminApp, /data\.server_timezone/);
   assert.doesNotMatch(adminApp, /changeConfiguration\('i18n', 'timezone'/);
   assert.doesNotMatch(adminApp, /configuration\.i18n\?\.timezone/);
+});
+
+test('renders name examples as non-interactive illustrations', () => {
+  assert.match(adminApp, /nameExamples\.map\(example => <span/);
+  assert.doesNotMatch(adminApp, /nameExamples\.map\(example => <button/);
 });

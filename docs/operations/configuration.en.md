@@ -25,7 +25,7 @@ overrides remain intact. Runtime Settings lists the admin overrides in the curre
 allows individual fields to be restored to inherited configuration. Unsaved drafts and secret
 inputs remain isolated by section, and saving submits only the current section.
 
-Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard detects the browser timezone and recommends the corresponding `TZ` environment variable, but quick setup does not automatically change the server or container timezone. It can also set the runtime language and maximum output tokens, and accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
+Until first-run setup is complete, Coworker starts only the management HTTP service. It does not start the Agent loop, inbound message polling, or external channels such as WeCom. Every command-line start prints the currently effective administrator token, and browser requests outside `/admin` or ordinary APIs are redirected to `/admin`; the management assets, login verification, and bootstrap endpoints remain available. The wizard displays the server's current timezone read-only, detects the browser timezone, and recommends the corresponding `TZ` environment variable, but quick setup does not automatically change the server or container timezone. It can also set the runtime language and maximum output tokens, and accepts either a recommended model or a manually entered model ID. Saving performs a clean restart into normal operation without restoring setup-time short-term state or emitting a normal restart notice.
 
 ### Runtime language and system timezone
 
@@ -50,9 +50,10 @@ The system timezone controls current time in the system prompt and `get_context`
 prefixes, how alarms interpret timestamps without an explicit offset, and date boundaries in task
 views. Coworker has no separate timezone override and the administration page never changes it; set
 `TZ` through the operating system, container, or service startup environment, then restart the process.
-First-run setup detects the browser's IANA timezone through `Intl.DateTimeFormat` only to display a
-corresponding `TZ` recommendation and never writes it into configuration. A reverse proxy does not
-affect detection because it runs in the administrator's browser, not on the proxy or server.
+First-run setup displays the process's current timezone read-only as a reference and detects the
+browser's IANA timezone through `Intl.DateTimeFormat` only to display a corresponding `TZ`
+recommendation. It never writes either value into configuration. A reverse proxy does not affect
+detection because it runs in the administrator's browser, not on the proxy or server.
 
 ### LLM
 

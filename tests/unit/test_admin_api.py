@@ -1477,16 +1477,22 @@ def test_setup_admin_token_banner_shows_existing_effective_token(tmp_path, capsy
     assert capsys.readouterr().err == ""
 
 
-def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path):
+def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkeypatch):
     client, config = _client(tmp_path)
     admin._brain.active_provider = None
     admin._agent._identity._dir = tmp_path / "identity"
     admin._agent._identity.load = lambda: None
+    monkeypatch.setattr(
+        admin,
+        "timezone_description",
+        lambda: "Asia/Shanghai (UTC+8)",
+    )
     headers = {"Authorization": "Bearer secret"}
 
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
+    assert status.json()["server_timezone"] == "Asia/Shanghai (UTC+8)"
     defaults = status.json()["defaults"]
     assert defaults["configuration"]["llm"]["max_tokens"] == 8192
     assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000

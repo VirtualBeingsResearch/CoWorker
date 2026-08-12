@@ -49,6 +49,7 @@ from coworker.core.config import (
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
 )
+from coworker.core.timezone import timezone_description
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.persona import Person, PersonAlias
@@ -970,6 +971,7 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
+        "server_timezone": timezone_description(),
         "providers": providers,
         "defaults": {
             "configuration": snapshot.config,

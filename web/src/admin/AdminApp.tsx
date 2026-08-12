@@ -370,6 +370,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
+  const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
+    ? data.server_timezone.trim()
+    : t('未能读取');
   const timezoneAdvice = bootstrapTimezoneAdvice(detectedTimezone);
   const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
     browserTimezone: timezoneAdvice.detectedTimezone,
@@ -548,13 +551,13 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
                 <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
-                <div className="bootstrap-name-examples" aria-label={t('名字示例')}>{nameExamples.map(example => <button type="button" onClick={() => setName(example)} key={example}>{example}</button>)}</div>
+                <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
                 {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
               </div>
               <div className="bootstrap-runtime-defaults wide">
                 <div className="bootstrap-runtime-default">
                   <Clock3 size={17} />
-                  <span><small>{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('跟随服务器或容器')}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span>{t('仅提醒 · 建议')} <code>{timezoneAdvice.recommendation}</code></span></small>}</span>
+                  <span><small>{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span>{t('仅提醒 · 建议')} <code>{timezoneAdvice.recommendation}</code></span></small>}</span>
                 </div>
                 <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
                   <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
