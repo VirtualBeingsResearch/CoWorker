@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from coworker.agent.incoming_content import format_event_text
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.telegram import client as telegram_client_module
@@ -27,7 +28,8 @@ from coworker.core.config import (
     TelegramBotConfig,
     TelegramConfig,
 )
-from coworker.core.types import CommunicateRequest
+from coworker.core.types import CommunicateRequest, IncomingEvent
+from coworker.i18n import locale_context
 
 
 class _FakeClient:
@@ -178,6 +180,10 @@ async def test_same_chat_is_namespaced_by_bot_instance(tmp_path: Path) -> None:
     await runner._bots["home"]._consume_update(_FakeClient(2), update)  # noqa: SLF001
 
     assert [event.participant_id for event in events] == ["tg:work:123", "tg:home:123"]
+    assert [event.metadata for event in events] == [
+        {"chat_type": "private"},
+        {"chat_type": "private"},
+    ]
     assert runner.resolve_participant("work:123") == "tg:work:123"
     assert runner.resolve_participant("123") is None
     assert {item[0] for item in runner.contacts()} == {"work", "home"}
@@ -324,6 +330,32 @@ def test_multiple_bots_and_api_roots_load_from_environment(
 
     assert set(config.bots) == {"main", "work"}
     assert config.bots["work"].api_base_url == "https://telegram.example/custom"
+
+
+@pytest.mark.parametrize(
+    ("chat_type", "zh_label", "en_label"),
+    (
+        ("private", "[聊天类型：私聊]", "[chat type: private chat]"),
+        ("group", "[聊天类型：群聊]", "[chat type: group chat]"),
+        ("channel", "[聊天类型：频道]", "[chat type: channel]"),
+    ),
+)
+def test_model_message_header_identifies_telegram_chat_type(
+    chat_type: str,
+    zh_label: str,
+    en_label: str,
+) -> None:
+    event = IncomingEvent(
+        participant_id="tg:main:-1001",
+        content="hello",
+        source="telegram",
+        metadata={"chat_type": chat_type},
+    )
+
+    with locale_context("zh-CN"):
+        assert zh_label in format_event_text(event).splitlines()[0]
+    with locale_context("en"):
+        assert en_label in format_event_text(event).splitlines()[0]
 
 
 def test_split_telegram_text_obeys_limit_and_prefers_newlines() -> None:

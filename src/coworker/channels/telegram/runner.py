@@ -258,6 +258,7 @@ class _TelegramBotRuntime:
                 source="telegram",
                 attachments=attachments,
                 event_id=f"telegram:{self.instance_id}:{update_id}",
+                metadata={"chat_type": contact.kind},
             )
         )
 

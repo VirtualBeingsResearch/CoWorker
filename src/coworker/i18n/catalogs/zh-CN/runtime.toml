@@ -13,8 +13,12 @@ unknown = "未知来源"
 
 [incoming]
 system = "[系统] {{content}}"
-message = '''[来自{{source}}][{{participant}}]{{conversation}}的消息:
+message = '''[来自{{source}}][{{participant}}]{{context}}{{conversation}}的消息:
 {{content}}'''
+telegram_chat_type = "[聊天类型：{{type}}]"
+telegram_private = "私聊"
+telegram_group = "群聊"
+telegram_channel = "频道"
 video_attachment = "视频附件"
 attachment = "附件"
 saved_attachment = "[{{kind}}: {{filename}} — 已保存至 {{path}}，可使用工具读取]"

@@ -60,10 +60,11 @@ be added to a group/channel and receive a message, before the complete ID appear
 only when it belongs to one known Bot. Telegram does not let Bots initiate a private chat with an
 unknown user.
 
-For groups, Coworker preserves the sender ID, username, and display name in the inbound body so a
-group participant is not mistaken for a single member. A forum topic's `message_thread_id` becomes
-the `conversation_id`; pass it back to reply in that topic. A channel must grant the Bot the
-administrator permissions needed to read and send posts.
+Every inbound Telegram header explicitly identifies a `private chat`, `group chat`, or `channel`.
+For groups, Coworker also preserves the sender ID, username, and display name in the inbound body so
+a group participant is not mistaken for a single member. A forum topic's `message_thread_id`
+becomes the `conversation_id`; pass it back to reply in that topic. A channel must grant the Bot
+the administrator permissions needed to read and send posts.
 
 If ordinary group messages are missing, check
 [Privacy Mode](https://core.telegram.org/bots/features#privacy-mode) in BotFather. With Privacy Mode

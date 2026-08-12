@@ -26,6 +26,22 @@ _SELF_DESCRIBING_SOURCES = {"alarm", "code_job", "task_reminder"}
 # （如「记忆树回溯完成…」「图片分析结果…」），统一加 [系统] 前缀以标明来自系统。
 _SYSTEM_SOURCES = {"system", "compress_memory"}
 
+_TELEGRAM_CHAT_TYPE_KEYS = {
+    "private": "incoming.telegram_private",
+    "group": "incoming.telegram_group",
+    "channel": "incoming.telegram_channel",
+}
+
+
+def _event_header_context(event: IncomingEvent) -> str:
+    if event.source != "telegram":
+        return ""
+    chat_type = event.metadata.get("chat_type")
+    type_key = _TELEGRAM_CHAT_TYPE_KEYS.get(chat_type or "")
+    if type_key is None:
+        return ""
+    return tr("incoming.telegram_chat_type", type=tr(type_key))
+
 
 def format_event_text(event: IncomingEvent) -> str:
     if event.source in _SELF_DESCRIBING_SOURCES:
@@ -35,10 +51,12 @@ def format_event_text(event: IncomingEvent) -> str:
     source_key = _SOURCE_LABEL_KEYS.get(event.source)
     source_label = tr(source_key) if source_key else event.source
     conversation_label = f"[conversation:{event.conversation_id}]" if event.conversation_id else ""
+    context_label = _event_header_context(event)
     return tr(
         "incoming.message",
         source=source_label,
         participant=event.participant_id,
+        context=context_label,
         conversation=conversation_label,
         content=event.content,
     )

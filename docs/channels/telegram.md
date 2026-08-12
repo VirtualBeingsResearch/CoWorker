@@ -57,9 +57,10 @@ Coworker 只允许向已发现的聊天发送消息。用户需要先私聊 Bot�
 精确解析；只输入 `chat_id` 仅在它只属于一个已知 Bot 时有效。Bot 不能主动发起与陌生用户的
 私聊，这是 Telegram 平台限制。
 
-群组中，Coworker 会在入站正文前保留发送者 ID、用户名和显示名，避免把群组 participant
-误当成单个成员。Telegram forum topic 的 `message_thread_id` 会作为 `conversation_id`；回复
-时传回它即可发送到同一话题。频道需要让 Bot 具备读取和发送消息所需的管理员权限。
+每条 Telegram 入站消息头都会明确标注 `私聊`、`群聊` 或 `频道`。群组中，Coworker 还会
+在入站正文前保留发送者 ID、用户名和显示名，避免把群组 participant 误当成单个成员。
+Telegram forum topic 的 `message_thread_id` 会作为 `conversation_id`；回复时传回它即可
+发送到同一话题。频道需要让 Bot 具备读取和发送消息所需的管理员权限。
 
 如果 Bot 在群组中看不到普通消息，请在 BotFather 检查
 [Privacy Mode](https://core.telegram.org/bots/features#privacy-mode)。保持 Privacy Mode 时，
