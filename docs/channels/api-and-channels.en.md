@@ -81,6 +81,8 @@ These lists answer only whether a canonical participant address is allowed in on
 
 WeCom direct messages do not expose a `conversation_id`; replies automatically use the user's latest fresh frame. Group-chat events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same group. A group send without `conversation_id` is also always proactive and never uses a cached frame automatically.
 
+When an inbound WeCom message quotes an image, file, video, or mixed message containing images, the WeCom Channel downloads the quoted attachments after access control succeeds and passes them to the Agent together with attachments on the current message. On failure, the inbound content identifies the attachment that could not be downloaded. The underlying error remains in runtime logs; download URLs, AES keys, and exception details are not exposed to the Agent, and the current message is not discarded.
+
 WeCom AI Bots currently do not support mentioning group members through the API, so the WeCom Channel does not provide member mentions.
 
 For inbound traffic, override `receive_raw`, normalize the payload into an `IncomingEvent`, then call `publish_inbound`. For background connections, inject a `ChannelRuntime` that implements `start` and `stop`. The Registry rejects duplicate names, duplicate participant prefixes, and late registration after startup so configuration mistakes fail during composition.

@@ -89,6 +89,9 @@ image = "image"
 file = "file"
 video = "video"
 named_file = '''file "{{name}}"'''
+numbered_image = "image {{index}}"
+attachment_download_failed = "[failed to download attachment {{attachment}}]"
+quote_attachment_download_failed = "[failed to download quoted attachment {{attachment}}]"
 quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}}{{type}} message (preview unavailable)]

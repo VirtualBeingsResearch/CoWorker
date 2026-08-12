@@ -164,13 +164,15 @@ async def test_collect_attachments_image(tmp_path, monkeypatch):
     monkeypatch.setattr(adapter, "new_compact_id", lambda: compact_id_with_separator)
     client = AsyncMock()
     client.download_file = AsyncMock(return_value={"buffer": b"\x89PNG-fake-bytes", "filename": "shot.png"})
-    atts = await adapter.collect_attachments(client, _image_single(), tmp_path)
-    assert len(atts) == 1
-    assert atts[0].filename == "shot.png"
-    assert atts[0].media_type == "image/png"
-    assert Path(atts[0].saved_path).name == f"{compact_id_with_separator}_{atts[0].filename}"
+    collected = await adapter.collect_attachments(client, _image_single(), tmp_path)
+    assert len(collected.attachments) == 1
+    att = collected.attachments[0]
+    assert att.filename == "shot.png"
+    assert att.media_type == "image/png"
+    assert Path(att.saved_path).name == f"{compact_id_with_separator}_{att.filename}"
     # small image inlined as base64
-    assert atts[0].data is not None
+    assert att.data is not None
+    assert collected.failure_notices == []
     client.download_file.assert_awaited_once_with("https://x/y", "AESKEY")
 
 
@@ -178,9 +180,140 @@ async def test_collect_attachments_image(tmp_path, monkeypatch):
 async def test_collect_attachments_mixed_only_images(tmp_path):
     client = AsyncMock()
     client.download_file = AsyncMock(return_value={"buffer": b"\x89PNG-fake", "filename": "m.png"})
-    atts = await adapter.collect_attachments(client, _mixed_group(), tmp_path)
-    assert len(atts) == 1
+    collected = await adapter.collect_attachments(client, _mixed_group(), tmp_path)
+    assert len(collected.attachments) == 1
+    assert collected.failure_notices == []
     client.download_file.assert_awaited_once_with("https://x/img1", "K1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("qtype", "payload", "download_result", "expected"),
+    [
+        (
+            "image",
+            {"url": "https://x/quoted-image", "aeskey": "QI"},
+            {"buffer": b"\x89PNG-quoted", "filename": "quoted.png"},
+            ("quoted.png", "image/png"),
+        ),
+        (
+            "file",
+            {
+                "url": "https://x/quoted-file",
+                "aeskey": "QF",
+                "name": "report.pdf",
+            },
+            {"buffer": b"%PDF-quoted", "filename": None},
+            ("report.pdf", "application/pdf"),
+        ),
+        (
+            "video",
+            {"url": "https://x/quoted-video", "aeskey": "QV"},
+            {"buffer": b"video-quoted", "filename": "clip.mp4"},
+            ("clip.mp4", "video/mp4"),
+        ),
+    ],
+)
+async def test_collect_attachments_from_quote_media(
+    tmp_path,
+    qtype,
+    payload,
+    download_result,
+    expected,
+):
+    frame = _make_media_reply(qtype, payload)
+    client = AsyncMock()
+    client.download_file = AsyncMock(return_value=download_result)
+
+    collected = await adapter.collect_attachments(client, frame, tmp_path)
+
+    assert [(att.filename, att.media_type) for att in collected.attachments] == [expected]
+    assert collected.failure_notices == []
+    client.download_file.assert_awaited_once_with(payload["url"], payload["aeskey"])
+
+
+@pytest.mark.asyncio
+async def test_collect_attachments_from_quote_mixed_images(tmp_path):
+    frame = _text_single()
+    frame["body"]["quote"] = {
+        "msgtype": "mixed",
+        "mixed": {
+            "msg_item": [
+                {"msgtype": "text", "text": {"content": "看这两张图"}},
+                {
+                    "msgtype": "image",
+                    "image": {"url": "https://x/quoted-1", "aeskey": "Q1"},
+                },
+                {
+                    "msgtype": "image",
+                    "image": {"url": "https://x/quoted-2", "aeskey": "Q2"},
+                },
+            ]
+        },
+    }
+    client = AsyncMock()
+    client.download_file = AsyncMock(
+        side_effect=[
+            {"buffer": b"image-1", "filename": "one.jpg"},
+            {"buffer": b"image-2", "filename": "two.jpg"},
+        ]
+    )
+
+    collected = await adapter.collect_attachments(client, frame, tmp_path)
+
+    assert [att.filename for att in collected.attachments] == ["one.jpg", "two.jpg"]
+    assert collected.failure_notices == []
+    assert client.download_file.await_args_list == [
+        (("https://x/quoted-1", "Q1"), {}),
+        (("https://x/quoted-2", "Q2"), {}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_quote_mixed_identifies_only_failed_image(tmp_path):
+    frame = _text_single()
+    frame["body"]["quote"] = {
+        "msgtype": "mixed",
+        "mixed": {
+            "msg_item": [
+                {
+                    "msgtype": "image",
+                    "image": {"url": "https://x/quoted-1", "aeskey": "Q1"},
+                },
+                {"msgtype": "text", "text": {"content": "中间的文字"}},
+                {
+                    "msgtype": "image",
+                    "image": {"url": "https://x/quoted-2", "aeskey": "Q2"},
+                },
+            ]
+        },
+    }
+    client = AsyncMock()
+    client.download_file = AsyncMock(
+        side_effect=[
+            RuntimeError("first image failed"),
+            {"buffer": b"image-2", "filename": "two.jpg"},
+        ]
+    )
+
+    collected = await adapter.collect_attachments(client, frame, tmp_path)
+
+    assert [att.filename for att in collected.attachments] == ["two.jpg"]
+    assert collected.failure_notices == ["[引用附件 图片 1 下载失败]"]
+
+
+@pytest.mark.asyncio
+async def test_collect_quote_file_without_url_reports_failure(tmp_path):
+    frame = _make_media_reply("file", {"name": "missing.pdf"})
+    client = AsyncMock()
+
+    collected = await adapter.collect_attachments(client, frame, tmp_path)
+
+    assert collected.attachments == []
+    assert collected.failure_notices == [
+        '[引用附件 文件 "missing.pdf" 下载失败]'
+    ]
+    client.download_file.assert_not_awaited()
 
 
 def _reply_text_single() -> dict:
@@ -282,19 +415,22 @@ def _make_media_reply(qtype: str, payload: dict) -> dict:
 def test_frame_to_event_reply_image_with_url():
     frame = _make_media_reply("image", {"url": "https://cdn.example.com/img.jpg", "aeskey": "K"})
     event = adapter.frame_to_event(frame, attachments=[])
-    assert "[引用 U456 的图片: https://cdn.example.com/img.jpg]" in event.content
+    assert "[引用 U456 的图片]" in event.content
+    assert "https://" not in event.content
 
 
 def test_frame_to_event_reply_file_with_name_and_url():
     frame = _make_media_reply("file", {"url": "https://cdn.example.com/doc.pdf", "aeskey": "K", "name": "report.pdf"})
     event = adapter.frame_to_event(frame, attachments=[])
-    assert '[引用 U456 的文件 "report.pdf": https://cdn.example.com/doc.pdf]' in event.content
+    assert '[引用 U456 的文件 "report.pdf"]' in event.content
+    assert "https://" not in event.content
 
 
 def test_frame_to_event_reply_video_with_url():
     frame = _make_media_reply("video", {"url": "https://cdn.example.com/clip.mp4", "aeskey": "K"})
     event = adapter.frame_to_event(frame, attachments=[])
-    assert "[引用 U456 的视频: https://cdn.example.com/clip.mp4]" in event.content
+    assert "[引用 U456 的视频]" in event.content
+    assert "https://" not in event.content
 
 
 def test_frame_to_event_reply_self_quote():
@@ -374,6 +510,7 @@ def test_frame_to_event_reply_long_text_is_truncated():
 @pytest.mark.asyncio
 async def test_collect_attachments_text_returns_empty(tmp_path):
     client = AsyncMock()
-    atts = await adapter.collect_attachments(client, _text_single(), tmp_path)
-    assert atts == []
+    collected = await adapter.collect_attachments(client, _text_single(), tmp_path)
+    assert collected.attachments == []
+    assert collected.failure_notices == []
     client.download_file.assert_not_called()

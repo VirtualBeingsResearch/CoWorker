@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,12 @@ _MEDIA_TYPES_BY_EXT: dict[str, str] = {
     ".xml": "text/xml",
     ".html": "text/html",
 }
+
+
+@dataclass(slots=True)
+class _AttachmentCollection:
+    attachments: list[AttachmentData]
+    failure_notices: list[str]
 
 
 def participant_id_for(frame: dict[str, Any]) -> str:
@@ -115,76 +122,144 @@ async def _download_one(
 ) -> AttachmentData | None:
     try:
         result = await client.download_file(url, aeskey)
+        buffer = result.get("buffer", b"")
+        filename = result.get("filename") or fallback_filename
+        media_type = _guess_media_type(filename, fallback_media_type)
+        return await _save_buffer(buffer, filename, media_type, attachments_dir)
     except Exception as e:
         logger.error(f"WeCom download failed url={url[:60]}... err={e}")
         return None
-    buffer = result.get("buffer", b"")
-    filename = result.get("filename") or fallback_filename
-    media_type = _guess_media_type(filename, fallback_media_type)
-    return await _save_buffer(buffer, filename, media_type, attachments_dir)
+
+
+def _download_failure_notice(
+    msgtype: str,
+    media: dict[str, Any],
+    *,
+    quoted: bool,
+    index: int | None = None,
+) -> str:
+    if msgtype == "file" and (name := media.get("name") or media.get("filename")):
+        label = tr("channel.wecom.named_file", name=name)
+    elif msgtype == "image" and index is not None:
+        label = tr("channel.wecom.numbered_image", index=index)
+    else:
+        label = tr(_MEDIA_TYPE_KEYS[msgtype])
+    key = (
+        "channel.wecom.quote_attachment_download_failed"
+        if quoted
+        else "channel.wecom.attachment_download_failed"
+    )
+    return tr(key, attachment=label)
+
+
+async def _collect_payload_attachments(
+    client: WSClient,
+    payload: dict[str, Any],
+    msgid: str,
+    attachments_dir: Path,
+    *,
+    quoted: bool,
+) -> _AttachmentCollection:
+    msgtype = payload.get("msgtype")
+    out: list[AttachmentData] = []
+    failure_notices: list[str] = []
+
+    media_defaults = {
+        "image": ("jpg", "image/jpeg"),
+        "file": ("bin", "application/octet-stream"),
+        "video": ("mp4", "video/mp4"),
+    }
+    if msgtype in media_defaults:
+        media = payload.get(msgtype, {})
+        url = media.get("url", "")
+        if not url:
+            failure_notices.append(
+                _download_failure_notice(msgtype, media, quoted=quoted)
+            )
+            return _AttachmentCollection(out, failure_notices)
+        extension, fallback_media_type = media_defaults[msgtype]
+        fallback_filename = media.get("name") or media.get("filename") or f"{msgid}.{extension}"
+        att = await _download_one(
+            client,
+            url,
+            media.get("aeskey"),
+            fallback_filename,
+            fallback_media_type,
+            attachments_dir,
+        )
+        if att:
+            out.append(att)
+        else:
+            failure_notices.append(
+                _download_failure_notice(msgtype, media, quoted=quoted)
+            )
+    elif msgtype == "mixed":
+        image_index = 0
+        for idx, item in enumerate(payload.get("mixed", {}).get("msg_item", [])):
+            if item.get("msgtype") != "image":
+                continue
+            image_index += 1
+            image = item.get("image", {})
+            url = image.get("url", "")
+            if not url:
+                failure_notices.append(
+                    _download_failure_notice(
+                        "image",
+                        image,
+                        quoted=quoted,
+                        index=image_index,
+                    )
+                )
+                continue
+            att = await _download_one(
+                client,
+                url,
+                image.get("aeskey"),
+                f"{msgid}_{idx}.jpg",
+                "image/jpeg",
+                attachments_dir,
+            )
+            if att:
+                out.append(att)
+            else:
+                failure_notices.append(
+                    _download_failure_notice(
+                        "image",
+                        image,
+                        quoted=quoted,
+                        index=image_index,
+                    )
+                )
+    return _AttachmentCollection(out, failure_notices)
 
 
 async def collect_attachments(
     client: WSClient,
     frame: dict[str, Any],
     attachments_dir: Path,
-) -> list[AttachmentData]:
+) -> _AttachmentCollection:
     body = frame["body"]
-    msgtype = body.get("msgtype")
     msgid = body.get("msgid", "wecom")
-    out: list[AttachmentData] = []
+    collected = await _collect_payload_attachments(
+        client,
+        body,
+        msgid,
+        attachments_dir,
+        quoted=False,
+    )
 
-    if msgtype == "image":
-        img = body.get("image", {})
-        att = await _download_one(
+    quote = body.get("msgquote") or body.get("quote")
+    if isinstance(quote, dict):
+        quoted = await _collect_payload_attachments(
             client,
-            img.get("url", ""),
-            img.get("aeskey"),
-            f"{msgid}.jpg",
-            "image/jpeg",
+            quote,
+            f"{msgid}_quote",
             attachments_dir,
+            quoted=True,
         )
-        if att:
-            out.append(att)
-    elif msgtype == "file":
-        fl = body.get("file", {})
-        att = await _download_one(
-            client,
-            fl.get("url", ""),
-            fl.get("aeskey"),
-            f"{msgid}.bin",
-            "application/octet-stream",
-            attachments_dir,
-        )
-        if att:
-            out.append(att)
-    elif msgtype == "video":
-        vid = body.get("video", {})
-        att = await _download_one(
-            client,
-            vid.get("url", ""),
-            vid.get("aeskey"),
-            f"{msgid}.mp4",
-            "video/mp4",
-            attachments_dir,
-        )
-        if att:
-            out.append(att)
-    elif msgtype == "mixed":
-        for idx, item in enumerate(body.get("mixed", {}).get("msg_item", [])):
-            if item.get("msgtype") == "image":
-                img = item.get("image", {})
-                att = await _download_one(
-                    client,
-                    img.get("url", ""),
-                    img.get("aeskey"),
-                    f"{msgid}_{idx}.jpg",
-                    "image/jpeg",
-                    attachments_dir,
-                )
-                if att:
-                    out.append(att)
-    return out
+        collected.attachments.extend(quoted.attachments)
+        collected.failure_notices.extend(quoted.failure_notices)
+    return collected
 
 
 def _truncate(text: str) -> str:
@@ -238,7 +313,6 @@ def _quote_prefix(body: dict[str, Any], bot_id: str = "") -> str:
         )
     elif qtype in _MEDIA_TYPE_KEYS:
         payload = quote.get(qtype, {})
-        url = payload.get("url", "")
         name = payload.get("name") or payload.get("filename") or ""
         localized_label = tr(_MEDIA_TYPE_KEYS[qtype])
         label = (
@@ -246,12 +320,11 @@ def _quote_prefix(body: dict[str, Any], bot_id: str = "") -> str:
             if qtype == "file" and name
             else localized_label
         )
-        suffix = f": {url}" if url else ""
         return tr(
             "channel.wecom.quote_media",
             possessive=possessive,
             label=label,
-            suffix=suffix,
+            suffix="",
         )
     elif qtype:
         return tr("channel.wecom.quote_unavailable", possessive=possessive, type=qtype)
@@ -281,10 +354,13 @@ def _content_for(frame: dict[str, Any]) -> str:
 def frame_to_event(
     frame: dict[str, Any],
     attachments: list[AttachmentData],
+    attachment_failure_notices: list[str] | None = None,
 ) -> IncomingEvent:
     pid = participant_id_for(frame)
     raw = _content_for(frame)
     content = _sender_prefix(frame) + raw
+    if attachment_failure_notices:
+        content = "\n".join([content, *attachment_failure_notices]).lstrip("\n")
     return IncomingEvent(
         participant_id=pid,
         content=content,
