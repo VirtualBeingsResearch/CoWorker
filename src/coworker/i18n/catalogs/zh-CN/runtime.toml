@@ -89,6 +89,9 @@ image = "图片"
 file = "文件"
 video = "视频"
 named_file = '''文件 "{{name}}"'''
+numbered_image = "图片 {{index}}"
+attachment_download_failed = "[附件 {{attachment}} 下载失败]"
+quote_attachment_download_failed = "[引用附件 {{attachment}} 下载失败]"
 quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}} {{type}} 消息（无法预览）]

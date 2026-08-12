@@ -81,7 +81,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。群聊发送时不传 `conversation_id` 也始终视为主动消息，不会自动使用缓存的 frame。
 
-企业微信入站消息引用图片、文件、视频或包含图片的图文混排消息时，WeCom Channel 会在访问控制通过后下载引用附件，并与当前消息的附件一起交给 Agent。下载失败只会省略对应附件，不会丢弃当前消息。
+企业微信入站消息引用图片、文件、视频或包含图片的图文混排消息时，WeCom Channel 会在访问控制通过后下载引用附件，并与当前消息的附件一起交给 Agent。下载失败时，入站内容会标明对应附件下载失败；底层错误只写入运行日志，不会向 Agent 暴露下载 URL、AES key 或异常详情，当前消息也不会被丢弃。
 
 企业微信智能机器人目前不支持通过 API @群成员，因此 WeCom Channel 不提供成员提醒能力。
 
