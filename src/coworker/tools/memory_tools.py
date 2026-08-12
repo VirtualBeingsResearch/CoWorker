@@ -14,11 +14,9 @@ from coworker.core.ids import new_compact_id
 from coworker.core.types import Message, SummaryResult, ToolResult
 from coworker.i18n import tr
 from coworker.memory.long_term import LongTermMemory
-from coworker.memory.recent_activity import render_recent_activity_replay
 from coworker.tools.base import PAGE_CHAR_LIMIT, PAGE_CHAR_MAX, Tool, ToolDefinition, paginate_text
 
 _QUERY_MEMORY_MAX_RESULTS = 10
-_QUERY_MEMORY_RECENT_QUOTA = 2
 _QUERY_MEMORY_SNAPSHOT_TTL = 30 * 60
 _QUERY_MEMORY_MAX_SNAPSHOTS = 100
 _QUERY_MEMORY_SNAPSHOT_LINE_CHARS = 500
@@ -27,7 +25,6 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.core.tool_scope import ToolScope
     from coworker.memory.memory_tree import MemoryNode
-    from coworker.memory.recent_activity import RecentActivityMemory
     from coworker.memory.short_term import ShortTermMemory
 
 
@@ -37,13 +34,11 @@ class QueryMemoryTool(Tool):
         memory: LongTermMemory,
         short_term: ShortTermMemory | None = None,
         brain: Brain | None = None,
-        recent_activity: RecentActivityMemory | None = None,
         snapshot_dir: str | Path | None = None,
     ) -> None:
         self._memory = memory
         self._short_term = short_term
         self._brain = brain
-        self._recent_activity = recent_activity
         self._snapshot_dir = (
             Path(snapshot_dir)
             if snapshot_dir is not None
@@ -57,7 +52,6 @@ class QueryMemoryTool(Tool):
             self._memory,
             short_term=short_term,
             brain=brain,
-            recent_activity=self._recent_activity,
             snapshot_dir=self._snapshot_dir,
         )
 
@@ -66,7 +60,7 @@ class QueryMemoryTool(Tool):
         return ToolDefinition(
             name="query_memory",
             description=(
-                "综合查询记忆。传 query 时同时检索最近活动和长期记忆；传 start/end（ISO 时间）时回忆该时间窗。"
+                "综合查询记忆。传 query 时检索长期记忆；传 start/end（ISO 时间）时回忆该时间窗。"
                 "query 可与 start/end 同时使用，表示在时间窗内做语义聚焦搜索。"
             ),
             parameters={
@@ -88,7 +82,7 @@ class QueryMemoryTool(Tool):
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "近期活动与长期记忆合计返回条数，默认 5，最多 10",
+                        "description": "长期记忆返回条数，默认 5，最多 10",
                         "default": 5,
                         "minimum": 1,
                         "maximum": _QUERY_MEMORY_MAX_RESULTS,
@@ -224,17 +218,6 @@ class QueryMemoryTool(Tool):
 
         tasks.append(
             asyncio.create_task(
-                self._query_recent_activity_records(
-                    query,
-                    limit=limit,
-                    start_dt=start_dt,
-                    end_dt=end_dt,
-                )
-            )
-        )
-        task_names.append("recent")
-        tasks.append(
-            asyncio.create_task(
                 self._query_long_term_records(
                     query,
                     category=category,
@@ -253,7 +236,6 @@ class QueryMemoryTool(Tool):
             task_names.append("time")
 
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-        recent: list[dict] = []
         long_term: list[dict] = []
         focus: str = ""
         warnings: list[str] = []
@@ -261,20 +243,18 @@ class QueryMemoryTool(Tool):
             if isinstance(value, BaseException):
                 warnings.append(tr("memory.query.query_failed", source=name, error=value))
                 continue
-            if name == "recent":
-                recent = cast(list[dict], value)
-            elif name == "long":
+            if name == "long":
                 long_term = cast(list[dict], value)
             elif name == "time":
                 focus = str(value or "")
 
-        if not recent and not long_term and not focus:
+        if not long_term and not focus:
             content = tr("memory.query.combined_none")
             if warnings:
                 content += "\n" + "\n".join(tr("memory.query.hint", message=w) for w in warnings)
             return ToolResult(tool_call_id="", content=content)
 
-        recent, long_term = self._select_combined_results(recent, long_term, limit)
+        long_term = long_term[:limit]
         compact_lines: list[str] = []
         snapshot_sections: list[tuple[str, str]] = []
 
@@ -299,33 +279,6 @@ class QueryMemoryTool(Tool):
                     + (f"{label}: {focus}" if label else focus),
                 )
             )
-
-        if recent:
-            compact_lines.extend(
-                [
-                    tr("memory.query.recent_title"),
-                    tr("memory.query.recent_intro"),
-                ]
-            )
-            for i, item in enumerate(recent, 1):
-                description = str(item.get("activity_description") or "").strip()
-                snippet = str(item.get("snippet") or "").strip()
-                summary = self._compact_text(" ".join(p for p in (description, snippet) if p))
-                timestamp = str(item.get("timestamp") or "")
-                compact_lines.append(
-                    f"R{i}. id={item.get('id', '')} {timestamp} {summary} "
-                    f"({tr('memory.query.relevance', value=item.get('relevance', ''))})"
-                )
-                snapshot_sections.append(
-                    (
-                        f"R{i}",
-                        render_recent_activity_replay(
-                            [item],
-                            title=tr("memory.query.recent_snapshot_title", id=f"R{i}"),
-                            include_evidence=True,
-                        ),
-                    )
-                )
 
         if long_term:
             compact_lines.append(tr("memory.query.long_title"))
@@ -365,21 +318,6 @@ class QueryMemoryTool(Tool):
             tool_call_id="",
             content=self._cap_inline(content, snapshot_path),
         )
-
-    @staticmethod
-    def _select_combined_results(
-        recent: list[dict],
-        long_term: list[dict],
-        limit: int,
-    ) -> tuple[list[dict], list[dict]]:
-        """Apply one total result budget while keeping some room for each source."""
-        recent_quota = min(_QUERY_MEMORY_RECENT_QUOTA, len(recent), limit)
-        selected_recent = recent[:recent_quota]
-        selected_long = long_term[: max(0, limit - len(selected_recent))]
-        remaining = limit - len(selected_recent) - len(selected_long)
-        if remaining > 0:
-            selected_recent.extend(recent[len(selected_recent) : len(selected_recent) + remaining])
-        return selected_recent, selected_long
 
     @staticmethod
     def _compact_text(text: str, limit: int = 320) -> str:
@@ -472,18 +410,6 @@ class QueryMemoryTool(Tool):
             tool_call_id="",
             content=self._cap_inline(pointer + "\n\n" + preview, path),
         )
-
-    async def _query_recent_activity_records(
-        self,
-        query: str,
-        *,
-        limit: int,
-        start_dt: datetime | None = None,
-        end_dt: datetime | None = None,
-    ) -> list[dict]:
-        if self._recent_activity is None:
-            return []
-        return await self._recent_activity.query(query, limit=limit, start=start_dt, end=end_dt)
 
     async def _query_long_term_records(
         self,

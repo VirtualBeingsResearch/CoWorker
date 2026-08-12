@@ -120,7 +120,6 @@ def _make_runtime(tmp_path: Path, brain) -> Runtime:
         event_collector=MagicMock(),
         usage_stats=MagicMock(snapshot=MagicMock(return_value={})),
         long_term=long_term,
-        recent_activity=None,
         short_term=mem,
         brain=brain,
         agent_state=state,

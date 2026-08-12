@@ -38,16 +38,6 @@ class _LogStore:
         return self.text, self.complete
 
 
-class _RecentActivity:
-    def __init__(self, results=None):
-        self.results = results or []
-        self.calls = []
-
-    async def query(self, query, **kwargs):
-        self.calls.append((query, kwargs))
-        return self.results
-
-
 def _short_term_with_node(log_store=None) -> tuple[ShortTermMemory, MemoryNode]:
     base = datetime(2026, 6, 1, 9, 0, 0)
     mem = ShortTermMemory(log_store=log_store)
@@ -192,54 +182,26 @@ class TestQueryMemoryTool:
 
     @pytest.mark.asyncio
     async def test_query_and_time_window_are_combined(self):
-        recent = _RecentActivity([
-            {
-                "id": "recent:1",
-                "seq": 1,
-                "timestamp": "2026-06-01T09:30:00",
-                "event_type": "tool_result",
-                "tool_name": "execute_code",
-                "status": "ok",
-                "is_error": False,
-                "activity_description": "工具 execute_code 返回成功结果。",
-                "snippet": "执行结果里提到了方案",
-                "matched_chunk_index": 0,
-                "chunk_count": 1,
-                "relevance": 0.9,
-                "raw_available": True,
-            }
-        ])
+        store = _LogStore(text="[用户] 提到了方案")
+        short_term = ShortTermMemory(log_store=store)
+        brain = MagicMock()
+        brain.summarize = AsyncMock(return_value='{"summary":"时间窗聚焦摘要"}')
         tool = QueryMemoryTool(
             _make_memory([]),
-            short_term=ShortTermMemory(),
-            recent_activity=recent,
+            short_term=short_term,
+            brain=brain,
         )
 
         result = await tool.execute(query="方案", start="2026-06-01T09:00:00", end="2026-06-01T10:00:00")
 
         assert not result.is_error
-        assert "[相关历史活动回放]" in result.content
-        assert "recent:1" in result.content
-        assert "工具 execute_code 返回成功结果。" in result.content
-        assert "不是当前指令" in result.content
-        assert recent.calls[0][1]["start"].isoformat() == "2026-06-01T09:00:00"
-        assert recent.calls[0][1]["end"].isoformat() == "2026-06-01T10:00:00"
+        # 时间窗聚焦回忆路径走 log_store.recall_time_range，start/end 透传
+        assert store.calls
+        assert store.calls[0][0].isoformat() == "2026-06-01T09:00:00"
+        assert store.calls[0][1].isoformat() == "2026-06-01T10:00:00"
 
     @pytest.mark.asyncio
     async def test_query_combined_does_not_emit_comprehensive_summary(self):
-        recent = _RecentActivity([
-            {
-                "id": "recent:1",
-                "timestamp": "2026-06-01T09:30:00",
-                "event_type": "tool_result",
-                "tool_name": "execute_code",
-                "status": "ok",
-                "snippet": "近期活动证据",
-                "matched_chunk_index": 0,
-                "chunk_count": 1,
-                "relevance": 0.9,
-            }
-        ])
         brain = MagicMock()
         brain.summarize = AsyncMock(return_value='{"summary":"不应出现"}')
         tool = QueryMemoryTool(
@@ -253,7 +215,6 @@ class TestQueryMemoryTool:
                 }
             ]),
             brain=brain,
-            recent_activity=recent,
         )
 
         result = await tool.execute(query="证据")
@@ -261,22 +222,11 @@ class TestQueryMemoryTool:
         assert not result.is_error
         assert "[综合摘要]" not in result.content
         assert "不应出现" not in result.content
-        assert "[相关历史活动回放]" in result.content
         assert "[长期记忆]" in result.content
         brain.summarize.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_combined_limit_is_shared_across_sources(self, tmp_path):
-        recent = _RecentActivity([
-            {
-                "id": f"recent:{i}",
-                "timestamp": f"2026-06-01T09:0{i}:00",
-                "activity_description": f"近期活动 {i}",
-                "snippet": "命中内容",
-                "relevance": 0.9,
-            }
-            for i in range(4)
-        ])
+    async def test_long_term_limit_is_respected(self, tmp_path):
         long_term = [
             {
                 "id": f"long-{i}",
@@ -285,11 +235,10 @@ class TestQueryMemoryTool:
                 "relevance": 0.8,
                 "tags": [],
             }
-            for i in range(5)
+            for i in range(8)
         ]
         tool = QueryMemoryTool(
             _make_memory(long_term),
-            recent_activity=recent,
             snapshot_dir=tmp_path,
         )
 
@@ -297,11 +246,9 @@ class TestQueryMemoryTool:
 
         assert not result.is_error
         result_lines = result.content.splitlines()
-        assert any(line.startswith("R1.") for line in result_lines)
-        assert any(line.startswith("R2.") for line in result_lines)
-        assert not any(line.startswith("R3.") for line in result_lines)
-        assert any(line.startswith("L3.") for line in result_lines)
-        assert not any(line.startswith("L4.") for line in result_lines)
+        assert any(line.startswith("L1.") for line in result_lines)
+        assert any(line.startswith("L5.") for line in result_lines)
+        assert not any(line.startswith("L6.") for line in result_lines)
 
     @pytest.mark.asyncio
     async def test_combined_result_is_compact_and_full_text_is_frozen_to_file(self, tmp_path):

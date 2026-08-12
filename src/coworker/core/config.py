@@ -187,15 +187,6 @@ class MemoryConfig(_EnvSettings):
     auto_recall_relevance_threshold: float = 0.5
     auto_recall_limit: int = 5
 
-    recent_activity_enabled: bool = True
-    recent_activity_days: int = 7
-    recent_activity_chunk_tokens: int = 120
-    recent_activity_overlap_tokens: int = 24
-    recent_activity_query_limit: int = 5
-    recent_activity_auto_recall_enabled: bool = True
-    recent_activity_auto_recall_limit: int = 2
-    recent_activity_auto_recall_relevance_threshold: float = 0.72
-
     # mem0 的独立 LLM 配置。留空表示跟随主线（llm.default_provider / 该 provider 的
     # default_model，无则 llm.default_model），与摘要/压缩的跟随逻辑一致。
     mem0_llm_provider: str = ""

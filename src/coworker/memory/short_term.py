@@ -378,22 +378,6 @@ class ShortTermMemory:
         slice_, _cutoff = self._select_full_promotion_slice()
         return slice_
 
-    def raw_primary_boundary(self) -> datetime | None:
-        """Oldest timestamp still present as raw short-term context.
-
-        Recent-activity indexing uses this as the loss boundary: interaction-log
-        events older than this timestamp have been compressed out of ``primary`` and
-        are no longer available verbatim in short-term memory. Legacy single-anchor
-        summaries are skipped because they are compressed replacements, not raw
-        retained context.
-        """
-        raw = [m.timestamp for m in self.primary if m.source != "memory_summary"]
-        if raw:
-            return min(raw)
-        if self.tree.nodes or any(m.source == "memory_summary" for m in self.primary):
-            return datetime.now()
-        return None
-
     @staticmethod
     def _parse_summary(raw: str | SummaryResult) -> str:
         if isinstance(raw, SummaryResult):
