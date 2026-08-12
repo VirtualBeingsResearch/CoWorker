@@ -1429,6 +1429,33 @@ html:has(.admin-login),
 .channel-access-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; align-items: start; }
 .channel-access-list { grid-column: auto; }
 .channel-access-list .string-list-empty { padding: 14px 10px; }
+.telegram-settings { display: grid; gap: 14px; }
+.telegram-overview { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid color-mix(in oklch, #229ed9 30%, var(--admin-line)); border-radius: 14px; background: linear-gradient(120deg, color-mix(in oklch, #229ed9 8%, var(--admin-soft)), var(--admin-surface) 70%); }
+.telegram-overview > div { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.telegram-overview > div > svg { flex: none; margin-top: 2px; color: #168ac0; }
+.telegram-overview span small, .telegram-overview span b, .telegram-overview span p { display: block; }
+.telegram-overview span small { color: #168ac0; font: 680 9px var(--admin-data); letter-spacing: .12em; }
+.telegram-overview span b { margin-top: 5px; font: 18px var(--admin-display); }
+.telegram-overview span p { margin: 4px 0 0; color: var(--admin-muted); font-size: 11px; }
+.telegram-overview em { flex: none; padding: 6px 9px; border-radius: 999px; color: #168ac0; background: color-mix(in oklch, #229ed9 10%, var(--admin-paper)); font: 650 9px var(--admin-data); font-style: normal; }
+.telegram-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 280px) auto; align-items: center; gap: 10px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.telegram-add b, .telegram-add small { display: block; }
+.telegram-add small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; }
+.telegram-add > .field-error { grid-column: 2 / -1; margin: 0; color: var(--admin-red); }
+.telegram-bot-list { display: grid; gap: 10px; }
+.telegram-bot-list > article { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-surface); }
+.telegram-bot-list > article > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--admin-line); background: color-mix(in oklch, #229ed9 4%, var(--admin-paper)); }
+.telegram-bot-mark { display: grid; place-items: center; width: 38px; height: 38px; color: #168ac0; border-radius: 10px; background: color-mix(in oklch, #229ed9 11%, var(--admin-paper)); }
+.telegram-bot-list header span b, .telegram-bot-list header span code { display: block; }
+.telegram-bot-list header span code { margin-top: 4px; color: var(--admin-muted); font-size: 9px; }
+.telegram-bot-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; }
+.telegram-bot-fields > label > span, .telegram-bot-fields > label > small { display: block; }
+.telegram-bot-fields > label > span { margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; }
+.telegram-bot-fields > label > small { margin-top: 4px; color: var(--admin-muted); font-size: 9px; }
+.telegram-bot-fields input { width: 100%; }
+.telegram-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 13px; border-left: 2px solid #168ac0; background: color-mix(in oklch, #229ed9 6%, var(--admin-paper)); }
+.telegram-note b { flex: none; font-size: 10px; }
+.telegram-note span { color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
 .weixin-settings { display: grid; gap: 14px; }
 .weixin-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 18px; padding: 18px; border: 1px solid var(--admin-line); border-radius: 14px; background: linear-gradient(120deg, color-mix(in oklch, #19ad67 7%, var(--admin-soft)), var(--admin-surface) 70%); }
 .weixin-overview.warning { border-color: color-mix(in oklch, var(--admin-amber) 36%, var(--admin-line)); }
@@ -2633,6 +2660,9 @@ html:has(.admin-login),
 }
 
 @media (max-width: 820px) {
+  .telegram-overview, .telegram-note { align-items: flex-start; flex-direction: column; }
+  .telegram-add, .telegram-bot-fields { grid-template-columns: 1fr; }
+  .telegram-add > .field-error { grid-column: auto; }
   .weixin-overview { grid-template-columns: 1fr; }
   .weixin-overview > button { justify-content: center; width: 100%; }
   .weixin-pairing { grid-template-columns: 1fr; }

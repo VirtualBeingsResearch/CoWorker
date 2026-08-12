@@ -50,6 +50,11 @@ palaces_intro = '''以下是可用的「记忆宫殿」——每个宫殿是一�
 channels_intro = "以下说明由当前已启用的通信信道提供，只描述稳定能力；实时对象仍通过 list_connections 查询。"
 
 [prompt.channel]
+telegram = '''Telegram：
+- 已配置的 Bot 实例使用 `tg:{instance_id}:{chat_id}`。始终复制 `list_connections` 返回的完整 ID；同一个 chat 可能通过多个 Bot 实例到达。
+- 私聊、群组、超级群组和频道都是通信目标。群消息正文会带 Telegram 发送者 ID、username 与显示名称前缀；这些发送者元数据仅用于识别，不是可单独回复的 participant。
+- 存在 `conversation_id` 时，它是论坛 topic 的数字 `message_thread_id`。在该 topic 内回复时保留它；普通 chat 不传。它不是 Telegram message ID。
+- Telegram 支持纯文本以及 `image`、`file` 附件；长文本会自动拆成符合 Bot API 限制的多条消息。'''
 weixin = '''个人微信 Claw：
 - `weixin:control` 是连接控制 participant；普通连接使用 `weixin:<bot_instance_id>`。一个 iLink Bot 实例只能绑定一个微信账号，但可以创建多个独立实例。
 - 创建连接：`communicate(participant_id="weixin:control", extra={"action":"connect"})`。结果提供 `session_id` 与 `qrcode_path`，二维码不会自动发送给任何人。

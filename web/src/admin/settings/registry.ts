@@ -1,4 +1,5 @@
 import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
+import { TelegramSettingsPanel } from './panels/TelegramSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
 import type { SettingsPanelRegistration } from './types';
 
@@ -10,6 +11,10 @@ const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
   weixin: {
     label: '微信 Claw',
     component: WeixinSettingsPanel,
+  },
+  telegram: {
+    label: 'Telegram',
+    component: TelegramSettingsPanel,
   },
 };
 

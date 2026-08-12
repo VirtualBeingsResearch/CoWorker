@@ -42,7 +42,7 @@ volume or the host checkout also deletes the corresponding history, state, or mo
 - Model calls send the system prompt and the conversations, memories, tool results, and attachment contents needed for the current task. Coworker does not upload the whole working directory unconditionally, but file content read by the agent may later enter model context.
 - `visual_analyze` sends selected images or videos to the configured vision model service.
 - Search tools send queries. Browser tools visit target websites and are subject to those sites' logging, cookie, and session policies.
-- WeCom, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.
+- WeCom, Telegram, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.
 - With self-hosted Relay enabled, Relay can observe source IP, instance, connection times, sizes,
   and timing. Bearers, headers, paths, message bodies, attachments, SSE events, and update artifacts
   remain inside inner TLS 1.3 between Desktop and Coworker, so Relay cannot decrypt them or create a

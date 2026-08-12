@@ -10,7 +10,7 @@ type RuleField =
   | 'outbound_allow'
   | 'outbound_deny';
 
-const BUILTIN_CHANNELS = ['stream', 'desktop', 'wecom', 'weixin'];
+const BUILTIN_CHANNELS = ['stream', 'desktop', 'wecom', 'weixin', 'telegram'];
 const EMPTY_RULES: Record<RuleField, string[]> = {
   inbound_allow: [],
   inbound_deny: [],
