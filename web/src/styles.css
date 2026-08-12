@@ -379,6 +379,7 @@ html {
   background-position: 50% 50%;
   animation: holo-breathe 12s ease-in-out infinite;
   will-change: opacity;
+  mix-blend-mode: screen;
   pointer-events: none;
   z-index: 2;
   border-radius: inherit;
@@ -1393,6 +1394,7 @@ h1, h2, h3, p { margin: 0; }
   display: flex; flex-direction: column; gap: 5px;
   /* 顶部淡化交给 .ledger-feed-wrap::before 的静止浮层，不再用 mask-image 挂在滚动层上：
      mask 会让整个滚动层每帧重新栅格化+重遮罩，是手动滚动卡顿的主因。 */
+  will-change: scroll-position;
 }
 /* 顶部羽化浮层：不随内容滚动，纯白底（--surface）→ 透明，视觉等价于原 mask 的顶部淡化，
    但滚动时零重绘成本。inset 右侧 6px 让出滚动条。 */
@@ -1441,25 +1443,6 @@ h1, h2, h3, p { margin: 0; }
   border: 1px solid oklch(91% 0.008 95 / 0.7);
   border-left: 3px solid var(--accent, var(--muted));
   --accent: var(--muted);
-}
-.ledger .le:is(.thinking:not(.done), .sleep.active, .tool_call)::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border: 1.5px solid color-mix(in oklch, var(--accent) 34%, transparent);
-  border-radius: inherit;
-  box-shadow: 0 6px 22px -8px color-mix(in oklch, var(--accent) 38%, transparent);
-  opacity: 0;
-  pointer-events: none;
-  will-change: opacity;
-  animation: ledger-row-glow var(--ledger-glow-duration, 2.4s) ease-in-out infinite;
-}
-.ledger .le.thinking { --ledger-glow-duration: 2.4s; }
-.ledger .le.sleep.active { --ledger-glow-duration: 3.8s; }
-.ledger .le.tool_call { --ledger-glow-duration: 1.9s; }
-@keyframes ledger-row-glow {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 1; }
 }
 .ledger .le-time { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
 .ledger .le-icon { font-size: 15px; text-align: center; line-height: 1; }
@@ -1517,8 +1500,12 @@ h1, h2, h3, p { margin: 0; }
 
 @keyframes le-in-soft { from { opacity: 0; } to { opacity: 1; } }
 
-/* thinking — 扫描光、文字和图标只动 transform/opacity，光晕在独立合成层呼吸。 */
-.ledger .le.thinking { animation: le-in-soft .4s ease both; overflow: hidden; }
+/* thinking — 长态：呼吸光晕 + 扫描光 + 发光脑 + 微光文字 + 省略号 */
+.ledger .le.thinking { animation: le-in-soft .4s ease both, think-breathe 2.4s ease-in-out infinite; overflow: hidden; }
+@keyframes think-breathe {
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ledger-thinking) 0%, transparent); border-color: oklch(91% 0.008 95 / 0.7); }
+  50% { box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--ledger-thinking) 28%, transparent), 0 6px 22px -8px color-mix(in oklch, var(--ledger-thinking) 38%, transparent); border-color: color-mix(in oklch, var(--ledger-thinking) 42%, transparent); }
+}
 .ledger .le.thinking::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 42%; pointer-events: none;
   background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ledger-thinking) 18%, transparent), transparent);
@@ -1526,21 +1513,18 @@ h1, h2, h3, p { margin: 0; }
 }
 @keyframes think-scan { 0% { transform: translateX(-150%); } 100% { transform: translateX(360%); } }
 .ledger .le.thinking .le-text {
-  color: color-mix(in oklch, var(--ledger-thinking) 42%, var(--ink));
-  animation: think-text-pulse 1.8s ease-in-out infinite;
-  will-change: opacity;
+  background: linear-gradient(90deg, var(--ink) 0 38%, var(--ledger-thinking) 50%, var(--ink) 62% 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: think-shimmer 1.8s linear infinite;
 }
-@keyframes think-text-pulse { 0%,100% { opacity: .68; } 50% { opacity: 1; } }
+@keyframes think-shimmer { to { background-position: -220% 0; } }
 .ledger .dots::after { content: ""; animation: le-dots 1.3s steps(4,end) infinite; }
 @keyframes le-dots { 0%{content:"";} 25%{content:"·";} 50%{content:"··";} 75%{content:"···";} }
-.ledger .le.thinking .le-icon {
-  animation: think-bob 1.8s ease-in-out infinite;
-  filter: drop-shadow(0 0 7px color-mix(in oklch, var(--ledger-thinking) 48%, transparent));
-  will-change: transform;
-}
+.ledger .le.thinking .le-icon { animation: think-bob 1.8s ease-in-out infinite; }
 @keyframes think-bob {
-  0%,100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.2); }
+  0%,100% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 0 transparent); }
+  50% { transform: translateY(-2px) scale(1.2); filter: drop-shadow(0 0 9px color-mix(in oklch, var(--ledger-thinking) 58%, transparent)); }
 }
 /* thinking 完成 —— 停下所有动效，沉淀为偏紫的完成记录，避免与发送回复撞色 */
 .ledger .le.thinking.done { --accent: var(--ledger-thinking-done); animation: think-finish .55s cubic-bezier(.3,1.2,.4,1) forwards; }
@@ -1554,8 +1538,12 @@ h1, h2, h3, p { margin: 0; }
   100% { box-shadow: 0 0 0 0 oklch(30% 0.04 260 / 0); transform: scale(1); }
 }
 
-/* sleep — 光晕由独立合成层呼吸，内容保持轻浮动。 */
-.ledger .le.sleep.active { animation: le-in-soft .4s ease both; }
+/* sleep — 自有的缓慢蓝色呼吸态（与 thinking 相反），💤 轻浮动 + 上升 z·z·z */
+.ledger .le.sleep.active { animation: le-in-soft .4s ease both, sleep-breathe 3.8s ease-in-out infinite; }
+@keyframes sleep-breathe {
+  0%,100% { opacity: .82; box-shadow: 0 0 0 0 color-mix(in oklch, var(--ledger-sleep) 0%, transparent); }
+  50% { opacity: 1; box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--ledger-sleep) 24%, transparent), 0 6px 20px -10px color-mix(in oklch, var(--ledger-sleep) 34%, transparent); }
+}
 .ledger .le.sleep.active .le-icon { animation: sleep-bob 3.8s ease-in-out infinite; }
 @keyframes sleep-bob { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.08); } }
 .ledger .le.sleep.active::after {
@@ -1577,10 +1565,14 @@ h1, h2, h3, p { margin: 0; }
   border-color: color-mix(in oklch, var(--accent) 26%, oklch(91% 0.008 95 / 0.7));
 }
 
-/* tool_call — 文字打字机；光晕不再逐帧重绘 box-shadow。 */
-.ledger .le.tool_call { animation: le-in-soft .4s ease both; }
+/* tool_call — 文字打字机；图标按工具家族有不同的「工作中」动效 */
+.ledger .le.tool_call { animation: le-in-soft .4s ease both, tool-breathe 1.9s ease-in-out infinite; }
 .ledger .le.tool_call .le-icon { animation: tool-work 1.4s ease-in-out infinite; transform-origin: 50% 50%; }
 @keyframes tool-work { 0%,100% { transform: scale(1); opacity: .82; } 50% { transform: scale(1.16); opacity: 1; } }
+@keyframes tool-breathe {
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--accent) 26%, transparent), 0 6px 20px -10px color-mix(in oklch, var(--accent) 36%, transparent); }
+}
 /* 默认（未知工具）= 齿轮旋转 */
 .ledger .le.tool_call.t-spin .le-icon { animation: tool-gear 2.4s linear infinite; }
 @keyframes tool-gear { to { transform: rotate(360deg); } }
@@ -1659,9 +1651,9 @@ h1, h2, h3, p { margin: 0; }
 .ledger .le.state::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 55%; pointer-events: none;
   background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ledger-in) 26%, transparent), color-mix(in oklch, var(--ledger-out) 24%, transparent), transparent);
-  transform: translateX(-180%); animation: ledger-state-sweep 1.2s ease-in-out .1s 1;
+  transform: translateX(-180%); animation: state-wave 1.2s ease-in-out .1s 1;
 }
-@keyframes ledger-state-sweep { to { transform: translateX(320%); } }
+@keyframes state-wave { to { transform: translateX(320%); } }
 .ledger .le.state .le-icon { animation: state-flip .8s cubic-bezier(.3,1.2,.4,1) 1; }
 @keyframes state-flip { 0% { transform: perspective(260px) rotateX(85deg); } 100% { transform: perspective(260px) rotateX(0); } }
 
@@ -2349,32 +2341,6 @@ h1, h2, h3, p { margin: 0; }
   .chat-name-mark .sprite-node {
     animation: none;
   }
-}
-
-/* 页面不可见时冻结环境动画；重新可见时从原进度继续。 */
-html[data-motion="paused"] #root *,
-html[data-motion="paused"] #root *::before,
-html[data-motion="paused"] #root *::after {
-  animation-play-state: paused !important;
-}
-
-/* 减少动态效果时让有限动画立即落到末态，避免 pause 卡在 opacity: 0 的首帧。 */
-html[data-motion="reduced"] #root *,
-html[data-motion="reduced"] #root *::before,
-html[data-motion="reduced"] #root *::after {
-  animation-delay: 0s !important;
-  animation-duration: 1ms !important;
-  animation-iteration-count: 1 !important;
-  transition-delay: 0s !important;
-  transition-duration: 1ms !important;
-}
-
-/* 视口裁剪：长态日志离开滚动窗口后冻结，重新进入时从原进度继续。 */
-.ledger.ledger-motion-managed .le:not(.le-motion-visible):is(.thinking:not(.done), .sleep.active, .tool_call),
-.ledger.ledger-motion-managed .le:not(.le-motion-visible):is(.thinking:not(.done), .sleep.active, .tool_call) *,
-.ledger.ledger-motion-managed .le:not(.le-motion-visible):is(.thinking:not(.done), .sleep.active, .tool_call)::before,
-.ledger.ledger-motion-managed .le:not(.le-motion-visible):is(.thinking:not(.done), .sleep.active, .tool_call)::after {
-  animation-play-state: paused !important;
 }
 
 /* 动画声明位于文件不同区域；最终兜底确保不可见面不会被后续 shorthand 重新启动。 */

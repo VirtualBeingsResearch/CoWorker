@@ -118,11 +118,9 @@ interface Hero {
 export function RuntimeLedger({
   runtimeLogs,
   visible,
-  motionActive = true,
 }: {
   runtimeLogs: RuntimeLogFeed;
   visible?: boolean;
-  motionActive?: boolean;
 }) {
   const { language } = useAdminI18n();
   const rows = useMemo(() => deriveFeedRows(runtimeLogs.events), [language, runtimeLogs.events]);
@@ -135,30 +133,9 @@ export function RuntimeLedger({
   const revealIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const becameVisible = visible && !prevVisibleRef.current;
+    const became = visible && !prevVisibleRef.current;
     prevVisibleRef.current = !!visible;
-    if (!visible) {
-      // If the page becomes hidden mid-reveal, finish the data update instead of
-      // leaving a permanently partial feed when the animation timer is cleaned up.
-      if (hasRevealedRef.current) {
-        if (revealIvRef.current) clearInterval(revealIvRef.current);
-        setRevealCount(rows.length);
-        setRevealDone(true);
-      }
-      return;
-    }
-
-    // Motion is presentation only: reduced motion or a hidden page must never hide data.
-    // Finish any partial reveal immediately so stale scroll positions cannot leave the feed blank.
-    if (!motionActive) {
-      if (revealIvRef.current) clearInterval(revealIvRef.current);
-      hasRevealedRef.current = true;
-      setRevealCount(rows.length);
-      setRevealDone(true);
-      return;
-    }
-
-    if (!becameVisible || hasRevealedRef.current) return;
+    if (!became || hasRevealedRef.current) return;
     hasRevealedRef.current = true;
 
     if (rows.length === 0) { setRevealDone(true); return; }
@@ -174,7 +151,7 @@ export function RuntimeLedger({
       }
     }, 30);
     return () => { if (revealIvRef.current) clearInterval(revealIvRef.current); };
-  }, [motionActive, visible]);
+  }, [visible]);
 
 
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -265,32 +242,6 @@ export function RuntimeLedger({
     requestAnimationFrame(() => scrollToBottom(false));
   }, [revealDone, visible]);
 
-  // 像粒子引擎做视口裁剪一样，仅让滚动视口内的长态日志动画持续运行。
-  useEffect(() => {
-    const feed = feedRef.current;
-    const ledger = feed?.closest('.ledger');
-    if (!feed || !ledger || !visible || !motionActive || typeof IntersectionObserver === 'undefined') {
-      ledger?.classList.remove('ledger-motion-managed');
-      return;
-    }
-
-    ledger.classList.add('ledger-motion-managed');
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        entry.target.classList.toggle('le-motion-visible', entry.isIntersecting);
-      });
-    }, { root: feed, rootMargin: '52px 0px' });
-    const frame = requestAnimationFrame(() => {
-      feed.querySelectorAll('.le').forEach(row => observer.observe(row));
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      ledger.classList.remove('ledger-motion-managed');
-    };
-  }, [motionActive, rows, visible]);
-
   // 平滑滚轮：把离散的滚轮步进累积成目标位置，用 rAF 指数缓动逼近，得到丝滑滚动手感
   // （这块滚动区嵌在 preserve-3d 翻转卡内，原生滚轮多在主线程逐档重绘、又跳又顿）。
   // 触控板/触屏本就有连续动量，到边界时放行默认，不抢它们的手感。
@@ -334,7 +285,7 @@ export function RuntimeLedger({
 
   // 新消息行触发巨型 emoji 冲屏（每个 key 仅一次）
   useEffect(() => {
-    if (!visible || !motionActive) {
+    if (!visible) {
       rows.forEach(r => {
         if (r.kind === 'msg_in' || r.kind === 'msg_out') seenMsgRef.current.add(r.key);
       });
@@ -353,7 +304,7 @@ export function RuntimeLedger({
     const ids = new Set(fresh.map(f => f.id));
     const timer = setTimeout(() => setHeroes(h => h.filter(x => !ids.has(x.id))), 1250);
     return () => clearTimeout(timer);
-  }, [motionActive, rows, visible]);
+  }, [rows, visible]);
 
   return (
     <div
@@ -374,7 +325,7 @@ export function RuntimeLedger({
           ) : rows.length === 0 ? (
             <LedgerSkeleton />
           ) : (
-            (revealDone ? rows : rows.slice(-Math.max(1, revealCount))).map(row =>
+            (revealDone ? rows : rows.slice(0, Math.max(1, revealCount))).map(row =>
               <LedgerRow key={row.key} row={row} initial={initialKeysRef.current.has(row.key)} />
             )
           )}
