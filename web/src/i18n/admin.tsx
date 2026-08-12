@@ -189,7 +189,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '立即前往新地址': 'Open new address now',
   '配置第一个模型连接': 'Configure the first model connection',
   '这些值会写入本地管理配置，不需要创建': 'These values are written to the local admin configuration; no need to create',
-  '服务类型': 'Service type',
+  '供应商类型': 'Provider type',
   '启动模型': 'Startup model',
   '选择推荐模型或输入模型 ID': 'Choose a recommended model or enter a model ID',
   '没有匹配的推荐模型；仍可直接使用当前模型 ID。': 'No recommended model matches; you can still use the current model ID.',

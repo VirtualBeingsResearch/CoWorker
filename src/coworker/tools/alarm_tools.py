@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from coworker.core.timezone import as_local, local_now, local_wall_now
 from coworker.core.types import IncomingEvent, ToolResult
 from coworker.i18n import bind_locale, tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -21,11 +20,11 @@ if TYPE_CHECKING:
 
 def _local_datetime(value: datetime) -> datetime:
     """Return an aware datetime in the runtime's local timezone."""
-    return as_local(value)
+    return value.astimezone()
 
 
 def _local_now() -> datetime:
-    return local_now()
+    return datetime.now().astimezone()
 
 
 class AlarmManager:
@@ -110,7 +109,7 @@ class AlarmManager:
             event = IncomingEvent(
                 participant_id="alarm",
                 content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
-                timestamp=local_wall_now(),
+                timestamp=datetime.now(),
                 source="alarm",
             )
             await self._inbox.push(event)

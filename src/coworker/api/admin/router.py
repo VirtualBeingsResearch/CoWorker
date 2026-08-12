@@ -6,9 +6,11 @@ import asyncio
 import base64
 import binascii
 import json
+import os
 import re
 import secrets
 import shutil
+import time
 import uuid
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
@@ -49,7 +51,6 @@ from coworker.core.config import (
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
 )
-from coworker.core.timezone import timezone_description
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.persona import Person, PersonAlias
@@ -956,6 +957,19 @@ def _bootstrap_managed_config_path(
     return None
 
 
+def _server_timezone_description() -> str:
+    """Describe the operating system timezone without creating app-level state."""
+
+    is_dst = bool(time.daylight and time.localtime().tm_isdst)
+    offset_seconds = -(time.altzone if is_dst else time.timezone)
+    hours, remainder = divmod(abs(offset_seconds), 3600)
+    minutes = remainder // 60
+    sign = "+" if offset_seconds >= 0 else "-"
+    offset = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
+    name = os.environ.get("TZ", "").strip() or time.tzname[1 if is_dst else 0]
+    return f"{name} ({offset})"
+
+
 @router.get("/bootstrap")
 async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
@@ -971,7 +985,7 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
-        "server_timezone": timezone_description(),
+        "server_timezone": _server_timezone_description(),
         "providers": providers,
         "defaults": {
             "configuration": snapshot.config,

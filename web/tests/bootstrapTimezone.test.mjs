@@ -31,6 +31,12 @@ test('keeps browser timezone detection outside bootstrap configuration', () => {
   assert.doesNotMatch(adminApp, /configuration\.i18n\?\.timezone/);
 });
 
+test('labels the API dialect selector as provider type', () => {
+  assert.match(adminApp, /\{t\('供应商类型'\)\}/);
+  assert.doesNotMatch(adminApp, /\{t\('服务类型'\)\}/);
+  assert.match(adminI18n, /'供应商类型': 'Provider type'/);
+});
+
 test('renders name examples as non-interactive illustrations', () => {
   assert.match(adminApp, /nameExamples\.map\(example => <span/);
   assert.doesNotMatch(adminApp, /nameExamples\.map\(example => <button/);

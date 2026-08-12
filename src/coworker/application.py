@@ -6,6 +6,7 @@ import os
 import platform
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,6 @@ from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundErr
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
-from coworker.core.timezone import local_now
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
@@ -523,7 +523,7 @@ async def _main() -> bool:
         short_term = ShortTermMemory.load_from_file(snapshot_path, **stm_kwargs)
 
         # 检测并注入 restart_self / sleep 悬空 tool call 的结果（在 cleanup 之前，确保调用链完整）
-        now_str = local_now().strftime("%Y-%m-%d %H:%M")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         if _find_pending_tool_call(short_term.primary, "restart_self"):
             alarm_count = 0
             if alarm_persist_path.exists():
@@ -845,7 +845,7 @@ async def _main() -> bool:
     registry.register(ClearShortTermMemoryTool(short_term, brain, subconscious))
 
     if not setup_required and is_restart:
-        now_str = local_now().strftime("%Y-%m-%d %H:%M")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         restart_msg = tr("startup.system_restarted", time=now_str)
         if restored_alarms:
             restart_msg += tr("startup.alarms_restored", count=restored_alarms)
@@ -863,7 +863,7 @@ async def _main() -> bool:
             passive_mode=config.agent.passive_mode,
         )
     elif not setup_required and (env_diff or locale_diff):
-        now_str = local_now().strftime("%Y-%m-%d %H:%M")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         await _enqueue_startup_event(
             inbox_watcher,
             IncomingEvent(
@@ -974,7 +974,7 @@ async def _main() -> bool:
         json.dumps(
             {
                 "pid": os.getpid(),
-                "started_at": local_now().isoformat(),
+                "started_at": datetime.now().isoformat(),
                 "is_restart": is_restart,
                 "startup_reason": "bootstrap" if bootstrap_clean_start else "restart" if is_restart else "start",
                 "setup_mode": setup_required,

@@ -1235,7 +1235,7 @@ def test_registered_channel_settings_are_hot_applied_generically(tmp_path):
     assert settings.applied[0].enabled is True
 
 
-def test_runtime_language_round_trip_requires_restart_and_ignores_timezone(tmp_path):
+def test_runtime_language_round_trip_requires_restart(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
 
@@ -1246,10 +1246,7 @@ def test_runtime_language_round_trip_requires_restart_and_ignores_timezone(tmp_p
     response = client.patch(
         "/api/admin/config",
         headers=headers,
-        json={
-            "changes": {"i18n": {"locale": "en-US", "timezone": "Asia/Shanghai"}},
-            "secrets": {},
-        },
+        json={"changes": {"i18n": {"locale": "en-US"}}, "secrets": {}},
     )
     assert response.status_code == 200
     assert response.json()["applied_now"] == []
@@ -1258,10 +1255,8 @@ def test_runtime_language_round_trip_requires_restart_and_ignores_timezone(tmp_p
 
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert saved["i18n"]["locale"] == "en-US"
-    assert "timezone" not in saved["i18n"]
     desired = client.get("/api/admin/config", headers=headers).json()
     assert desired["config"]["i18n"]["locale"] == "en"
-    assert "timezone" not in desired["config"]["i18n"]
 
 
 def test_admin_overlay_has_higher_priority_than_base_config(tmp_path):
@@ -1484,7 +1479,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     admin._agent._identity.load = lambda: None
     monkeypatch.setattr(
         admin,
-        "timezone_description",
+        "_server_timezone_description",
         lambda: "Asia/Shanghai (UTC+8)",
     )
     headers = {"Authorization": "Bearer secret"}
@@ -1587,7 +1582,6 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     assert saved["memory"]["auto_recall_limit"] == 3
     assert saved["memory"]["persona_enabled"] is False
     assert saved["i18n"]["locale"] == "en"
-    assert "timezone" not in saved["i18n"]
     assert saved["agent"]["passive_mode"] is True
     assert saved["agent"]["idle_sleep_seconds"] == 90
     assert saved["agent"]["bubble_max_concurrent"] == 2

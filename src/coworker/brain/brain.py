@@ -10,7 +10,6 @@ from loguru import logger
 from coworker.brain.base import BaseLLMProvider
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
-from coworker.core.timezone import as_local
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from coworker.i18n import tr
 
@@ -36,7 +35,7 @@ def _prepend_timestamps(messages: list[Message]) -> list[Message]:
         if m.role != "user":
             out.append(m)
             continue
-        ts = as_local(m.timestamp)
+        ts = m.timestamp
         prefix = f"[{ts.strftime('%Y-%m-%d %H:%M:%S')} {tr(_WEEKDAY_KEYS[ts.weekday()])}] "
         if isinstance(m.content, str):
             new_content: str | list = prefix + m.content

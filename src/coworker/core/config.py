@@ -668,16 +668,7 @@ def sparse_admin_overrides(
     overrides: dict[str, Any],
     inherited: Config,
 ) -> dict[str, Any]:
-    sparse = _remove_inherited_values(overrides, inherited.model_dump(mode="json"))
-    i18n = sparse.get("i18n")
-    if isinstance(i18n, dict) and "timezone" in i18n:
-        normalized_i18n = dict(i18n)
-        normalized_i18n.pop("timezone", None)
-        if normalized_i18n:
-            sparse["i18n"] = normalized_i18n
-        else:
-            sparse.pop("i18n", None)
-    return sparse
+    return _remove_inherited_values(overrides, inherited.model_dump(mode="json"))
 
 
 def write_admin_overrides(path: str | Path, overrides: dict[str, Any]) -> None:

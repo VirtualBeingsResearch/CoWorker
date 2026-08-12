@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
-
-from coworker.core.timezone import local_now
 
 _SCHEMA_VERSION = 1
 
@@ -34,7 +33,7 @@ class ChannelActivityStore:
             return
         with self._lock:
             activity = self._participants.setdefault(participant_id, {})
-            activity[field] = local_now().isoformat(timespec="seconds")
+            activity[field] = datetime.now().astimezone().isoformat(timespec="seconds")
             self._save()
 
     def _load(self) -> dict[str, dict[str, str]]:

@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
-from coworker.core.timezone import local_wall_now
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 
 __all__ = ["estimate_content_tokens", "estimate_text_tokens"]
@@ -23,7 +22,7 @@ class AttachmentData:
 class Message:
     role: Literal["user", "assistant", "system", "tool"]
     content: str | list[dict[str, Any]]
-    timestamp: datetime = field(default_factory=local_wall_now)
+    timestamp: datetime = field(default_factory=lambda:datetime.now())
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_id: str | None = None
     reasoning_content: str | None = None
@@ -63,7 +62,7 @@ class PinnedItem:
     label: str
     content: str
     file_path: str | None = None
-    created_at: datetime = field(default_factory=local_wall_now)
+    created_at: datetime = field(default_factory=lambda: datetime.now())
     system_managed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,7 +84,7 @@ class PinnedItem:
             label=d["label"],
             content=d["content"],
             file_path=d.get("file_path"),
-            created_at=datetime.fromisoformat(d.get("created_at", local_wall_now().isoformat())),
+            created_at=datetime.fromisoformat(d.get("created_at", datetime.now().isoformat())),
             system_managed=d.get("system_managed", False),
         )
 
@@ -148,9 +147,9 @@ class CommunicateRegistration:
             kind=str(data.get("kind") or ""),
             client_id=str(data.get("client_id") or ""),
             display_name=str(data.get("display_name") or ""),
-            created_at=str(data.get("created_at") or local_wall_now().isoformat()),
+            created_at=str(data.get("created_at") or datetime.now().isoformat()),
             last_registered_at=str(
-                data.get("last_registered_at") or local_wall_now().isoformat()
+                data.get("last_registered_at") or datetime.now().isoformat()
             ),
             metadata=metadata if isinstance(metadata, dict) else {},
         )
@@ -198,7 +197,7 @@ class IncomingEvent:
     participant_id: str
     content: str
     conversation_id: str | None = None
-    timestamp: datetime = field(default_factory=local_wall_now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now())
     # Plain str: new channels and internal sources (e.g. "system_recovery",
     # "sleep_interrupt", "compress_memory") are not enumerated here -- the
     # value is a free-form provenance tag, not a closed set.
@@ -213,11 +212,11 @@ class ConversationThread:
     messages: list[Message] = field(default_factory=list)
     summary: str = ""
     summary_message_count: int = 0
-    last_active: datetime = field(default_factory=local_wall_now)
+    last_active: datetime = field(default_factory=lambda: datetime.now())
 
     def add(self, message: Message) -> None:
         self.messages.append(message)
-        self.last_active = local_wall_now()
+        self.last_active = datetime.now()
 
     def estimate_tokens(self) -> int:
         total = 0

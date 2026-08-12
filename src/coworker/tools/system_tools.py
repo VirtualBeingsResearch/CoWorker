@@ -4,13 +4,13 @@ import asyncio
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from coworker.core.exceptions import RestartRequestedException
-from coworker.core.timezone import local_now
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
 from coworker.tools.base import Tool, ToolDefinition
@@ -87,7 +87,7 @@ class SleepTool(Tool):
 
     async def execute(self, seconds: int = 30, **_) -> ToolResult:
         prefix = f"[{self._label}] " if self._label else ""
-        now_str = local_now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # sleep(0) 的「无限等待外部事件」是 passive 模式专属能力；非 passive 下 0 即字面 0 秒。
         indefinite = seconds <= 0
         passive = self._config is not None and self._config.agent.passive_mode
@@ -189,7 +189,7 @@ class GetContextTool(Tool):
         )
 
     async def execute(self, **_) -> ToolResult:
-        now = local_now().strftime("%Y-%m-%d %H:%M %Z")
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
         model = f"{self._brain.current_provider_name}/{self._brain.current_model}"
         return ToolResult(
             tool_call_id="",
