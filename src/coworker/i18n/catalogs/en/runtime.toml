@@ -13,12 +13,8 @@ unknown = "unknown source"
 
 [incoming]
 system = "[system] {{content}}"
-message = '''[from {{source}}][{{participant}}]{{context}}{{conversation}} message:
+message = '''[from {{source}}][{{participant}}]{{conversation}} message:
 {{content}}'''
-telegram_chat_type = "[chat type: {{type}}]"
-telegram_private = "private chat"
-telegram_group = "group chat"
-telegram_channel = "channel"
 video_attachment = "video attachment"
 attachment = "attachment"
 saved_attachment = "[{{kind}}: {{filename}} — saved to {{path}}; use a tool to read it]"
@@ -152,6 +148,10 @@ audio = "[audio]"
 voice = "[voice message]"
 animation = "[animation]"
 unsupported = "[unsupported Telegram message]"
+chat_header = "[Telegram chat: {{type}}]\n"
+chat_private = "private"
+chat_group = "group"
+chat_channel = "channel"
 group_sender = "[Telegram sender id={{sender}} username={{username}} name={{name}}]\n"
 
 [config.telegram]

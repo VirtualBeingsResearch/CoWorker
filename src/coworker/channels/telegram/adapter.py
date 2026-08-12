@@ -66,8 +66,14 @@ def message_content(message: dict[str, Any], media: TelegramMedia | None) -> str
         text = tr(media.label_key)
     if not text:
         text = tr("channel.telegram.unsupported")
-    prefix = _sender_prefix(message)
-    return f"{prefix}{text}" if prefix else text
+    chat = message.get("chat")
+    chat_type = str(chat.get("type") or "") if isinstance(chat, dict) else ""
+    kind = _chat_kind(chat_type)
+    header = tr(
+        "channel.telegram.chat_header",
+        type=tr(f"channel.telegram.chat_{kind}"),
+    )
+    return f"{header}{_sender_prefix(message)}{text}"
 
 
 def media_for(message: dict[str, Any]) -> TelegramMedia | None:

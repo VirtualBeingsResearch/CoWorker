@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.agent.incoming_content import format_event_text
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
+from coworker.channels.telegram import adapter
 from coworker.channels.telegram import client as telegram_client_module
 from coworker.channels.telegram.channel import TelegramChannel
 from coworker.channels.telegram.client import (
@@ -28,7 +28,7 @@ from coworker.core.config import (
     TelegramBotConfig,
     TelegramConfig,
 )
-from coworker.core.types import CommunicateRequest, IncomingEvent
+from coworker.core.types import CommunicateRequest
 from coworker.i18n import locale_context
 
 
@@ -180,10 +180,6 @@ async def test_same_chat_is_namespaced_by_bot_instance(tmp_path: Path) -> None:
     await runner._bots["home"]._consume_update(_FakeClient(2), update)  # noqa: SLF001
 
     assert [event.participant_id for event in events] == ["tg:work:123", "tg:home:123"]
-    assert [event.metadata for event in events] == [
-        {"chat_type": "private"},
-        {"chat_type": "private"},
-    ]
     assert runner.resolve_participant("work:123") == "tg:work:123"
     assert runner.resolve_participant("123") is None
     assert {item[0] for item in runner.contacts()} == {"work", "home"}
@@ -335,27 +331,23 @@ def test_multiple_bots_and_api_roots_load_from_environment(
 @pytest.mark.parametrize(
     ("chat_type", "zh_label", "en_label"),
     (
-        ("private", "[聊天类型：私聊]", "[chat type: private chat]"),
-        ("group", "[聊天类型：群聊]", "[chat type: group chat]"),
-        ("channel", "[聊天类型：频道]", "[chat type: channel]"),
+        ("private", "[Telegram 会话：私聊]", "[Telegram chat: private]"),
+        ("group", "[Telegram 会话：群聊]", "[Telegram chat: group]"),
+        ("channel", "[Telegram 会话：频道]", "[Telegram chat: channel]"),
     ),
 )
-def test_model_message_header_identifies_telegram_chat_type(
+def test_telegram_content_header_identifies_chat_type(
     chat_type: str,
     zh_label: str,
     en_label: str,
 ) -> None:
-    event = IncomingEvent(
-        participant_id="tg:main:-1001",
-        content="hello",
-        source="telegram",
-        metadata={"chat_type": chat_type},
-    )
+    telegram_type = "supergroup" if chat_type == "group" else chat_type
+    message = {"chat": {"id": -1001, "type": telegram_type}, "text": "hello"}
 
     with locale_context("zh-CN"):
-        assert zh_label in format_event_text(event).splitlines()[0]
+        assert adapter.message_content(message, None).splitlines()[0] == zh_label
     with locale_context("en"):
-        assert en_label in format_event_text(event).splitlines()[0]
+        assert adapter.message_content(message, None).splitlines()[0] == en_label
 
 
 def test_split_telegram_text_obeys_limit_and_prefers_newlines() -> None:

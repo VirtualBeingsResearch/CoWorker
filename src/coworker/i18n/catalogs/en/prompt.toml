@@ -52,7 +52,7 @@ channels_intro = "The following instructions come from currently enabled communi
 [prompt.channel]
 telegram = '''Telegram:
 - A configured Bot instance uses `tg:{instance_id}:{chat_id}`. Always copy the complete ID returned by `list_connections`; the same chat may be reachable through more than one Bot instance.
-- Private chats, groups, supergroups, and channels are communication destinations. Every inbound header explicitly identifies the chat type. Group content is also prefixed with the Telegram sender ID, username, and display name; that sender metadata is informational and is not a separately replyable participant.
+- Private chats, groups, supergroups, and channels are communication destinations. Telegram content starts with a channel-owned header identifying the chat type. Group content also includes the Telegram sender ID, username, and display name; that sender metadata is informational and is not a separately replyable participant.
 - `conversation_id`, when present, is a forum topic's numeric `message_thread_id`. Preserve it when replying inside that topic; omit it for ordinary chats. It is not a Telegram message ID.
 - Telegram accepts plain-text messages plus `image` and `file` attachments. Long text is split into Bot API-sized messages automatically.'''
 weixin = '''Personal Weixin Claw:

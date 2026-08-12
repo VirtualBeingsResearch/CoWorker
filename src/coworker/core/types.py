@@ -204,9 +204,6 @@ class IncomingEvent:
     source: str = "file"
     attachments: list[AttachmentData] = field(default_factory=list)
     event_id: str | None = None
-    # Transport-owned, trusted metadata used to enrich the model-visible
-    # message header. User/third-party message content must remain in content.
-    metadata: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -309,3 +306,4 @@ class AgentState:
                 text = text.replace(wid, name)
         text = text.replace("wecom:single:", "").replace("wecom:group:", "")
         return text
+

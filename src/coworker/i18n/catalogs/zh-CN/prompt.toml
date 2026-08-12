@@ -52,7 +52,7 @@ channels_intro = "以下说明由当前已启用的通信信道提供，只描�
 [prompt.channel]
 telegram = '''Telegram：
 - 已配置的 Bot 实例使用 `tg:{instance_id}:{chat_id}`。始终复制 `list_connections` 返回的完整 ID；同一个 chat 可能通过多个 Bot 实例到达。
-- 私聊、群组、超级群组和频道都是通信目标。每条入站消息头都会明确标注聊天类型。群消息正文还会带 Telegram 发送者 ID、username 与显示名称前缀；这些发送者元数据仅用于识别，不是可单独回复的 participant。
+- 私聊、群组、超级群组和频道都是通信目标。Telegram 内容开头会用信道自有头明确标注聊天类型；群消息还会带 Telegram 发送者 ID、username 与显示名称。这些发送者元数据仅用于识别，不是可单独回复的 participant。
 - 存在 `conversation_id` 时，它是论坛 topic 的数字 `message_thread_id`。在该 topic 内回复时保留它；普通 chat 不传。它不是 Telegram message ID。
 - Telegram 支持纯文本以及 `image`、`file` 附件；长文本会自动拆成符合 Bot API 限制的多条消息。'''
 weixin = '''个人微信 Claw：

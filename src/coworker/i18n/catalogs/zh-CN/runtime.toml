@@ -13,12 +13,8 @@ unknown = "未知来源"
 
 [incoming]
 system = "[系统] {{content}}"
-message = '''[来自{{source}}][{{participant}}]{{context}}{{conversation}}的消息:
+message = '''[来自{{source}}][{{participant}}]{{conversation}}的消息:
 {{content}}'''
-telegram_chat_type = "[聊天类型：{{type}}]"
-telegram_private = "私聊"
-telegram_group = "群聊"
-telegram_channel = "频道"
 video_attachment = "视频附件"
 attachment = "附件"
 saved_attachment = "[{{kind}}: {{filename}} — 已保存至 {{path}}，可使用工具读取]"
@@ -152,6 +148,10 @@ audio = "[音频]"
 voice = "[语音消息]"
 animation = "[动画]"
 unsupported = "[暂不支持的 Telegram 消息]"
+chat_header = "[Telegram 会话：{{type}}]\n"
+chat_private = "私聊"
+chat_group = "群聊"
+chat_channel = "频道"
 group_sender = "[Telegram 发送者 id={{sender}} username={{username}} name={{name}}]\n"
 
 [config.telegram]
