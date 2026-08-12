@@ -16,6 +16,10 @@ class TelegramMedia:
     label_key: str
 
 
+class TelegramUpdateFormatError(ValueError):
+    """An inbound update cannot become a valid Coworker event."""
+
+
 def message_for_update(update: dict[str, Any]) -> dict[str, Any] | None:
     for key in ("message", "channel_post"):
         message = update.get(key)
@@ -27,7 +31,7 @@ def message_for_update(update: dict[str, Any]) -> dict[str, Any] | None:
 def contact_for(message: dict[str, Any]) -> TelegramContact:
     chat = message.get("chat")
     if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
-        raise ValueError(tr("channel.telegram.chat_invalid"))
+        raise TelegramUpdateFormatError(tr("channel.telegram.chat_invalid"))
     kind = _chat_kind(str(chat.get("type") or ""))
     username = str(chat.get("username") or "")
     if kind == "private":
@@ -134,7 +138,9 @@ def _chat_kind(chat_type: str) -> str:
         return "group"
     if chat_type == "channel":
         return "channel"
-    raise ValueError(tr("channel.telegram.chat_type_invalid", type=chat_type))
+    raise TelegramUpdateFormatError(
+        tr("channel.telegram.chat_type_invalid", type=chat_type)
+    )
 
 
 def _sender_prefix(message: dict[str, Any]) -> str:

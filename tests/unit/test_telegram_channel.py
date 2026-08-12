@@ -11,6 +11,7 @@ from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.telegram import adapter
 from coworker.channels.telegram import client as telegram_client_module
+from coworker.channels.telegram import runner as telegram_runner_module
 from coworker.channels.telegram.channel import TelegramChannel
 from coworker.channels.telegram.client import (
     MAX_DOWNLOAD_BYTES,
@@ -185,6 +186,107 @@ async def test_same_chat_is_namespaced_by_bot_instance(tmp_path: Path) -> None:
     assert {item[0] for item in runner.contacts()} == {"work", "home"}
     for state_path in (tmp_path / "state").glob("*.json"):
         assert "token" not in state_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_failed_inbound_delivery_keeps_offset_for_retry(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    attempts = 0
+
+    async def collect(_: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary inbox failure")
+
+    runner.set_inbound_handler(collect)
+    bot = runner._bots["main"]  # noqa: SLF001
+    update = {
+        "update_id": 10,
+        "message": {
+            "message_id": 2,
+            "chat": {"id": 123, "type": "private", "first_name": "Alice"},
+            "text": "hello",
+        },
+    }
+
+    assert await bot._consume_update(_FakeClient(), update) is False  # noqa: SLF001
+    assert bot._state.offset == 0  # noqa: SLF001
+    assert bot.contact_for_chat(123) is None
+    assert runner.activity_for("tg:main:123") == (None, None)
+
+    assert await bot._consume_update(_FakeClient(), update) is True  # noqa: SLF001
+    assert attempts == 2
+    assert bot._state.offset == 11  # noqa: SLF001
+    assert bot.contact_for_chat(123) == TelegramContact(123, "private", "Alice")
+    assert runner.activity_for("tg:main:123")[1] is not None
+    assert TelegramStateStore(tmp_path / "state" / "main.json").load().offset == 11
+
+
+@pytest.mark.asyncio
+async def test_failed_update_stops_the_current_poll_batch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    bot = runner._bots["main"]  # noqa: SLF001
+    collect = AsyncMock(side_effect=RuntimeError("temporary inbox failure"))
+    runner.set_inbound_handler(collect)
+    updates = [
+        {
+            "update_id": update_id,
+            "message": {
+                "message_id": update_id,
+                "chat": {"id": 123, "type": "private"},
+                "text": f"message {update_id}",
+            },
+        }
+        for update_id in (10, 11)
+    ]
+
+    class BatchClient(_FakeClient):
+        calls = 0
+
+        async def get_updates(
+            self,
+            offset: int,
+            timeout_seconds: float,
+        ) -> list[dict]:
+            self.calls += 1
+            if self.calls == 1:
+                return updates
+            await bot.stop()
+            return []
+
+    monkeypatch.setattr(telegram_runner_module, "_RETRY_SECONDS", 0)
+    await bot._run_client(BatchClient())  # type: ignore[arg-type]  # noqa: SLF001
+
+    collect.assert_awaited_once()
+    assert bot._state.offset == 0  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_invalid_inbound_update_is_logged_and_acknowledged(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    collect = AsyncMock()
+    runner.set_inbound_handler(collect)
+    bot = runner._bots["main"]  # noqa: SLF001
+
+    acknowledged = await bot._consume_update(  # noqa: SLF001
+        _FakeClient(),
+        {
+            "update_id": 7,
+            "message": {
+                "message_id": 2,
+                "chat": {"id": 123, "type": "future-chat-type"},
+                "text": "hello",
+            },
+        },
+    )
+
+    assert acknowledged is True
+    assert bot._state.offset == 8  # noqa: SLF001
+    collect.assert_not_awaited()
 
 
 @pytest.mark.asyncio

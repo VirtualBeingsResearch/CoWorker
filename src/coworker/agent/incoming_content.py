@@ -12,7 +12,6 @@ _SOURCE_LABEL_KEYS: dict[str, str] = {
     "websocket": "source.websocket",
     "wecom": "source.wecom",
     "weixin": "source.weixin",
-    "telegram": "source.telegram",
     "coworker_desktop": "source.coworker_desktop",
     "bubble": "source.bubble",
     "codex": "source.codex",

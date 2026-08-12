@@ -88,7 +88,8 @@ CHANNEL_ACCESS={"telegram":{"inbound_allow":["tg:main:*"],"inbound_deny":["tg:ma
 每个实例的 offset 与已发现联系人保存在
 `MEMORY__DB_PATH/telegram/<instance_id>.json`。该文件不保存 Bot token。若同一
 `instance_id` 换成了另一个 Bot 的 token，Coworker 会根据 Bot user ID 清空旧 offset 和
-联系人，避免把新 Bot 的消息发往旧 Bot 发现的聊天。
+联系人，避免把新 Bot 的消息发往旧 Bot 发现的聊天。只有在入站处理器成功接收消息后才会
+推进 offset；临时投递失败会保留当前 offset 并重试，无效的协议消息则会记录后跳过。
 
 - Bot 一直离线：检查 `enabled`、token、`api_base_url` 和代理/防火墙；日志只会周期性报告
   长轮询失败，恢复后会自动继续。

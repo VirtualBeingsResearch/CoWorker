@@ -97,7 +97,9 @@ generic rejection notice to the original chat.
 Each instance stores its offset and discovered contacts in
 `MEMORY__DB_PATH/telegram/<instance_id>.json`; the Bot token is never stored there. When an
 `instance_id` is changed to another Bot's token, Coworker detects the new Bot user ID and clears the
-old offset and contacts so the new Bot cannot send to chats discovered by the previous one.
+old offset and contacts so the new Bot cannot send to chats discovered by the previous one. The
+offset advances only after the inbound handler accepts the message; transient delivery failures keep
+the current offset for retry, while invalid protocol messages are logged and skipped.
 
 - Bot remains offline: check `enabled`, the token, `api_base_url`, and proxy/firewall access. Logs
   report polling failures periodically, and polling resumes automatically after recovery.

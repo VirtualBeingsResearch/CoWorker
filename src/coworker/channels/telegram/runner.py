@@ -165,7 +165,10 @@ class _TelegramBotRuntime:
                     self._config.poll_timeout_seconds,
                 )
                 for update in updates:
-                    await self._consume_update(client, update)
+                    if not await self._consume_update(client, update):
+                        if await self._wait_for_wake(_RETRY_SECONDS):
+                            return
+                        break
                 if self._polling_failed:
                     logger.info(
                         tr("channel.telegram.poll_recovered", instance=self.instance_id)
@@ -186,26 +189,38 @@ class _TelegramBotRuntime:
         self,
         client: TelegramClient,
         update: dict[str, Any],
-    ) -> None:
+    ) -> bool:
+        """Return whether polling may advance past this update."""
+
         update_id = update.get("update_id")
         if not isinstance(update_id, int) or update_id < self._state.offset:
-            return
+            return True
         try:
             await self._publish_update(client, update, update_id)
         except asyncio.CancelledError:
             raise
-        except Exception as error:
+        except adapter.TelegramUpdateFormatError as error:
             logger.warning(
                 tr(
-                    "channel.telegram.update_failed",
+                    "channel.telegram.update_invalid",
                     instance=self.instance_id,
                     update=update_id,
                     error=error,
                 )
             )
-        finally:
-            self._state.offset = update_id + 1
-            self._state_store.save(self._state)
+        except Exception as error:
+            logger.warning(
+                tr(
+                    "channel.telegram.update_retrying",
+                    instance=self.instance_id,
+                    update=update_id,
+                    error=error,
+                )
+            )
+            return False
+        self._state.offset = update_id + 1
+        self._state_store.save(self._state)
+        return True
 
     async def _publish_update(
         self,
@@ -218,10 +233,20 @@ class _TelegramBotRuntime:
             return
         contact = adapter.contact_for(message)
         participant_id = contact.participant_id(self.instance_id)
-        thread_id = _thread_id(adapter.conversation_id_for(message))
+        conversation_id = adapter.conversation_id_for(message)
+        try:
+            thread_id = _thread_id(conversation_id)
+        except ValueError as error:
+            raise adapter.TelegramUpdateFormatError(str(error)) from error
         if not self._access.allows("telegram", "inbound", participant_id):
             await self._reject_inbound(client, participant_id, contact.chat_id, thread_id)
             return
+
+        inbound_handler = self._inbound_handler
+        if inbound_handler is None:
+            raise RuntimeError(
+                tr("channel.telegram.inbound_unhandled", instance=self.instance_id)
+            )
 
         media = adapter.media_for(message)
         content = adapter.message_content(message, media)
@@ -242,24 +267,19 @@ class _TelegramBotRuntime:
                 )
                 content = f"{content}\n{tr('channel.telegram.attachment_unavailable', filename=media.filename)}"
 
-        assert self._state.contacts is not None
-        self._state.contacts[contact.chat_id] = contact
-        self._activity.record_received(participant_id)
-        if self._inbound_handler is None:
-            logger.warning(
-                tr("channel.telegram.inbound_unhandled", instance=self.instance_id)
-            )
-            return
-        await self._inbound_handler(
+        await inbound_handler(
             IncomingEvent(
                 participant_id=participant_id,
                 content=content,
-                conversation_id=adapter.conversation_id_for(message),
+                conversation_id=conversation_id,
                 source="telegram",
                 attachments=attachments,
                 event_id=f"telegram:{self.instance_id}:{update_id}",
             )
         )
+        assert self._state.contacts is not None
+        self._state.contacts[contact.chat_id] = contact
+        self._activity.record_received(participant_id)
 
     async def _reject_inbound(
         self,
