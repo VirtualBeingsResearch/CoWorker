@@ -118,9 +118,11 @@ interface Hero {
 export function RuntimeLedger({
   runtimeLogs,
   visible,
+  motionActive = true,
 }: {
   runtimeLogs: RuntimeLogFeed;
   visible?: boolean;
+  motionActive?: boolean;
 }) {
   const { language } = useAdminI18n();
   const rows = useMemo(() => deriveFeedRows(runtimeLogs.events), [language, runtimeLogs.events]);
@@ -133,8 +135,9 @@ export function RuntimeLedger({
   const revealIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const became = visible && !prevVisibleRef.current;
-    prevVisibleRef.current = !!visible;
+    const canAnimate = visible && motionActive;
+    const became = canAnimate && !prevVisibleRef.current;
+    prevVisibleRef.current = !!canAnimate;
     if (!became || hasRevealedRef.current) return;
     hasRevealedRef.current = true;
 
@@ -151,7 +154,7 @@ export function RuntimeLedger({
       }
     }, 30);
     return () => { if (revealIvRef.current) clearInterval(revealIvRef.current); };
-  }, [visible]);
+  }, [motionActive, visible]);
 
 
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -228,19 +231,45 @@ export function RuntimeLedger({
       });
     }
     prevLenRef.current = rows.length;
-    if (!visible) return;
+    if (!visible || !motionActive) return;
     if (followingRef.current) {
       scrollToBottom(first ? false : undefined);
     } else if (added > 0) {
       setUnseen(u => u + added);
     }
-  }, [rows, visible]);
+  }, [motionActive, rows, visible]);
 
   // 逐行插入完成后跳到最新行
   useEffect(() => {
-    if (!revealDone || !visible) return;
+    if (!revealDone || !visible || !motionActive) return;
     requestAnimationFrame(() => scrollToBottom(false));
-  }, [revealDone, visible]);
+  }, [motionActive, revealDone, visible]);
+
+  // 像粒子引擎做视口裁剪一样，仅让滚动视口内的长态日志动画持续运行。
+  useEffect(() => {
+    const feed = feedRef.current;
+    const ledger = feed?.closest('.ledger');
+    if (!feed || !ledger || !visible || !motionActive || typeof IntersectionObserver === 'undefined') {
+      ledger?.classList.remove('ledger-motion-managed');
+      return;
+    }
+
+    ledger.classList.add('ledger-motion-managed');
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        entry.target.classList.toggle('le-motion-visible', entry.isIntersecting);
+      });
+    }, { root: feed, rootMargin: '52px 0px' });
+    const frame = requestAnimationFrame(() => {
+      feed.querySelectorAll('.le').forEach(row => observer.observe(row));
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      ledger.classList.remove('ledger-motion-managed');
+    };
+  }, [motionActive, rows, visible]);
 
   // 平滑滚轮：把离散的滚轮步进累积成目标位置，用 rAF 指数缓动逼近，得到丝滑滚动手感
   // （这块滚动区嵌在 preserve-3d 翻转卡内，原生滚轮多在主线程逐档重绘、又跳又顿）。
@@ -285,7 +314,7 @@ export function RuntimeLedger({
 
   // 新消息行触发巨型 emoji 冲屏（每个 key 仅一次）
   useEffect(() => {
-    if (!visible) {
+    if (!visible || !motionActive) {
       rows.forEach(r => {
         if (r.kind === 'msg_in' || r.kind === 'msg_out') seenMsgRef.current.add(r.key);
       });
@@ -304,7 +333,7 @@ export function RuntimeLedger({
     const ids = new Set(fresh.map(f => f.id));
     const timer = setTimeout(() => setHeroes(h => h.filter(x => !ids.has(x.id))), 1250);
     return () => clearTimeout(timer);
-  }, [rows, visible]);
+  }, [motionActive, rows, visible]);
 
   return (
     <div

@@ -19,6 +19,7 @@ import { RuntimeLedger, type RuntimeLogFeed } from './components/RuntimeLedger';
 import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
+import { usePageMotionBudget } from './hooks/usePageMotionBudget';
 import { activityStateFromEvents } from './lib/runtimeFeed';
 import {
   USAGE_SCOPE_LABELS,
@@ -88,6 +89,7 @@ const PROFILE_MARKDOWN_ELEMENTS = ['p', 'strong', 'em', 'ul', 'ol', 'li', 'a', '
 function App() {
   useAdminI18n();
   const [page, setPage] = useState<'identity' | 'details'>('identity');
+  const motionActive = usePageMotionBudget();
   // 运行日志：实时订阅后端 /api/logs/stream（InteractionLogger 的唯一 tap）。
   // 身份证正面：轮询 /api/status 回填身份与生命体征（age_days 等由后端按当前日期动态计算）。
   const { data, error } = useStatus();
@@ -119,11 +121,18 @@ function App() {
                 profile={profile}
                 error={error}
                 currentState={effectiveState}
+                motionActive={motionActive}
                 onFlip={flip}
               />
             </div>
             <div className="id-face id-face-back">
-              <BackFace data={status} runtimeLogs={runtimeLogs} onFlip={flip} visible={flipped} />
+              <BackFace
+                data={status}
+                runtimeLogs={runtimeLogs}
+                onFlip={flip}
+                visible={flipped}
+                motionActive={motionActive}
+              />
             </div>
           </div>
         </div>
@@ -138,12 +147,14 @@ function IdentityPage({
   profile,
   error,
   currentState,
+  motionActive,
   onFlip,
 }: {
   data: FullStatus;
   profile: ProfileInfo;
   error: string | null;
   currentState: typeof STATES[number];
+  motionActive: boolean;
   onFlip: () => void;
 }) {
   const identity = data.identity || {};
@@ -183,7 +194,7 @@ function IdentityPage({
       <div className="id-body">
         <div className="id-left">
           <div className="avatar-wrap" aria-label={t('虚拟生命颜文字头像')}>
-            <KaomojiAvatar currentState={currentState} />
+            <KaomojiAvatar currentState={currentState} motionActive={motionActive} />
           </div>
         </div>
 
@@ -299,16 +310,18 @@ function BackFace({
   runtimeLogs,
   onFlip,
   visible,
+  motionActive,
 }: {
   data: FullStatus;
   runtimeLogs: RuntimeLogFeed;
   onFlip: () => void;
   visible: boolean;
+  motionActive: boolean;
 }) {
   return (
     <article className="detail-card back-card" aria-label={t('{{name}} 的运行日志（实时事件流）', { name: data.identity?.name || t('搭档') })}>
       <UsageStatsPanel data={data} />
-      <RuntimeLedger runtimeLogs={runtimeLogs} visible={visible} />
+      <RuntimeLedger runtimeLogs={runtimeLogs} visible={visible} motionActive={motionActive} />
       <button className="card-flip-arrow" onClick={onFlip} aria-label={t('返回身份档案')}>
         <ChevronLeft size={14} strokeWidth={2} />
       </button>
@@ -577,7 +590,13 @@ const Z_LAYERS = [
   { x: '71%', y: '26%', delay: '1.75s', s: '0.55' },
 ];
 
-function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }) {
+function KaomojiAvatar({
+  currentState,
+  motionActive,
+}: {
+  currentState: typeof STATES[number];
+  motionActive: boolean;
+}) {
   const [blinkClosed, setBlinkClosed] = useState(false);
   const [dreamScene, setDreamScene] = useState<(typeof DREAM_SCENES)[number] | null>(null);
   const [dreamShow, setDreamShow] = useState(false);
@@ -592,7 +611,7 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
     let closeTimer: ReturnType<typeof setTimeout>;
     let openTimer: ReturnType<typeof setTimeout>;
     function scheduleBlink() {
-      if (isSleeping) return;
+      if (isSleeping || !motionActive) return;
       closeTimer = setTimeout(() => {
         setBlinkClosed(true);
         openTimer = setTimeout(() => {
@@ -603,18 +622,18 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
     }
     scheduleBlink();
     return () => { clearTimeout(closeTimer); clearTimeout(openTimer); };
-  }, [currentState.name]);
+  }, [currentState.name, motionActive]);
 
   // 大Z巡游：Zzz → zZz → zzZ → 循环
   useEffect(() => {
-    if (!isSleeping) { setBigZIdx(0); return; }
+    if (!isSleeping || !motionActive) { setBigZIdx(0); return; }
     const timer = setInterval(() => setBigZIdx(i => (i + 1) % ZZZ_FRAMES.length), 820);
     return () => clearInterval(timer);
-  }, [isSleeping]);
+  }, [isSleeping, motionActive]);
 
   // 做梦场景：仅睡眠时循环随机展示
   useEffect(() => {
-    if (!isSleeping) {
+    if (!isSleeping || !motionActive) {
       setDreamShow(false);
       return;
     }
@@ -636,7 +655,7 @@ function KaomojiAvatar({ currentState }: { currentState: typeof STATES[number] }
 
     t2 = setTimeout(nextDream, 900 + Math.random() * 600);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [isSleeping]);
+  }, [isSleeping, motionActive]);
 
   const kao = KAOMOJI[currentState.name] ?? KAOMOJI['思考中'];
   const faceBase = blinkClosed ? kao.blink : kao.open;
