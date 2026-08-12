@@ -124,66 +124,77 @@ async def _download_one(
     return await _save_buffer(buffer, filename, media_type, attachments_dir)
 
 
+async def _collect_payload_attachments(
+    client: WSClient,
+    payload: dict[str, Any],
+    msgid: str,
+    attachments_dir: Path,
+) -> list[AttachmentData]:
+    msgtype = payload.get("msgtype")
+    out: list[AttachmentData] = []
+
+    media_defaults = {
+        "image": ("jpg", "image/jpeg"),
+        "file": ("bin", "application/octet-stream"),
+        "video": ("mp4", "video/mp4"),
+    }
+    if msgtype in media_defaults:
+        media = payload.get(msgtype, {})
+        url = media.get("url", "")
+        if not url:
+            return out
+        extension, fallback_media_type = media_defaults[msgtype]
+        fallback_filename = media.get("name") or media.get("filename") or f"{msgid}.{extension}"
+        att = await _download_one(
+            client,
+            url,
+            media.get("aeskey"),
+            fallback_filename,
+            fallback_media_type,
+            attachments_dir,
+        )
+        if att:
+            out.append(att)
+    elif msgtype == "mixed":
+        for idx, item in enumerate(payload.get("mixed", {}).get("msg_item", [])):
+            if item.get("msgtype") != "image":
+                continue
+            image = item.get("image", {})
+            url = image.get("url", "")
+            if not url:
+                continue
+            att = await _download_one(
+                client,
+                url,
+                image.get("aeskey"),
+                f"{msgid}_{idx}.jpg",
+                "image/jpeg",
+                attachments_dir,
+            )
+            if att:
+                out.append(att)
+    return out
+
+
 async def collect_attachments(
     client: WSClient,
     frame: dict[str, Any],
     attachments_dir: Path,
 ) -> list[AttachmentData]:
     body = frame["body"]
-    msgtype = body.get("msgtype")
     msgid = body.get("msgid", "wecom")
-    out: list[AttachmentData] = []
+    out = await _collect_payload_attachments(client, body, msgid, attachments_dir)
 
-    if msgtype == "image":
-        img = body.get("image", {})
-        att = await _download_one(
-            client,
-            img.get("url", ""),
-            img.get("aeskey"),
-            f"{msgid}.jpg",
-            "image/jpeg",
-            attachments_dir,
+    quote = body.get("msgquote") or body.get("quote")
+    if isinstance(quote, dict):
+        out.extend(
+            await _collect_payload_attachments(
+                client,
+                quote,
+                f"{msgid}_quote",
+                attachments_dir,
+            )
         )
-        if att:
-            out.append(att)
-    elif msgtype == "file":
-        fl = body.get("file", {})
-        att = await _download_one(
-            client,
-            fl.get("url", ""),
-            fl.get("aeskey"),
-            f"{msgid}.bin",
-            "application/octet-stream",
-            attachments_dir,
-        )
-        if att:
-            out.append(att)
-    elif msgtype == "video":
-        vid = body.get("video", {})
-        att = await _download_one(
-            client,
-            vid.get("url", ""),
-            vid.get("aeskey"),
-            f"{msgid}.mp4",
-            "video/mp4",
-            attachments_dir,
-        )
-        if att:
-            out.append(att)
-    elif msgtype == "mixed":
-        for idx, item in enumerate(body.get("mixed", {}).get("msg_item", [])):
-            if item.get("msgtype") == "image":
-                img = item.get("image", {})
-                att = await _download_one(
-                    client,
-                    img.get("url", ""),
-                    img.get("aeskey"),
-                    f"{msgid}_{idx}.jpg",
-                    "image/jpeg",
-                    attachments_dir,
-                )
-                if att:
-                    out.append(att)
     return out
 
 

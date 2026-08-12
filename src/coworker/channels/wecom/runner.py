@@ -186,7 +186,12 @@ class WeComRunner:
             participant_id = adapter.participant_id_for(frame)
             if not await self._allows_inbound(participant_id, frame):
                 return
-            event = adapter.frame_to_event(frame, attachments=[])
+            atts = await adapter.collect_attachments(
+                self._client,
+                frame,
+                self._attachments_dir,
+            )
+            event = adapter.frame_to_event(frame, attachments=atts)
             self._cache_frame(event.participant_id, event.conversation_id, frame)
             await self._publish_inbound(event)
         except Exception as e:

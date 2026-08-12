@@ -218,6 +218,63 @@ async def test_single_inbound_frame_supports_reply_without_conversation_id(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_text_inbound_downloads_quoted_attachment(tmp_path):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    runner.set_inbound_handler(handler)
+    frame = _frame_single()
+    frame["body"]["quote"] = {
+        "msgtype": "file",
+        "file": {
+            "url": "https://x/quoted-file",
+            "aeskey": "QF",
+            "name": "report.pdf",
+        },
+    }
+    runner._client.download_file = AsyncMock(
+        return_value={"buffer": b"%PDF-quoted", "filename": "report.pdf"}
+    )
+
+    await runner._on_text_like(frame)
+
+    handler.assert_awaited_once()
+    event = handler.await_args.args[0]
+    assert [(att.filename, att.media_type) for att in event.attachments] == [
+        ("report.pdf", "application/pdf")
+    ]
+    runner._client.download_file.assert_awaited_once_with(
+        "https://x/quoted-file",
+        "QF",
+    )
+
+
+@pytest.mark.asyncio
+async def test_text_inbound_access_is_checked_before_quoted_attachment_download(
+    tmp_path,
+):
+    runner = _make_runner(tmp_path)
+    handler = AsyncMock()
+    runner.set_inbound_handler(handler)
+    runner.set_access_controller(
+        ChannelAccessController(
+            ChannelAccessConfig.model_validate(
+                {"wecom": {"inbound_deny": ["wecom:single:U123"]}}
+            )
+        )
+    )
+    frame = _frame_single()
+    frame["body"]["quote"] = {
+        "msgtype": "file",
+        "file": {"url": "https://x/quoted-file", "aeskey": "QF"},
+    }
+
+    await runner._on_text_like(frame)
+
+    runner._client.download_file.assert_not_awaited()
+    handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_inbound_access_is_checked_before_attachment_download_and_cache(
     tmp_path,
     monkeypatch,
