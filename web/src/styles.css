@@ -1643,9 +1643,10 @@ h1, h2, h3, p { margin: 0; }
 .ledger .le.state::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 55%; pointer-events: none;
   background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ledger-in) 26%, transparent), color-mix(in oklch, var(--ledger-out) 24%, transparent), transparent);
-  transform: translateX(-180%); animation: state-wave 1.2s ease-in-out .1s 1;
+  transform: translateX(-180%); animation: state-sweep 1.2s ease-in-out .1s 1;
 }
-@keyframes state-wave { to { transform: translateX(320%); } }
+/* 扫光位移与正面 .state-wave 波浪条的缩放是两套动画，重名会互相覆盖，必须独立命名 */
+@keyframes state-sweep { to { transform: translateX(320%); } }
 .ledger .le.state .le-icon { animation: state-flip .8s cubic-bezier(.3,1.2,.4,1) 1; }
 @keyframes state-flip { 0% { transform: perspective(260px) rotateX(85deg); } 100% { transform: perspective(260px) rotateX(0); } }
 
