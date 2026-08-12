@@ -54,7 +54,7 @@ prompt 不复制、不 monkey-patch。
 - Web 工具：`search_web`、`fetch_url`
 - 浏览器工具：`browser_open`、`browser_screenshot`、`browser_action`、`browser_get_content`、`browser_close`、`browser_list_sessions`
 - 代码工具：`execute_code`、`get_code_result`、`kill_code_job`（`execute_code` 默认最多等 2 秒；`block=true` 仅泡泡上下文生效，主线传入会被忽略。`get_code_result` 只返回当前状态，不负责等待；需要等待时应先调用 `sleep` 再重试）
-- 记忆工具：`query_memory`（综合搜索：query 同时检索最近活动索引和长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`
+- 记忆工具：`query_memory`（综合搜索：query 检索长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`
 - 系统工具：`sleep`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
 - 通信工具：`communicate`、`list_connections`
@@ -110,7 +110,7 @@ coworker/
 
 借鉴游戏 LOD/mipmap（近处全细节、越远越粗）的思路映射到时间轴：短期记忆压缩不再把最老一段塌缩成**单条**摘要，而是把它提升为一片**树叶**，按时间尺度做**二进制级联合并**（两个同级节点合并成更粗的上一层），形成一座多分辨率脊柱——近期是原始消息（全细节），越久的历史用越来越粗的摘要表示。喂给模型的上下文 = `每个时间尺度各一条带时间标签的摘要 + 原始尾部`，规模 O(log N)，让 Agent 对「上周在做什么 / 这一整天的主线」这类**更大时间尺度**保持把握。合并时优先**从原始日志按时间区间重新摘要**（而非摘要叠摘要），避免逐层退化。
 
-- **时间窗回忆 / 综合搜索**：`query_memory(start=..., end=...)` 优先使用短期记忆树摘要回忆某段历史；没有摘要时回退原始日志并生成摘要。`query_memory(query=...)` 会同时检索最近活动索引和 mem0 长期记忆，默认合计返回 5 条；`query_memory(query=..., start=..., end=...)` 会在指定时间窗内做语义聚焦搜索。查询内联结果硬限制为 3000 字符，完整冻结结果会写入临时 Markdown，并提供 `read_file` 路径和章节行号供稳定分页、展开。无参数调用会报错，需提供 `query` 或同时提供 `start/end`。
+- **时间窗回忆 / 综合搜索**：`query_memory(start=..., end=...)` 优先使用短期记忆树摘要回忆某段历史；没有摘要时回退原始日志并生成摘要。`query_memory(query=...)` 检索 mem0 长期记忆，默认返回 5 条；`query_memory(query=..., start=..., end=...)` 会在指定时间窗内做语义聚焦搜索。查询内联结果硬限制为 3000 字符，完整冻结结果会写入临时 Markdown，并提供 `read_file` 路径和章节行号供稳定分页、展开。无参数调用会报错，需提供 `query` 或同时提供 `start/end`。
 - **手动全量压缩**：`clear_short_term_memory` 会把当前 `primary` 中尚未压缩的实时消息整体压进记忆树，释放上下文空间但不删除记忆；压缩前同样会触发潜意识 `summarize` 提炼长期记忆；正在执行工具时会保留末尾 `tool_use` 以维持消息结构。
 - **历史回溯**（升级迁移）：升级后默认不回溯，记忆树从新压缩开始往后长。要把**已有历史**也建成多尺度树，读取全部 `interactions*.jsonl` 分片、按时间分块逐块摘要成叶子、级联重建脊柱（生成叶子数受 `MEMORY__TREE_BACKFILL_MAX_LEAVES` 封顶）。两种方式：
   - **离线**（进程未运行时）：`uv run python -m coworker --backfill-tree`，重建后写回快照退出。
@@ -122,9 +122,7 @@ coworker/
 
 长期记忆由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。mem0 在写入时自动对语义相近的记忆进行合并/去重，避免重复积累。
 
-**最近活动索引**：系统会把最近 `MEMORY__RECENT_ACTIVITY_DAYS` 天内、已经从短期 `primary` 压缩出去的交互日志写入独立的 `recent_activity_v1` Chroma collection，用于回忆“最近做过什么、工具结果是什么、哪里报错、最后状态如何”。记忆压缩完成后会调度后台索引任务；仍以原文形式保留在短期记忆里的活动不会重复入索引。普通事件按单条日志事件入索引；工具调用会和对应工具结果合并为同一条证据，保证参数、状态和结果一起被召回。召回时，语义命中只作为锚点，系统会从原始日志补齐同一段“收到消息 → 可见回复 → 工具调用与结果”的历史活动链，再以活动回放形式注入；内部推理、检索分数和切片信息不会进入回放。`message_tick`、系统提示、自动回忆、模型 usage 等噪声不会入索引。超长工具证据对外仍是一条证据，但内部按当前 embedder 的 tokenizer token 滑窗切片（默认 120 tokens、重叠 24 tokens），避免超过 embedding 模型输入长度后尾部细节搜不到。
-
-**自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文；同时可用更严格阈值检索最近活动，并以 `[自动回忆·历史活动回放]` 注入少量高相关片段。已回忆或已通过 `write_memory` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
+**自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `write_memory` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
 
 **数据迁移**：首次升级到 mem0 版本前，旧 ChromaDB 数据格式与 mem0 不兼容，需清空旧数据：
 ```bash

@@ -38,7 +38,6 @@ from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.types import AgentState
 from coworker.identity.identity import Identity
 from coworker.memory.long_term import LongTermMemory
-from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
 from coworker.prompts.system_prompt import SystemPromptBuilder
@@ -165,7 +164,6 @@ class Runtime:
     event_collector: RuntimeEventCollector
     usage_stats: UsageStatsCollector
     long_term: LongTermMemory
-    recent_activity: RecentActivityMemory | None
     short_term: ShortTermMemory
     brain: Brain
     agent_state: AgentState
@@ -237,19 +235,6 @@ async def assemble_runtime(workdir: Path) -> Runtime:
     )
     await long_term.initialize()
 
-    recent_activity: RecentActivityMemory | None = None
-    if config.memory.recent_activity_enabled:
-        recent_activity = RecentActivityMemory(
-            db_path=config.memory.db_path,
-            log_store=log_store,
-            embedder_model=config.memory.mem0_embedder_model,
-            days=config.memory.recent_activity_days,
-            chunk_tokens=config.memory.recent_activity_chunk_tokens,
-            overlap_tokens=config.memory.recent_activity_overlap_tokens,
-            chroma_client=long_term.chroma_client,
-            embedder=long_term.embedder,
-        )
-
     snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"
     stm_kwargs = _build_stm_kwargs(config, log_store)
     if snapshot_path.exists() and _validate_snapshot(snapshot_path):
@@ -257,9 +242,6 @@ async def assemble_runtime(workdir: Path) -> Runtime:
         short_term.cleanup_incomplete_tool_calls()
     else:
         short_term = ShortTermMemory(**stm_kwargs)
-
-    if recent_activity is not None:
-        recent_activity.start_background_initialization(short_term.raw_primary_boundary())
 
     brain = Brain(
         config.llm.default_provider,
@@ -357,7 +339,6 @@ async def assemble_runtime(workdir: Path) -> Runtime:
                 long_term,
                 short_term,
                 brain,
-                recent_activity=recent_activity,
             ),
             ManageMemoryTool(long_term),
             SleepTool(inbox_watcher),
@@ -451,7 +432,6 @@ async def assemble_runtime(workdir: Path) -> Runtime:
         task_store=task_store,
         bubble_store=bubble_store,
         subconscious=None,
-        recent_activity=recent_activity,
     )
 
     runtime = Runtime(
@@ -466,7 +446,6 @@ async def assemble_runtime(workdir: Path) -> Runtime:
         event_collector=event_collector,
         usage_stats=usage_stats,
         long_term=long_term,
-        recent_activity=recent_activity,
         short_term=short_term,
         brain=brain,
         agent_state=agent_state,

@@ -243,7 +243,7 @@ const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
 };
 const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
-  memory: '短期上下文、压缩树、自动召回、近期活动、记忆抽取与人物记忆。',
+  memory: '短期上下文、压缩树、自动召回、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
   i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
   api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
@@ -1150,14 +1150,6 @@ const CONFIG_LABELS: Record<string, string> = {
   'memory.auto_recall_enabled': '自动召回长期记忆',
   'memory.auto_recall_relevance_threshold': '自动召回相关性阈值',
   'memory.auto_recall_limit': '单次自动召回数量',
-  'memory.recent_activity_enabled': '记录近期活动',
-  'memory.recent_activity_days': '近期活动保留天数',
-  'memory.recent_activity_chunk_tokens': '近期活动分块大小',
-  'memory.recent_activity_overlap_tokens': '近期活动分块重叠',
-  'memory.recent_activity_query_limit': '近期活动查询数量',
-  'memory.recent_activity_auto_recall_enabled': '自动召回近期活动',
-  'memory.recent_activity_auto_recall_limit': '近期活动自动召回数量',
-  'memory.recent_activity_auto_recall_relevance_threshold': '近期活动召回相关性阈值',
   'agent.passive_mode': 'Passive 模式（开发者控制）',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
   'agent.inbox_dir': '收件箱目录',
@@ -1369,7 +1361,7 @@ const MEMORY_SOURCE: Record<string, string> = {
   code_job: '代码任务', task_reminder: '任务提醒', system: '系统', '并行思考': '并行思考',
   system_recovery: '系统恢复', system_error: '系统错误', skill_warning: '技能提醒',
   tick: '自主循环', model_switch: '模型切换', auto_recall: '自动回忆',
-  recent_activity_auto_recall: '近期回忆', compress_memory: '记忆压缩', sleep_interrupt: '唤醒消息',
+  compress_memory: '记忆压缩', sleep_interrupt: '唤醒消息',
 };
 
 function memorySourceName(source: unknown) {

@@ -183,7 +183,7 @@ max_matches = "Maximum number of matches; defaults to 50."
 query = "Keywords or description for long-term-memory search; cannot be combined with start/end."
 category = "Optional category filter for long-term-memory search."
 tags = "Optional tag filter for long-term-memory search; matches memories with any listed tag."
-limit = "Combined maximum for recent activity and long-term memories; defaults to 5, maximum 10."
+limit = "Maximum number of long-term memories to return; defaults to 5, maximum 10."
 start = "Start of the time window in ISO format."
 end = "End of the time window in ISO format."
 

@@ -58,7 +58,6 @@ from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_run
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
 from coworker.memory.long_term import LongTermMemory, build_memory_llm_config
-from coworker.memory.recent_activity import RecentActivityMemory
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
 from coworker.persona import PersonaCard, PersonaContext, PersonStore
@@ -474,19 +473,6 @@ async def _main() -> bool:
     else:
         await long_term.initialize()
 
-    recent_activity: RecentActivityMemory | None = None
-    if config.memory.recent_activity_enabled and not setup_required:
-        recent_activity = RecentActivityMemory(
-            db_path=config.memory.db_path,
-            log_store=log_store,
-            embedder_model=config.memory.mem0_embedder_model,
-            days=config.memory.recent_activity_days,
-            chunk_tokens=config.memory.recent_activity_chunk_tokens,
-            overlap_tokens=config.memory.recent_activity_overlap_tokens,
-            chroma_client=long_term.chroma_client,
-            embedder=long_term.embedder,
-        )
-
     snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"
     alarm_persist_path = Path(config.memory.db_path) / "alarms.json"
     env_snapshot_path = Path(config.memory.db_path) / "env_snapshot.json"
@@ -580,9 +566,6 @@ async def _main() -> bool:
         )
     else:
         short_term = ShortTermMemory(**stm_kwargs)
-
-    if recent_activity is not None:
-        recent_activity.start_background_initialization(short_term.raw_primary_boundary())
 
     if (
         short_term.active_provider
@@ -734,7 +717,6 @@ async def _main() -> bool:
                 long_term,
                 short_term,
                 brain,
-                recent_activity=recent_activity,
             ),
             ManageMemoryTool(long_term),
             SleepTool(inbox_watcher, config=config),
@@ -913,7 +895,6 @@ async def _main() -> bool:
         task_store=task_store,
         bubble_store=bubble_store,
         subconscious=subconscious,
-        recent_activity=recent_activity,
         persona=persona_context,
     )
 

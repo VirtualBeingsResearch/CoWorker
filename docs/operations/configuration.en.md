@@ -98,18 +98,10 @@ affect detection because it runs in the administrator's browser, not on the prox
 | `MEMORY__AUTO_RECALL_ENABLED` | `true` | Whether to search long-term memory automatically when a message arrives |
 | `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | Relevance threshold for automatic recall (0–1) |
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | Maximum number of memories injected by each automatic recall |
-| `MEMORY__RECENT_ACTIVITY_ENABLED` | `true` | Whether to maintain the recent-activity semantic index |
-| `MEMORY__RECENT_ACTIVITY_DAYS` | `7` | Number of days covered by the recent-activity index |
-| `MEMORY__RECENT_ACTIVITY_CHUNK_TOKENS` | `120` | Index chunk size for oversized tool results |
-| `MEMORY__RECENT_ACTIVITY_OVERLAP_TOKENS` | `24` | Token overlap between adjacent index chunks |
-| `MEMORY__RECENT_ACTIVITY_QUERY_LIMIT` | `5` | Maximum results returned by a recent-activity query |
-| `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_ENABLED` | `true` | Whether automatic recall also queries recent activity |
-| `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_LIMIT` | `2` | Maximum recent-activity results injected by automatic recall |
-| `MEMORY__RECENT_ACTIVITY_AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.72` | Relevance threshold for automatic recent-activity recall |
 | `MEMORY__MEM0_LLM_PROVIDER` | `""` (follows main line) | Independent provider for mem0 extraction; leave empty to follow `LLM__DEFAULT_PROVIDER`, or set a Brain provider name or type to reuse its credentials and effective `base_url`. Hot-applied, no restart needed |
 | `MEMORY__MEM0_LLM_MODEL` | `""` (follows main line) | Independent model ID for mem0 extraction; leave empty to follow the provider's `default_model` (or `LLM__DEFAULT_MODEL`), passed through to the API dialect. Hot-applied, no restart needed |
 | `MEMORY__MEM0_LLM_THINKING` | `false` | Thinking toggle for the mem0 extraction LLM; injects the matching parameter for known thinking models (extraction is a structured JSON task, so thinking is off by default to avoid burning tokens). Hot-applied, no restart needed |
-| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0 and recent activity; do not switch it directly when existing data is present |
+| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0; do not switch it directly when existing data is present |
 
 ### Agent
 

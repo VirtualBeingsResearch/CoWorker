@@ -33,11 +33,6 @@ const INTEGER_FIELDS = new Set([
   'memory.tree_backfill_max_leaves',
   'memory.tree_backfill_concurrency',
   'memory.tree_merge_reach_depth',
-  'memory.recent_activity_days',
-  'memory.recent_activity_chunk_tokens',
-  'memory.recent_activity_overlap_tokens',
-  'memory.recent_activity_query_limit',
-  'memory.recent_activity_auto_recall_limit',
   'agent.interaction_log_rotation_bytes',
   'agent.inbox_batch_max',
   'agent.code_hard_timeout',
@@ -49,7 +44,6 @@ const FRACTION_FIELDS = new Set([
   'memory.compress_ratio',
   'memory.tree_spine_cap_fraction',
   'memory.auto_recall_relevance_threshold',
-  'memory.recent_activity_auto_recall_relevance_threshold',
 ]);
 
 export function configFieldPresentation(

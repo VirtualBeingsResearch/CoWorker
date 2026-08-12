@@ -223,7 +223,6 @@ model_switched = "[system notice] The model was switched to {{provider}}/{{model
 tool_parse_error = "Tool argument JSON could not be parsed. Generate valid arguments and try again: {{error}}"
 auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
-recent_activity_title = "[automatic recall · recent activity replay]"
 task_reminder = "[task reminder] {{count}} unfinished task(s) remain; view them with task_list / task_get."
 task_wakeup = "[task reminder] {{count}} unfinished task(s) interrupted sleep."
 task_details_hint = " has_details=true; use task_get to view details"
