@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
+from coworker.core.config import Config, normalize_admin_overrides_file
 from coworker.core.timezone import (
     as_local,
     local_from_timestamp,
@@ -31,3 +33,17 @@ def test_local_conversions_use_the_host_timezone() -> None:
 
     assert as_local(aware) == aware.astimezone()
     assert local_from_timestamp(timestamp) == datetime.fromtimestamp(timestamp).astimezone()
+
+
+def test_startup_normalization_removes_obsolete_timezone_override(tmp_path) -> None:
+    path = tmp_path / "admin_config.json"
+    path.write_text(
+        json.dumps({"i18n": {"locale": "en-US", "timezone": "Asia/Shanghai"}}),
+        encoding="utf-8",
+    )
+    inherited = Config.model_validate({"admin": {"config_file": str(path)}})
+
+    assert normalize_admin_overrides_file(inherited) is True
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "i18n": {"locale": "en-US"}
+    }
