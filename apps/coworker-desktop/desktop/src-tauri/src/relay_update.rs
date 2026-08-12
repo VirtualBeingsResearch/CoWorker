@@ -138,31 +138,33 @@ async fn handle(
         vec![("accept".into(), "*/*".into())],
         vec![],
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await;
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                target: "coworker_desktop_app_lib",
+                "CoWorker Desktop Relay update adapter failed stage=manifest_request error={error}"
+            );
+            return send_error(&mut stream, 502, "relay_request_failed").await;
+        }
+    };
     if (300..400).contains(&response.status) {
         return send_error(&mut stream, 502, "redirect_rejected").await;
     }
     let mut body = response.body;
     let content_type = safe_content_type(&response.headers);
     if response.status == 200 {
-        let mut manifest: Value =
-            serde_json::from_slice(&body).map_err(|error| error.to_string())?;
-        let url = manifest
-            .get_mut("url")
-            .and_then(|value| value.as_str())
-            .ok_or("update manifest lacks url")?
-            .to_owned();
-        let asset_target = url
-            .strip_prefix(relay_base.trim_end_matches('/'))
-            .ok_or("update asset is outside the selected Relay instance")?;
-        if !relay_transport::is_relay_update_target(asset_target)
-            || !asset_target.starts_with("/api/desktop-updates/assets/")
-        {
-            return send_error(&mut stream, 502, "update_asset_rejected").await;
-        }
-        manifest["url"] = Value::String(format!("{local_base}{asset_target}"));
-        body = serde_json::to_vec(&manifest).map_err(|error| error.to_string())?;
+        body = match rewrite_manifest(&body, relay_base, local_base) {
+            Ok(body) => body,
+            Err(code) => {
+                tracing::warn!(
+                    target: "coworker_desktop_app_lib",
+                    "CoWorker Desktop Relay update adapter rejected manifest error={code}"
+                );
+                return send_error(&mut stream, 502, code).await;
+            }
+        };
     }
     let reason = match response.status {
         200 => "OK",
@@ -188,6 +190,29 @@ async fn handle(
         .await
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn rewrite_manifest(
+    body: &[u8],
+    relay_base: &str,
+    local_base: &str,
+) -> Result<Vec<u8>, &'static str> {
+    let mut manifest: Value =
+        serde_json::from_slice(body).map_err(|_| "update_manifest_invalid")?;
+    let url = manifest
+        .get("url")
+        .and_then(|value| value.as_str())
+        .ok_or("update_manifest_url_missing")?;
+    let asset_target = url
+        .strip_prefix(relay_base.trim_end_matches('/'))
+        .ok_or("update_asset_outside_relay")?;
+    if !relay_transport::is_relay_update_target(asset_target)
+        || !asset_target.starts_with("/api/desktop-updates/assets/")
+    {
+        return Err("update_asset_rejected");
+    }
+    manifest["url"] = Value::String(format!("{local_base}{asset_target}"));
+    serde_json::to_vec(&manifest).map_err(|_| "update_manifest_encode_failed")
 }
 
 async fn stream_asset(
@@ -307,7 +332,8 @@ async fn send_error(stream: &mut TcpStream, status: u16, code: &str) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::safe_content_type;
+    use super::{rewrite_manifest, safe_content_type};
+    use serde_json::Value;
 
     #[test]
     fn content_type_rejects_response_splitting() {
@@ -318,5 +344,33 @@ mod tests {
             "application/octet-stream\r\nX-Forged: yes".into(),
         )];
         assert_eq!(safe_content_type(&injected), "application/octet-stream");
+    }
+
+    #[test]
+    fn manifest_asset_url_is_rewritten_to_the_loopback_adapter() {
+        let rewritten = rewrite_manifest(
+            br#"{"version":"0.3.7","url":"https://relay.example/i/cw_abcdefgh/api/desktop-updates/assets/0.3.7/app.tar.gz","signature":"sig"}"#,
+            "https://relay.example/i/cw_abcdefgh",
+            "http://127.0.0.1:62000/capability",
+        )
+        .expect("manifest should be accepted");
+        let manifest: Value = serde_json::from_slice(&rewritten).expect("valid JSON");
+
+        assert_eq!(
+            manifest["url"],
+            "http://127.0.0.1:62000/capability/api/desktop-updates/assets/0.3.7/app.tar.gz"
+        );
+    }
+
+    #[test]
+    fn manifest_asset_url_must_belong_to_the_selected_relay_instance() {
+        let error = rewrite_manifest(
+            br#"{"version":"0.3.7","url":"https://relay.example/i/cw_other000/api/desktop-updates/assets/0.3.7/app.tar.gz","signature":"sig"}"#,
+            "https://relay.example/i/cw_abcdefgh",
+            "http://127.0.0.1:62000/capability",
+        )
+        .expect_err("cross-instance URL must be rejected");
+
+        assert_eq!(error, "update_asset_outside_relay");
     }
 }

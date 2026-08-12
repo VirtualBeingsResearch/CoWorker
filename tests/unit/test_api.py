@@ -80,6 +80,53 @@ def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatc
     assert "*" not in config.cors_origins
 
 
+def test_desktop_asset_url_uses_authenticated_relay_instance_base():
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "server": ("coworker-relay-e2ee", 0),
+            "path": "/api/desktop-updates/darwin/x86_64/0.3.6",
+            "query_string": b"",
+            "headers": [],
+            "state": {
+                "coworker_relay": {
+                    "authenticated_tunnel": True,
+                    "public_base_url": "http://relay.example.test:8443/i/cw_abcdefgh",
+                }
+            },
+        }
+    )
+
+    assert api_app._asset_url(request, "0.3.7", "darwin-x86_64-app.tar.gz") == (
+        "http://relay.example.test:8443/i/cw_abcdefgh/api/desktop-updates/"
+        "assets/0.3.7/darwin-x86_64-app.tar.gz"
+    )
+
+
+def test_desktop_asset_url_ignores_untrusted_relay_base():
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "https",
+            "server": ("updates.example.test", 443),
+            "path": "/api/desktop-updates/windows/x86_64/0.3.6",
+            "query_string": b"",
+            "headers": [],
+            "state": {
+                "coworker_relay": {
+                    "authenticated_tunnel": False,
+                    "public_base_url": "https://attacker.example/i/cw_forged",
+                }
+            },
+        }
+    )
+
+    assert api_app._asset_url(request, "0.3.7", "Coworker.exe") == (
+        "https://updates.example.test/api/desktop-updates/assets/0.3.7/Coworker.exe"
+    )
+
+
 def test_admin_ui_is_bundled(client):
     response = client.get("/admin")
 

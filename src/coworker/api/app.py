@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from coworker.api.admin import admin_router
+from coworker.api.request_urls import desktop_update_asset_base_url
 from coworker.api.routes import (
     is_authenticated_relay_request,
     router,
@@ -348,7 +349,10 @@ def _asset_path(version: str, filename: str) -> _Path:
 
 
 def _asset_url(request: Request, version: str, filename: str) -> str:
-    base = str(request.base_url).rstrip("/")
+    base = desktop_update_asset_base_url(
+        str(request.base_url),
+        request.scope.get("state"),
+    )
     return f"{base}/api/desktop-updates/assets/{quote(version)}/{quote(filename)}"
 
 
