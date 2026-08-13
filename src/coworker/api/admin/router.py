@@ -54,6 +54,11 @@ from coworker.core.startup_intent import (
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.persona import Person, PersonAlias
+from coworker.prompts.template import (
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_VARIABLES,
+    resolve_system_prompt_template,
+)
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -2317,11 +2322,33 @@ async def get_system_prompt(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     prompt = _require_agent().current_system_prompt()
+    config = _require_config()
+    inherited_config = _inherited_config or config
+    snapshot = _require_admin_config_service().snapshot()
+    agent_snapshot = snapshot.config.get("agent")
+    desired_template_value = (
+        str(agent_snapshot.get("system_prompt_template") or "")
+        if isinstance(agent_snapshot, dict)
+        else ""
+    )
+    active_template = resolve_system_prompt_template(
+        config.agent.system_prompt_template
+    )
+    desired_template = resolve_system_prompt_template(desired_template_value)
     response.headers["Cache-Control"] = "no-store"
     return {
         "content": prompt,
         "characters": len(prompt),
         "lines": len(prompt.splitlines()),
+        "active_template": active_template,
+        "desired_template": desired_template,
+        "inherited_template": resolve_system_prompt_template(
+            inherited_config.agent.system_prompt_template
+        ),
+        "default_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "variables": list(SYSTEM_PROMPT_VARIABLES),
+        "overridden": "agent.system_prompt_template" in snapshot.overridden_fields,
+        "prompt_pending_restart": active_template != desired_template,
     }
 
 

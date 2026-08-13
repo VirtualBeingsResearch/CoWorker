@@ -2061,6 +2061,37 @@ html:has(.admin-login),
 .identity-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .identity-form .field:nth-child(n + 3) { grid-column: 1 / -1; }
 .identity-form textarea { min-height: 140px; }
+.system-prompt-template-workbench { display: grid; gap: 13px; }
+.system-prompt-template-status { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.system-prompt-template-status span { min-width: 0; }
+.system-prompt-template-status b,
+.system-prompt-template-status small { display: block; }
+.system-prompt-template-status b { font-size: 12px; }
+.system-prompt-template-status small { margin-top: 3px; color: var(--admin-muted); font-size: 10px; }
+.system-prompt-template-status em { flex: none; padding: 5px 8px; border-radius: 99px; color: var(--admin-vital); background: var(--admin-soft); font-size: 9px; font-style: normal; font-weight: 680; }
+.system-prompt-template-status em.pending { color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 10%, var(--admin-surface)); }
+.system-prompt-template-workbench .notice { margin: 0; }
+.system-prompt-template-workbench .notice > span { flex: 1; }
+.system-prompt-template-workbench .notice a { text-decoration: none; }
+.system-prompt-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.system-prompt-presets > span { margin-right: 3px; color: var(--admin-muted); font-size: 10px; font-weight: 680; }
+.system-prompt-template-grid { display: grid; grid-template-columns: minmax(210px, .34fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.system-prompt-variable-list { display: flex; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.system-prompt-variable-list > b { font-size: 11px; }
+.system-prompt-variable-list > small { margin-bottom: 4px; color: var(--admin-muted); font-size: 9px; line-height: 1.5; }
+.system-prompt-variable-list button { display: flex; align-items: center; justify-content: space-between; min-height: 43px; padding: 6px 8px; border: 1px solid var(--admin-line); border-radius: 7px; color: var(--admin-ink); background: var(--admin-surface); text-align: left; }
+.system-prompt-variable-list button:hover:not(:disabled) { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 42%, var(--admin-line)); }
+.system-prompt-variable-list button:disabled { cursor: default; opacity: .42; }
+.system-prompt-variable-list button > span { min-width: 0; }
+.system-prompt-variable-list code { font-size: 9px; }
+.system-prompt-variable-list button small { display: block; margin-top: 2px; color: var(--admin-muted); font-size: 8px; line-height: 1.25; }
+.system-prompt-template-editor { display: grid; grid-template-rows: auto minmax(420px, 1fr); min-width: 0; }
+.system-prompt-template-editor > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 7px; color: var(--admin-ink); font-size: 11px; font-weight: 680; }
+.system-prompt-template-editor > span small { color: var(--admin-muted); font: 9px var(--admin-data); font-weight: 450; }
+.system-prompt-template-editor textarea { width: 100%; min-height: 420px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 11px; outline: 0; color: var(--admin-ink); background: color-mix(in oklch, var(--admin-surface) 74%, var(--admin-paper)); font: 11px/1.65 var(--admin-data); resize: vertical; tab-size: 2; }
+.system-prompt-template-editor textarea:focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 8%, transparent); }
+.system-prompt-template-help { display: flex; align-items: center; gap: 8px; color: var(--admin-muted); font-size: 9px; line-height: 1.5; }
+.system-prompt-template-help code { flex: none; padding: 3px 6px; border-radius: 5px; color: var(--admin-vital); background: var(--admin-soft); }
 .system-prompt-facts { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
 .system-prompt-facts span,
 .system-prompt-facts em { display: inline-flex; align-items: baseline; gap: 5px; padding: 6px 9px; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-muted); background: var(--admin-paper); font: 11px var(--admin-data); font-style: normal; }
@@ -3109,6 +3140,10 @@ html:has(.admin-login),
   .identity-form { grid-template-columns: 1fr; }
   .config-fields .field,
   .identity-form .field { grid-column: auto !important; }
+  .system-prompt-template-grid { grid-template-columns: 1fr; }
+  .system-prompt-variable-list { display: grid; grid-template-columns: 1fr 1fr; }
+  .system-prompt-variable-list > b,
+  .system-prompt-variable-list > small { grid-column: 1 / -1; }
   .string-list-field,
   .transport-list-field { grid-column: 1 / -1 !important; }
   .transport-list-editor { grid-template-columns: 1fr; }

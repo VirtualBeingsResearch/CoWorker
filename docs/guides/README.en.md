@@ -272,10 +272,22 @@ Identity Profile manages name, current location, and personality. Saving writes
 the identity files and refreshes the System Prompt cache, so later reasoning
 uses the new identity immediately.
 
-**Current System Prompt** on the same page is the exact read-only cached version.
-It excludes tool schemas, short-term context, and the current message. Use it
-to verify that identity and system settings entered the prompt, not as a full
-request audit.
+The System Prompt template editor on the same page can reorder or omit read-only
+built-in section variables and add arbitrary custom text. Presets restore the
+standard template, append an editable `[CUSTOM]` example section, or fully replace
+the built-in prompt. `[CUSTOM]` is ordinary text and may be renamed, split, or
+removed. Variables must occupy their own line and may appear at most once. A saved
+administration override is not hot-applied: the status area distinguishes the
+currently running prompt from the desired template awaiting a safe restart.
+**Restore inherited value** returns to startup configuration such as `.env`, while
+saving the standard empty value explicitly selects the product-standard template.
+
+**Current System Prompt** remains the exact read-only cached version. It excludes
+tool schemas, short-term context, and the current message. Use it to verify that
+identity and system settings entered the prompt, not as a full request audit. A
+complete replacement removes any Identity, language-policy, Skill, Palace, or
+Channel guidance that the template does not reference, so confirm that outcome
+before saving.
 
 ### People
 

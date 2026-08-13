@@ -930,7 +930,18 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
 }
 
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
-const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
+const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template']);
+const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
+  IDENTITY: '姓名、位置与人格身份',
+  ENVIRONMENT: '操作系统、Python、目录与时区',
+  INSTINCTS: '内置本能与新生指引',
+  GUIDELINES: '通用行为与记忆指引',
+  LANGUAGE_POLICY: '参与者回复语言策略',
+  THINKING: 'thinking.md 中的可选思维内容',
+  CHANNELS: '当前信道的可选操作指引',
+  SKILLS: '已加载 Skill 的可选注册表',
+  PALACES: '已加载 Palace 的可选注册表',
+};
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
   id: string;
@@ -2064,9 +2075,17 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptMessage, setPromptMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const promptEditor = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  useEffect(() => {
+    if (systemPrompt.data) setPromptDraft(String(systemPrompt.data.desired_template || systemPrompt.data.default_template || ''));
+  }, [systemPrompt.data]);
   const identityDirty = Boolean(identity.data && draft && ['name', 'current_location', 'personality'].some(key => (draft[key] || '') !== (identity.data?.[key] || '')));
-  useNavigationGuard('identity', identityDirty);
+  const promptDirty = Boolean(systemPrompt.data && promptDraft !== null && promptDraft !== String(systemPrompt.data.desired_template || ''));
+  useNavigationGuard('identity', identityDirty || promptDirty);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
@@ -2075,10 +2094,75 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
     setSaved(true);
     await Promise.all([identity.reload(), systemPrompt.reload()]);
   };
+  const savePrompt = async () => {
+    if (!systemPrompt.data || promptDraft === null || !promptDraft.trim()) {
+      setPromptMessage({ kind: 'error', text: t('完整替换模式需要填写非空 System Prompt。') });
+      return;
+    }
+    setPromptSaving(true);
+    setPromptMessage(null);
+    try {
+      const storedTemplate = promptDraft === systemPrompt.data.default_template ? '' : promptDraft;
+      await api('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { agent: { system_prompt_template: storedTemplate } } }) });
+      setPromptMessage({ kind: 'success', text: t('模板已保存，将在安全重启后用于所有新推理。') });
+      await systemPrompt.reload();
+    } catch (error) {
+      setPromptMessage({ kind: 'error', text: error instanceof Error ? error.message : t('保存失败') });
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+  const restoreInheritedPrompt = async () => {
+    setPromptSaving(true);
+    setPromptMessage(null);
+    try {
+      await api('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ clear_overrides: ['agent.system_prompt_template'] }) });
+      setPromptMessage({ kind: 'success', text: t('管理端模板覆盖已清除，将在安全重启后恢复启动配置。') });
+      await systemPrompt.reload();
+    } catch (error) {
+      setPromptMessage({ kind: 'error', text: error instanceof Error ? error.message : t('保存失败') });
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+  const insertPromptVariable = (name: string) => {
+    const token = `{{${name}}}`;
+    const editor = promptEditor.current;
+    const current = promptDraft || '';
+    const start = editor?.selectionStart ?? current.length;
+    const end = editor?.selectionEnd ?? start;
+    const prefix = start > 0 && current[start - 1] !== '\n' ? '\n' : '';
+    const suffix = end < current.length && current[end] !== '\n' ? '\n' : '';
+    const inserted = `${prefix}${token}${suffix}`;
+    setPromptDraft(current.slice(0, start) + inserted + current.slice(end));
+    requestAnimationFrame(() => {
+      const cursor = start + inserted.length;
+      promptEditor.current?.focus();
+      promptEditor.current?.setSelectionRange(cursor, cursor);
+    });
+  };
+  const promptVariables = (systemPrompt.data?.variables || []) as string[];
+  const promptData = systemPrompt.data;
+  const usesBuiltInSections = promptDraft !== null && promptVariables.some(name => promptDraft.includes(`{{${name}}}`));
   return <div className="page-stack">
     <Panel title="身份档案" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
+    <Panel title="System Prompt 模板" note="通过只读分段变量组合 Prompt；自定义正文和方括号标题会原样保留。保存后需要安全重启。">
+      {systemPrompt.loading || promptDraft === null || !promptData ? <Loading error={systemPrompt.error} /> : <div className="system-prompt-template-workbench">
+        <div className="system-prompt-template-status"><span><b>{t(promptData.overridden ? '管理端覆盖' : '继承启动配置')}</b><small>{t(promptData.overridden ? '当前期望模板保存在 admin_config.json。' : '当前没有管理端模板覆盖。')}</small></span><em className={promptData.prompt_pending_restart ? 'pending' : 'active'}>{t(promptData.prompt_pending_restart ? '等待安全重启' : '当前已生效')}</em></div>
+        {promptData.prompt_pending_restart && <div className="notice amber"><TriangleAlert size={16} /><span>{t('当前运行仍使用旧模板；安全重启后，主 Agent、Bubble 和潜意识会统一使用新模板。')}</span><a className="ghost mini" href="?section=runtime&runtime_tab=maintenance">{t('前往安全重启')}</a></div>}
+        {!usesBuiltInSections && promptDraft.trim() && <div className="notice amber"><TriangleAlert size={16} /><span>{t('此模板没有引用任何内置分段，将完全替换 Identity、语言策略、Skill、Palace 和 Channel 指引。')}</span></div>}
+        <div className="system-prompt-presets"><span>{t('快捷预设')}</span><button type="button" className="ghost mini" onClick={() => setPromptDraft(String(promptData.default_template || ''))}>{t('恢复标准模板')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft(`${promptData.default_template}\n\n[CUSTOM]\n`)}>{t('在标准模板后追加')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft('')}>{t('完全替换')}</button></div>
+        <div className="system-prompt-template-grid">
+          <div className="system-prompt-variable-list"><b>{t('可用分段变量')}</b><small>{t('变量必须独占一行，每个最多使用一次。点击即可插入光标位置。')}</small>{promptVariables.map(name => <button type="button" disabled={promptDraft.includes(`{{${name}}}`)} onClick={() => insertPromptVariable(name)} key={name}><span><code>{`{{${name}}}`}</code><small>{t(SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS[name] || '')}</small></span><Plus size={13} /></button>)}</div>
+          <label className="system-prompt-template-editor"><span>{t('期望模板')}<small>{t('{{count}} / 100000 字符', { count: promptDraft.length })}</small></span><textarea ref={promptEditor} maxLength={100000} spellCheck={false} value={promptDraft} onChange={event => { setPromptDraft(event.target.value); setPromptMessage(null); }} placeholder={t('填写完整 System Prompt，或插入左侧分段变量。')} /></label>
+        </div>
+        <div className="system-prompt-template-help"><code>{'\\{{NAME}}'}</code><span>{t('用于输出字面量 {{NAME}}；未知变量、重复变量或未独占一行的变量会被拒绝。')}</span></div>
+        {promptMessage && <div className={`notice ${promptMessage.kind}`} role={promptMessage.kind === 'error' ? 'alert' : 'status'}>{promptMessage.text}</div>}
+        <div className="panel-actions"><span className={'save-state ' + (promptDirty ? 'dirty' : '')}>{t(promptDirty ? '有未保存修改' : '当前模板草稿已同步')}</span><button type="button" className="primary" disabled={promptSaving || !promptDirty || !promptDraft.trim()} onClick={() => void savePrompt()}><Save size={15} />{t(promptSaving ? '正在保存…' : '保存模板')}</button><button type="button" className="ghost" disabled={promptSaving || !promptData.overridden} onClick={() => void restoreInheritedPrompt()}><RotateCcw size={15} />{t('恢复继承')}</button><button type="button" className="ghost" disabled={promptSaving || !promptDirty} onClick={() => setPromptDraft(String(promptData.desired_template || ''))}>{t('放弃修改')}</button></div>
+      </div>}
+    </Panel>
     <Panel title="当前 System Prompt" note="只读展示 Agent 当前实际使用的缓存版本；不包含工具 Schema、短期上下文或本轮消息。" action={<button className="ghost mini" disabled={systemPrompt.loading} onClick={() => void systemPrompt.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
-      {systemPrompt.loading || !systemPrompt.data ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{systemPrompt.data.characters ?? 0}</b>{t('字符')}</span><span><b>{systemPrompt.data.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{systemPrompt.data.content || ''}</code></pre></details></>}
+      {systemPrompt.loading || !promptData ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{promptData.characters ?? 0}</b>{t('字符')}</span><span><b>{promptData.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{promptData.content || ''}</code></pre></details></>}
     </Panel>
   </div>;
 }

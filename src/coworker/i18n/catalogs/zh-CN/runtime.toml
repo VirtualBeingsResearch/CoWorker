@@ -141,6 +141,12 @@ names_must_be_strings = "信道访问名称必须是字符串"
 names_must_not_be_empty = "信道访问名称不能为空"
 duplicate_name = "去除首尾空白后出现重复信道访问名称：{{channel}}"
 
+[config.system_prompt]
+too_long = "System Prompt 模板不能超过 {{limit}} 个字符"
+unknown_variable = "未知的 System Prompt 模板变量：{{variable}}"
+duplicate_variable = "System Prompt 模板变量不能重复出现：{{variable}}"
+standalone_variable = "System Prompt 模板变量必须独占一行：{{variable}}"
+
 [config.api]
 public_url_absolute = "API 公开访问地址必须是绝对 HTTP(S) URL"
 public_url_wildcard = "API 公开访问地址必须使用浏览器可访问的主机名，不能使用通配监听地址"

@@ -141,6 +141,12 @@ names_must_be_strings = "Channel access names must be strings"
 names_must_not_be_empty = "Channel access names must not be empty"
 duplicate_name = "Duplicate channel access name after trimming: {{channel}}"
 
+[config.system_prompt]
+too_long = "The system prompt template must not exceed {{limit}} characters"
+unknown_variable = "Unknown system prompt template variable: {{variable}}"
+duplicate_variable = "System prompt template variable appears more than once: {{variable}}"
+standalone_variable = "System prompt template variable must appear on its own line: {{variable}}"
+
 [config.api]
 public_url_absolute = "The public API URL must be an absolute HTTP(S) URL"
 public_url_wildcard = "The public API URL must use a browser-reachable hostname, not a wildcard bind address"

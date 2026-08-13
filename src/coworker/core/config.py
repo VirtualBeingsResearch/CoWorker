@@ -29,6 +29,11 @@ from coworker.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
 )
 from coworker.i18n import SupportedLocale, normalize_locale, tr
+from coworker.prompts.template import (
+    MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
+    SystemPromptTemplateError,
+    validate_system_prompt_template,
+)
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
@@ -482,6 +487,29 @@ class AgentConfig(_EnvSettings):
     skills_dir: str = ".coworker/skills"
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"
+    system_prompt_template: str = ""
+
+    @field_validator("system_prompt_template", mode="before")
+    @classmethod
+    def _validate_system_prompt_template(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            return validate_system_prompt_template(value)
+        except SystemPromptTemplateError as error:
+            if error.code == "too_long":
+                raise ValueError(
+                    tr(
+                        "config.system_prompt.too_long",
+                        limit=MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
+                    )
+                ) from error
+            raise ValueError(
+                tr(
+                    f"config.system_prompt.{error.code}",
+                    variable=error.variable,
+                )
+            ) from error
 
     idle_sleep_seconds: int = Field(default=30, ge=0)
     inbox_poll_interval: float = 2.0

@@ -773,6 +773,7 @@ async def _main() -> bool:
         channel_registry=channel_system.registry,
         thinking_path="data/thinking.md",
         git_commit=current_env.get("git_commit"),
+        system_prompt_template=config.agent.system_prompt_template,
     )
 
     bubble_store: BubbleStore | None = None
