@@ -30,9 +30,10 @@ FROM python:3.14-bookworm AS base
 ARG COWORKER_BUNDLE_REPOSITORY_URL
 ARG COWORKER_BUNDLE_REPOSITORY_REF
 
-# Install system deps + Node.js 24 via NodeSource
+# Install system deps, lightweight workspace tools, and Node.js 24 via NodeSource.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git gnupg ffmpeg openssh-client tzdata \
+    ca-certificates curl ffmpeg git gnupg jq less nano openssh-client ripgrep \
+    tzdata vim-tiny \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -40,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
+    && ln -s /usr/bin/vim.tiny /usr/local/bin/vim \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
