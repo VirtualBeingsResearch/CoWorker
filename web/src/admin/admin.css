@@ -1560,7 +1560,7 @@ html:has(.admin-login),
 .channel-access-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; align-items: start; }
 .channel-access-list { grid-column: auto; }
 .channel-access-list .string-list-empty { padding: 14px 10px; }
-.telegram-settings { display: grid; gap: 14px; }
+.telegram-settings { display: grid; gap: 14px; margin-top: 14px; }
 .telegram-overview { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid color-mix(in oklch, #229ed9 30%, var(--admin-line)); border-radius: 14px; background: linear-gradient(120deg, color-mix(in oklch, #229ed9 8%, var(--admin-soft)), var(--admin-surface) 70%); }
 .telegram-overview > div { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .telegram-overview > div > svg { flex: none; margin-top: 2px; color: #168ac0; }

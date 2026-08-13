@@ -165,7 +165,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
 
 Telegram 可以同时配置多个 Bot，并在管理端热新增、删除、启停或重建单个实例。每个实例
-默认使用 `https://api.telegram.org`，也可以通过 `api_base_url` 指向代理或自托管 Bot API
+默认使用 `https://api.telegram.org`，也可以通过 `api_base_url` 指向代理或自托管机器人 API
 服务器；仅当自托管服务器以 `--local` 启动并与 Coworker 共享文件路径时启用 `local_mode`。
 participant ID 为
 `tg:<instance_id>:<chat_id>`，token 在管理 API 中始终遮蔽。完整配置、Privacy Mode、附件
