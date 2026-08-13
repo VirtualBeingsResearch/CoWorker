@@ -60,6 +60,16 @@ Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网
 协议的内置模型判断；未列出的模型继续使用内置目录。`video: true` 时也必须设置
 `vision: true`。主线和 fallback 模型必须支持 `tools`，视觉专用模型必须支持 `vision`。
 
+## 定义模型价格
+
+管理后台“运行设置 → 模型与 Provider”提供独立定价表，也可通过 `LLM__MODEL_PRICES`
+传入 JSON。定价按 Provider 注册名和模型 ID 精确匹配，不要求该连接由管理后台维护，因而
+可以覆盖 `.env` 或 `providers.json` 中的连接，也可以保留已停用的历史 Provider/模型价格。
+
+输入、输出和可选缓存输入价格均按每百万 Token 填写。缓存输入价留空时使用普通输入价；
+不同币种分别累计，不做汇率换算。修改价格立即重算管理端已有 Token 用量，不会修改
+`usage_stats.json`，也不会记录调用发生时的旧价格。
+
 ## 模型分工
 
 - 主线：对话、工具规划和持续任务；
@@ -77,8 +87,8 @@ Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网
 - **404/模型不存在**：模型 ID 会原样传给 Provider；使用服务端实际 ID。
 - **工具调用失败**：确认模型和网关同时支持 tool/function calling。
 - **thinking 参数失败**：关闭该专用模型的 thinking，或换用明确支持的模型。
-- **高延迟/高成本**：按 `/status.usage_stats` 区分 main、summary、vision、bubble、
-  subconscious 和 mem0，再调整模型分工。
+- **高延迟/高成本**：在管理端“运行分析”按 main、summary、vision、bubble、subconscious
+  和 mem0 区分职责，结合定价覆盖率和 Provider 账单再调整模型分工。
 
 完整变量表见[配置与模型](configuration.md)，数据外发范围见
 [数据与信任边界](../architecture/data-boundaries.md)。

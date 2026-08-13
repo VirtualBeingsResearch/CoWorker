@@ -4,12 +4,14 @@ import json
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from coworker.agent.log_store import LogStore
+from coworker.core.config import ModelPriceSpec
 
 _TOKEN_KEYS = ("input_tokens", "output_tokens", "cached_tokens")
 _METRIC_KEYS = (
@@ -97,6 +99,14 @@ _SUMMARY_KEYS = (
     "memory_compression_triggers",
     "last_memory_compression_at",
 )
+_COST_SUMMARY_KEYS = (
+    "estimated_costs",
+    "priced_tokens",
+    "unpriced_tokens",
+    "pricing_coverage",
+)
+_PRICE_TOKEN_UNIT = Decimal(1_000_000)
+type PricingCatalog = dict[tuple[str, str], ModelPriceSpec]
 _MAIN_STREAM_ID = "main"
 _MAIN_SCOPE = "main"
 _SUMMARY_SCOPE = "summary"
@@ -517,19 +527,99 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
     }
 
 
-def _finalize_provider_model_bucket(key: str, bucket: dict[str, Any]) -> dict[str, Any]:
+def _calculate_model_cost(
+    bucket: dict[str, Any],
+    provider: str,
+    model: str,
+    pricing: PricingCatalog,
+) -> tuple[str | None, Decimal | None, int]:
+    input_tokens = _int_value(bucket.get("input_tokens"))
+    output_tokens = _int_value(bucket.get("output_tokens"))
+    total_tokens = input_tokens + output_tokens
+    price = pricing.get((provider, model))
+    if price is None:
+        return None, None, total_tokens
+    cached_tokens = min(input_tokens, _int_value(bucket.get("cached_tokens")))
+    uncached_input_tokens = input_tokens - cached_tokens
+    cached_rate = (
+        price.cached_input_per_million
+        if price.cached_input_per_million is not None
+        else price.input_per_million
+    )
+    cost = (
+        Decimal(uncached_input_tokens) * Decimal(str(price.input_per_million))
+        + Decimal(cached_tokens) * Decimal(str(cached_rate))
+        + Decimal(output_tokens) * Decimal(str(price.output_per_million))
+    ) / _PRICE_TOKEN_UNIT
+    return price.currency, cost, total_tokens
+
+
+def _pricing_summary(
+    bucket: dict[str, Any],
+    pricing: PricingCatalog,
+) -> dict[str, Any]:
+    estimated_costs: dict[str, Decimal] = {}
+    priced_tokens = 0
+    unpriced_tokens = 0
+    provider_model_buckets = bucket.get("by_provider_model", {})
+    if isinstance(provider_model_buckets, dict):
+        for key, provider_model_bucket in provider_model_buckets.items():
+            if not isinstance(provider_model_bucket, dict):
+                continue
+            provider, model = _split_provider_model_key(str(key))
+            provider = _norm_part(provider_model_bucket.get("provider"), provider)
+            model = _norm_part(provider_model_bucket.get("model"), model)
+            currency, cost, total_tokens = _calculate_model_cost(
+                provider_model_bucket,
+                provider,
+                model,
+                pricing,
+            )
+            if currency is None or cost is None:
+                unpriced_tokens += total_tokens
+                continue
+            priced_tokens += total_tokens
+            estimated_costs[currency] = estimated_costs.get(currency, Decimal(0)) + cost
+    total_tokens = _int_value(bucket.get("input_tokens")) + _int_value(
+        bucket.get("output_tokens")
+    )
+    unpriced_tokens += max(0, total_tokens - priced_tokens - unpriced_tokens)
+    return {
+        "estimated_costs": {
+            currency: float(amount)
+            for currency, amount in sorted(estimated_costs.items())
+        },
+        "priced_tokens": priced_tokens,
+        "unpriced_tokens": unpriced_tokens,
+        "pricing_coverage": priced_tokens / total_tokens if total_tokens else None,
+    }
+
+
+def _finalize_provider_model_bucket(
+    key: str,
+    bucket: dict[str, Any],
+    pricing: PricingCatalog | None = None,
+) -> dict[str, Any]:
     provider, model = _split_provider_model_key(key)
     provider = _norm_part(bucket.get("provider"), provider)
     model = _norm_part(bucket.get("model"), model)
     finalized = _finalize_model_bucket(bucket)
-    return {
+    payload = {
         "provider": provider,
         "model": model,
         **finalized,
     }
+    if pricing is not None:
+        currency, cost, _ = _calculate_model_cost(bucket, provider, model, pricing)
+        payload["currency"] = currency
+        payload["estimated_cost"] = float(cost) if cost is not None else None
+    return payload
 
 
-def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
+def _finalize_bucket(
+    bucket: dict[str, Any],
+    pricing: PricingCatalog | None = None,
+) -> dict[str, Any]:
     input_tokens = _int_value(bucket.get("input_tokens"))
     output_tokens = _int_value(bucket.get("output_tokens"))
     cached_tokens = _int_value(bucket.get("cached_tokens"))
@@ -593,7 +683,7 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         for model, model_bucket in sorted(bucket.get("by_model", {}).items())
     }
     by_provider_model = {
-        key: _finalize_provider_model_bucket(key, provider_model_bucket)
+        key: _finalize_provider_model_bucket(key, provider_model_bucket, pricing)
         for key, provider_model_bucket in sorted(bucket.get("by_provider_model", {}).items())
     }
     llm_calls = _int_value(bucket.get("llm_calls"))
@@ -644,7 +734,7 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
             if trigger_name not in compression_triggers:
                 trigger_name = "other"
             compression_triggers[trigger_name] += _int_value(count)
-    return {
+    payload = {
         "llm_calls": llm_calls,
         "tracked_calls": tracked_calls,
         "exact_calls": exact_calls,
@@ -734,35 +824,44 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         "tool_outcomes": tool_outcomes,
         "skills": skills,
     }
+    if pricing is not None:
+        payload.update(_pricing_summary(bucket, pricing))
+    return payload
 
 
-def _summary_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
-    finalized = _finalize_bucket(bucket)
-    return {key: finalized[key] for key in _SUMMARY_KEYS}
+def _summary_bucket(
+    bucket: dict[str, Any],
+    pricing: PricingCatalog | None = None,
+) -> dict[str, Any]:
+    finalized = _finalize_bucket(bucket, pricing)
+    keys = _SUMMARY_KEYS + (_COST_SUMMARY_KEYS if pricing is not None else ())
+    return {key: finalized[key] for key in keys}
 
 
 def _summary_scope_buckets(
     scopes: dict[str, dict[str, Any]],
+    pricing: PricingCatalog | None = None,
 ) -> dict[str, dict[str, Any]]:
     payload = {
-        scope: _summary_bucket(scopes.get(scope, _new_bucket()))
+        scope: _summary_bucket(scopes.get(scope, _new_bucket()), pricing)
         for scope in _DEFAULT_SCOPES
     }
     for scope, bucket in sorted(scopes.items()):
         if scope in payload or not isinstance(bucket, dict):
             continue
         if _bucket_has_data(bucket):
-            payload[str(scope)] = _summary_bucket(bucket)
+            payload[str(scope)] = _summary_bucket(bucket, pricing)
     return payload
 
 
 def _summary_window(
     bucket: dict[str, Any],
     scopes: dict[str, dict[str, Any]],
+    pricing: PricingCatalog | None = None,
 ) -> dict[str, Any]:
     return {
-        **_summary_bucket(bucket),
-        "by_scope": _summary_scope_buckets(scopes),
+        **_summary_bucket(bucket, pricing),
+        "by_scope": _summary_scope_buckets(scopes, pricing),
     }
 
 
@@ -960,7 +1059,13 @@ class UsageStatsCollector:
         self._snapshot_cache = snapshot
         return snapshot
 
-    def _snapshot_for_date(self, today: date, *, detailed: bool) -> dict[str, Any]:
+    def _snapshot_for_date(
+        self,
+        today: date,
+        *,
+        detailed: bool,
+        pricing: PricingCatalog | None = None,
+    ) -> dict[str, Any]:
         last_7_start = today - timedelta(days=6)
         today_bucket = deepcopy(self._days.get(today, _new_bucket()))
         today_scopes = deepcopy(self._days_by_scope.get(today, _new_scope_buckets()))
@@ -973,11 +1078,12 @@ class UsageStatsCollector:
             if last_7_start <= day <= today:
                 self._merge_scope_buckets(last_7_scopes, scopes)
         payload = {
-            "today": self._finalize_window(today_bucket, today_scopes),
-            "last_7_days": self._finalize_window(last_7_bucket, last_7_scopes),
+            "today": self._finalize_window(today_bucket, today_scopes, pricing),
+            "last_7_days": self._finalize_window(last_7_bucket, last_7_scopes, pricing),
             "lifetime": self._finalize_window(
                 deepcopy(self._lifetime),
                 deepcopy(self._lifetime_by_scope),
+                pricing,
             ),
         }
         if detailed:
@@ -989,8 +1095,14 @@ class UsageStatsCollector:
         *,
         start_date: date | None = None,
         end_date: date | None = None,
+        model_prices: list[ModelPriceSpec] | None = None,
     ) -> dict[str, Any]:
         """Return the authenticated management report without expanding public status."""
+        pricing = (
+            None
+            if model_prices is None
+            else {(price.provider, price.model): price for price in model_prices}
+        )
         now = self._now_fn()
         today = now.date()
         last_30_start = today - timedelta(days=_REPORT_DAYS - 1)
@@ -1002,10 +1114,14 @@ class UsageStatsCollector:
         }
         tracked_days = [day for day, bucket in self._days.items() if _bucket_has_data(bucket)]
         payload = {
-            **self._snapshot_for_date(today, detailed=True),
-            "last_30_days": self._finalize_window(last_30_bucket, last_30_scopes),
+            **self._snapshot_for_date(today, detailed=True, pricing=pricing),
+            "last_30_days": self._finalize_window(
+                last_30_bucket,
+                last_30_scopes,
+                pricing,
+            ),
             "previous": {
-                key: _summary_window(*self._aggregate_range(start, end))
+                key: _summary_window(*self._aggregate_range(start, end), pricing)
                 for key, (start, end) in previous_ranges.items()
             },
             "daily": [
@@ -1014,6 +1130,7 @@ class UsageStatsCollector:
                     **_summary_window(
                         deepcopy(self._days.get(day, _new_bucket())),
                         deepcopy(self._days_by_scope.get(day, _new_scope_buckets())),
+                        pricing,
                     ),
                 }
                 for day in (
@@ -1021,7 +1138,7 @@ class UsageStatsCollector:
                     for offset in range(_REPORT_DAYS)
                 )
             ],
-            "today_intraday": self._intraday_report(today),
+            "today_intraday": self._intraday_report(today, pricing),
             "generated_at": now.isoformat(),
             "tracking_since": min(tracked_days).isoformat() if tracked_days else None,
             "compression_tracking_since": (
@@ -1038,10 +1155,16 @@ class UsageStatsCollector:
             payload["selected_range"] = self._selected_range_report(
                 selected_start,
                 selected_end,
+                pricing,
             )
         return payload
 
-    def _selected_range_report(self, start: date, end: date) -> dict[str, Any]:
+    def _selected_range_report(
+        self,
+        start: date,
+        end: date,
+        pricing: PricingCatalog | None,
+    ) -> dict[str, Any]:
         bucket, scopes = self._aggregate_range(start, end)
         span = (end - start).days + 1
         previous_start: date | None = None
@@ -1055,7 +1178,8 @@ class UsageStatsCollector:
             previous_end = None
         else:
             previous = _summary_window(
-                *self._aggregate_range(previous_start, previous_end)
+                *self._aggregate_range(previous_start, previous_end),
+                pricing,
             )
         report = {
             "start_date": start.isoformat(),
@@ -1066,7 +1190,7 @@ class UsageStatsCollector:
             "previous_end_date": (
                 previous_end.isoformat() if previous_end is not None else None
             ),
-            "stats": self._finalize_window(bucket, scopes),
+            "stats": self._finalize_window(bucket, scopes, pricing),
             "previous": previous,
             "daily": [
                 {
@@ -1074,6 +1198,7 @@ class UsageStatsCollector:
                     **_summary_window(
                         deepcopy(self._days.get(day, _new_bucket())),
                         deepcopy(self._days_by_scope.get(day, _new_scope_buckets())),
+                        pricing,
                     ),
                 }
                 for day in (
@@ -1083,10 +1208,14 @@ class UsageStatsCollector:
             ],
         }
         if start == end:
-            report["intraday"] = self._intraday_report(start)
+            report["intraday"] = self._intraday_report(start, pricing)
         return report
 
-    def _intraday_report(self, day: date) -> list[dict[str, Any]]:
+    def _intraday_report(
+        self,
+        day: date,
+        pricing: PricingCatalog | None = None,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for hour in range(_INTRADAY_HOURS):
             hour_key = f"{day.isoformat()}T{hour:02d}:00:00"
@@ -1098,6 +1227,7 @@ class UsageStatsCollector:
                     deepcopy(
                         self._hours_by_scope.get(hour_key, _new_scope_buckets())
                     ),
+                    pricing,
                 ),
             })
         return rows
@@ -1452,17 +1582,21 @@ class UsageStatsCollector:
     def _finalize_window(
         bucket: dict[str, Any],
         scopes: dict[str, dict[str, Any]],
+        pricing: PricingCatalog | None = None,
     ) -> dict[str, Any]:
         scope_payload: dict[str, Any] = {}
         for scope in _DEFAULT_SCOPES:
-            scope_payload[scope] = _finalize_bucket(scopes.get(scope, _new_bucket()))
+            scope_payload[scope] = _finalize_bucket(
+                scopes.get(scope, _new_bucket()),
+                pricing,
+            )
         for scope, scope_bucket in sorted(scopes.items()):
             if scope in scope_payload or not isinstance(scope_bucket, dict):
                 continue
             if _bucket_has_data(scope_bucket):
-                scope_payload[scope] = _finalize_bucket(scope_bucket)
+                scope_payload[scope] = _finalize_bucket(scope_bucket, pricing)
         return {
-            **_finalize_bucket(bucket),
+            **_finalize_bucket(bucket, pricing),
             "by_scope": scope_payload,
         }
 

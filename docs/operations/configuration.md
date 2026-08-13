@@ -54,6 +54,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__SUMMARY_MODEL` | 空 | 摘要/压缩专用模型；只填它会复用当前 provider，留空且已配置 `SUMMARY_PROVIDER` 时使用该 provider 的 `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
+| `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
 | `LLM__ANTHROPIC_BASE_URL` | 空 | Anthropic 自定义 Base URL |
 | `LLM__OPENAI_API_KEY` | 空 | OpenAI API Key |
@@ -71,6 +72,27 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__VISION_PROVIDER` | 空 | 视觉分析工具使用的 provider；留空时 `visual_analyze` 会提示先配置 |
 | `LLM__VISION_MODEL` | 空 | 视觉分析工具使用的模型；分析视频时还需 Provider 声明原生视频能力 |
 | `LLM__VISION_THINKING` | `true` | 视觉分析调用是否启用 thinking；设为 `false` 可使用支持的 Provider 的非思考模式，降低延迟和成本 |
+
+`LLM__MODEL_PRICES` 的每项包含 `provider`、`model`、三个大写字母的 `currency`，以及
+`input_per_million`、`output_per_million` 和可选的 `cached_input_per_million`。价格必须是
+有限非负数；同一 Provider/模型只能出现一次。缓存输入价留空时使用普通输入价。例如：
+
+```json
+[
+  {
+    "provider": "openai",
+    "model": "gpt-5.2",
+    "currency": "USD",
+    "input_per_million": 1.75,
+    "output_per_million": 14,
+    "cached_input_per_million": 0.175
+  }
+]
+```
+
+定价与连接来源相互独立，因此也能为 `.env` 或 `providers.json` 提供的只读连接补充价格。
+管理后台保存定价不重建 Provider、无需重启；历史 Token 始终按当前价格实时重算。不同币种
+分别汇总，不做汇率换算。
 
 ### 记忆
 

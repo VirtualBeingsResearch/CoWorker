@@ -9,7 +9,13 @@ from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
 from coworker.brain.zhipu_provider import ZhipuProvider
-from coworker.core.config import Config, LLMConfig, ModelCapabilitySpec, ProviderSpec
+from coworker.core.config import (
+    Config,
+    LLMConfig,
+    ModelCapabilitySpec,
+    ModelPriceSpec,
+    ProviderSpec,
+)
 from coworker.core.exceptions import ModelNotSupportedError
 from coworker.core.model_config import (
     RuntimeModelConfig,
@@ -136,6 +142,116 @@ def test_provider_model_capabilities_require_unique_models_and_vision_for_video(
                 {"model": "same", "vision": True},
             ],
         )
+
+
+def test_model_prices_normalize_identity_and_currency():
+    price = ModelPriceSpec(
+        provider=" openai-work ",
+        model=" gpt-5.2 ",
+        currency=" usd ",
+        input_per_million=1.75,
+        output_per_million=14,
+    )
+
+    assert price.provider == "openai-work"
+    assert price.model == "gpt-5.2"
+    assert price.currency == "USD"
+    assert price.cached_input_per_million is None
+
+
+def test_model_prices_default_to_an_empty_table():
+    assert _llm().model_prices == []
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"provider": ""},
+        {"provider": None},
+        {"model": "   "},
+        {"currency": "US"},
+        {"currency": 840},
+        {"currency": "US1"},
+        {"currency": "EURO"},
+    ],
+)
+def test_model_prices_reject_blank_identity_and_invalid_currency(changes):
+    data = {
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "currency": "USD",
+        "input_per_million": 1,
+        "output_per_million": 2,
+        **changes,
+    }
+
+    with pytest.raises(ValueError):
+        ModelPriceSpec.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("input_per_million", -1),
+        ("output_per_million", float("inf")),
+        ("cached_input_per_million", float("nan")),
+    ],
+)
+def test_model_prices_reject_invalid_rates(field, value):
+    data = {
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "currency": "USD",
+        "input_per_million": 1,
+        "output_per_million": 2,
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match="非负数"):
+        ModelPriceSpec.model_validate(data)
+
+
+def test_model_prices_require_unique_provider_model_pairs():
+    with pytest.raises(ValueError, match="模型定价重复"):
+        _llm(
+            model_prices=[
+                {
+                    "provider": "openai",
+                    "model": "gpt-5.2",
+                    "currency": "USD",
+                    "input_per_million": 1,
+                    "output_per_million": 2,
+                },
+                {
+                    "provider": "openai",
+                    "model": "gpt-5.2",
+                    "currency": "CNY",
+                    "input_per_million": 1,
+                    "output_per_million": 2,
+                },
+            ]
+        )
+
+
+def test_model_prices_load_from_environment_json(monkeypatch):
+    monkeypatch.setenv(
+        "LLM__MODEL_PRICES",
+        '[{"provider":"openai","model":"gpt-5.2","currency":"usd",'
+        '"input_per_million":1.75,"output_per_million":14}]',
+    )
+
+    config = LLMConfig(_env_file=None, providers_file="")
+
+    assert [price.model_dump() for price in config.model_prices] == [
+        {
+            "provider": "openai",
+            "model": "gpt-5.2",
+            "currency": "USD",
+            "input_per_million": 1.75,
+            "output_per_million": 14.0,
+            "cached_input_per_million": None,
+        }
+    ]
 
 
 # ---- resolved_providers 合并逻辑 ----

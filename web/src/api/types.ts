@@ -112,9 +112,15 @@ export type UsageModelStats = {
 export type UsageProviderModelStats = UsageModelStats & {
   provider?: string;
   model?: string;
+  currency?: string | null;
+  estimated_cost?: number | null;
 };
 
 export type UsageWindowStats = UsageModelStats & {
+  estimated_costs?: Record<string, number>;
+  priced_tokens?: number;
+  unpriced_tokens?: number;
+  pricing_coverage?: number | null;
   tool_calls?: number;
   tool_successes?: number;
   tool_errors?: number;

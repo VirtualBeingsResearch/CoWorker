@@ -62,6 +62,18 @@ overrides the protocol's built-in model detection; unlisted models continue to u
 catalog. A model with `video: true` must also set `vision: true`. Primary and fallback models require
 `tools`, while a vision specialist requires `vision`.
 
+## Define model prices
+
+Runtime Settings → Models & Providers contains an independent pricing table. The same data can be
+provided as JSON through `LLM__MODEL_PRICES`. Prices exact-match the Provider registry name and
+model ID. The connection does not need to be managed in the console, so pricing can cover `.env`
+or `providers.json` connections and retained historical Provider/model pairs.
+
+Enter input, output, and optional cached-input prices per million tokens. A blank cached-input
+price uses the regular input price. Currencies accumulate separately without exchange-rate
+conversion. Editing a price immediately recalculates management estimates from existing token
+usage; it neither changes `usage_stats.json` nor preserves the price that applied when a call ran.
+
 ## Model roles
 
 - main: conversation, tool planning, and persistent tasks;
@@ -79,8 +91,8 @@ Validate each specialist before adding fallback. Do not leave a dead Provider fi
 - **404/model missing**: model IDs pass through unchanged; use the service's actual ID.
 - **Tool call fails**: both model and gateway must support tool/function calling.
 - **Thinking parameter fails**: disable thinking for that role or select a known supporting model.
-- **High latency/cost**: split `/status.usage_stats` by main, summary, vision, bubble,
-  subconscious, and mem0 before changing role assignments.
+- **High latency/cost**: in Runtime analytics, split main, summary, vision, bubble, subconscious,
+  and mem0, then consider pricing coverage and the Provider bill before changing role assignments.
 
 See [Configuration and Models](configuration.en.md) for every variable and
 [Data and Trust Boundaries](../architecture/data-boundaries.en.md) for outbound data.

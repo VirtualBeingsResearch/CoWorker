@@ -40,6 +40,7 @@ def _client(
     tmp_path,
     *,
     providers_file: str = "",
+    llm: dict | None = None,
     api: dict | None = None,
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
@@ -58,7 +59,11 @@ def _client(
         {
             "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
             "api": api or {},
-            "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
+            "llm": {
+                "openai_api_key": "sk-original",
+                "providers_file": providers_file,
+                **(llm or {}),
+            },
             "memory": {"db_path": str(tmp_path / "memory")},
             "agent": {"logs_dir": str(tmp_path / "logs")},
             "desktop_updates": desktop_updates or {},
@@ -226,7 +231,7 @@ def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == report
-    usage_stats.report.assert_called_once_with()
+    usage_stats.report.assert_called_once_with(model_prices=[])
 
 
 def test_admin_usage_returns_a_requested_date_range(tmp_path):
@@ -251,6 +256,7 @@ def test_admin_usage_returns_a_requested_date_range(tmp_path):
     usage_stats.report.assert_called_once_with(
         start_date=date(2026, 6, 20),
         end_date=date(2026, 6, 22),
+        model_prices=[],
     )
 
 
@@ -267,7 +273,35 @@ def test_admin_usage_treats_one_requested_date_as_a_single_day(tmp_path):
     usage_stats.report.assert_called_once_with(
         start_date=date(2026, 6, 20),
         end_date=date(2026, 6, 20),
+        model_prices=[],
     )
+
+
+def test_admin_usage_prices_report_with_current_llm_config(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock(return_value={"today": {}}))
+    client, config = _client(
+        tmp_path,
+        usage_stats=usage_stats,
+        llm={
+            "model_prices": [
+                {
+                    "provider": "openai",
+                    "model": "gpt-5.2",
+                    "currency": "USD",
+                    "input_per_million": 1.75,
+                    "output_per_million": 14,
+                }
+            ]
+        },
+    )
+
+    response = client.get(
+        "/api/admin/usage",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    usage_stats.report.assert_called_once_with(model_prices=config.llm.model_prices)
 
 
 def test_admin_usage_rejects_a_reversed_date_range(tmp_path):
@@ -463,6 +497,33 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert "openai_api_key" not in saved["llm"]
     assert config.llm.openai_api_key == "sk-original"
     assert config.api.communication_token == "desktop-secret"
+
+
+def test_config_patch_hot_applies_model_prices_without_rebuilding_provider(tmp_path):
+    client, config = _client(tmp_path)
+    price = {
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "currency": "usd",
+        "input_per_million": 1.75,
+        "output_per_million": 14,
+        "cached_input_per_million": 0.175,
+    }
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"llm": {"model_prices": [price]}}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["llm.model_prices"]
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    assert config.llm.model_prices[0].currency == "USD"
+    admin._brain.upsert_provider.assert_not_awaited()
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["llm"]["model_prices"][0]["currency"] == "USD"
 
 
 def test_desktop_update_sync_config_status_and_trigger_are_safe(tmp_path):
