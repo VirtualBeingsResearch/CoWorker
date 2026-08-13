@@ -28,6 +28,7 @@ import type {
   UsageWindowStats,
 } from '../api/types';
 import { t, useAdminI18n } from '../i18n/admin';
+import { formatDate, formatDateTime, formatTime, localDateKey } from '../lib/dateTime';
 import {
   ADMIN_USAGE_WINDOWS,
   USAGE_SCOPE_LABELS,
@@ -96,7 +97,7 @@ function shiftIsoDate(value: string, days: number): string {
 }
 
 function latestReportDate(stats: UsageStats): string {
-  return stats.generated_at?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+  return localDateKey(stats.generated_at || new Date());
 }
 
 function scopedWindow(
@@ -189,7 +190,7 @@ function exportCsv(
   const rows = daily.map(item => columns.map(column => (
     csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
   )).join(','));
-  const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
+  const stamp = localDateKey(stats.generated_at || new Date());
   const scopeSuffix = scope === 'all' ? '' : `-${scope}`;
   downloadText(`coworker-runtime${scopeSuffix}-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
 }
@@ -201,7 +202,7 @@ function exportJson(
   windowStats?: UsageWindowStats,
   daily: UsageDailyStats[] = [],
 ) {
-  const stamp = (stats.generated_at || new Date().toISOString()).slice(0, 10);
+  const stamp = localDateKey(stats.generated_at || new Date());
   const payload = scope === 'all' ? stats : {
     scope,
     window: windowKey,
@@ -301,14 +302,14 @@ function IntradayTrend({
   const peak = items.reduce<UsageIntradayStats | null>((current, item) => (
     !current || finite(item.total_tokens) > finite(current.total_tokens) ? item : current
   ), null);
-  const date = selected.start_time.slice(0, 10);
-  const selectedLabel = `${selected.start_time.slice(11, 16)}–${selected.end_time.slice(11, 16)}`;
+  const date = formatDate(selected.start_time);
+  const selectedLabel = `${formatTime(selected.start_time, [], { hour: '2-digit', minute: '2-digit' })}–${formatTime(selected.end_time, [], { hour: '2-digit', minute: '2-digit' })}`;
 
   return <section className="admin-panel usage-trend-panel usage-intraday-panel">
     <header>
       <div><h2>{t('{{date}} 日内 Token 变化', { date })}</h2><p>{t('按本地小时查看增量，并用折线显示当日累计')}</p></div>
       <div className="usage-trend-head-meta">
-        {peak && <span>{t('峰值')} <b>{formatTokenUnits(peak.total_tokens)}</b> · {peak.start_time.slice(11, 16)}</span>}
+        {peak && <span>{t('峰值')} <b>{formatTokenUnits(peak.total_tokens)}</b> · {formatTime(peak.start_time, [], { hour: '2-digit', minute: '2-digit' })}</span>}
         <div className="usage-trend-legend">
           <span><i className="input" />{t('输入')}</span>
           <span><i className="output" />{t('输出')}</span>
@@ -332,7 +333,7 @@ function IntradayTrend({
               className={active ? 'active' : ''}
               aria-pressed={active}
               aria-label={t('{{time}}：输入 {{input}}，输出 {{output}}，共 {{total}} Token', {
-                time: item.start_time.slice(11, 16),
+                time: formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }),
                 input: formatCount(input),
                 output: formatCount(output),
                 total: formatCount(itemTotal),
@@ -345,7 +346,7 @@ function IntradayTrend({
                 {input > 0 && <i className="input" style={{ flexGrow: input }} />}
                 {output > 0 && <i className="output" style={{ flexGrow: output }} />}
               </span></span>
-              <small>{index % 3 === 0 ? item.start_time.slice(11, 16) : ''}</small>
+              <small>{index % 3 === 0 ? formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }) : ''}</small>
             </button>;
           })}
         </div>
@@ -582,7 +583,7 @@ export function AdminUsageAnalytics({
   const attention = attentionItems(windowStats);
   const reportStats = windowKey === 'custom' && customStats ? customStats : stats;
   const generatedAt = reportStats.generated_at
-    ? new Date(reportStats.generated_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
+    ? formatDateTime(reportStats.generated_at, language === 'zh' ? 'zh-CN' : 'en-US')
     : '—';
   const rangeLabel = selectedRange
     ? selectedRange.start_date === selectedRange.end_date
@@ -611,7 +612,7 @@ export function AdminUsageAnalytics({
   };
   const compressionTrackingSince = reportStats.compression_tracking_since || stats.compression_tracking_since || '—';
   const lastCompressionAt = windowStats.last_memory_compression_at
-    ? new Date(windowStats.last_memory_compression_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')
+    ? formatDateTime(windowStats.last_memory_compression_at, language === 'zh' ? 'zh-CN' : 'en-US')
     : t('尚无压缩事件');
   const compressionActionLabel = t('查看压缩事件；{{automatic}} 自动 · {{admin}} 管理员 · {{tool}} 工具 · 最近 {{time}} · 平均 {{duration}}', {
     automatic: formatCount(compressionTriggers.automatic),
