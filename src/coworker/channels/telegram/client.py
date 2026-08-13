@@ -36,6 +36,7 @@ class TelegramClient:
             base_file_url=f"{root}/file/bot",
             local_mode=local_mode,
         )
+        self._local_mode = local_mode
         self._initialized = False
 
     async def close(self) -> None:
@@ -102,7 +103,8 @@ class TelegramClient:
                 )
             )
         filename = Path(str(attachment.get("filename") or path.name)).name
-        with path.open("rb") as source:
+
+        async def send(source: Any) -> None:
             if attachment_type == "image":
                 await self._bot.send_photo(
                     chat_id=chat_id,
@@ -121,6 +123,12 @@ class TelegramClient:
                     read_timeout=60.0,
                     write_timeout=60.0,
                 )
+
+        if self._local_mode:
+            await send(path)
+        else:
+            with path.open("rb") as source:
+                await send(source)
 
     async def download_file(
         self,

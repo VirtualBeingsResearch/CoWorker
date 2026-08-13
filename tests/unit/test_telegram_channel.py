@@ -140,6 +140,28 @@ def test_client_builds_custom_bot_and_file_api_urls(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_local_mode_sends_a_shared_file_path(tmp_path: Path) -> None:
+    path = tmp_path / "report.txt"
+    path.write_text("shared", encoding="utf-8")
+    bot = AsyncMock()
+    client = TelegramClient("secret", local_mode=True, bot=bot)
+
+    await client.send_attachment(
+        42,
+        {"type": "file", "path": str(path), "filename": "report.txt"},
+    )
+
+    bot.send_document.assert_awaited_once_with(
+        chat_id=42,
+        document=path,
+        filename="report.txt",
+        message_thread_id=None,
+        read_timeout=60.0,
+        write_timeout=60.0,
+    )
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_oversize_download_before_loading_bytes() -> None:
     bot = AsyncMock()
     telegram_file = SimpleNamespace(
