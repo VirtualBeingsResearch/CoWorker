@@ -7,9 +7,9 @@
 > The current v0.x releases should be used only locally or on a trusted network. Read the
 > [security policy](../../SECURITY.en.md) before deployment.
 
-All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream, WeCom, or Weixin Claw. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
+All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream, WeCom, Telegram, or Weixin Claw. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
 
-When sending through the built-in Stream, Desktop, WeCom, or Weixin Claw channels, `communicate` accepts only complete participant IDs present in `list_connections` (an exact shorthand explicitly supported by a channel remains valid). An unknown ID is never corrected automatically and no message is sent. If it is within an edit distance of four characters from a known ID, the tool lists similar complete IDs for the model to choose from; otherwise it treats the ID as nonexistent and asks the model to call `list_connections` again. A registered Stream participant remains known while offline and can still receive outbox delivery.
+When sending through the built-in Stream, Desktop, WeCom, Telegram, or Weixin Claw channels, `communicate` accepts only complete participant IDs present in `list_connections` (an exact shorthand explicitly supported by a channel remains valid). An unknown ID is never corrected automatically and no message is sent. If it is within an edit distance of four characters from a known ID, the tool lists similar complete IDs for the model to choose from; otherwise it treats the ID as nonexistent and asks the model to call `list_connections` again. A registered Stream participant remains known while offline and can still receive outbox delivery.
 
 ## Channel development model
 
@@ -57,7 +57,7 @@ When wrapping an existing async sender, no Channel class is needed:
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
 
-The built-in Stream, Desktop, and WeCom implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
+The built-in Stream, Desktop, WeCom, and Telegram implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
 
 A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
 
@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 Each channel has four lists: `inbound_allow`, `inbound_deny`, `outbound_allow`, and `outbound_deny`. Patterns match the complete participant ID case-sensitively and support `*`, `?`, and `[...]`; a value without wildcards is exact. Evaluation is: a matching deny rejects; otherwise a non-empty allow requires a match; otherwise access is allowed. An unconfigured channel, `{}`, or four empty lists therefore preserves the compatible allow-all behavior.
 
-Built-in configuration keys are `stream`, `desktop`, `wecom`, and `weixin`. A Stream profile uses its own channel name, so Desktop participants are governed by `desktop`, not `stream`. Extension Channels use their registered names. Inbound rejection happens before attachment download, reply-frame/context-token caching, activity recording, and Agent handling: REST `/messages` returns `403` with an explanation; WebSocket sends a rejection message before closing with `1008`; and WeCom or Weixin Claw makes a best-effort attempt to return a generic rejection message to the source conversation before dropping the original message. A rejection notice is a transport control response and bypasses outbound lists; failure to send it never admits the original message. The Registry enforces outbound rejection, and denied participants are hidden from the Agent's `list_connections` while their rules remain editable by administrators.
+Built-in configuration keys are `stream`, `desktop`, `wecom`, `telegram`, and `weixin`. A Stream profile uses its own channel name, so Desktop participants are governed by `desktop`, not `stream`. Extension Channels use their registered names. Inbound rejection happens before attachment download, reply-frame/context-token caching, activity recording, and Agent handling: REST `/messages` returns `403` with an explanation; WebSocket sends a rejection message before closing with `1008`; and WeCom, Telegram, or Weixin Claw makes a best-effort attempt to return a generic rejection message to the source conversation before dropping the original message. A rejection notice is a transport control response and bypasses outbound lists; failure to send it never admits the original message. The Registry enforces outbound rejection, and denied participants are hidden from the Agent's `list_connections` while their rules remain editable by administrators.
 
 **Diagnostics and Audit → Message traffic** displays recent inbound and outbound results and supports direction, status, and text filters; the page refreshes every five seconds. Inbound records include received, policy-denied, processing-failed, and duplicate Desktop messages. Registry outbound records include sent, policy-denied, and delivery-failed attempts, and the delivery result of a rejection notice is recorded as well. The corresponding administration API is the authenticated `GET /api/admin/channel-traffic`.
 
@@ -84,6 +84,11 @@ WeCom direct messages do not expose a `conversation_id`; replies automatically u
 When an inbound WeCom message quotes an image, file, video, or mixed message containing images, the WeCom Channel downloads the quoted attachments after access control succeeds and passes them to the Agent together with attachments on the current message. On failure, the inbound content identifies the attachment that could not be downloaded. The underlying error remains in runtime logs; download URLs, AES keys, and exception details are not exposed to the Agent, and the current message is not discarded.
 
 WeCom AI Bots currently do not support mentioning group members through the API, so the WeCom Channel does not provide member mentions.
+
+Telegram uses `tg:<instance_id>:<chat_id>` to distinguish known chats reached through multiple Bots,
+and maps a forum topic's `message_thread_id` to `conversation_id`. It supports text and attachments
+and sends only to chats discovered through inbound messages. See [Telegram](telegram.en.md) for the
+complete behavior and configuration.
 
 For inbound traffic, override `receive_raw`, normalize the payload into an `IncomingEvent`, then call `publish_inbound`. For background connections, inject a `ChannelRuntime` that implements `start` and `stop`. The Registry rejects duplicate names, duplicate participant prefixes, and late registration after startup so configuration mistakes fail during composition.
 
@@ -144,10 +149,10 @@ An active Bubble bound to the same `participant_id` (and optional `conversation_
 To enable transparent handoff by communication participant, configure case-sensitive full-ID globs:
 
 ```env
-AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","coworker-desktop:*:local:*"]
+AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","tg:*","coworker-desktop:*:local:*"]
 ```
 
-`*`, `?`, and `[...]` are glob wildcards; an entry without wildcards is an exact `participant_id`. These defaults make WeCom, Weixin Claw, and the Desktop `local` actor transparent. Historical saved copies of the old default list evolve with the product defaults; custom lists, including an explicit `[]`, remain unchanged.
+`*`, `?`, and `[...]` are glob wildcards; an entry without wildcards is an exact `participant_id`. These defaults make WeCom, Weixin Claw, Telegram, and the Desktop `local` actor transparent. Historical saved copies of the old default list evolve with the product defaults; custom lists, including an explicit `[]`, remain unchanged.
 
 Every live generic WebSocket/SSE session enables a transparent Bubble lifecycle by default. The takeover notice is delayed until the Bubble first receives a new message from that conversation or is about to reply directly. A matching completion notice is sent only after takeover was announced successfully; merely creating or binding a Bubble emits nothing externally. The corresponding default is:
 
@@ -173,7 +178,7 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 }
 ```
 
-An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
+An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, Telegram, and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
 Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. When no dedicated communication token is configured, the server falls back to the administrator token for a smoother first local connection; configure a dedicated token when the permissions must be isolated. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
 

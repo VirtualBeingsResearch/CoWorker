@@ -19,6 +19,7 @@ This documentation covers operation, configuration, communication surfaces, prod
 | Integrate through HTTP, WebSocket, or files | [API and communication channels](channels/api-and-channels.en.md) |
 | Look up API fields, authentication, and errors | [API Reference](channels/api-reference.en.md) |
 | Connect local users, Codex, and Claude Code | [Coworker Desktop](channels/desktop.en.md) |
+| Connect one or more Telegram Bots | [Telegram](channels/telegram.en.md) |
 | Deploy, upgrade, or recover a long-running instance | [Deployment](operations/deployment.en.md) · [Upgrade](operations/upgrading.en.md) · [Backup](operations/backup-and-restore.en.md) |
 | Diagnose startup, model, or connection failures | [Troubleshooting](operations/troubleshooting.en.md) |
 | Understand local storage and outbound data | [Data and trust boundaries](architecture/data-boundaries.en.md) |
@@ -52,11 +53,12 @@ Runtime model, memory mechanisms, storage locations, and trust boundaries.
 
 ### [Channels and clients](channels/README.en.md)
 
-External surfaces including REST, SSE, WebSocket, files, WeCom, and Coworker Desktop.
+External surfaces including REST, SSE, WebSocket, files, WeCom, Telegram, and Coworker Desktop.
 
 - [API and communication channels](channels/api-and-channels.en.md)
 - [API Reference](channels/api-reference.en.md)
 - [Coworker Desktop](channels/desktop.en.md)
+- [Telegram](channels/telegram.en.md)
 - [Weixin Claw](channels/weixin-claw.en.md)
 
 ### [Configuration and operations](operations/README.en.md)
