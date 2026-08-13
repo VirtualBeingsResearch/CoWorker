@@ -7,9 +7,9 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.md)。
 
-所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
+所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信、Telegram 或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 
-向内置 Stream、Desktop、企业微信或微信 Claw 信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
+向内置 Stream、Desktop、企业微信、Telegram 或微信 Claw 信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
 
 ## Channel 开发模型
 
@@ -57,7 +57,7 @@ channels.registry.register(TeamChannel())
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
 
-应用内置的 Stream、Desktop 与 WeCom 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
+应用内置的 Stream、Desktop、WeCom 与 Telegram 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
 
 Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments` 和 `extra`，默认仅支持 `message`。Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。
 
@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
 
-内置配置键是 `stream`、`desktop`、`wecom` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+内置配置键是 `stream`、`desktop`、`wecom`、`telegram` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
 
 管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
 
@@ -84,6 +84,10 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 企业微信入站消息引用图片、文件、视频或包含图片的图文混排消息时，WeCom Channel 会在访问控制通过后下载引用附件，并与当前消息的附件一起交给 Agent。下载失败时，入站内容会标明对应附件下载失败；底层错误只写入运行日志，不会向 Agent 暴露下载 URL、AES key 或异常详情，当前消息也不会被丢弃。
 
 企业微信智能机器人目前不支持通过 API @群成员，因此 WeCom Channel 不提供成员提醒能力。
+
+Telegram 使用 `tg:<instance_id>:<chat_id>` 区分多个 Bot 下的已知聊天，forum topic 的
+`message_thread_id` 作为 `conversation_id`。它支持文本与附件，并只会向已通过入站消息发现的
+chat 发送；完整行为与配置见 [Telegram](telegram.md)。
 
 需要入站时覆写 `receive_raw`，归一化为 `IncomingEvent` 后调用 `publish_inbound`；需要后台连接时注入实现了 `start` / `stop` 的 `ChannelRuntime`。Registry 会拒绝重复名称、重复 participant 前缀和启动后的迟到注册，让配置错误在启动阶段直接暴露。
 
@@ -150,10 +154,10 @@ ws.send("你好！");
 按通信对象启用透明转交时，配置大小写敏感的整串 glob：
 
 ```env
-AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","coworker-desktop:*:local:*"]
+AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","tg:*","coworker-desktop:*:local:*"]
 ```
 
-`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微、微信 Claw 和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。历史版本保存的旧默认列表会随默认值演进；任何自定义列表（包括显式 `[]`）保持原样。
+`*`、`?` 和 `[...]` 是 glob 通配符；不含通配符的条目表示精确 `participant_id`。上述默认值透明企微、微信 Claw、Telegram 和 Desktop `local` actor，设为 `[]` 可关闭这些默认匹配。历史版本保存的旧默认列表会随默认值演进；任何自定义列表（包括显式 `[]`）保持原样。
 
 所有在线通用 WebSocket/SSE 会话默认启用透明 Bubble 生命周期：Bubble 首次收到该会话的新消息，或首次准备直接回复时，才会发送接管提示；只有接管提示成功发送后，Bubble 结束时才会发送对应的结束提示。仅创建或绑定 Bubble 不会产生外部通知。对应默认配置为：
 
@@ -179,7 +183,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 }
 ```
 
-已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
+已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信、Telegram 和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用

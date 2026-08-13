@@ -111,7 +111,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "tg:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw、Telegram 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
@@ -155,6 +155,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOT_ID` | 空 | 企业微信机器人 ID |
 | `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
 | `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
+| `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode` 和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 
 反向代理同时代理 `/admin`、`/api/*` 和静态资源时，将 `API__PUBLIC_URL` 设置为浏览器
@@ -174,6 +175,13 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 `resumed` 表示本次请求是否确实唤醒了休息中的主循环。
 
 管理端保存企业微信配置后会立即启用、停用或重建 WebSocket 连接，不需要重启 Coworker。重连会清理仅属于旧连接的回复帧缓存，但保留已发现的联系人以及最近收发时间；若连接被企业微信判定为由新连接接替，运行时会等待下一次配置修改，而不会与新连接争抢重连。
+
+Telegram 可以同时配置多个 Bot，并在管理端热新增、删除、启停或重建单个实例。每个实例
+默认使用 `https://api.telegram.org`，也可以通过 `api_base_url` 指向代理或自托管机器人 API
+服务器；仅当自托管服务器以 `--local` 启动并与 Coworker 共享文件路径时启用 `local_mode`。
+participant ID 为
+`tg:<instance_id>:<chat_id>`，token 在管理 API 中始终遮蔽。完整配置、Privacy Mode、附件
+限制和排障见 [Telegram](../channels/telegram.md)。
 
 微信 Claw 模块会同时注册 transport、管理接口和热设置应用器。扫码成功会把连接保存到
 `MEMORY__DB_PATH/weixin_connections.json`，并立即启动一个

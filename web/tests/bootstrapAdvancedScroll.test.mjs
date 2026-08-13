@@ -18,3 +18,18 @@ test('keeps oversized advanced initialization groups inside a real scroll contai
   assert.match(adminApp, /panelRef\.current\?\.scrollTo\(\{ top: 0, behavior: 'auto' \}\)/);
   assert.match(adminApp, /className="bootstrap-config-panel" ref=\{panelRef\}/);
 });
+
+test('uses the Telegram settings panel during advanced initialization', () => {
+  assert.match(
+    adminApp,
+    /BOOTSTRAP_CONFIG_GROUP_ORDER = \[[^\]]*'telegram'[^\]]*\]/,
+  );
+  assert.match(
+    adminApp,
+    /\['channel_access', 'telegram'\]\.includes\(group\)/,
+  );
+  assert.match(
+    adminApp,
+    /<CustomSettingsPanel value=\{value\[group\] \|\| \{\}\}[^\n]*secretInputs=\{secretInputs\}[^\n]*setSecretInputs=\{setSecretInputs\}[^\n]*secretStatus=\{secretStatus\}/,
+  );
+});

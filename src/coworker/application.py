@@ -35,6 +35,7 @@ from coworker.channels.stream.desktop import (
     DesktopRegistry,
 )
 from coworker.channels.system import create_channel_system
+from coworker.channels.telegram import TelegramModuleResources, create_telegram_module
 from coworker.channels.wecom import WeComModuleResources, create_wecom_module
 from coworker.channels.weixin import (
     WeixinModule,
@@ -666,6 +667,16 @@ async def _main() -> bool:
             channel_system.activity,
         )
         channel_system.install(weixin_module)
+        channel_system.install(
+            create_telegram_module(
+                config.telegram,
+                TelegramModuleResources(
+                    state_dir=Path(config.memory.db_path) / "telegram",
+                    attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
+                    activity=channel_system.activity,
+                ),
+            )
+        )
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()

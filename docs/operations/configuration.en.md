@@ -123,7 +123,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom, Weixin Claw, and the Desktop `local` actor; set `[]` to disable every default participant match. |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "tg:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom, Weixin Claw, Telegram, and the Desktop `local` actor; set `[]` to disable every default participant match. |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON transport array accepting `websocket` and `sse`; both are enabled by default, so live generic streams use transparent handoff automatically. A Desktop actor that does not match a participant glob never falls through to this rule, so `claude` and `codex` remain excluded. Set `[]` to disable transport matching. |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | Grace period in seconds for continuing a Bubble with `bubble_spawn(bubble_id=...)` after it reaches its cycle limit; set to `0` to disable. |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
@@ -172,6 +172,7 @@ previews the full section and body rendered by the currently running instance.
 | `WECOM__BOT_ID` | Empty | WeCom bot ID |
 | `WECOM__SECRET` | Empty | WeCom bot secret |
 | `WECOM__WS_URL` | Empty | Optional WeCom WebSocket URL; empty uses the SDK default |
+| `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, set
@@ -196,6 +197,15 @@ silently is still processed in normal order. The corresponding administrator API
 main loop.
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
+
+Telegram supports multiple Bots at once, and the administration console hot-adds, removes,
+enables, disables, or rebuilds individual instances. Each instance defaults to
+`https://api.telegram.org`, while `api_base_url` may select a proxy or self-hosted Bot API Server;
+enable `local_mode` only when the self-hosted server runs with `--local` and shares file paths with
+Coworker. Participant IDs use
+`tg:<instance_id>:<chat_id>`, and tokens remain masked in the administration API. See
+[Telegram](../channels/telegram.en.md) for complete configuration, Privacy Mode, attachment limits,
+and troubleshooting.
 
 The Weixin Claw module registers its transport, management interface, and hot-settings provider
 together. A confirmed scan stores the connection in

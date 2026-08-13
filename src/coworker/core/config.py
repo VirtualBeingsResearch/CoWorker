@@ -43,9 +43,16 @@ _GITHUB_REPOSITORY_RE = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$"
 )
 _HANDOFF_MATCHES_KEY = "bubble_handoff_transparency_participant_matches"
-_PRE_WEIXIN_HANDOFF_DEFAULTS = (
-    "wecom:*",
-    "coworker-desktop:*:local:*",
+_LEGACY_HANDOFF_DEFAULTS = (
+    (
+        "wecom:*",
+        "coworker-desktop:*:local:*",
+    ),
+    (
+        "wecom:*",
+        "weixin:*",
+        "coworker-desktop:*:local:*",
+    ),
 )
 
 
@@ -621,6 +628,67 @@ class WeixinConfig(_EnvSettings):
     enabled: bool = True
 
 
+class TelegramBotConfig(BaseModel):
+    """Configuration for one independently polled Telegram Bot identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    display_name: str = ""
+    bot_token: str = Field(default="", repr=False)
+    api_base_url: str = "https://api.telegram.org"
+    local_mode: bool = False
+    poll_timeout_seconds: float = Field(default=30.0, ge=1.0, le=50.0)
+
+    @field_validator("display_name")
+    @classmethod
+    def _validate_display_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 80:
+            raise ValueError(tr("config.telegram.display_name_too_long"))
+        return value
+
+    @field_validator("bot_token")
+    @classmethod
+    def _normalize_bot_token(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("api_base_url")
+    @classmethod
+    def _validate_api_base_url(cls, value: str) -> str:
+        return _normalize_source_base_url(
+            value,
+            field_name="api_base_url",
+            allow_empty=False,
+        )
+
+
+class TelegramConfig(_EnvSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="TELEGRAM__",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    bots: dict[str, TelegramBotConfig] = Field(default_factory=dict)
+
+    @field_validator("bots", mode="before")
+    @classmethod
+    def _validate_instance_ids(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(tr("config.telegram.bots_must_be_object"))
+        for instance_id in value:
+            if not isinstance(instance_id, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,31}", instance_id
+            ):
+                raise ValueError(
+                    tr("config.telegram.instance_id_invalid", instance=instance_id)
+                )
+        return value
+
+
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -635,6 +703,7 @@ class Config(_EnvSettings):
     channel_access: ChannelAccessConfig = Field(default_factory=ChannelAccessConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -665,7 +734,7 @@ def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]
     if not isinstance(agent, dict):
         return overrides
     matches = agent.get(_HANDOFF_MATCHES_KEY)
-    if not isinstance(matches, list) or tuple(matches) != _PRE_WEIXIN_HANDOFF_DEFAULTS:
+    if not isinstance(matches, list) or tuple(matches) not in _LEGACY_HANDOFF_DEFAULTS:
         return overrides
     evolved = dict(overrides)
     evolved_agent = dict(agent)

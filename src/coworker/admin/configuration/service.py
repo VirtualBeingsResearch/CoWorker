@@ -66,6 +66,9 @@ _SOURCE_TOKEN_PATH_RE = re.compile(
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.token$"
 )
 _MANAGED_PROVIDER_SECRET_RE = re.compile(r"llm\.managed_providers\.\d+\.api_key")
+_TELEGRAM_BOT_SECRET_RE = re.compile(
+    r"telegram\.bots\.([a-z][a-z0-9_-]{0,31})\.bot_token"
+)
 _PROVIDER_REMOVAL_REASON = "llm.managed_providers.removed"
 
 
@@ -236,6 +239,8 @@ class AdminConfigService:
         for secret_path in SECRET_PATHS:
             _remove_path(safe_changes, secret_path)
         _remove_source_tokens(safe_changes)
+        _remove_telegram_bot_tokens(safe_changes)
+        _preserve_telegram_bot_tokens(safe_changes, current_overrides)
 
         next_overrides = dict(current_overrides)
         for clear_path in update.clear_overrides:
@@ -267,8 +272,10 @@ class AdminConfigService:
                 )
                 explicit_source_ids.add(source_match.group(1).lower())
                 continue
-            if secret_path not in SECRET_PATHS and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(
-                secret_path
+            if (
+                secret_path not in SECRET_PATHS
+                and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(secret_path)
+                and not _TELEGRAM_BOT_SECRET_RE.fullmatch(secret_path)
             ):
                 raise ConfigUpdateError(
                     400,
@@ -355,6 +362,7 @@ class AdminConfigService:
         # mapping instead of being reintroduced from the already-hot-applied
         # running Config.
         desired_base["channel_access"] = inherited["channel_access"]
+        desired_base["telegram"] = inherited["telegram"]
         try:
             before = Config.model_validate(_deep_merge(effective, current_overrides))
             desired = Config.model_validate(_deep_merge(desired_base, next_overrides))
@@ -634,6 +642,18 @@ def _mask_config_secrets(data: JsonObject) -> dict[str, SecretStatus]:
                     statuses,
                     f"llm.managed_providers.{index}.api_key",
                 )
+
+    telegram = data.get("telegram")
+    bots = telegram.get("bots", {}) if isinstance(telegram, dict) else {}
+    if isinstance(bots, dict):
+        for instance_id, bot in bots.items():
+            if isinstance(bot, dict):
+                _mask_secret(
+                    bot,
+                    "bot_token",
+                    statuses,
+                    f"telegram.bots.{instance_id}.bot_token",
+                )
     return statuses
 
 
@@ -756,6 +776,38 @@ def _remove_source_tokens(data: JsonObject) -> None:
         for item in sources:
             if isinstance(item, dict):
                 item.pop("token", None)
+
+
+def _remove_telegram_bot_tokens(data: JsonObject) -> None:
+    bots = _get_path(data, "telegram.bots")
+    if not isinstance(bots, dict):
+        return
+    for bot in bots.values():
+        if isinstance(bot, dict):
+            bot.pop("bot_token", None)
+
+
+def _preserve_telegram_bot_tokens(
+    changes: JsonObject,
+    current_overrides: JsonObject,
+) -> None:
+    """Retain only tokens already owned by the admin override file.
+
+    Tokens inherited from ``.env`` remain inherited instead of being copied into
+    ``admin_config.json`` when an administrator edits another Bot field.
+    """
+
+    changed_bots = _get_path(changes, "telegram.bots")
+    current_bots = _get_path(current_overrides, "telegram.bots")
+    if not isinstance(changed_bots, dict) or not isinstance(current_bots, dict):
+        return
+    for instance_id, changed_bot in changed_bots.items():
+        current_bot = current_bots.get(instance_id)
+        if not isinstance(changed_bot, dict) or not isinstance(current_bot, dict):
+            continue
+        token = current_bot.get("bot_token")
+        if isinstance(token, str) and token:
+            changed_bot["bot_token"] = token
 
 
 def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:

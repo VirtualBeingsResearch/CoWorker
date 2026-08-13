@@ -24,7 +24,7 @@ class ConnectionInfo:
     """A reachable communication participant on some channel."""
 
     participant_id: str
-    channel: str  # "stream" / "wecom" / "weixin" / "desktop"
+    channel: str  # "stream" / "wecom" / "weixin" / "telegram" / "desktop"
     kind: str  # transport-specific connection kind
     display_name: str = ""
     active: bool = False  # online now (stream WS/SSE) vs known-reachable (wecom/desktop)
