@@ -456,9 +456,9 @@ def test_multiple_bots_and_api_roots_load_from_environment(
 @pytest.mark.parametrize(
     ("chat_type", "zh_label", "en_label"),
     (
-        ("private", "[Telegram 会话：私聊]", "[Telegram chat: private]"),
-        ("group", "[Telegram 会话：群聊]", "[Telegram chat: group]"),
-        ("channel", "[Telegram 会话：频道]", "[Telegram chat: channel]"),
+        ("private", "[会话：私聊]", "[Chat: private]"),
+        ("group", "[会话：群聊]", "[Chat: group]"),
+        ("channel", "[会话：频道]", "[Chat: channel]"),
     ),
 )
 def test_telegram_content_header_identifies_chat_type(
@@ -486,6 +486,208 @@ def test_telegram_source_uses_the_generic_localized_label() -> None:
         assert format_event_text(event).startswith("[来自Telegram][tg:main:123]")
     with locale_context("en"):
         assert "from Telegram" in format_event_text(event)
+
+
+def test_telegram_header_does_not_repeat_the_generic_source_label() -> None:
+    message = {
+        "chat": {"id": 8905877830, "type": "private"},
+        "text": "/start",
+    }
+    with locale_context("zh-CN"):
+        event = IncomingEvent(
+            participant_id="tg:main:8905877830",
+            source="telegram",
+            content=adapter.message_content(message, None),
+        )
+
+        assert format_event_text(event) == (
+            "[来自Telegram][tg:main:8905877830]的消息:\n[会话：私聊]\n/start"
+        )
+
+
+def test_telegram_reply_prefers_the_selected_quote() -> None:
+    message = {
+        "chat": {"id": -1001, "type": "supergroup"},
+        "from": {
+            "id": 22,
+            "username": "bob",
+            "first_name": "Bob",
+        },
+        "text": "收到",
+        "quote": {"text": "use prod"},
+        "reply_to_message": {
+            "from": {
+                "id": 11,
+                "username": "alice",
+                "first_name": "Alice",
+            },
+            "text": "please use prod tomorrow",
+        },
+    }
+
+    with locale_context("zh-CN"):
+        content = adapter.message_content(message, None)
+
+    assert content == (
+        "[会话：群聊]\n"
+        "[发送者：Bob；ID：22；用户名：@bob]\n"
+        "[引用 Alice（ID：11，用户名：@alice）]\n"
+        "> use prod\n"
+        "收到"
+    )
+    assert "please use prod tomorrow" not in content
+
+
+def test_telegram_reply_falls_back_to_original_media_and_caption() -> None:
+    message = {
+        "chat": {"id": 123, "type": "private"},
+        "text": "What is this?",
+        "reply_to_message": {
+            "from": {"id": 11, "first_name": "Alice"},
+            "voice": {"file_id": "voice", "file_unique_id": "voice-1"},
+            "caption": "status update",
+        },
+    }
+
+    with locale_context("en"):
+        content = adapter.message_content(message, None)
+
+    assert content == (
+        "[Chat: private]\n"
+        "[Reply to Alice (ID: 11, username: -)]\n"
+        "> [voice message] status update\n"
+        "What is this?"
+    )
+
+
+def test_telegram_reply_preview_is_bounded() -> None:
+    message = {
+        "chat": {"id": 123, "type": "private"},
+        "text": "current",
+        "reply_to_message": {
+            "from": {"id": 11, "first_name": "Alice"},
+            "text": "x" * 1200,
+        },
+    }
+
+    with locale_context("en"):
+        content = adapter.message_content(message, None)
+
+    quoted_line = next(line for line in content.splitlines() if line.startswith("> "))
+    assert quoted_line == f"> {'x' * 999}…"
+
+
+def test_telegram_external_reply_and_forward_origins_are_visible() -> None:
+    external_reply = {
+        "chat": {"id": 123, "type": "private"},
+        "text": "external",
+        "external_reply": {
+            "origin": {
+                "type": "hidden_user",
+                "sender_user_name": "Hidden Alice",
+            },
+            "photo": [{"file_id": "photo", "file_unique_id": "photo-1"}],
+        },
+    }
+    forwarded = {
+        "chat": {"id": 123, "type": "private"},
+        "text": "forwarded",
+        "forward_origin": {
+            "type": "user",
+            "sender_user": {"id": 11, "first_name": "Alice"},
+        },
+    }
+
+    with locale_context("zh-CN"):
+        external_content = adapter.message_content(external_reply, None)
+        forwarded_content = adapter.message_content(forwarded, None)
+
+    assert "[外部引用，来源 Hidden Alice]\n> [图片]" in external_content
+    assert "[转发自：Alice（ID：11，用户名：-）]" in forwarded_content
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    (
+        ({"sticker": {"emoji": "🎉"}}, "[贴纸 🎉]"),
+        (
+            {
+                "contact": {
+                    "first_name": "Alice",
+                    "phone_number": "+86123",
+                    "user_id": 11,
+                }
+            },
+            "[联系人：Alice；电话：+86123；用户 ID：11]",
+        ),
+        ({"location": {"latitude": 31.2, "longitude": 121.5}}, "[位置：31.2, 121.5]"),
+        (
+            {
+                "venue": {
+                    "title": "Office",
+                    "address": "One Road",
+                    "location": {"latitude": 31.2, "longitude": 121.5},
+                }
+            },
+            "[地点：Office；地址：One Road；坐标：31.2, 121.5]",
+        ),
+        (
+            {
+                "poll": {
+                    "question": "Lunch?",
+                    "options": [{"text": "Rice"}, {"text": "Noodles"}],
+                }
+            },
+            "[投票：Lunch?；选项：Rice / Noodles]",
+        ),
+        ({"dice": {"emoji": "🎲", "value": 6}}, "[骰子：🎲 = 6]"),
+    ),
+)
+def test_telegram_structured_messages_have_readable_summaries(
+    payload: dict,
+    expected: str,
+) -> None:
+    message = {"chat": {"id": 123, "type": "private"}, **payload}
+
+    with locale_context("zh-CN"):
+        assert adapter.message_content(message, None) == f"[会话：私聊]\n{expected}"
+
+
+def test_telegram_video_note_is_a_downloadable_attachment() -> None:
+    media = adapter.media_for(
+        {
+            "video_note": {
+                "file_id": "note",
+                "file_unique_id": "note-1",
+            }
+        }
+    )
+
+    assert media == adapter.TelegramMedia(
+        file_id="note",
+        filename="telegram-video_note-note-1.mp4",
+        media_type="video/mp4",
+        label_key="channel.telegram.video_note",
+    )
+
+
+def test_telegram_animation_wins_over_compatibility_document() -> None:
+    media = adapter.media_for(
+        {
+            "animation": {
+                "file_id": "animation",
+                "file_unique_id": "animation-1",
+            },
+            "document": {
+                "file_id": "document",
+                "file_unique_id": "document-1",
+            },
+        }
+    )
+
+    assert media is not None
+    assert media.file_id == "animation"
+    assert media.label_key == "channel.telegram.animation"
 
 
 def test_split_telegram_text_obeys_limit_and_prefers_newlines() -> None:

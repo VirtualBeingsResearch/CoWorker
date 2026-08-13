@@ -62,9 +62,10 @@ be added to a group/channel and receive a message, before the complete ID appear
 only when it belongs to one known Bot. Telegram does not let Bots initiate a private chat with an
 unknown user.
 
-Every inbound Telegram body starts with a channel-owned `private`, `group`, or `channel` header
-without changing Coworker's generic inbound wrapper. For groups, Coworker also preserves the sender ID, username, and display name so
-a group participant is not mistaken for a single member. A forum topic's `message_thread_id`
+Every inbound Telegram body starts with a concise channel-owned `private`, `group`, or `channel`
+header without changing Coworker's generic inbound wrapper or repeating its existing `Telegram`
+source label. For groups, Coworker also preserves the sender ID, username, and display name so a
+group participant is not mistaken for a single member. A forum topic's `message_thread_id`
 becomes the `conversation_id`; pass it back to reply in that topic. A channel must grant the Bot
 the administrator permissions needed to read and send posts.
 
@@ -75,11 +76,22 @@ when the deployment requires all group messages.
 
 ## Messages and attachments
 
-Inbound handling supports text, captions, photos, documents, video, audio, voice messages, and
-animations. Attachments are downloaded only after channel access checks pass. One inbound file is
-limited to 20 MiB and saved under Coworker's attachment directory; images and PDFs up to 10 MiB are
-also supplied inline to the model. Outbound handling supports text, images, and files. Text is split
-at Telegram's 4096-character limit, and one uploaded file is limited to 50 MiB.
+Inbound messages are handled at these levels:
+
+| Capability | Message types | Behavior |
+|---|---|---|
+| Body | Text and captions | Preserve the original text |
+| Downloadable attachment | Photos, documents, video, video messages, audio, voice messages, and animations | Show the type and download one attachment into Coworker |
+| Readable summary | Stickers, contacts, locations, venues, polls, dice, and stories | Preserve key fields without downloading the underlying media |
+| Message relationship | Same-chat replies, selected quotes, external replies, story replies, and forward origins | Show the source and a reference preview before the body; references are capped at 1,000 characters |
+| Generic fallback | Other advanced media, payments, games, and service messages | Mark the message as unsupported without dropping the entire update |
+
+Long polling currently subscribes only to new `message` and `channel_post` updates. Message edits,
+reactions, and standalone `poll` / `poll_answer` updates do not enter Coworker. Downloadable
+attachments are fetched only after channel access checks pass. One inbound file is limited to 20
+MiB and saved under Coworker's attachment directory; images and PDFs up to 10 MiB are also supplied
+inline to the model. Outbound handling supports text, images, and files. Text is split at Telegram's
+4096-character limit, and one uploaded file is limited to 50 MiB.
 
 Treat Telegram messages and attachments as untrusted external input that may contain prompt
 injection or malicious files. Grant only the group/channel permissions the Bot needs, and restrict
