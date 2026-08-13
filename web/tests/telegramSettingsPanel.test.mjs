@@ -16,5 +16,6 @@ test('uses the shared admin input style for Telegram fields', () => {
 
 test('explains when local Bot API Server mode is appropriate', () => {
   assert.match(panel, /自托管 Bot API Server/);
-  assert.match(panel, /使用官方 API 时保持关闭/);
+  assert.match(panel, /--local/);
+  assert.match(panel, /共享文件路径/);
 });

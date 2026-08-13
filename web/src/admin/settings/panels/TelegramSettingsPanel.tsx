@@ -72,7 +72,7 @@ export function TelegramSettingsPanel({
           <label><span>{t('Bot Token')}</span><input className="admin-input" type="password" value={secretInputs[secretPath] || ''} onChange={event => setSecretInputs({ ...secretInputs, [secretPath]: event.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('从 BotFather 获取 Token')} /><small>{status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}</small></label>
           <label><span>{t('Bot API 地址')}</span><input className="admin-input" value={bot.api_base_url || ''} onChange={event => updateBot(id, { api_base_url: event.target.value })} /></label>
           <label><span>{t('长轮询超时（秒）')}</span><input className="admin-input" type="number" min="1" max="50" step="1" value={bot.poll_timeout_seconds ?? 30} onChange={event => updateBot(id, { poll_timeout_seconds: Number(event.target.value) })} /></label>
-          <label className="switch config-switch telegram-local-mode"><input type="checkbox" checked={!!bot.local_mode} onChange={event => updateBot(id, { local_mode: event.target.checked })} /><i /><span><b>{t('自托管 Bot API Server')}</b><small>{t('仅当 Bot API 地址指向自行部署的 Telegram Bot API Server 时开启；使用官方 API 时保持关闭。')}</small></span></label>
+          <label className="switch config-switch telegram-local-mode"><input type="checkbox" checked={!!bot.local_mode} onChange={event => updateBot(id, { local_mode: event.target.checked })} /><i /><span><b>{t('自托管 Bot API Server')}</b><small>{t('仅当服务以 --local 启动并与 Coworker 共享文件路径时开启；官方 API 或普通代理保持关闭。')}</small></span></label>
         </div>
       </article>;
     })}</div> : <div className="provider-empty">{t('还没有 Telegram Bot。添加实例后填写 BotFather 提供的 Token。')}</div>}
