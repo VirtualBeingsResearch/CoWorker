@@ -56,6 +56,7 @@ from coworker.i18n import capture_locale, locale_context, tr
 from coworker.persona import Person, PersonAlias
 from coworker.prompts.template import (
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_CONTENT_VARIABLES,
     SYSTEM_PROMPT_VARIABLES,
     resolve_system_prompt_template,
 )
@@ -2321,7 +2322,9 @@ async def get_system_prompt(
     response: Response,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    prompt = _require_agent().current_system_prompt()
+    agent = _require_agent()
+    prompt = agent.current_system_prompt()
+    section_previews = agent.current_system_prompt_sections()
     config = _require_config()
     inherited_config = _inherited_config or config
     snapshot = _require_admin_config_service().snapshot()
@@ -2347,6 +2350,8 @@ async def get_system_prompt(
         ),
         "default_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         "variables": list(SYSTEM_PROMPT_VARIABLES),
+        "content_variables": list(SYSTEM_PROMPT_CONTENT_VARIABLES),
+        "section_previews": section_previews,
         "overridden": "agent.system_prompt_template" in snapshot.overridden_fields,
         "prompt_pending_restart": active_template != desired_template,
     }

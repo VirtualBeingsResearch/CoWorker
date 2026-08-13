@@ -145,6 +145,7 @@ duplicate_name = "Duplicate channel access name after trimming: {{channel}}"
 too_long = "The system prompt template must not exceed {{limit}} characters"
 unknown_variable = "Unknown system prompt template variable: {{variable}}"
 duplicate_variable = "System prompt template variable appears more than once: {{variable}}"
+conflicting_variable = "Use either the full or content-only variable for this system prompt section, not both: {{variable}}"
 standalone_variable = "System prompt template variable must appear on its own line: {{variable}}"
 
 [config.api]

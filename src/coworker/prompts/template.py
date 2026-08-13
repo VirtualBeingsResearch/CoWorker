@@ -14,6 +14,13 @@ SYSTEM_PROMPT_VARIABLES = (
     "SKILLS",
     "PALACES",
 )
+SYSTEM_PROMPT_CONTENT_VARIABLES = tuple(
+    f"{name}_CONTENT" for name in SYSTEM_PROMPT_VARIABLES
+)
+ALL_SYSTEM_PROMPT_VARIABLES = (
+    *SYSTEM_PROMPT_VARIABLES,
+    *SYSTEM_PROMPT_CONTENT_VARIABLES,
+)
 MAX_SYSTEM_PROMPT_TEMPLATE_CHARS = 100_000
 DEFAULT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
     f"{{{{{name}}}}}" for name in SYSTEM_PROMPT_VARIABLES
@@ -38,9 +45,10 @@ def validate_system_prompt_template(template: str) -> str:
         return ""
 
     seen: set[str] = set()
+    seen_sections: dict[str, str] = {}
     for match in _PLACEHOLDER_RE.finditer(template):
         variable = match.group(1)
-        if variable not in SYSTEM_PROMPT_VARIABLES:
+        if variable not in ALL_SYSTEM_PROMPT_VARIABLES:
             raise SystemPromptTemplateError("unknown_variable", variable=variable)
 
         line_start = template.rfind("\n", 0, match.start()) + 1
@@ -51,7 +59,14 @@ def validate_system_prompt_template(template: str) -> str:
             raise SystemPromptTemplateError("standalone_variable", variable=variable)
         if variable in seen:
             raise SystemPromptTemplateError("duplicate_variable", variable=variable)
+        section_name = variable.removesuffix("_CONTENT")
+        if section_name in seen_sections:
+            raise SystemPromptTemplateError(
+                "conflicting_variable",
+                variable=section_name,
+            )
         seen.add(variable)
+        seen_sections[section_name] = variable
 
     return template
 
@@ -92,3 +107,15 @@ def render_system_prompt_template(
     while output and not output[-1].strip():
         output.pop()
     return "\n".join(output) + "\n"
+
+
+def build_system_prompt_variable_values(
+    sections: Mapping[str, str],
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for name in SYSTEM_PROMPT_VARIABLES:
+        full_text = sections.get(name, "").strip()
+        _, separator, content = full_text.partition("\n")
+        values[name] = full_text
+        values[f"{name}_CONTENT"] = content if separator else full_text
+    return values

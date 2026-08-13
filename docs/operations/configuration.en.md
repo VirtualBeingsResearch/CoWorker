@@ -133,13 +133,18 @@ detection because it runs in the administrator's browser, not on the proxy or se
 `AGENT__SYSTEM_PROMPT_TEMPLATE` may reference `{{IDENTITY}}`, `{{ENVIRONMENT}}`,
 `{{INSTINCTS}}`, `{{GUIDELINES}}`, `{{LANGUAGE_POLICY}}`, `{{THINKING}}`,
 `{{CHANNELS}}`, `{{SKILLS}}`, and `{{PALACES}}`. Each variable contains its section
-heading and rendered body, must occupy its own line, and may appear at most once. Unknown
-or duplicate variables fail configuration validation. Use `\{{NAME}}` for a literal
+heading and rendered body. Matching `_CONTENT` variables such as `{{IDENTITY_CONTENT}}`
+and `{{ENVIRONMENT_CONTENT}}` contain only the body, so headings such as `[IDENTITY]`
+may be omitted or supplied by the template. A variable must occupy its own line and may
+appear at most once; the full and content-only forms of one section cannot be used together.
+Unknown, duplicate, or conflicting variables fail configuration validation. Use `\{{NAME}}` for a literal
 placeholder. Variables may be reordered or omitted; a template with no variables fully
 replaces the built-in prompt. Bracketed headings, including `[CUSTOM]`, are ordinary text
 and may be renamed, split, or removed. Tool schemas are not part of the template and remain
 supplied by the model-call layer. For multiline templates, use **Relationships → Identity
 Profile** in the administration page; save, then perform a safe restart to apply the change.
+The editor has synchronized line numbers and a blank-line count. Each variable card also
+previews the full section and body rendered by the currently running instance.
 
 ### API, administration, and communication
 

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 from coworker.core.constants import TICK_TAG
 from coworker.i18n import get_locale, locale_context, tr
 from coworker.prompts.template import (
+    SYSTEM_PROMPT_VARIABLES,
+    build_system_prompt_variable_values,
     render_system_prompt_template,
     validate_system_prompt_template,
 )
@@ -80,6 +82,7 @@ class SystemPromptBuilder:
         # 模型刚写入 skill / thinking / identity 时，变更内容仍在短期上下文里；
         # 等记忆压缩导致上下文缓存失效，再统一刷新系统提示词，避免每轮扫盘和打掉前缀缓存。
         self._cached_prompt: str | None = None
+        self._cached_sections: dict[str, str] | None = None
 
     def build(self) -> str:
         if self._cached_prompt is not None:
@@ -139,11 +142,29 @@ class SystemPromptBuilder:
                         f"[PALACES]\n{tr('prompt.palaces_intro')}\n\n{palaces_text}"
                     )
 
+            self._cached_sections = sections
             self._cached_prompt = render_system_prompt_template(
                 self._system_prompt_template,
-                sections,
+                build_system_prompt_variable_values(sections),
             )
         return self._cached_prompt
+
+    def section_previews(self) -> list[dict[str, object]]:
+        self.build()
+        sections = self._cached_sections or {}
+        values = build_system_prompt_variable_values(sections)
+        return [
+            {
+                "name": name,
+                "variable": name,
+                "content_variable": f"{name}_CONTENT",
+                "full_text": values[name],
+                "content": values[f"{name}_CONTENT"],
+                "available": bool(values[name]),
+                "lines": len(values[name].splitlines()),
+            }
+            for name in SYSTEM_PROMPT_VARIABLES
+        ]
 
     def _read_thinking(self) -> str:
         if not self._thinking_path.is_file():
@@ -154,6 +175,7 @@ class SystemPromptBuilder:
         """Invalidate and reload prompt inputs after context cache invalidation."""
         self._identity.load()
         self._cached_prompt = None
+        self._cached_sections = None
 
     def consume_skill_load_warnings(self) -> list[str]:
         return self._skills.consume_skill_load_warnings()

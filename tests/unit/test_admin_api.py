@@ -30,6 +30,7 @@ from coworker.memory.short_term import ShortTermMemory
 from coworker.persona import PersonaCard, PersonStore
 from coworker.prompts.template import (
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_CONTENT_VARIABLES,
     SYSTEM_PROMPT_VARIABLES,
 )
 from coworker.skills.loader import SkillLoader
@@ -70,11 +71,23 @@ def _client(
             "channel_access": channel_access or {},
         }
     )
+    section_previews = [
+        {
+            "name": "IDENTITY",
+            "variable": "IDENTITY",
+            "content_variable": "IDENTITY_CONTENT",
+            "full_text": "[IDENTITY]\nMy name is Luna.",
+            "content": "My name is Luna.",
+            "available": True,
+            "lines": 2,
+        }
+    ]
     agent = SimpleNamespace(
         _identity=_Identity(),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
+        current_system_prompt_sections=MagicMock(return_value=section_previews),
         refresh_system_prompt=MagicMock(),
     )
     _brain_snapshot = {
@@ -419,10 +432,23 @@ def test_system_prompt_api_is_authenticated_read_only_and_uncached(tmp_path):
         "inherited_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         "default_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         "variables": list(SYSTEM_PROMPT_VARIABLES),
+        "content_variables": list(SYSTEM_PROMPT_CONTENT_VARIABLES),
+        "section_previews": [
+            {
+                "name": "IDENTITY",
+                "variable": "IDENTITY",
+                "content_variable": "IDENTITY_CONTENT",
+                "full_text": "[IDENTITY]\nMy name is Luna.",
+                "content": "My name is Luna.",
+                "available": True,
+                "lines": 2,
+            }
+        ],
         "overridden": False,
         "prompt_pending_restart": False,
     }
     admin._agent.current_system_prompt.assert_called_once_with()
+    admin._agent.current_system_prompt_sections.assert_called_once_with()
 
 
 def test_system_prompt_template_patch_waits_for_restart_and_keeps_active_prompt(tmp_path):
@@ -451,13 +477,23 @@ def test_system_prompt_template_patch_waits_for_restart_and_keeps_active_prompt(
     ]["system_prompt_template"] == custom
 
 
-def test_system_prompt_template_validation_failure_does_not_write_override(tmp_path):
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{{UNKNOWN}}",
+        "{{IDENTITY}}\n\n{{IDENTITY_CONTENT}}",
+    ],
+)
+def test_system_prompt_template_validation_failure_does_not_write_override(
+    tmp_path,
+    template,
+):
     client, _ = _client(tmp_path)
 
     response = client.patch(
         "/api/admin/config",
         headers={"Authorization": "Bearer secret"},
-        json={"changes": {"agent": {"system_prompt_template": "{{UNKNOWN}}"}}},
+        json={"changes": {"agent": {"system_prompt_template": template}}},
     )
 
     assert response.status_code == 422

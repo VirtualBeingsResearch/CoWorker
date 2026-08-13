@@ -16,6 +16,7 @@ import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type Bootst
 import { bootstrapTimezoneAdvice, detectBrowserTimezone } from './bootstrapTimezone';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
+import { LineNumberTextarea } from './LineNumberTextarea';
 import type { UsageStats } from '../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -25,6 +26,15 @@ type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' |
 type RuntimeTab = 'tasks' | 'alarms' | 'logs' | 'maintenance';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
+type PromptSectionPreview = {
+  name: string;
+  variable: string;
+  content_variable: string;
+  full_text: string;
+  content: string;
+  available: boolean;
+  lines: number;
+};
 
 const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
   { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
@@ -732,13 +742,14 @@ function Models() {
   const [switchError, setSwitchError] = useState('');
   const [switching, setSwitching] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
-  useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
+  const [fallbackText, setFallbackText] = useState('');
+  useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
   const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
     const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
-    setData(next); setDraft(next);
+    setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
   };
   const switchModel = async () => {
     setSwitchError('');
@@ -772,8 +783,8 @@ function Models() {
       <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.mem0.model} onChange={e => set('mem0.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
-      <textarea className="code-area short" value={(draft.fallbacks || []).join('\n')} onChange={e => setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) })} />
-      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => void reload()}>{t('放弃修改')}</button></div>
+      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
+      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => { setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
@@ -885,7 +896,7 @@ function JsonEditor({ value, onChange, onValidityChange }: {
     }
   };
   return <>
-    <textarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
+    <LineNumberTextarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
     {!valid && <small className="field-error" role="alert">{t('JSON 格式无效；修正后才能保存这个字段。')}</small>}
   </>;
 }
@@ -2143,7 +2154,22 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   };
   const promptVariables = (systemPrompt.data?.variables || []) as string[];
   const promptData = systemPrompt.data;
-  const usesBuiltInSections = promptDraft !== null && promptVariables.some(name => promptDraft.includes(`{{${name}}}`));
+  const sectionPreviews = (promptData?.section_previews || promptVariables.map(name => ({
+    name,
+    variable: name,
+    content_variable: `${name}_CONTENT`,
+    full_text: '',
+    content: '',
+    available: false,
+    lines: 0,
+  }))) as PromptSectionPreview[];
+  const usedPromptSections = new Set(sectionPreviews.filter(section => (
+    promptDraft?.includes(`{{${section.variable}}}`)
+    || promptDraft?.includes(`{{${section.content_variable}}}`)
+  )).map(section => section.name));
+  const usesBuiltInSections = usedPromptSections.size > 0;
+  const promptLines = (promptDraft || '').split('\n');
+  const blankPromptLines = promptLines.filter(line => !line.trim()).length;
   return <div className="page-stack">
     <Panel title="身份档案" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
     <Panel title="System Prompt 模板" note="通过只读分段变量组合 Prompt；自定义正文和方括号标题会原样保留。保存后需要安全重启。">
@@ -2153,10 +2179,29 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
         {!usesBuiltInSections && promptDraft.trim() && <div className="notice amber"><TriangleAlert size={16} /><span>{t('此模板没有引用任何内置分段，将完全替换 Identity、语言策略、Skill、Palace 和 Channel 指引。')}</span></div>}
         <div className="system-prompt-presets"><span>{t('快捷预设')}</span><button type="button" className="ghost mini" onClick={() => setPromptDraft(String(promptData.default_template || ''))}>{t('恢复标准模板')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft(`${promptData.default_template}\n\n[CUSTOM]\n`)}>{t('在标准模板后追加')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft('')}>{t('完全替换')}</button></div>
         <div className="system-prompt-template-grid">
-          <div className="system-prompt-variable-list"><b>{t('可用分段变量')}</b><small>{t('变量必须独占一行，每个最多使用一次。点击即可插入光标位置。')}</small>{promptVariables.map(name => <button type="button" disabled={promptDraft.includes(`{{${name}}}`)} onClick={() => insertPromptVariable(name)} key={name}><span><code>{`{{${name}}}`}</code><small>{t(SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS[name] || '')}</small></span><Plus size={13} /></button>)}</div>
-          <label className="system-prompt-template-editor"><span>{t('期望模板')}<small>{t('{{count}} / 100000 字符', { count: promptDraft.length })}</small></span><textarea ref={promptEditor} maxLength={100000} spellCheck={false} value={promptDraft} onChange={event => { setPromptDraft(event.target.value); setPromptMessage(null); }} placeholder={t('填写完整 System Prompt，或插入左侧分段变量。')} /></label>
+          <div className="system-prompt-variable-list">
+            <b>{t('可用分段变量')}</b>
+            <small>{t('展开区段可预览当前运行内容，并选择插入完整区段或仅正文；同一区段只能选择一种。')}</small>
+            {sectionPreviews.map(section => <details className="system-prompt-variable-card" key={section.name}>
+              <summary><span><code>{`{{${section.variable}}}`}</code><small>{t(SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS[section.name] || '')}</small></span><em>{section.available ? t('{{count}} 行', { count: section.lines }) : t('当前为空')}</em></summary>
+              <div className="system-prompt-variable-card-body">
+                <div className="system-prompt-variable-actions">
+                  <button type="button" disabled={usedPromptSections.has(section.name)} onClick={() => insertPromptVariable(section.variable)}><Plus size={12} /><span>{t('完整区段')}<code>{`{{${section.variable}}}`}</code></span></button>
+                  <button type="button" disabled={usedPromptSections.has(section.name)} onClick={() => insertPromptVariable(section.content_variable)}><Plus size={12} /><span>{t('仅正文')}<code>{`{{${section.content_variable}}}`}</code></span></button>
+                </div>
+                {!section.available ? <p>{t('当前运行实例中此可选区段为空；渲染时会自动省略。')}</p> : <div className="system-prompt-section-previews">
+                  <span>{t('完整区段')}</span><pre>{section.full_text}</pre>
+                  <span>{t('仅正文')}</span><pre>{section.content}</pre>
+                </div>}
+              </div>
+            </details>)}
+          </div>
+          <label className="system-prompt-template-editor">
+            <span>{t('期望模板')}<small>{t('{{lines}} 行 · {{blank}} 个空白行 · {{count}} / 100000 字符', { lines: promptLines.length, blank: blankPromptLines, count: promptDraft.length })}</small></span>
+            <LineNumberTextarea ref={promptEditor} wrapperClassName="system-prompt-line-number-field" showSummary={false} maxLength={100000} spellCheck={false} value={promptDraft} aria-label={t('System Prompt 期望模板')} onChange={event => { setPromptDraft(event.target.value); setPromptMessage(null); }} placeholder={t('填写完整 System Prompt，或插入左侧分段变量。')} />
+          </label>
         </div>
-        <div className="system-prompt-template-help"><code>{'\\{{NAME}}'}</code><span>{t('用于输出字面量 {{NAME}}；未知变量、重复变量或未独占一行的变量会被拒绝。')}</span></div>
+        <div className="system-prompt-template-help"><code>{'\\{{NAME}}'}</code><span>{t('用于输出字面量 {{NAME}}；未知、重复、未独占一行，或同一区段同时使用完整与正文变量都会被拒绝。')}</span></div>
         {promptMessage && <div className={`notice ${promptMessage.kind}`} role={promptMessage.kind === 'error' ? 'alert' : 'status'}>{promptMessage.text}</div>}
         <div className="panel-actions"><span className={'save-state ' + (promptDirty ? 'dirty' : '')}>{t(promptDirty ? '有未保存修改' : '当前模板草稿已同步')}</span><button type="button" className="primary" disabled={promptSaving || !promptDirty || !promptDraft.trim()} onClick={() => void savePrompt()}><Save size={15} />{t(promptSaving ? '正在保存…' : '保存模板')}</button><button type="button" className="ghost" disabled={promptSaving || !promptData.overridden} onClick={() => void restoreInheritedPrompt()}><RotateCcw size={15} />{t('恢复继承')}</button><button type="button" className="ghost" disabled={promptSaving || !promptDirty} onClick={() => setPromptDraft(String(promptData.desired_template || ''))}>{t('放弃修改')}</button></div>
       </div>}
@@ -2376,7 +2421,7 @@ function PeopleView() {
             <section className="person-detail-section person-card-section">
               <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>
               <div className={`person-card-preview${cardLoading ? ' loading' : ''}`}>{cardLoading ? <Loading /> : <pre>{renderedCard || t('暂无记录')}</pre>}</div>
-              <Field label={t('个性化备注（每行一条）')}><textarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+              <Field label={t('个性化备注（每行一条）')}><LineNumberTextarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
               <div className="person-note-actions"><small>{t('保存后会立即更新人物画像')}</small><button className="primary" disabled={busy || !notesChanged} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
             </section>
             <details className="person-maintenance">
@@ -2545,9 +2590,9 @@ function ContentManager() {
           {!selected && <section className="source-create-card"><div className="source-create-mark"><FileCode2 size={20} /></div><div><span>{t('新建源定义')}</span><h3>{t('创建 {{label}}', { label: kindLabel })}</h3><p>{t('模板已准备好。填写目录 ID，然后直接编辑定义文件。')}</p></div><label><span>{t('目录 ID')}</span><input autoFocus className={newId && (!idValid || idTaken) ? 'invalid' : ''} value={newId} onChange={event => { setNewId(event.target.value); setMessage(''); }} placeholder={kind === 'skills' ? 'release-check' : kind === 'palaces' ? 'product-testing' : 'architecture-review'} /><small>{idTaken ? t('这个 ID 已存在') : !newId || idValid ? t('字母、数字、点、短横线或下划线') : t('ID 含有不支持的字符')}</small></label></section>}
           {activeItem && !activeItem.valid && <div className="notice error"><TriangleAlert size={16} />{activeItem.warning}</div>}
           <div className="source-workbench">
-            <div className="source-toolbar"><div className="editor-file"><span className={'source-status ' + (dirty ? 'dirty' : '')} title={dirty ? t('有未保存修改') : t('内容已同步')} /><FileText size={14} /><code><b>{selected || newId || t('目录-id')}</b><i>/</i>{activeFile || CONTENT_KIND[kind].filename}</code></div><div className="source-readout"><span>YAML + MD</span><span>UTF-8</span><b>{t('{{count}} 行', { count: meta.lines })}</b><b>{new Blob([raw]).size.toLocaleString()} B</b></div></div>
+            <div className="source-toolbar"><div className="editor-file"><span className={'source-status ' + (dirty ? 'dirty' : '')} title={dirty ? t('有未保存修改') : t('内容已同步')} /><FileText size={14} /><code><b>{selected || newId || t('目录-id')}</b><i>/</i>{activeFile || CONTENT_KIND[kind].filename}</code></div><div className="source-readout"><span>YAML + MD</span><span>UTF-8</span><b>{t('{{count}} 行', { count: meta.lines })}</b><b>{t('{{count}} 个空白行', { count: raw ? raw.split('\n').filter(line => !line.trim()).length : 0 })}</b><b>{new Blob([raw]).size.toLocaleString()} B</b></div></div>
             <div className="source-schema"><span>{t('必填字段')}</span><code>{CONTENT_SOURCE_GUIDE[kind].required}</code><i /> <p>{t(CONTENT_SOURCE_GUIDE[kind].tip)}</p><kbd>Ctrl S</kbd></div>
-            <textarea className="source-editor" value={raw} onChange={event => { setRaw(event.target.value); setMessage(''); }} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if ((selected || newSourceReady) && raw.trim()) void save(); } }} spellCheck={false} aria-label={t('能力内容源码')} />
+            <LineNumberTextarea wrapperClassName="source-line-number-field" showSummary={false} className="source-editor" value={raw} onChange={event => { setRaw(event.target.value); setMessage(''); }} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if ((selected || newSourceReady) && raw.trim()) void save(); } }} spellCheck={false} aria-label={t('能力内容源码')} />
           </div>
           {actionError && <div className="notice error"><TriangleAlert size={16} />{actionError}</div>}{message && <div className="notice success"><Check size={16} />{message}</div>}
           <div className="panel-actions"><span className={'save-state ' + (dirty ? 'dirty' : '')}>{selected ? (dirty ? t('有未保存修改') : t('内容已同步')) : newSourceReady ? t('定义已就绪') : !idValid || idTaken ? t('填写有效的目录 ID') : t('补全源码中的必填字段')}</span><button className="primary" disabled={selected ? !dirty : (!newSourceReady || !dirty)} onClick={() => void save()}><Save size={15} />{selected ? (activeFile && activeFile !== CONTENT_KIND[kind].filename ? t('保存文件') : t('保存并加载')) : t('创建并加载')}</button>{selected && activeFile !== CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={() => void deleteFile()}><Trash2 size={14} />{t('删除文件')}</button>}{selected && activeFile === CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={async () => { if (confirm(t('删除 {{kind}}/{{id}} 整个能力目录？其中的 scripts、references 和其他附属文件也会一并删除。', { kind, id: selected }))) { await api('/api/admin/content/' + kind + '/' + encodeURIComponent(selected), { method: 'DELETE' }); setSelected(''); setActiveFile(''); setFileList([]); setRaw(''); setOriginalRaw(''); setMessage(''); await reload(); } }}><Trash2 size={14} />{t('删除能力')}</button>}</div>

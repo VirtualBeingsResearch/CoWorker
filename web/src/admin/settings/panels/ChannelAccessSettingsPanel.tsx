@@ -2,6 +2,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Plus, ShieldCheck, X } from 'lucide-r
 import { useEffect, useMemo, useState } from 'react';
 
 import { t } from '../../../i18n/admin';
+import { LineNumberTextarea } from '../../LineNumberTextarea';
 import type { Json, SettingsPanelProps } from '../types';
 
 type RuleField =
@@ -78,7 +79,7 @@ function PatternList({
         <button type="button" className="ghost mini" disabled={!candidate.trim() || value.includes(candidate.trim())} onClick={add}><Plus size={14} />{t('添加规则')}</button>
       </div>
       <div className="string-list-bulk">
-        <textarea aria-label={t('批量添加规则')} value={bulkCandidate} onChange={event => setBulkCandidate(event.target.value)} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); addBulk(); } }} placeholder={t('每行一条规则，重复项会自动忽略。')} rows={3} />
+        <LineNumberTextarea aria-label={t('批量添加规则')} value={bulkCandidate} onChange={event => setBulkCandidate(event.target.value)} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); addBulk(); } }} placeholder={t('每行一条规则，重复项会自动忽略。')} rows={3} />
         <button type="button" className="ghost mini" disabled={!parsePatterns(bulkCandidate).length} onClick={addBulk}><Plus size={14} />{t('批量添加')}</button>
       </div>
     </div>

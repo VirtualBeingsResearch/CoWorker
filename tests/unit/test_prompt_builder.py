@@ -251,6 +251,36 @@ class TestSystemPromptBuilder:
 
         assert builder.build() == "[PROJECT]\nYou are the project release assistant.\n"
 
+    def test_content_variable_omits_builtin_section_heading(self, tmp_path):
+        builder = make_builder(
+            tmp_path,
+            with_name=True,
+            system_prompt_template="[PROFILE]\n{{IDENTITY_CONTENT}}",
+        )
+
+        prompt = builder.build()
+
+        assert prompt.startswith("[PROFILE]\n")
+        assert "[IDENTITY]" not in prompt
+        assert "Luna" in prompt
+
+    def test_section_previews_share_the_prompt_cache_until_refresh(self, tmp_path):
+        builder = make_builder(tmp_path, with_name=True)
+
+        previews = {item["name"]: item for item in builder.section_previews()}
+        assert previews["IDENTITY"]["full_text"].startswith("[IDENTITY]\n")
+        assert not previews["IDENTITY"]["content"].startswith("[IDENTITY]")
+        assert previews["THINKING"]["available"] is False
+
+        (builder._identity._dir / "name.txt").write_text("Nova", encoding="utf-8")
+        cached = {item["name"]: item for item in builder.section_previews()}
+        assert "Luna" in cached["IDENTITY"]["content"]
+        assert "Nova" not in cached["IDENTITY"]["content"]
+
+        builder.refresh()
+        refreshed = {item["name"]: item for item in builder.section_previews()}
+        assert "Nova" in refreshed["IDENTITY"]["content"]
+
     def test_empty_optional_section_does_not_leave_extra_separator(self, tmp_path):
         builder = make_builder(
             tmp_path,

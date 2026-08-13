@@ -145,6 +145,7 @@ duplicate_name = "去除首尾空白后出现重复信道访问名称：{{channe
 too_long = "System Prompt 模板不能超过 {{limit}} 个字符"
 unknown_variable = "未知的 System Prompt 模板变量：{{variable}}"
 duplicate_variable = "System Prompt 模板变量不能重复出现：{{variable}}"
+conflicting_variable = "同一 System Prompt 区段只能使用完整变量或正文变量之一：{{variable}}"
 standalone_variable = "System Prompt 模板变量必须独占一行：{{variable}}"
 
 [config.api]

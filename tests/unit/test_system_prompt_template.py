@@ -6,10 +6,13 @@ from pydantic import ValidationError
 from coworker.core.config import AgentConfig
 from coworker.i18n import locale_context
 from coworker.prompts.template import (
+    ALL_SYSTEM_PROMPT_VARIABLES,
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
+    SYSTEM_PROMPT_CONTENT_VARIABLES,
     SYSTEM_PROMPT_VARIABLES,
     SystemPromptTemplateError,
+    build_system_prompt_variable_values,
     render_system_prompt_template,
     resolve_system_prompt_template,
     validate_system_prompt_template,
@@ -22,6 +25,10 @@ def test_default_template_lists_every_variable_once() -> None:
     )
     assert resolve_system_prompt_template("") == DEFAULT_SYSTEM_PROMPT_TEMPLATE
     assert resolve_system_prompt_template("  \n") == DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    assert SYSTEM_PROMPT_CONTENT_VARIABLES == tuple(
+        f"{name}_CONTENT" for name in SYSTEM_PROMPT_VARIABLES
+    )
+    assert len(ALL_SYSTEM_PROMPT_VARIABLES) == len(SYSTEM_PROMPT_VARIABLES) * 2
 
 
 @pytest.mark.parametrize(
@@ -29,6 +36,11 @@ def test_default_template_lists_every_variable_once() -> None:
     [
         ("{{UNKNOWN}}", "unknown_variable", "UNKNOWN"),
         ("{{IDENTITY}}\n{{IDENTITY}}", "duplicate_variable", "IDENTITY"),
+        (
+            "{{IDENTITY}}\n{{IDENTITY_CONTENT}}",
+            "conflicting_variable",
+            "IDENTITY",
+        ),
         ("prefix {{IDENTITY}}", "standalone_variable", "IDENTITY"),
     ],
 )
@@ -49,6 +61,20 @@ def test_escaped_placeholder_is_literal_text() -> None:
 
     assert validate_system_prompt_template(template) == template
     assert render_system_prompt_template(template, {}) == "[EXAMPLE]\n{{UNKNOWN}}\n"
+
+
+def test_content_variables_strip_only_the_section_heading() -> None:
+    values = build_system_prompt_variable_values(
+        {
+            "IDENTITY": "[IDENTITY]\nLine one\n\nLine three",
+            "THINKING": "",
+        }
+    )
+
+    assert values["IDENTITY"] == "[IDENTITY]\nLine one\n\nLine three"
+    assert values["IDENTITY_CONTENT"] == "Line one\n\nLine three"
+    assert values["THINKING"] == ""
+    assert values["THINKING_CONTENT"] == ""
 
 
 def test_agent_config_rejects_too_long_template_in_both_locales() -> None:

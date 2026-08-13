@@ -91,6 +91,9 @@ class AgentLoop:
     def current_system_prompt(self) -> str:
         return self._prompt_builder.build()
 
+    def current_system_prompt_sections(self) -> list[dict[str, object]]:
+        return self._prompt_builder.section_previews()
+
     def refresh_system_prompt(self) -> None:
         self._prompt_builder.refresh()
 
