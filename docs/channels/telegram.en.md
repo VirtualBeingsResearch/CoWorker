@@ -13,8 +13,10 @@ never becomes ambiguous.
 
 Create a Bot with [@BotFather](https://t.me/BotFather) and obtain its token. Never commit the token
 to Git or expose it in logs or screenshots. Add multiple Bots under **Runtime Settings → Telegram**
-in the administration console. Each instance needs a stable `instance_id`: it must start with a
-lowercase letter, may contain lowercase letters, digits, `_`, or `-`, and is at most 32 characters.
+in the administration console. The page prefills each new instance with a unique four-character
+`instance_id` and creates an editable `Telegram <instance_id>` display name. Use the ID directly or
+customize it before creation, then keep it stable. It must start with a lowercase letter, may contain
+lowercase letters, digits, `_`, or `-`, and is at most 32 characters.
 
 For unattended deployments, put multiple instances in one JSON object in `.env`:
 

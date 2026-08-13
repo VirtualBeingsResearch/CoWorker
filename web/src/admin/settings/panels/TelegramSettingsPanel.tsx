@@ -2,9 +2,12 @@ import { Bot, Plus, RadioTower, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { t } from '../../../i18n/admin';
+import {
+  defaultTelegramDisplayName,
+  generateTelegramInstanceId,
+  TELEGRAM_INSTANCE_ID_PATTERN,
+} from '../telegramInstanceId';
 import type { Json, SettingsPanelProps } from '../types';
-
-const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 function tokenPath(instanceId: string) {
   return `telegram.bots.${instanceId}.bot_token`;
@@ -19,9 +22,11 @@ export function TelegramSettingsPanel({
 }: SettingsPanelProps) {
   const bots = (value.bots || {}) as Record<string, Json>;
   const entries = useMemo(() => Object.entries(bots), [bots]);
-  const [instanceId, setInstanceId] = useState('');
+  const [instanceId, setInstanceId] = useState(
+    () => generateTelegramInstanceId(Object.keys(bots)),
+  );
   const normalizedId = instanceId.trim();
-  const canAdd = INSTANCE_ID_PATTERN.test(normalizedId) && !bots[normalizedId];
+  const canAdd = TELEGRAM_INSTANCE_ID_PATTERN.test(normalizedId) && !bots[normalizedId];
 
   const updateBot = (id: string, patch: Json) => {
     change('bots', { ...bots, [id]: { ...bots[id], ...patch } });
@@ -32,14 +37,14 @@ export function TelegramSettingsPanel({
       ...bots,
       [normalizedId]: {
         enabled: true,
-        display_name: '',
+        display_name: defaultTelegramDisplayName(normalizedId),
         bot_token: '',
         api_base_url: 'https://api.telegram.org',
         local_mode: false,
         poll_timeout_seconds: 30,
       },
     });
-    setInstanceId('');
+    setInstanceId(generateTelegramInstanceId([...Object.keys(bots), normalizedId]));
   };
   const removeBot = (id: string) => {
     if (!confirm(t('移除 Telegram Bot 实例“{{id}}”？本地 offset 与联系人状态会保留，重新添加同名实例时可继续使用。', { id }))) return;
@@ -56,10 +61,11 @@ export function TelegramSettingsPanel({
     </section>
 
     <section className="telegram-add">
-      <div><b>{t('添加 Bot 实例')}</b><small>{t('instance_id 会进入 participant 地址，创建后应保持稳定。')}</small></div>
-      <input className="admin-input" value={instanceId} onChange={event => setInstanceId(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addBot(); } }} placeholder="main" aria-label={t('Telegram instance_id')} />
+      <div><b>{t('添加 Bot 实例')}</b><small>{t('已生成可编辑的 4 位 instance_id 和默认名称；也可以自定义。')}</small></div>
+      <input className="admin-input" value={instanceId} onChange={event => setInstanceId(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addBot(); } }} aria-label={t('Telegram instance_id')} />
       <button className="ghost" disabled={!canAdd} onClick={addBot}><Plus size={14} />{t('添加实例')}</button>
-      {normalizedId && !INSTANCE_ID_PATTERN.test(normalizedId) && <small className="field-error">{t('使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。')}</small>}
+      {normalizedId && !TELEGRAM_INSTANCE_ID_PATTERN.test(normalizedId) && <small className="field-error">{t('使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。')}</small>}
+      {normalizedId && TELEGRAM_INSTANCE_ID_PATTERN.test(normalizedId) && bots[normalizedId] && <small className="field-error">{t('这个 instance_id 已经存在，请换一个。')}</small>}
     </section>
 
     {entries.length ? <div className="telegram-bot-list">{entries.map(([id, bot]) => {

@@ -11,9 +11,10 @@ Coworker 可以通过一个或多个 Telegram Bot 接收私聊、群组、话题
 ## 创建并配置 Bot
 
 先在 Telegram 中通过 [@BotFather](https://t.me/BotFather) 创建 Bot 并取得 token。不要把
-token 提交到 Git、日志或截图中。可以在管理端「运行设置 → Telegram」添加多个 Bot；每个
-实例使用一个稳定的 `instance_id`，只允许小写字母开头，并包含小写字母、数字、`_` 或 `-`，
-最长 32 个字符。
+token 提交到 Git、日志或截图中。可以在管理端「运行设置 → Telegram」添加多个 Bot；页面会
+为新实例预填一个不重复的 4 位 `instance_id`，并在创建时使用 `Telegram <instance_id>` 作为
+可编辑的默认显示名称。ID 可以直接使用或在创建前自定义，创建后应保持稳定；它只允许小写
+字母开头，并包含小写字母、数字、`_` 或 `-`，最长 32 个字符。
 
 无人值守部署也可以在 `.env` 中把多个实例写成一个 JSON 对象：
 
