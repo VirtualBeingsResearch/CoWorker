@@ -70,9 +70,10 @@ docker compose up --pull always --no-build
 ```
 
 `/app` 同时是 Python 实际加载的源码目录和 Agent 工作区，因此本机、Agent 与运行进程
-看到的是同一份 Git checkout。镜像提供 Linux Python 环境、Chromium、FFmpeg 和预置
-embedding 模型；源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，
-使用 `docker compose up --build` 重新构建依赖环境。
+看到的是同一份 Git checkout。镜像提供 Linux Python 环境、Chromium、FFmpeg、预置
+embedding 模型，以及 `vim-tiny`、`nano`、`less`、`jq` 和 `ripgrep` 等轻量命令行工具；
+源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，使用
+`docker compose up --build` 重新构建依赖环境。
 
 ### Explore Lab
 
