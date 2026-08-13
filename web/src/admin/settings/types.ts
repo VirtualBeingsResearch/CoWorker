@@ -14,6 +14,9 @@ export type SettingsPanelProps = {
   dirty: boolean;
   saving: boolean;
   request: AdminRequest;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Record<string, { configured?: boolean; last4?: string }>;
 };
 
 export type SettingsPanelRegistration = {

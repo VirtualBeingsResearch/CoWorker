@@ -19,6 +19,7 @@
 | 通过 HTTP、WebSocket 或文件接入 | [API 与通信入口](channels/api-and-channels.md) |
 | 查询接口字段、认证和错误处理 | [API 参考](channels/api-reference.md) |
 | 连接本机用户、Codex 与 Claude Code | [Coworker Desktop](channels/desktop.md) |
+| 连接一个或多个 Telegram Bot | [Telegram](channels/telegram.md) |
 | 长期部署、升级或恢复实例 | [部署](operations/deployment.md) · [升级](operations/upgrading.md) · [备份](operations/backup-and-restore.md) |
 | 排查启动、模型或连接问题 | [故障排查](operations/troubleshooting.md) |
 | 了解数据保存在哪里、什么可能外发 | [数据与信任边界](architecture/data-boundaries.md) |
@@ -52,11 +53,12 @@
 
 ### [通信与客户端](channels/README.md)
 
-REST、SSE、WebSocket、文件、企业微信和 Coworker Desktop 等外部入口。
+REST、SSE、WebSocket、文件、企业微信、Telegram 和 Coworker Desktop 等外部入口。
 
 - [API 与通信入口](channels/api-and-channels.md)
 - [API 参考](channels/api-reference.md)
 - [Coworker Desktop](channels/desktop.md)
+- [Telegram](channels/telegram.md)
 - [微信 Claw](channels/weixin-claw.md)
 
 ### [配置与运维](operations/README.md)

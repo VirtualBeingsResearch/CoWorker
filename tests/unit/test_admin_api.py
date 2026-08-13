@@ -12,6 +12,7 @@ from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.module import ChannelModuleRegistry
+from coworker.channels.telegram import TelegramChannel, TelegramModule, TelegramSettings
 from coworker.channels.traffic import ChannelTrafficStore
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
@@ -45,6 +46,7 @@ def _client(
     alarm_manager=None,
     wecom: dict | None = None,
     weixin: dict | None = None,
+    telegram: dict | None = None,
     channel_access: dict | None = None,
     channel_modules=None,
     relay_client=None,
@@ -62,6 +64,7 @@ def _client(
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
             "weixin": weixin or {},
+            "telegram": telegram or {},
             "channel_access": channel_access or {},
         }
     )
@@ -1013,6 +1016,119 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     assert applied.secret == "existing"
 
 
+def test_telegram_config_hot_applies_multiple_bots_and_masks_tokens(tmp_path):
+    runner = SimpleNamespace(
+        name="telegram",
+        start=AsyncMock(),
+        stop=AsyncMock(),
+        reconfigure=AsyncMock(),
+        resolve_participant=lambda participant: None,
+        set_inbound_handler=lambda handler: None,
+        set_access_controller=lambda access: None,
+        contacts=lambda: [],
+        activity_for=lambda participant: (None, None),
+    )
+    modules = ChannelModuleRegistry()
+    modules.register(
+        TelegramModule(
+            channel=TelegramChannel(runner),
+            runtime=runner,
+            settings=TelegramSettings(runner),
+        )
+    )
+    client, config = _client(
+        tmp_path,
+        telegram={
+            "bots": {
+                "main": {
+                    "display_name": "Main",
+                    "bot_token": "main-existing",
+                }
+            }
+        },
+        channel_modules=modules,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert "telegram" in body["hot_reloadable"]
+    assert body["config"]["telegram"]["bots"]["main"]["bot_token"] == ""
+    assert body["secret_status"]["telegram.bots.main.bot_token"]["last4"] == "ting"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "telegram": {
+                    "bots": {
+                        "main": {
+                            "enabled": True,
+                            "display_name": "Primary",
+                            "bot_token": "must-not-be-accepted-as-a-plain-field",
+                            "api_base_url": "https://api.telegram.org",
+                            "local_mode": False,
+                            "poll_timeout_seconds": 30,
+                        },
+                        "work": {
+                            "enabled": True,
+                            "display_name": "Work",
+                            "bot_token": "",
+                            "api_base_url": "https://telegram.example/api",
+                            "local_mode": True,
+                            "poll_timeout_seconds": 20,
+                        },
+                    }
+                }
+            },
+            "secrets": {"telegram.bots.work.bot_token": "work-secret"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["telegram"]
+    assert config.telegram.bots["main"].bot_token == "main-existing"
+    assert config.telegram.bots["work"].bot_token == "work-secret"
+    applied = runner.reconfigure.await_args.args[0]
+    assert applied.bots["main"].display_name == "Primary"
+    assert applied.bots["main"].bot_token == "main-existing"
+    assert applied.bots["work"].api_base_url == "https://telegram.example/api"
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["telegram"]["bots"]["main"]["display_name"] == "Primary"
+    assert "bot_token" not in saved["telegram"]["bots"]["main"]
+    assert saved["telegram"]["bots"]["work"]["bot_token"] == "work-secret"
+
+    runner.reconfigure.reset_mock()
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "telegram": {
+                    "bots": {
+                        "main": {
+                            "enabled": True,
+                            "display_name": "Primary",
+                            "bot_token": "",
+                            "api_base_url": "https://api.telegram.org",
+                            "local_mode": False,
+                            "poll_timeout_seconds": 30,
+                        }
+                    }
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert set(config.telegram.bots) == {"main"}
+    runner.reconfigure.assert_awaited_once()
+    assert set(runner.reconfigure.await_args.args[0].bots) == {"main"}
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert set(saved["telegram"]["bots"]) == {"main"}
+
+
 def test_mem0_llm_config_hot_applies_and_reconfigures(tmp_path):
     long_term = SimpleNamespace(reconfigure=AsyncMock())
     client, config = _client(tmp_path, long_term=long_term)
@@ -1329,6 +1445,7 @@ def test_admin_overlay_evolves_historical_handoff_defaults(tmp_path):
     assert loaded.agent.bubble_handoff_transparency_participant_matches == [
         "wecom:*",
         "weixin:*",
+        "tg:*",
         "coworker-desktop:*:local:*",
     ]
 
