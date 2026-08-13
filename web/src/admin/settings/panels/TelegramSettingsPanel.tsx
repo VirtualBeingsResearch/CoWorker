@@ -57,7 +57,7 @@ export function TelegramSettingsPanel({
 
     <section className="telegram-add">
       <div><b>{t('添加 Bot 实例')}</b><small>{t('instance_id 会进入 participant 地址，创建后应保持稳定。')}</small></div>
-      <input value={instanceId} onChange={event => setInstanceId(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addBot(); } }} placeholder="main" aria-label={t('Telegram instance_id')} />
+      <input className="admin-input" value={instanceId} onChange={event => setInstanceId(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addBot(); } }} placeholder="main" aria-label={t('Telegram instance_id')} />
       <button className="ghost" disabled={!canAdd} onClick={addBot}><Plus size={14} />{t('添加实例')}</button>
       {normalizedId && !INSTANCE_ID_PATTERN.test(normalizedId) && <small className="field-error">{t('使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。')}</small>}
     </section>
@@ -68,11 +68,11 @@ export function TelegramSettingsPanel({
       return <article key={id}>
         <header><div className="telegram-bot-mark"><Bot size={19} /></div><span><b>{bot.display_name || id}</b><code>tg:{id}:{'{chat_id}'}</code></span><label className="switch"><input type="checkbox" checked={bot.enabled !== false} onChange={event => updateBot(id, { enabled: event.target.checked })} /><i /><span>{t('启用')}</span></label><button className="danger-icon" title={t('移除 Bot 实例')} onClick={() => removeBot(id)}><Trash2 size={15} /></button></header>
         <div className="telegram-bot-fields">
-          <label><span>{t('显示名称')}</span><input value={bot.display_name || ''} maxLength={80} onChange={event => updateBot(id, { display_name: event.target.value })} placeholder={t('例如 工作群机器人')} /></label>
-          <label><span>{t('Bot Token')}</span><input type="password" value={secretInputs[secretPath] || ''} onChange={event => setSecretInputs({ ...secretInputs, [secretPath]: event.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('从 BotFather 获取 Token')} /><small>{status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}</small></label>
-          <label><span>{t('Bot API 地址')}</span><input value={bot.api_base_url || ''} onChange={event => updateBot(id, { api_base_url: event.target.value })} /></label>
-          <label><span>{t('长轮询超时（秒）')}</span><input type="number" min="1" max="50" step="1" value={bot.poll_timeout_seconds ?? 30} onChange={event => updateBot(id, { poll_timeout_seconds: Number(event.target.value) })} /></label>
-          <label className="switch config-switch"><input type="checkbox" checked={!!bot.local_mode} onChange={event => updateBot(id, { local_mode: event.target.checked })} /><i /><span>{t('本地 Bot API Server 模式')}</span></label>
+          <label><span>{t('显示名称')}</span><input className="admin-input" value={bot.display_name || ''} maxLength={80} onChange={event => updateBot(id, { display_name: event.target.value })} placeholder={t('例如 工作群机器人')} /></label>
+          <label><span>{t('Bot Token')}</span><input className="admin-input" type="password" value={secretInputs[secretPath] || ''} onChange={event => setSecretInputs({ ...secretInputs, [secretPath]: event.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('从 BotFather 获取 Token')} /><small>{status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}</small></label>
+          <label><span>{t('Bot API 地址')}</span><input className="admin-input" value={bot.api_base_url || ''} onChange={event => updateBot(id, { api_base_url: event.target.value })} /></label>
+          <label><span>{t('长轮询超时（秒）')}</span><input className="admin-input" type="number" min="1" max="50" step="1" value={bot.poll_timeout_seconds ?? 30} onChange={event => updateBot(id, { poll_timeout_seconds: Number(event.target.value) })} /></label>
+          <label className="switch config-switch telegram-local-mode"><input type="checkbox" checked={!!bot.local_mode} onChange={event => updateBot(id, { local_mode: event.target.checked })} /><i /><span><b>{t('自托管 Bot API Server')}</b><small>{t('仅当 Bot API 地址指向自行部署的 Telegram Bot API Server 时开启；使用官方 API 时保持关闭。')}</small></span></label>
         </div>
       </article>;
     })}</div> : <div className="provider-empty">{t('还没有 Telegram Bot。添加实例后填写 BotFather 提供的 Token。')}</div>}

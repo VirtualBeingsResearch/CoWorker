@@ -1385,6 +1385,7 @@ html:has(.admin-login),
 .inline-form { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 10px; margin-top: 15px; }
 .inline-form input,
 .inline-form select,
+.admin-input,
 .field input,
 .field select,
 .field textarea,
@@ -1413,6 +1414,7 @@ html:has(.admin-login),
 }
 
 .inline-form :where(input, select):focus,
+.admin-input:focus,
 .field :where(input, select, textarea):focus,
 .inline-add input:focus,
 .search-box input:focus,
@@ -1582,6 +1584,12 @@ html:has(.admin-login),
 .telegram-bot-fields > label > span { margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; }
 .telegram-bot-fields > label > small { margin-top: 4px; color: var(--admin-muted); font-size: 9px; }
 .telegram-bot-fields input { width: 100%; }
+.telegram-local-mode { align-items: flex-start; }
+.telegram-local-mode > i { flex: none; margin-top: 1px; }
+.telegram-local-mode > span { min-width: 0; }
+.telegram-local-mode b, .telegram-local-mode small { display: block; }
+.telegram-local-mode b { color: var(--admin-ink); font-size: 10px; }
+.telegram-local-mode small { margin-top: 4px; color: var(--admin-muted); font-size: 9px; line-height: 1.45; }
 .telegram-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 13px; border-left: 2px solid #168ac0; background: color-mix(in oklch, #229ed9 6%, var(--admin-paper)); }
 .telegram-note b { flex: none; font-size: 10px; }
 .telegram-note span { color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
