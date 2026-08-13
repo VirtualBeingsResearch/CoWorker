@@ -29,13 +29,13 @@ TELEGRAM__BOTS={"main":{"enabled":true,"display_name":"主机器人","bot_token"
 | `display_name` | 空 | 仅供管理员识别的名称 |
 | `bot_token` | 空 | BotFather 签发的机密 token；管理 API 和页面不会回显原值 |
 | `api_base_url` | `https://api.telegram.org` | Telegram Bot API 根地址，可为每个 Bot 配置不同的官方、自托管或代理地址 |
-| `local_mode` | `false` | 是否按本地 Bot API Server 模式处理文件路径 |
+| `local_mode` | `false` | 是否按本地 Bot API 服务器模式处理文件路径 |
 | `poll_timeout_seconds` | `30` | `getUpdates` 长轮询超时，范围 1～50 秒 |
 
 `api_base_url` 填根地址即可，末尾不要手工追加 `/bot`；Coworker 会分别构造 Bot API 与文件
-API 地址。使用自托管 [Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api)
-时通常还应启用 `local_mode`。保存管理端配置后，新增、删除、启停或修改某个实例会热应用，
-不需要重启 Coworker。
+API 地址。仅当自托管 [Telegram Bot API 服务器](https://github.com/tdlib/telegram-bot-api)
+以 `--local` 启动并与 Coworker 共享文件路径时启用 `local_mode`；官方 API 或普通代理保持
+关闭。保存管理端配置后，新增、删除、启停或修改某个实例会热应用，不需要重启 Coworker。
 
 Telegram Bot API 的 `getUpdates` 与 webhook 互斥；如果这个 token 之前配置过 webhook，需先
 调用 `deleteWebhook` 清除它。参见 Telegram 的[更新接收说明](https://core.telegram.org/bots/api#getting-updates)。
@@ -95,7 +95,8 @@ CHANNEL_ACCESS={"telegram":{"inbound_allow":["tg:main:*"],"inbound_deny":["tg:ma
   长轮询失败，恢复后会自动继续。
 - 收不到任何更新：确认该 token 没有活动 webhook，并检查群组 Privacy Mode 或频道权限。
 - 自定义 API 可发送但不能下载：确认 `api_base_url` 是服务根地址，且反向代理同时转发
-  `/bot...` 与 `/file/bot...` 路径；本地 Bot API Server 同时启用 `local_mode`。
+  `/bot...` 与 `/file/bot...` 路径；若本地 Bot API 服务器以 `--local` 启动，还要共享文件
+  路径并启用 `local_mode`。
 - 同一聊天出现多个 ID：这是多个 Bot 的预期隔离；选择目标 Bot 对应的完整 `tg:` ID。
 
 [← 返回项目首页](../../README.md)

@@ -780,7 +780,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '从 BotFather 获取 Token': 'Token from BotFather',
   'Bot API 地址': 'Bot API URL',
   '长轮询超时（秒）': 'Long-poll timeout (seconds)',
-  '自托管 Bot API Server': 'Self-hosted Bot API Server',
+  '自托管 Bot API 服务器': 'Self-hosted Bot API Server',
   '仅当服务以 --local 启动并与 Coworker 共享文件路径时开启；官方 API 或普通代理保持关闭。': 'Enable only when the server runs with --local and shares file paths with Coworker; keep this off for the official API or a regular proxy.',
   '还没有 Telegram Bot。添加实例后填写 BotFather 提供的 Token。': 'No Telegram Bot yet. Add an instance, then enter the token provided by BotFather.',
   '群聊接收范围': 'Group message visibility',

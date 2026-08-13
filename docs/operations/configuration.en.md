@@ -184,7 +184,8 @@ Saving WeCom settings in the admin console immediately enables, disables, or reb
 Telegram supports multiple Bots at once, and the administration console hot-adds, removes,
 enables, disables, or rebuilds individual instances. Each instance defaults to
 `https://api.telegram.org`, while `api_base_url` may select a proxy or self-hosted Bot API Server;
-the latter usually also enables `local_mode`. Participant IDs use
+enable `local_mode` only when the self-hosted server runs with `--local` and shares file paths with
+Coworker. Participant IDs use
 `tg:<instance_id>:<chat_id>`, and tokens remain masked in the administration API. See
 [Telegram](../channels/telegram.en.md) for complete configuration, Privacy Mode, attachment limits,
 and troubleshooting.

@@ -166,7 +166,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 Telegram 可以同时配置多个 Bot，并在管理端热新增、删除、启停或重建单个实例。每个实例
 默认使用 `https://api.telegram.org`，也可以通过 `api_base_url` 指向代理或自托管 Bot API
-Server；后者通常同时启用 `local_mode`。participant ID 为
+服务器；仅当自托管服务器以 `--local` 启动并与 Coworker 共享文件路径时启用 `local_mode`。
+participant ID 为
 `tg:<instance_id>:<chat_id>`，token 在管理 API 中始终遮蔽。完整配置、Privacy Mode、附件
 限制和排障见 [Telegram](../channels/telegram.md)。
 

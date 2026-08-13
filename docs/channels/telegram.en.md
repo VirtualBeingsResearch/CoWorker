@@ -34,9 +34,11 @@ Each instance accepts these fields:
 | `poll_timeout_seconds` | `30` | `getUpdates` long-poll timeout, from 1 to 50 seconds |
 
 Set `api_base_url` to the root and do not append `/bot`; Coworker builds the Bot API and file API
-URLs separately. A self-hosted [Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api)
-usually also needs `local_mode`. Adding, removing, enabling, disabling, or editing an instance in
-the administration console is hot-applied and does not require a Coworker restart.
+URLs separately. Enable `local_mode` only when a self-hosted
+[Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api) runs with `--local` and shares
+file paths with Coworker; keep it off for the official API or a regular proxy. Adding, removing,
+enabling, disabling, or editing an instance in the administration console is hot-applied and does
+not require a Coworker restart.
 
 Telegram Bot API `getUpdates` and webhooks are mutually exclusive. If the token previously had a
 webhook, call `deleteWebhook` first. See Telegram's
@@ -106,8 +108,8 @@ the current offset for retry, while invalid protocol messages are logged and ski
 - No updates arrive: make sure the token has no active webhook, then check group Privacy Mode or
   channel permissions.
 - A custom API can send but cannot download: make sure `api_base_url` is the service root and the
-  reverse proxy forwards both `/bot...` and `/file/bot...`; enable `local_mode` for a local Bot API
-  Server.
+  reverse proxy forwards both `/bot...` and `/file/bot...`; if a local Bot API Server runs with
+  `--local`, also share its file paths with Coworker and enable `local_mode`.
 - One chat appears under multiple IDs: this is expected isolation for multiple Bots. Select the
   complete `tg:` ID for the intended Bot.
 
