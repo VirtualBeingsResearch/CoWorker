@@ -252,40 +252,6 @@ def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
     usage_stats.report.assert_called_once_with(model_prices=[])
 
 
-def test_admin_usage_serializes_schema_timestamps_without_guessing_field_names(tmp_path):
-    report = {
-        "generated_at": "2026-08-13T10:30:00",
-        "today": {"last_memory_compression_at": "2026-08-13T09:15:00"},
-        "daily": [{"date": "2026-08-13", "total_tokens": 34}],
-        "metadata": {"created_at": "2026-08-13T08:00:00"},
-        "today_intraday": [
-            {
-                "start_time": "2026-08-13T09:00:00",
-                "end_time": "2026-08-13T09:59:59.999999",
-                "total_tokens": 34,
-            }
-        ],
-    }
-    usage_stats = SimpleNamespace(report=MagicMock(return_value=report))
-    client, _ = _client(tmp_path, usage_stats=usage_stats)
-
-    response = client.get(
-        "/api/admin/usage", headers={"Authorization": "Bearer secret"}
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    timestamps = (
-        payload["generated_at"],
-        payload["today"]["last_memory_compression_at"],
-        payload["today_intraday"][0]["start_time"],
-        payload["today_intraday"][0]["end_time"],
-    )
-    assert all(datetime.fromisoformat(value).utcoffset() is not None for value in timestamps)
-    assert payload["daily"][0]["date"] == "2026-08-13"
-    assert payload["metadata"]["created_at"] == "2026-08-13T08:00:00"
-
-
 def test_admin_usage_returns_a_requested_date_range(tmp_path):
     report = {
         "selected_range": {
@@ -1812,12 +1778,14 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
         "_server_timezone_description",
         lambda: "Asia/Shanghai (UTC+8)",
     )
+    monkeypatch.setattr(admin, "_server_timezone", lambda: "Asia/Shanghai")
     headers = {"Authorization": "Bearer secret"}
 
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
-    assert status.json()["server_timezone"] == "Asia/Shanghai (UTC+8)"
+    assert status.json()["server_timezone"] == "Asia/Shanghai"
+    assert status.json()["server_timezone_description"] == "Asia/Shanghai (UTC+8)"
     defaults = status.json()["defaults"]
     assert defaults["configuration"]["llm"]["max_tokens"] == 8192
     assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
@@ -2847,11 +2815,10 @@ def test_admin_interaction_history_can_page_within_a_time_range(tmp_path):
 
     assert first.status_code == 200
     assert [item["seq"] for item in first.json()["events"]] == [2]
-    time_range = first.json()["time_range"]
-    assert time_range["start_time"].startswith("2026-07-01T09:00:00")
-    assert time_range["end_time"].startswith("2026-07-01T09:59:59.999999")
-    assert datetime.fromisoformat(time_range["start_time"]).utcoffset() is not None
-    assert datetime.fromisoformat(time_range["end_time"]).utcoffset() is not None
+    assert first.json()["time_range"] == {
+        "start_time": "2026-07-01T09:00:00",
+        "end_time": "2026-07-01T09:59:59.999999",
+    }
     assert first.json()["next_cursor"]
 
     second = client.get(

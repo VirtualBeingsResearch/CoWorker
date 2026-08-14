@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
@@ -68,10 +69,8 @@ if TYPE_CHECKING:
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
     from coworker.channels.module import ChannelModuleRegistry
-    from coworker.core.types import PinnedItem
     from coworker.desktop_updates import SyncService
     from coworker.memory.long_term import LongTermMemory
-    from coworker.memory.memory_tree import MemoryNode
     from coworker.memory.short_term import ShortTermMemory
     from coworker.palaces.loader import Palace, PalaceLoader
     from coworker.persona import PersonaCard, PersonStore
@@ -82,30 +81,6 @@ if TYPE_CHECKING:
 
 type ApiResponse = dict[str, object]
 type ContentLoader = SkillLoader | PalaceLoader | SubconsciousModeLoader
-
-def _admin_timestamp(value: datetime | str | None) -> str | None:
-    """Return an RFC 3339 timestamp with an explicit runtime-local offset.
-
-    Coworker's historical files contain naive ISO timestamps produced with
-    ``datetime.now()``.  Treating those values as runtime-local preserves their
-    original meaning; attaching the offset lets browsers convert them to their
-    own current time zone instead of assuming that the clock value is already
-    browser-local.
-    """
-
-    if isinstance(value, datetime):
-        parsed = value
-    elif isinstance(value, str) and value:
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return value
-    else:
-        return value
-    if parsed.tzinfo is None:
-        parsed = parsed.astimezone()
-    return parsed.isoformat()
-
 
 _TERMINAL_BUBBLE_STATUSES = frozenset({"done", "error", "cancelled", "timeout"})
 _BUBBLE_LOG_TAIL_BYTES = 64 * 1024
@@ -122,7 +97,7 @@ _palace_loader: PalaceLoader | None = None
 _mode_loader: SubconsciousModeLoader | None = None
 _desktop_update_sync: SyncService | None = None
 _channel_modules: ChannelModuleRegistry | None = None
-_process_started_at: datetime = datetime.now().astimezone()
+_process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
 _person_store: PersonStore | None = None
@@ -522,7 +497,7 @@ def _audit(
     detail: str = "",
 ) -> None:
     entry = {
-        "ts": datetime.now().astimezone().isoformat(),
+        "ts": datetime.now().isoformat(),
         "action": action,
         "target": target,
         "result": result,
@@ -549,10 +524,7 @@ def _require_name_confirmation(name: str) -> None:
 
 
 def _task_dict(task: Task) -> JsonObject:
-    payload = task.to_dict()
-    payload["created_at"] = _admin_timestamp(task.created_at)
-    payload["updated_at"] = _admin_timestamp(task.updated_at)
-    return cast(JsonObject, payload)
+    return cast(JsonObject, task.to_dict())
 
 
 def _bubble_dict(bubble: Bubble) -> JsonObject:
@@ -569,8 +541,8 @@ def _bubble_dict(bubble: Bubble) -> JsonObject:
         "handoff_transparency": bool(getattr(bubble, "handoff_transparency", False)),
         "resume_count": _as_int(getattr(bubble, "resume_count", 0)),
         "palaces": cast(JsonValue, bubble.palaces),
-        "created_at": _admin_timestamp(bubble.created_at),
-        "finished_at": _admin_timestamp(bubble.finished_at),
+        "created_at": bubble.created_at.isoformat(),
+        "finished_at": bubble.finished_at.isoformat() if bubble.finished_at else None,
         "elapsed_seconds": bubble.elapsed_seconds(),
         "result": bubble.result,
         "error": bubble.error,
@@ -616,19 +588,8 @@ def _completed_bubble_summaries(log_dir: Path) -> list[JsonObject]:
             log_dir,
             [cast(dict[str, object], record) for record in recovered],
         )
-        return [_bubble_summary_dict(record) for record in synchronized]
-    return [_bubble_summary_dict(record) for record in indexed]
-
-
-def _bubble_summary_dict(record: Mapping[str, object]) -> JsonObject:
-    payload = dict(record)
-    payload["created_at"] = _admin_timestamp(
-        cast(str | None, record.get("created_at"))
-    )
-    payload["finished_at"] = _admin_timestamp(
-        cast(str | None, record.get("finished_at"))
-    )
-    return cast(JsonObject, payload)
+        return [cast(JsonObject, record) for record in synchronized]
+    return indexed
 
 
 _INTERACTION_PAGE_SCAN_BYTES = 2 * 1024 * 1024
@@ -661,6 +622,12 @@ def _interaction_sequence_summary(store: LogStore) -> JsonObject:
     # ``total`` deliberately reflects that lifetime numbering even if an old
     # archive was removed and ``first`` is no longer zero.
     return {"first": first, "latest": latest, "total": latest + 1}
+
+
+def _runtime_local_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone().replace(tzinfo=None)
 
 
 def _encode_interaction_cursor(cursor: LogPageCursor | None) -> str | None:
@@ -755,7 +722,7 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
     seq = entry.get("seq")
     return {
         "seq": seq if isinstance(seq, int) else None,
-        "ts": _admin_timestamp(cast(str | None, entry.get("ts"))) or "",
+        "ts": str(entry.get("ts") or ""),
         "type": str(entry.get("type") or "unknown"),
         "preview": _interaction_preview(entry),
         "meta": meta,
@@ -966,19 +933,8 @@ def _bubble_snapshot(bubble: Bubble) -> dict[str, object]:
             if bubble.status == "running"
             else tr("api.admin.detail_log_unavailable")
         ),
-        "ts": _admin_timestamp(bubble.created_at),
+        "ts": bubble.created_at.isoformat(),
     }
-
-
-def _bubble_log_events(entries: list[dict[str, object]]) -> list[dict[str, object]]:
-    events: list[dict[str, object]] = []
-    for entry in entries:
-        event = dict(entry)
-        timestamp = entry.get("ts")
-        if isinstance(timestamp, str | datetime):
-            event["ts"] = _admin_timestamp(timestamp)
-        events.append(event)
-    return events
 
 
 @router.post("/session/verify")
@@ -1014,17 +970,44 @@ def _bootstrap_managed_config_path(
     return None
 
 
-def _server_timezone_description() -> str:
-    """Describe the operating system timezone without creating app-level state."""
-
+def _server_utc_offset() -> str:
     is_dst = bool(time.daylight and time.localtime().tm_isdst)
     offset_seconds = -(time.altzone if is_dst else time.timezone)
     hours, remainder = divmod(abs(offset_seconds), 3600)
     minutes = remainder // 60
     sign = "+" if offset_seconds >= 0 else "-"
-    offset = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
-    name = os.environ.get("TZ", "").strip() or time.tzname[1 if is_dst else 0]
-    return f"{name} ({offset})"
+    return f"{sign}{hours:02d}:{minutes:02d}"
+
+
+def _server_timezone() -> str:
+    """Return the browser-parseable timezone that owns naive runtime timestamps."""
+
+    configured = os.environ.get("TZ", "").strip().removeprefix(":")
+    if configured and not configured.startswith("/"):
+        try:
+            ZoneInfo(configured)
+        except ZoneInfoNotFoundError:
+            pass
+        else:
+            return configured
+    local_timezone = datetime.now().astimezone().tzinfo
+    key = getattr(local_timezone, "key", None)
+    if isinstance(key, str) and key:
+        return key
+    return _server_utc_offset()
+
+
+def _server_timezone_description() -> str:
+    """Describe the operating system timezone without creating app-level state."""
+
+    offset = _server_utc_offset()
+    hours, minutes = offset[1:].split(":", maxsplit=1)
+    display_offset = (
+        f"UTC{offset[0]}{int(hours)}"
+        if minutes == "00"
+        else f"UTC{offset[0]}{int(hours)}:{minutes}"
+    )
+    return f"{_server_timezone()} ({display_offset})"
 
 
 @router.get("/bootstrap")
@@ -1042,7 +1025,8 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
-        "server_timezone": _server_timezone_description(),
+        "server_timezone": _server_timezone(),
+        "server_timezone_description": _server_timezone_description(),
         "providers": providers,
         "defaults": {
             "configuration": snapshot.config,
@@ -1267,7 +1251,7 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "provider": brain.current_provider_name,
             "model": brain.current_model,
             "cycle_count": agent.state.cycle_count,
-            "started_at": _admin_timestamp(_process_started_at),
+            "started_at": _process_started_at.isoformat(),
             "startup_reason": startup_reason,
             "passive_mode": config.agent.passive_mode,
             "idle_sleep_seconds": config.agent.idle_sleep_seconds,
@@ -1290,92 +1274,6 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
     }
 
 
-def _usage_window_payload(window: Mapping[str, object]) -> JsonObject:
-    """Serialize one usage-statistics window for the admin API."""
-    payload = dict(window)
-    compression_at = window.get("last_memory_compression_at")
-    if isinstance(compression_at, str | datetime):
-        payload["last_memory_compression_at"] = _admin_timestamp(compression_at)
-    scopes = window.get("by_scope")
-    if isinstance(scopes, Mapping):
-        payload["by_scope"] = {
-            str(scope): (
-                _usage_window_payload(stats) if isinstance(stats, Mapping) else stats
-            )
-            for scope, stats in scopes.items()
-        }
-    return cast(JsonObject, payload)
-
-
-def _usage_daily_payload(value: object) -> object:
-    if not isinstance(value, list):
-        return value
-    return [
-        _usage_window_payload(row) if isinstance(row, Mapping) else row
-        for row in value
-    ]
-
-
-def _usage_intraday_payload(value: object) -> object:
-    if not isinstance(value, list):
-        return value
-    rows: list[object] = []
-    for row in value:
-        if not isinstance(row, Mapping):
-            rows.append(row)
-            continue
-        payload = _usage_window_payload(row)
-        start_time = row.get("start_time")
-        end_time = row.get("end_time")
-        if isinstance(start_time, str | datetime):
-            payload["start_time"] = _admin_timestamp(start_time)
-        if isinstance(end_time, str | datetime):
-            payload["end_time"] = _admin_timestamp(end_time)
-        rows.append(payload)
-    return rows
-
-
-def _usage_report_payload(report: Mapping[str, object]) -> ApiResponse:
-    """Apply timestamp semantics from the usage report schema, not field guessing."""
-    payload = dict(report)
-    generated_at = report.get("generated_at")
-    if isinstance(generated_at, str | datetime):
-        payload["generated_at"] = _admin_timestamp(generated_at)
-    for name in ("today", "last_7_days", "last_30_days", "lifetime"):
-        window = report.get(name)
-        if isinstance(window, Mapping):
-            payload[name] = _usage_window_payload(window)
-    previous = report.get("previous")
-    if isinstance(previous, Mapping):
-        payload["previous"] = {
-            str(name): (
-                _usage_window_payload(window) if isinstance(window, Mapping) else window
-            )
-            for name, window in previous.items()
-        }
-    if "daily" in report:
-        payload["daily"] = _usage_daily_payload(report.get("daily"))
-    if "today_intraday" in report:
-        payload["today_intraday"] = _usage_intraday_payload(report.get("today_intraday"))
-    selected = report.get("selected_range")
-    if isinstance(selected, Mapping):
-        selected_payload = dict(selected)
-        stats = selected.get("stats")
-        if isinstance(stats, Mapping):
-            selected_payload["stats"] = _usage_window_payload(stats)
-        selected_previous = selected.get("previous")
-        if isinstance(selected_previous, Mapping):
-            selected_payload["previous"] = _usage_window_payload(selected_previous)
-        if "daily" in selected:
-            selected_payload["daily"] = _usage_daily_payload(selected.get("daily"))
-        if "intraday" in selected:
-            selected_payload["intraday"] = _usage_intraday_payload(
-                selected.get("intraday")
-            )
-        payload["selected_range"] = selected_payload
-    return payload
-
-
 @router.get("/usage")
 async def usage(
     _: None = Depends(require_admin),
@@ -1384,9 +1282,7 @@ async def usage(
 ) -> ApiResponse:
     model_prices = _require_config().llm.model_prices
     if start_date is None and end_date is None:
-        return _usage_report_payload(
-            _require_usage_stats().report(model_prices=model_prices)
-        )
+        return _require_usage_stats().report(model_prices=model_prices)
     selected_start = start_date or end_date
     selected_end = end_date or start_date
     if (
@@ -1398,12 +1294,10 @@ async def usage(
             status_code=422,
             detail=tr("api.admin.invalid_usage_date_range"),
         )
-    return _usage_report_payload(
-        _require_usage_stats().report(
-            start_date=selected_start,
-            end_date=selected_end,
-            model_prices=model_prices,
-        )
+    return _require_usage_stats().report(
+        start_date=selected_start,
+        end_date=selected_end,
+        model_prices=model_prices,
     )
 
 
@@ -1864,8 +1758,7 @@ async def get_bubble_history(
                 status_code=404, detail=tr("api.admin.bubble_record_missing")
             )
         return {"bubble_id": bubble_id, "events": [_bubble_snapshot(bubble)]}
-    entries = await asyncio.to_thread(_read_bubble_log, path)
-    return {"bubble_id": bubble_id, "events": _bubble_log_events(entries)}
+    return {"bubble_id": bubble_id, "events": await asyncio.to_thread(_read_bubble_log, path)}
 
 
 @router.get("/subconscious")
@@ -1924,8 +1817,7 @@ async def get_subconscious_history(
                 status_code=404, detail=tr("api.admin.subconscious_record_missing")
             )
         return {"bubble_id": log_id, "events": [_bubble_snapshot(bubble)]}
-    entries = await asyncio.to_thread(_read_bubble_log, path)
-    return {"bubble_id": log_id, "events": _bubble_log_events(entries)}
+    return {"bubble_id": log_id, "events": await asyncio.to_thread(_read_bubble_log, path)}
 
 
 @router.post("/bubbles/{bubble_id}/cancel")
@@ -1949,20 +1841,6 @@ async def cancel_bubble(
     # 管理 API 不重复 mark_done，避免历史记录出现两份。
     _audit(request, "bubble.cancel", bubble_id)
     return _bubble_dict(bubble)
-
-
-def _memory_node_dict(node: MemoryNode) -> JsonObject:
-    payload = node.to_dict()
-    payload["t_start"] = _admin_timestamp(node.t_start)
-    payload["t_end"] = _admin_timestamp(node.t_end)
-    payload["children"] = [_memory_node_dict(child) for child in node.children]
-    return cast(JsonObject, payload)
-
-
-def _pinned_item_dict(item: PinnedItem) -> JsonObject:
-    payload = item.to_dict()
-    payload["created_at"] = _admin_timestamp(item.created_at)
-    return cast(JsonObject, payload)
 
 
 def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
@@ -1991,7 +1869,7 @@ def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
             "index": index,
             "role": message.role,
             "content": _admin_message_content(message.content),
-            "timestamp": _admin_timestamp(message.timestamp),
+            "timestamp": message.timestamp.isoformat(),
             "tool_calls": _admin_tool_calls(message.tool_calls, tool_results),
             "recalled_memory_ids": list(message.recalled_memory_ids),
             "source": message.source,
@@ -2036,11 +1914,6 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
 
     messages = _short_term_messages(stm)
 
-    measured_at = (
-        latest.get("measured_at")
-        if source == "provider" and isinstance(latest, dict)
-        else None
-    )
     return {
         "token_watermark": {
             "tokens": tokens,
@@ -2048,8 +1921,8 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
             "ratio": tokens / capacity if capacity else 0,
             "source": source,
             "measured_at": (
-                _admin_timestamp(measured_at)
-                if isinstance(measured_at, str | datetime)
+                latest.get("measured_at")
+                if source == "provider" and isinstance(latest, dict)
                 else None
             ),
             "provider": provider,
@@ -2066,8 +1939,8 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
             "compressing": stm._compressing,
         },
         "messages": messages,
-        "tree": {"nodes": [_memory_node_dict(node) for node in stm.tree.nodes]},
-        "pinned_items": [_pinned_item_dict(item) for item in stm.pinned_items],
+        "tree": {"nodes": [node.to_dict() for node in stm.tree.nodes]},
+        "pinned_items": [item.to_dict() for item in stm.pinned_items],
         "backfill": dict(stm.backfill_progress),
         "active_model": {"provider": brain.current_provider_name, "model": brain.current_model},
     }
@@ -2210,22 +2083,7 @@ async def backfill_memory(
 async def backups(_: None = Depends(require_admin)) -> ApiResponse:
     from coworker.api.routes import list_backups
 
-    payload = await list_backups()
-    serialized = dict(payload)
-    records = payload.get("backups")
-    if isinstance(records, list):
-        backup_records: list[object] = []
-        for record in records:
-            if not isinstance(record, Mapping):
-                backup_records.append(record)
-                continue
-            item = dict(record)
-            timestamp = record.get("timestamp")
-            if isinstance(timestamp, str | datetime):
-                item["timestamp"] = _admin_timestamp(timestamp)
-            backup_records.append(item)
-        serialized["backups"] = backup_records
-    return serialized
+    return await list_backups()
 
 
 @router.post("/backups/restore")
@@ -2324,26 +2182,20 @@ async def get_interaction_history(
     # Interaction logs historically store runtime-local naive timestamps.  A
     # browser sends absolute instants, so convert them back to that legacy
     # storage clock before using LogStore's ISO string range index.
-    log_start_time = (
-        start_time.astimezone().replace(tzinfo=None)
-        if start_time is not None and start_time.tzinfo is not None
-        else start_time
-    )
-    log_end_time = (
-        end_time.astimezone().replace(tzinfo=None)
-        if end_time is not None and end_time.tzinfo is not None
-        else end_time
-    )
+    log_start_time: datetime | None = None
+    log_end_time: datetime | None = None
 
     store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
     sequence = _interaction_sequence_summary(store)
     effective_seq_start = seq_start
     effective_seq_end = seq_end
     time_range: JsonObject | None = None
-    if log_start_time is not None and log_end_time is not None:
+    if start_time is not None and end_time is not None:
+        log_start_time = _runtime_local_naive(start_time)
+        log_end_time = _runtime_local_naive(end_time)
         time_range = {
-            "start_time": _admin_timestamp(log_start_time),
-            "end_time": _admin_timestamp(log_end_time),
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
         }
         ranged_entries, _complete = store.read_time_range(log_start_time, log_end_time)
         ranged_sequences: list[int] = []
@@ -2448,13 +2300,9 @@ async def get_interaction_detail(
     entry = next((item for item in entries if item.get("seq") == seq), None)
     if entry is None:
         raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
-    serialized_entry = dict(entry)
-    entry_timestamp = entry.get("ts")
-    if isinstance(entry_timestamp, str | datetime):
-        serialized_entry["ts"] = _admin_timestamp(entry_timestamp)
     state = [False]
     return {
-        "entry": _bounded_interaction_value(serialized_entry, state),
+        "entry": _bounded_interaction_value(entry, state),
         "truncated": state[0],
     }
 
@@ -2479,15 +2327,9 @@ async def audit_log(
     entries = []
     for line in lines:
         try:
-            entry = json.loads(line)
+            entries.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-        if not isinstance(entry, dict):
-            continue
-        timestamp = entry.get("ts")
-        if isinstance(timestamp, str | datetime):
-            entry["ts"] = _admin_timestamp(timestamp)
-        entries.append(entry)
     return {"entries": list(reversed(entries))}
 
 

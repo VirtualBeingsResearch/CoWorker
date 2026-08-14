@@ -30,6 +30,7 @@ import {
   formatTime,
   localDateKey,
   localDateTimeInputToIso,
+  setServerTimezone,
   timestampMillis,
   toAbsoluteIso,
   toLocalDateTimeInput,
@@ -403,8 +404,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
   const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
-  const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
-    ? data.server_timezone.trim()
+  const serverTimezoneValue = data.server_timezone_description ?? data.server_timezone;
+  const serverTimezone = typeof serverTimezoneValue === 'string' && serverTimezoneValue.trim()
+    ? serverTimezoneValue.trim()
     : t('未能读取');
   const timezoneAdvice = bootstrapTimezoneAdvice(detectedTimezone);
   const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
@@ -3418,7 +3420,10 @@ export default function AdminApp() {
   }, []);
   useEffect(() => {
     if (!ready) return;
-    api<Json>('/api/admin/bootstrap').then(setBootstrap).catch(() => setBootstrap({ required: false }));
+    api<Json>('/api/admin/bootstrap').then(result => {
+      setServerTimezone(result.server_timezone);
+      setBootstrap(result);
+    }).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {
     const syncSection = () => {
