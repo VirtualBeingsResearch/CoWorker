@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from mem0.configs.base import MemoryConfig
 
-from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
+from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory, MemoryWriteResult
 
 
 @pytest.fixture(autouse=True)
@@ -364,6 +364,7 @@ class TestWriteResult:
     def _make(self) -> LongTermMemory:
         lt = LongTermMemory(db_path="data/_unused")
         lt._mem = MagicMock()
+        lt._mem.get_all = AsyncMock(return_value={"results": []})
         return lt
 
     async def test_written_returns_first_id(self):
@@ -376,16 +377,67 @@ class TestWriteResult:
 
         assert result.status == "written"
         assert result.memory_id == "new-1"
+        lt._mem.get_all.assert_awaited_once_with(
+            filters={"user_id": "agent", "hash": "3ad942d9640bdb2a74384b4344e1b43e"}
+        )
         lt._mem.add.assert_awaited_once()
+        kwargs = lt._mem.add.await_args.kwargs
+        assert kwargs["messages"] == [{"role": "user", "content": "新内容"}]
+        assert kwargs["user_id"] == "agent"
+        assert kwargs["infer"] is False
+        assert kwargs["metadata"]["category"] == "knowledge"
+        assert kwargs["metadata"]["tags"] == '["a"]'
+        assert datetime.fromisoformat(kwargs["metadata"]["source_timestamp"])
 
-    async def test_empty_extraction_returns_empty(self):
+    async def test_exact_duplicate_returns_empty_without_add(self):
+        lt = self._make()
+        lt._mem.get_all = AsyncMock(
+            return_value={"results": [{"id": "old-1", "memory": "已有内容"}]}
+        )
+        lt._mem.add = AsyncMock()
+
+        result = await lt.write("已有内容", category="knowledge")
+
+        assert result == MemoryWriteResult(status="empty")
+        lt._mem.add.assert_not_awaited()
+
+    async def test_empty_content_returns_empty_without_lookup(self):
+        lt = self._make()
+        lt._mem.add = AsyncMock()
+
+        result = await lt.write("  \n")
+
+        assert result == MemoryWriteResult(status="empty")
+        lt._mem.get_all.assert_not_awaited()
+        lt._mem.add.assert_not_awaited()
+
+    async def test_add_without_result_returns_empty(self):
         lt = self._make()
         lt._mem.add = AsyncMock(return_value={"results": []})
 
-        result = await lt.write("无可提取内容")
+        result = await lt.write("待保存内容")
 
         assert result.status == "empty"
         assert result.memory_id == ""
+
+
+class TestConversationExtraction:
+    async def test_raw_conversation_keeps_mem0_inference_enabled(self):
+        lt = LongTermMemory(db_path="data/_unused")
+        lt._mem = MagicMock()
+        lt._mem.add = AsyncMock()
+        message = MagicMock()
+        message.role = "user"
+        message.content_text.return_value = "原始对话"
+        message.timestamp = datetime(2026, 8, 14, 12, 0)
+        message.tool_calls = []
+
+        await lt.add_conversation([message])
+
+        lt._mem.add.assert_awaited_once_with(
+            messages=[{"role": "user", "content": "[2026-08-14 12:00] 原始对话"}],
+            user_id="agent",
+        )
 
 
 class TestReconfigure:

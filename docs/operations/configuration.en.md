@@ -106,7 +106,10 @@ price falls back to the regular input price. For example:
 Pricing is independent of connection sources, so it can supplement read-only connections from
 `.env` or `providers.json`. Saving prices in the management console neither rebuilds Providers nor
 requires a restart; historical tokens are recalculated against current prices. Currencies remain
-separate and are never converted.
+separate and are never converted. The management console suggests common three-letter ISO 4217
+currency codes while still allowing other three-letter codes to be entered manually. Currency symbols
+come from the browser using the code and interface locale; codes without a dedicated symbol are shown
+as codes.
 
 ### Memory
 

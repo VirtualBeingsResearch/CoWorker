@@ -1,6 +1,7 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from 'react';
+import { useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   Activity,
+  ArrowUpRight,
   Bot,
   CalendarRange,
   CheckCircle2,
@@ -47,6 +48,7 @@ import {
   usageScopeEntries,
   type UsageWindowKey,
 } from '../lib/usageStats';
+import { CurrencyCostSummary } from './CurrencyCostSummary';
 
 type AdminUsageAnalyticsProps = {
   stats: UsageStats | null;
@@ -55,6 +57,7 @@ type AdminUsageAnalyticsProps = {
   onReload: () => void | Promise<void>;
   onLoadRange: (startDate: string, endDate: string) => Promise<UsageStats>;
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 };
 
 type AttentionItem = {
@@ -266,24 +269,29 @@ function MetricCard({
   icon: Icon,
   tone,
   compactValue = false,
+  featured = false,
   onActivate,
   actionLabel,
+  actionHref,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   detail: string;
   icon: typeof Database;
   tone?: 'tool' | 'skill' | 'autonomy' | 'memory';
   compactValue?: boolean;
+  featured?: boolean;
   onActivate?: () => void;
   actionLabel?: string;
+  actionHref?: string;
 }) {
-  const className = `usage-analytics-metric${tone ? ` metric-${tone}` : ''}${compactValue ? ' compact-value' : ''}`;
+  const className = `usage-analytics-metric${tone ? ` metric-${tone}` : ''}${compactValue ? ' compact-value' : ''}${featured ? ' featured' : ''}`;
   const content = <>
     <Icon size={16} />
     <span>{label}</span>
-    <strong>{value}</strong>
+    {typeof value === 'string' ? <strong>{value}</strong> : <div className="usage-analytics-metric-value">{value}</div>}
     <small>{detail}</small>
+    {actionHref && <a className="usage-pricing-shortcut" href={actionHref}>{actionLabel || label}<ArrowUpRight size={12} /></a>}
   </>;
   if (onActivate) {
     return <button
@@ -491,6 +499,7 @@ export function AdminUsageAnalytics({
   onReload,
   onLoadRange,
   onOpenLogs,
+  pricingHref,
 }: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<AnalyticsWindowKey>('last_7_days');
@@ -839,11 +848,11 @@ export function AdminUsageAnalytics({
         {rangeError && <span className="usage-date-range-error" role="alert"><TriangleAlert size={13} />{rangeError}</span>}
       </form>}
       <div className="usage-analytics-metrics">
-        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} />
-        <MetricCard label={t('预估消费')} value={formatCostSummary(windowStats.estimated_costs, language)} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
+        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
+        <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
           coverage: formatCacheRate(windowStats.pricing_coverage),
           count: formatTokenUnits(windowStats.unpriced_tokens),
-        })} icon={CircleDollarSign} compactValue />
+        })} icon={CircleDollarSign} compactValue featured actionHref={pricingHref} actionLabel={t('管理定价')} />
         <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
         <MetricCard label={t('缓存 Token')} value={formatTokenUnits(windowStats.cached_tokens)} detail={t('命中率 {{rate}}', { rate: formatCacheRate(windowStats.cache_rate) })} icon={Activity} />
         <MetricCard label={t('工具执行')} value={formatCount(windowStats.tool_calls)} detail={t('{{success}} 成功 · {{errors}} 错误 · {{pending}} 未结算', {

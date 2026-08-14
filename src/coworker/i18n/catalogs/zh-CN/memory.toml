@@ -47,7 +47,7 @@ subconscious = "[潜意识·{{mode}}] {{result}}"
 [memory.manage]
 associate_tags_empty = "associate_tags 需要非空 tags"
 missing = "记忆不存在：{{id}}"
-not_stored = "未写入新记忆：抽取未产出新内容，或内容已存在（mem0 去重）"
+not_stored = "未写入新记忆：内容为空或与已有记忆完全相同"
 
 [memory.query]
 legacy_args = "query_memory 不再支持参数 {{arguments}}；请使用 query=... 检索长期记忆，或 start/end 回忆时间窗。"

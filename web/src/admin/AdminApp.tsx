@@ -1,4 +1,4 @@
-import { createContext, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -7,7 +7,12 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
-import { validateModelPrices } from './settings/modelPricing';
+import {
+  COMMON_MODEL_PRICE_CURRENCIES,
+  modelPriceCurrencyDetails,
+  validateModelPrices,
+} from './settings/modelPricing';
+import { EditableCombobox } from './EditableCombobox';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { configFieldPresentation } from './settings/configFieldPresentation';
@@ -101,6 +106,16 @@ function sectionHref(next: Section) {
     url.searchParams.delete('log_end');
     url.searchParams.delete('log_type');
   }
+  url.hash = '';
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function modelPricingHref() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('section', 'settings');
+  url.searchParams.set('group', 'llm');
+  url.searchParams.delete('source');
+  url.hash = 'model-pricing';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -365,11 +380,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
   const [customModelCapabilities, setCustomModelCapabilities] = useState({ tools: false, vision: false, video: false });
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
-  const modelComboboxRef = useRef<HTMLDivElement | null>(null);
-  const modelOptionRefs = useRef<Array<HTMLLIElement | null>>([]);
   const submitInFlight = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -391,13 +401,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
     browserTimezone: timezoneAdvice.detectedTimezone,
   });
-  const modelListboxId = `bootstrap-model-listbox-${providerType}`;
-  const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
-  const filteredModels = useMemo(() => {
-    if (modelFilter === null) return models;
-    const filter = modelFilter.toLowerCase();
-    return models.filter(item => item.toLowerCase().includes(filter));
-  }, [modelFilter, models]);
   const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
   const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
   const setConfigurationJsonValidity = useCallback((path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
@@ -417,50 +420,12 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     window.requestAnimationFrame(() => advancedReturnFocus.current?.focus());
   };
 
-  const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
-  const openAllModels = () => {
-    const selectedIndex = models.findIndex(item => item === normalizedModel);
-    setModelFilter(null);
-    setHighlightedModelIndex(selectedIndex);
-    setModelMenuOpen(true);
-  };
-  const chooseRecommendedModel = (value: string) => {
-    setModel(value);
-    setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
-  };
   const changeProvider = (nextProvider: string) => {
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
   };
-  const moveHighlight = (direction: 1 | -1) => {
-    if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
-    setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
-  };
-  const handleModelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
-    else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
-    else if (event.key === 'Escape' && modelMenuOpen) { event.preventDefault(); closeModelMenu(); }
-    else if (event.key === 'Tab') closeModelMenu();
-  };
-
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !modelComboboxRef.current?.contains(target)) closeModelMenu();
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [modelMenuOpen]);
-
-  useEffect(() => {
-    if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [highlightedModelIndex, filteredModels]);
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -551,14 +516,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
               <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
+              <div className="bootstrap-model-field">
                 <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
-                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); }} placeholder={t('选择推荐模型或输入模型 ID')} />
-                  {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
-                    {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
-                  </ul>}
-                </div>
+                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
               </div>
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
@@ -708,6 +668,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         loading={usage.loading}
         error={usage.error}
         analyticsHref={sectionHref('usage')}
+        pricingHref={modelPricingHref()}
         onOpenAnalytics={event => onNavigate(event, 'usage')}
       />
       <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
@@ -723,8 +684,9 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   </div>;
 }
 
-function UsageAnalyticsPage({ onOpenLogs }: {
+function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 }) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
@@ -737,6 +699,7 @@ function UsageAnalyticsPage({ onOpenLogs }: {
       return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
     }}
     onOpenLogs={onOpenLogs}
+    pricingHref={pricingHref}
   />;
 }
 
@@ -795,6 +758,10 @@ function Models() {
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
+function ComboboxField({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }) {
+  return <div className="field"><label className="field-label" htmlFor={id}>{t(label)}</label>{children}{hint && <small>{t(hint)}</small>}</div>;
+}
+
 function StringListEditor({ label, hint, value, onChange, placeholder }: {
   label: string;
   hint: string;
@@ -851,6 +818,7 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
   onChange: (value: Json[]) => void;
   providerNames: string[];
 }) {
+  const { language } = useAdminI18n();
   const changePrice = (index: number, key: string, nextValue: unknown) => {
     onChange(value.map((item, itemIndex) => itemIndex === index
       ? { ...item, [key]: nextValue }
@@ -871,7 +839,16 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
           : validationError === 'duplicate'
             ? t('同一个 Provider 中不能重复配置模型价格。')
             : '';
-  return <section className="provider-model-prices">
+  const providerOptions = providerNames.map(name => ({ value: name }));
+  const currencyOptions = COMMON_MODEL_PRICE_CURRENCIES.map(currency => {
+    const details = modelPriceCurrencyDetails(currency, language);
+    return {
+      value: currency,
+      label: details.displayName,
+      detail: details.symbol === currency ? undefined : details.symbol,
+    };
+  });
+  return <section className="provider-model-prices" id="model-pricing">
     <header><div><b>{t('模型定价')}</b><small>{t('按 Provider 与模型 ID 精确匹配；价格单位为每百万 Token，修改后立即重算历史消费估算。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, {
       provider: providerNames[0] || '',
       model: '',
@@ -880,15 +857,22 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
       output_per_million: 0,
       cached_input_per_million: null,
     }])}><Plus size={13} />{t('添加价格')}</button></header>
-    <datalist id="model-price-provider-options">{providerNames.map(name => <option value={name} key={name} />)}</datalist>
     {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
-      <Field label="Provider" hint="连接注册名，支持已停用的历史 Provider"><input list="model-price-provider-options" value={price.provider || ''} onChange={event => changePrice(index, 'provider', event.target.value)} placeholder="openai" /></Field>
-      <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
-      <Field label="币种" hint="三个字母，如 CNY 或 USD"><input maxLength={3} value={price.currency || ''} onChange={event => changePrice(index, 'currency', event.target.value.toUpperCase())} placeholder="USD" /></Field>
-      <Field label="输入 / 百万 Token"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
-      <Field label="输出 / 百万 Token"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
-      <Field label="缓存输入 / 百万 Token" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
-      <button type="button" className="danger-icon" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+      <div className="provider-price-object-grid">
+        <ComboboxField id={`model-price-provider-${index}`} label="Provider" hint="可选择有效连接，也可输入历史 Provider">
+          <EditableCombobox id={`model-price-provider-${index}`} value={String(price.provider || '')} options={providerOptions} onChange={next => changePrice(index, 'provider', next)} placeholder="openai" emptyMessage={t('没有匹配的 Provider；可继续使用当前输入。')} toggleLabel={t('展开 Provider 选项')} />
+        </ComboboxField>
+        <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
+        <ComboboxField id={`model-price-currency-${index}`} label="币种" hint="可选择常用币种，也可输入其他三字母代码">
+          <EditableCombobox id={`model-price-currency-${index}`} value={String(price.currency || '')} options={currencyOptions} onChange={next => changePrice(index, 'currency', next)} placeholder="USD" emptyMessage={t('没有匹配的常用币种；可继续使用三字母代码。')} toggleLabel={t('展开币种选项')} maxLength={3} normalize={next => next.toUpperCase()} />
+        </ComboboxField>
+      </div>
+      <button type="button" className="danger-icon provider-price-remove" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+      <div className="provider-price-rate-block"><div className="provider-price-rate-heading"><span>{t('Token 单价')}</span><small>{t('以下金额均按每百万 Token 计算')}</small></div><div className="provider-price-rate-grid">
+        <Field label="输入"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="输出"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="缓存输入" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
+      </div></div>
     </article>)}</div> : <p>{t('尚未配置模型价格；用量仍会统计 Token，但消费估算会标记为未定价。')}</p>}
     {validationMessage && <p className="field-error" role="alert">{validationMessage}</p>}
     <div className="provider-price-note"><TriangleAlert size={15} /><span>{t('消费为本地估算，不含请求费、图片或视频独立计费、缓存写入、阶梯价、折扣与税费；最终以 Provider 账单为准。')}</span></div>
@@ -1316,6 +1300,13 @@ function Settings() {
     toggleClearOverride,
   } = settings;
   useNavigationGuard('settings', dirtyGroups.size > 0);
+  useEffect(() => {
+    if (!data || !draft || group !== 'llm' || window.location.hash !== '#model-pricing') return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('model-pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, draft, group]);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -3567,7 +3558,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
-        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} pricingHref={modelPricingHref()} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}
