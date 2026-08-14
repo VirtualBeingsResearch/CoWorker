@@ -7,7 +7,37 @@ from typing import Any, Literal
 
 from coworker.core.token_utils import estimate_content_tokens, estimate_text_tokens
 
-__all__ = ["estimate_content_tokens", "estimate_text_tokens"]
+ReasoningEffort = Literal[
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "auto",
+]
+ThinkingMode = bool | ReasoningEffort
+
+
+def reasoning_effort(thinking: ThinkingMode) -> ReasoningEffort:
+    """Normalize the legacy thinking toggle into an explicit effort level."""
+
+    return ("high" if thinking else "none") if isinstance(thinking, bool) else thinking
+
+
+def thinking_enabled(thinking: ThinkingMode) -> bool:
+    return reasoning_effort(thinking) != "none"
+
+
+__all__ = [
+    "ReasoningEffort",
+    "ThinkingMode",
+    "estimate_content_tokens",
+    "estimate_text_tokens",
+    "reasoning_effort",
+    "thinking_enabled",
+]
 
 
 @dataclass

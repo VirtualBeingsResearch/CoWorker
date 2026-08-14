@@ -68,6 +68,7 @@ def _client(
             "llm": {
                 "openai_api_key": "sk-original",
                 "providers_file": providers_file,
+                "runtime_config_file": str(tmp_path / "model_runtime_config.json"),
                 **(llm or {}),
             },
             "memory": {"db_path": str(tmp_path / "memory")},
@@ -101,11 +102,17 @@ def _client(
     )
     _brain_snapshot = {
         "providers": ["openai"],
+        "thinking": True,
         "active": {"provider": "openai", "model": "gpt-5.2"},
         "summary": {"provider": "", "model": "", "thinking": False},
         "fallbacks": [],
         "vision": {"provider": "", "model": "", "thinking": True, "enabled": False},
     }
+    async def update_model_config(**changes):
+        if changes.get("thinking") is not None:
+            _brain_snapshot["thinking"] = changes["thinking"]
+        return _brain_snapshot
+
     brain = SimpleNamespace(
         active_provider=object(),
         current_provider_name="openai",
@@ -115,7 +122,7 @@ def _client(
         upsert_provider=AsyncMock(),
         switch_model=AsyncMock(),
         model_config_snapshot=lambda: _brain_snapshot,
-        update_model_config=AsyncMock(return_value=_brain_snapshot),
+        update_model_config=AsyncMock(side_effect=update_model_config),
     )
     person_store = PersonStore(tmp_path / "persons.json") if persona else None
     persona_cards = PersonaCard() if persona else None
@@ -1354,6 +1361,7 @@ def test_model_orchestration_reads_and_updates_mem0(tmp_path):
         "/api/admin/model",
         headers=headers,
         json={
+            "thinking": "low",
             "summary": {"provider": "", "model": "", "thinking": False},
             "fallbacks": [],
             "vision": {"provider": "", "model": "", "thinking": True},
@@ -1362,6 +1370,7 @@ def test_model_orchestration_reads_and_updates_mem0(tmp_path):
     )
 
     assert response.status_code == 200
+    assert response.json()["thinking"] == "low"
     assert response.json()["mem0"] == {
         "provider": "qwen",
         "model": "qwen3.6-flash",
@@ -1991,6 +2000,82 @@ def test_bootstrap_requires_confirmation_for_custom_model(tmp_path):
         json={"changes": {"llm": {"default_model": "gpt-5.2"}}},
     )
     assert blocked_patch.status_code == 409
+
+
+def test_provider_model_discovery_uses_metadata_endpoint_without_completion(
+    tmp_path,
+    monkeypatch,
+):
+    client, _ = _client(tmp_path)
+    fetch_models = AsyncMock(return_value=["remote-b", "remote-a"])
+    close = AsyncMock()
+    fake_provider = SimpleNamespace(
+        fetch_models=fetch_models,
+        list_models=lambda: ["catalog-model"],
+        close=close,
+    )
+    captured = {}
+
+    def fake_build_provider(type_, api_key, **kwargs):
+        captured.update(type_=type_, api_key=api_key, **kwargs)
+        return fake_provider
+
+    monkeypatch.setattr("coworker.brain.factory.build_provider", fake_build_provider)
+
+    response = client.post(
+        "/api/admin/provider-models",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "openai",
+            "api_key": "metadata-only-key",
+            "base_url": "https://gateway.example/v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "models": ["remote-b", "remote-a"],
+        "catalog_models": ["catalog-model"],
+        "source": "provider",
+    }
+    assert captured == {
+        "type_": "openai",
+        "api_key": "metadata-only-key",
+        "base_url": "https://gateway.example/v1",
+        "name": "openai",
+    }
+    fetch_models.assert_awaited_once_with()
+    close.assert_awaited_once_with()
+
+
+def test_provider_model_discovery_can_reuse_configured_connection_secret(
+    tmp_path,
+    monkeypatch,
+):
+    client, _ = _client(tmp_path)
+    fake_provider = SimpleNamespace(
+        fetch_models=AsyncMock(return_value=[]),
+        list_models=lambda: ["gpt-5.2"],
+        close=AsyncMock(),
+    )
+    captured = {}
+
+    def fake_build_provider(type_, api_key, **kwargs):
+        captured.update(type_=type_, api_key=api_key, **kwargs)
+        return fake_provider
+
+    monkeypatch.setattr("coworker.brain.factory.build_provider", fake_build_provider)
+
+    response = client.post(
+        "/api/admin/provider-models",
+        headers={"Authorization": "Bearer secret"},
+        json={"provider_type": "openai", "provider_name": "openai"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "catalog"
+    assert captured["api_key"] == "sk-original"
+    assert "api_key" not in response.text
 
 
 def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path):

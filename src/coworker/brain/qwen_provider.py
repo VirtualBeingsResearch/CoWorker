@@ -1,30 +1,17 @@
 from __future__ import annotations
 
-import json
+from typing import Any
 
-import openai
-from loguru import logger
-
+from coworker.brain.any_llm_provider import AnyLLMProvider, parse_tool_arguments
 from coworker.brain.base import (
-    BaseLLMProvider,
     pdf_attachment_fallback,
     unsupported_image_fallback,
     unsupported_video_fallback,
 )
-from coworker.brain.tls import shared_ssl_context
-from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
-from coworker.core.exceptions import ProviderError
-from coworker.core.types import LLMResponse, Message, ToolCall
+from coworker.core.types import ThinkingMode, reasoning_effort
 from coworker.i18n import tr
 
-
-def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse tool call arguments for '{tool_name}': {raw!r}")
-        return {"__parse_error__": str(e), "__raw_arguments__": raw}
-
+_parse_tool_arguments = parse_tool_arguments
 
 _QWEN_MODELS = {
     "qwen3.6-flash",
@@ -33,110 +20,35 @@ _QWEN_MODELS = {
     "qwen3.7-plus",
     "qwen3.7-max",
 }
-
-_VISION_MODELS = {
-    "qwen3.6-plus",
-    "qwen3.7-plus",
-}
-
-_VIDEO_MODELS = {
-    "qwen3.6-plus",
-    "qwen3.7-plus",
-}
-
-# Qwen3 models support extended thinking via enable_thinking extra_body param.
+_VISION_MODELS = {"qwen3.6-plus", "qwen3.7-plus"}
+_VIDEO_MODELS = {"qwen3.6-plus", "qwen3.7-plus"}
 _THINKING_MODELS = _QWEN_MODELS
+_THINKING_BUDGETS = {
+    "minimal": 1024,
+    "low": 2048,
+    "medium": 4096,
+    "high": 8192,
+    "xhigh": 16384,
+    "max": 32768,
+}
 
-class QwenProvider(BaseLLMProvider):
+
+class QwenProvider(AnyLLMProvider):
     provider_type = "qwen"
     api_dialect = "openai"
+    any_llm_provider = "dashscope"
     default_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    initial_model = "qwen-plus"
 
-    def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
-        super().__init__(name)
-        self._client = openai.AsyncOpenAI(
-            api_key=api_key,
-            base_url=self.resolve_base_url(base_url),
-            http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
-        )
-        self._current_model = "qwen-plus"
-
-    @staticmethod
-    def _extract_usage(response) -> dict[str, int]:
-        usage = getattr(response, "usage", None)
+    def _completion_options(self, thinking: ThinkingMode) -> dict[str, Any]:
+        effort = reasoning_effort(thinking)
+        extra_body: dict[str, Any] = {"enable_thinking": effort != "none"}
+        if not isinstance(thinking, bool) and effort in _THINKING_BUDGETS:
+            extra_body["thinking_budget"] = _THINKING_BUDGETS[effort]
         return {
-            "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-            "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-            "cached_tokens": (
-                getattr(
-                    getattr(usage, "prompt_tokens_details", None),
-                    "cached_tokens",
-                    0,
-                )
-                if usage
-                else 0
-            ),
+            "reasoning_effort": None,
+            "extra_body": extra_body,
         }
-
-    async def complete(
-        self,
-        messages: list[Message],
-        system_prompt: str,
-        tools: list[dict],
-        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
-        thinking: bool = True,
-    ) -> LLMResponse:
-        api_messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        for m in messages:
-            d = m.to_dict()
-            if m.role == "user":
-                d["content"] = self._adapt_content(m.content, self._current_model)
-            api_messages.append(d)
-
-        kwargs: dict = {
-            "model": self._current_model,
-            "max_tokens": max_tokens,
-            "messages": api_messages,
-        }
-        if tools:
-            kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
-        if self._current_model in _THINKING_MODELS and thinking:
-            kwargs["extra_body"] = {"enable_thinking": True}
-        elif not thinking:
-            kwargs["extra_body"] = {"enable_thinking": False}
-
-        try:
-            response = await self._client.chat.completions.create(**kwargs)
-        except openai.APIError as e:
-            raise ProviderError(str(e)) from e
-
-        choice = response.choices[0]
-        msg = choice.message
-
-        tool_calls: list[ToolCall] = []
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                tool_calls.append(
-                    ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=_parse_tool_arguments(tc.function.arguments, tc.function.name),
-                    )
-                )
-
-        reasoning_content: str | None = getattr(msg, "reasoning_content", None) or None
-
-        return LLMResponse(
-            content=msg.content or "",
-            tool_calls=tool_calls,
-            stop_reason="tool_use" if tool_calls else "end_turn",
-            model=response.model,
-            usage=self._extract_usage(response),
-            reasoning_content=reasoning_content,
-        )
-
-    def set_model(self, model_id: str) -> None:
-        self._current_model = model_id
 
     def list_models(self) -> list[str]:
         return sorted(_QWEN_MODELS)
@@ -150,37 +62,40 @@ class QwenProvider(BaseLLMProvider):
     def supports_video(self, model_id: str) -> bool:
         return model_id in _VIDEO_MODELS
 
-    def _adapt_content(self, content, model_id):
+    def _adapt_content(
+        self,
+        content: str | list[dict[str, Any]],
+        model_id: str,
+    ) -> str | list[dict[str, Any]]:
         if isinstance(content, str):
             return content
         if not self.can_use_vision(model_id):
             return super()._adapt_content(content, model_id)
-        result = []
+        result: list[dict[str, Any]] = []
         for block in content:
-            btype = block.get("type")
-            if btype == "image":
-                src = block.get("source", {})
-                if src.get("type") == "base64":
-                    data_url = f"data:{src['media_type']};base64,{src['data']}"
+            block_type = block.get("type")
+            if block_type == "image":
+                source = block.get("source", {})
+                if source.get("type") == "base64":
+                    data_url = f"data:{source['media_type']};base64,{source['data']}"
                     result.append({"type": "image_url", "image_url": {"url": data_url}})
                 else:
                     result.append({"type": "text", "text": unsupported_image_fallback()})
-            elif btype == "video":
-                src = block.get("source", {})
-                if self.can_use_video(model_id) and src.get("type") == "base64":
-                    data_url = f"data:{src['media_type']};base64,{src['data']}"
+            elif block_type == "video":
+                source = block.get("source", {})
+                if self.can_use_video(model_id) and source.get("type") == "base64":
+                    data_url = f"data:{source['media_type']};base64,{source['data']}"
                     result.append({"type": "video_url", "video_url": {"url": data_url}})
                 else:
-                    result.append(
-                        {
-                            "type": "text",
-                            "text": unsupported_video_fallback(),
-                        }
-                    )
-            elif btype == "document":
-                fname = block.get("_filename", tr("attachment_fallback.document_name"))
-                text = pdf_attachment_fallback(fname, block.get("_saved_path", ""))
-                result.append({"type": "text", "text": text})
+                    result.append({"type": "text", "text": unsupported_video_fallback()})
+            elif block_type == "document":
+                filename = block.get("_filename", tr("attachment_fallback.document_name"))
+                result.append(
+                    {
+                        "type": "text",
+                        "text": pdf_attachment_fallback(filename, block.get("_saved_path", "")),
+                    }
+                )
             else:
-                result.append({k: v for k, v in block.items() if not k.startswith("_")})
+                result.append({key: value for key, value in block.items() if not key.startswith("_")})
         return result

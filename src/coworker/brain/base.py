@@ -5,7 +5,7 @@ from typing import Any
 
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.token_utils import estimate_content_tokens
-from coworker.core.types import LLMResponse, Message
+from coworker.core.types import LLMResponse, Message, ThinkingMode
 from coworker.i18n import tr
 
 
@@ -119,7 +119,7 @@ class BaseLLMProvider(ABC):
         system_prompt: str,
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
-        thinking: bool = True,
+        thinking: ThinkingMode = True,
     ) -> LLMResponse: ...
 
     def set_model(self, model_id: str) -> None:
@@ -128,6 +128,14 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     def list_models(self) -> list[str]: ...
+
+    async def fetch_models(self) -> list[str]:
+        """Fetch model IDs exposed by the provider API, when supported."""
+
+        return []
+
+    async def close(self) -> None:
+        """Release provider-owned network resources, when applicable."""
 
     @abstractmethod
     def supports_tool_use(self, model_id: str) -> bool: ...

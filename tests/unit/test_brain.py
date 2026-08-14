@@ -566,6 +566,35 @@ class TestBrain:
         brain = Brain("mock", "mock-model")
         assert brain._thinking is True
 
+    @pytest.mark.asyncio
+    async def test_thinking_effort_hot_update_is_passed_to_provider(self):
+        class CapturingProvider(MockProvider):
+            def __init__(self) -> None:
+                super().__init__()
+                self.seen_thinking: object | None = None
+
+            async def complete(
+                self,
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=4096,
+                thinking=True,
+                **_,
+            ):
+                self.seen_thinking = thinking
+                return await super().complete(messages, system_prompt, tools, max_tokens)
+
+        provider = CapturingProvider()
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(provider)
+
+        snapshot = await brain.update_model_config(thinking="medium")
+        await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert snapshot["thinking"] == "medium"
+        assert provider.seen_thinking == "medium"
+
 
 class _FailingProvider(MockProvider):
     provider_name = "primary"

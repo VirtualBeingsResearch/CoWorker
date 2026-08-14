@@ -12,8 +12,8 @@ double underscores to separate groups; start with the repository's `.env.example
 configuration.
 
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
-environment variables. `data/model_runtime_config.json` overrides only the summary, fallbacks, and
-vision settings changed at runtime. When a container or service manager injects environment
+environment variables. `data/model_runtime_config.json` overrides only the primary reasoning
+effort, summary, fallbacks, and vision settings changed at runtime. When a container or service manager injects environment
 variables, make sure the working directory does not contain conflicting `.env` values. The
 administration page writes only fields that differ from inherited configuration to
 `admin_config.json`; saving removes overrides restored to their `.env` or product-default value.
@@ -62,6 +62,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | Default LLM provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | Default model |
 | `LLM__MAX_TOKENS` | `8192` | Maximum output tokens for one LLM response |
+| `LLM__THINKING` | `true` | Primary reasoning mode or effort; accepts legacy `true`/`false` or `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `auto`; hot-adjustable in the management console |
 | `LLM__SUMMARY_PROVIDER` | Empty | Provider dedicated to summarization/compression; when empty, use the current main provider |
 | `LLM__SUMMARY_MODEL` | Empty | Model dedicated to summarization/compression; setting only this field reuses the current provider, while leaving it empty with `SUMMARY_PROVIDER` configured uses that provider's `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
@@ -80,10 +81,16 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__MINIMAX_API_KEY` | Empty | MiniMax API key |
 | `LLM__MINIMAX_BASE_URL` | Empty (uses the MiniMax OpenAI-compatible endpoint when unset) | Custom MiniMax base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | Named provider list file (see “Multiple provider instances” below); ignored if the file does not exist |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to summary / fallbacks / vision; these override matching model settings from `.env` at startup |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to reasoning effort / summary / fallbacks / vision; these override matching model settings from `.env` at startup |
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
 | `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |
+
+Effort levels pass through to Providers with a native reasoning-effort control. Qwen Chat
+Completions maps them to `thinking_budget`. Providers that expose only an on/off or adaptive mode
+collapse every non-`none` level to “on”, so the model service ultimately determines the effect.
+Legacy `true` preserves the Provider's previous enabled behavior, while `false` is equivalent to
+`none`.
 
 Each `LLM__MODEL_PRICES` item contains `provider`, `model`, a three-letter uppercase `currency`,
 `input_per_million`, `output_per_million`, and optional `cached_input_per_million`. Prices must be

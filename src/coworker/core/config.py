@@ -29,6 +29,7 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
 )
+from coworker.core.types import ThinkingMode
 from coworker.i18n import SupportedLocale, normalize_locale, tr
 from coworker.prompts.template import (
     MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
@@ -188,6 +189,8 @@ class LLMConfig(_EnvSettings):
     default_provider: str = "deepseek"
     default_model: str = "deepseek-v4-pro"
     max_tokens: int = Field(DEFAULT_LLM_MAX_TOKENS, gt=0)
+    # 主线 thinking 支持旧版 bool，也支持运行时强度档位。
+    thinking: ThinkingMode = True
     summary_provider: str = ""
     summary_model: str = ""
     summary_thinking: bool = False

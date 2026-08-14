@@ -804,6 +804,7 @@ class SubconsciousScheduler:
             default_model=self._brain.current_model,
             message_time_prefix=self._brain.message_time_prefix,
             max_tokens=self._brain.max_tokens,
+            thinking=self._brain.thinking,
             summary_provider=self._brain.summary_provider_name,
             summary_model=self._brain.summary_model,
             summary_thinking=self._brain.summary_thinking,

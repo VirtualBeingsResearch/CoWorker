@@ -10,6 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
+    "any-llm-sdk[anthropic,openai]>=1.25.0,<2",
     "anthropic>=0.120.2",
     "openai>=2.53.0",
     "chromadb>=0.5",

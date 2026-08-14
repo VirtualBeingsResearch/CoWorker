@@ -273,6 +273,61 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
+function ProviderModelField({ id, label, value, onChange, providerType, providerName = '', apiKey, baseUrl, catalogModels = [], className = '' }: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  providerType: string;
+  providerName?: string;
+  apiKey: string;
+  baseUrl: string;
+  catalogModels?: string[];
+  className?: string;
+}) {
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const models = Array.from(new Set([...catalogModels, ...remoteModels]));
+  useEffect(() => {
+    setRemoteModels([]);
+    setMessage(null);
+  }, [providerType, baseUrl]);
+  const discover = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const result = await api<Json>('/api/admin/provider-models', { method: 'POST', body: JSON.stringify({
+        provider_type: providerType,
+        provider_name: providerName,
+        api_key: apiKey,
+        base_url: baseUrl,
+      }) });
+      const discovered = Array.isArray(result.models) ? result.models.map(String) : [];
+      const fallback = Array.isArray(result.catalog_models) ? result.catalog_models.map(String) : [];
+      setRemoteModels(Array.from(new Set([...fallback, ...discovered])));
+      setMessage({
+        kind: 'ok',
+        text: result.source === 'provider'
+          ? t('已从接口读取 {{count}} 个模型', { count: discovered.length })
+          : t('该接口未提供模型列表，继续使用推荐模型'),
+      });
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : t('读取模型列表失败') });
+    } finally {
+      setLoading(false);
+    }
+  };
+  return <div className={`provider-model-field ${className}`}>
+    <label id={`${id}-label`} htmlFor={id}>{t(label)}</label>
+    <div className="provider-model-control">
+      <EditableCombobox id={id} value={value} options={models.map((item: string) => ({ value: item }))} onChange={onChange} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
+      <button type="button" className="ghost provider-model-discover" disabled={loading || (!apiKey.trim() && !providerName.trim())} onClick={() => void discover()}><RefreshCw size={14} />{t(loading ? '正在读取模型…' : '从接口读取')}</button>
+    </div>
+    {message && <small className={`provider-model-message ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</small>}
+  </div>;
+}
+
 const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'desktop_updates'];
 const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
   llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', desktop_updates: '桌面更新',
@@ -380,8 +435,8 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationBaseline] = useState<Json>(() => structuredClone(configurationDefaults));
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
-  const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
-  const preferredModel = preferredModelFor(providerType, models);
+  const catalogModels: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const preferredModel = preferredModelFor(providerType, catalogModels);
   const [model, setModel] = useState(preferredModel);
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
@@ -402,7 +457,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const normalizedName = name.trim();
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
-  const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
+  const customModel = normalizedModel !== '' && !catalogModels.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
   const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
     ? data.server_timezone.trim()
@@ -526,10 +581,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
               <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className="bootstrap-model-field">
-                <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
-              </div>
+              <ProviderModelField id="bootstrap-model-input" label="启动模型" value={model} providerType={providerType} apiKey={apiKey} baseUrl={baseUrl} catalogModels={catalogModels} className="bootstrap-model-field" onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} />
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
               <div className="bootstrap-name-field wide">
@@ -713,6 +765,27 @@ function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
   />;
 }
 
+const THINKING_EFFORT_OPTIONS = [
+  ['none', '关闭'],
+  ['minimal', '最小'],
+  ['low', '低'],
+  ['medium', '中'],
+  ['high', '高'],
+  ['xhigh', '极高'],
+  ['max', '最大'],
+  ['auto', '自动'],
+] as const;
+
+function normalizeThinkingEffort(value: unknown): string {
+  if (value === false) return 'none';
+  if (value === true || !value) return 'high';
+  return String(value);
+}
+
+function ThinkingEffortField({ value, onChange }: { value: unknown; onChange: (value: string) => void }) {
+  return <Field label="思考强度" hint="支持强度的 Provider 会原样应用；仅支持开关的 Provider 会降级为开启或关闭。"><select value={normalizeThinkingEffort(value)} onChange={event => onChange(event.target.value)}>{THINKING_EFFORT_OPTIONS.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></Field>;
+}
+
 function Models() {
   const { data, error, loading, reload, setData } = useLoad(() => api<Json>('/api/admin/model'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
@@ -721,11 +794,11 @@ function Models() {
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
-  const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking: draft.thinking, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking: data.thinking, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
-    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking: draft.thinking, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
     setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
   };
   const switchModel = async () => {
@@ -745,6 +818,7 @@ function Models() {
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
+      <div className="field-grid"><ThinkingEffortField value={draft.thinking} onChange={value => setDraft({ ...draft, thinking: value })} /></div>
       <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button></div>
       {switchError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError}</span></div>}
     </Panel>
@@ -1000,7 +1074,7 @@ const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   SKILLS: '已加载 Skill 的可选注册表',
   PALACES: '已加载 Palace 的可选注册表',
 };
-const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
+const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['thinking', 'summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
   id: string;
   name: string;
@@ -1203,6 +1277,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
+  'llm.thinking': '主线思考强度',
   'llm.summary_provider': '摘要 Provider',
   'llm.summary_model': '摘要模型',
   'llm.summary_thinking': '摘要 Thinking',
@@ -1367,7 +1442,7 @@ function Settings() {
               <Field label="连接名称" hint="在模型编排中引用的名称"><input value={provider.name || ''} onChange={e => changeProvider(index, 'name', e.target.value)} placeholder={t('例如 openai-work')} /></Field>
               <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax'].map(type => <option key={type}>{type}</option>)}</select></Field>
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
-              <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
+              <ProviderModelField id={`provider-default-model-${index}`} label="默认模型" value={provider.default_model || ''} onChange={next => changeProvider(index, 'default_model', next)} providerType={provider.type || 'openai'} providerName={provider.name || ''} apiKey={secretInputs[secretPath] || ''} baseUrl={provider.base_url || ''} />
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
               <ProviderModelCapabilityEditor value={Array.isArray(provider.model_capabilities) ? provider.model_capabilities : []} onChange={next => changeProvider(index, 'model_capabilities', next)} />
               <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>

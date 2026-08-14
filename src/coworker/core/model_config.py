@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from coworker.core.config import LLMConfig
+from coworker.core.types import ThinkingMode
 
 
 class RuntimeSummaryConfig(BaseModel):
@@ -28,6 +29,7 @@ class RuntimeVisionConfig(BaseModel):
 class RuntimeModelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    thinking: ThinkingMode = True
     summary: RuntimeSummaryConfig = Field(default_factory=RuntimeSummaryConfig)
     fallbacks: list[str] = Field(default_factory=list)
     vision: RuntimeVisionConfig = Field(default_factory=RuntimeVisionConfig)
@@ -35,6 +37,7 @@ class RuntimeModelConfig(BaseModel):
     @classmethod
     def from_llm_config(cls, llm: LLMConfig) -> RuntimeModelConfig:
         return cls(
+            thinking=llm.thinking,
             summary=RuntimeSummaryConfig(
                 provider=llm.summary_provider,
                 model=llm.summary_model,
@@ -53,6 +56,7 @@ class RuntimeModelConfig(BaseModel):
         summary = snapshot.get("summary") or {}
         vision = snapshot.get("vision") or {}
         return cls(
+            thinking=snapshot.get("thinking", True),
             summary=RuntimeSummaryConfig(
                 provider=str(summary.get("provider") or ""),
                 model=str(summary.get("model") or ""),
@@ -67,6 +71,7 @@ class RuntimeModelConfig(BaseModel):
         )
 
     def apply_to_llm_config(self, llm: LLMConfig) -> None:
+        llm.thinking = self.thinking
         llm.summary_provider = self.summary.provider
         llm.summary_model = self.summary.model
         llm.summary_thinking = self.summary.thinking

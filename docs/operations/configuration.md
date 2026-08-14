@@ -11,8 +11,8 @@
 仓库根目录的 `.env.example` 开始。
 
 配置优先级为：管理端保存的 `data/admin_config.json` 高于 `.env`，`.env` 高于
-操作系统环境变量。`data/model_runtime_config.json` 只覆盖在线修改的 summary、
-fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，请确认工作目录中
+操作系统环境变量。`data/model_runtime_config.json` 只覆盖在线修改的主线思考强度、
+summary、fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，请确认工作目录中
 没有同名 `.env` 配置。管理端只向 `admin_config.json` 写入相对继承配置实际改变的
 字段；保存时会移除已经恢复为 `.env` 或产品默认值的覆盖项。显式空列表若不同于继承值，
 仍作为有效覆盖保留。因此未修改的默认字段会随版本演进，不会因打开或保存整个设置分组而
@@ -50,6 +50,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | 默认 LLM Provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | 默认模型 |
 | `LLM__MAX_TOKENS` | `8192` | 单次 LLM 响应的最大输出 token 数 |
+| `LLM__THINKING` | `true` | 主线思考模式或强度；兼容 `true`/`false`，也可设为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 或 `auto`；管理后台可热更新 |
 | `LLM__SUMMARY_PROVIDER` | 空 | 摘要/压缩专用 provider；留空则沿用当前主线 provider |
 | `LLM__SUMMARY_MODEL` | 空 | 摘要/压缩专用模型；只填它会复用当前 provider，留空且已配置 `SUMMARY_PROVIDER` 时使用该 provider 的 `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
@@ -68,10 +69,15 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__MINIMAX_API_KEY` | 空 | MiniMax API Key |
 | `LLM__MINIMAX_BASE_URL` | 空（未配置时使用 MiniMax OpenAI 兼容地址） | MiniMax 自定义 Base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | 命名 Provider 列表文件（见下方「多实例 Provider」）；文件不存在则忽略 |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改 summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改思考强度 / summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
 | `LLM__VISION_PROVIDER` | 空 | 视觉分析工具使用的 provider；留空时 `visual_analyze` 会提示先配置 |
 | `LLM__VISION_MODEL` | 空 | 视觉分析工具使用的模型；分析视频时还需 Provider 声明原生视频能力 |
 | `LLM__VISION_THINKING` | `true` | 视觉分析调用是否启用 thinking；设为 `false` 可使用支持的 Provider 的非思考模式，降低延迟和成本 |
+
+强度档位会传给支持原生 reasoning effort 的 Provider；Qwen Chat Completions 会映射为
+`thinking_budget`。只有开启/关闭或自适应模式的 Provider 会把所有非 `none` 档位降级为
+“开启”，因此具体效果仍以模型服务能力为准。旧版布尔值 `true` 保留 Provider 原有的启用
+行为，`false` 等价于 `none`。
 
 `LLM__MODEL_PRICES` 的每项包含 `provider`、`model`、三个大写字母的 `currency`，以及
 `input_per_million`、`output_per_million` 和可选的 `cached_input_per_million`。价格必须是

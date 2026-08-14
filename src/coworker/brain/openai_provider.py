@@ -3,28 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 
-import openai
-from loguru import logger
+from any_llm.exceptions import AnyLLMError
 
+from coworker.brain.any_llm_provider import AnyLLMProvider, parse_tool_arguments
 from coworker.brain.base import (
-    BaseLLMProvider,
     pdf_attachment_fallback,
     unsupported_image_fallback,
 )
-from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
-from coworker.core.types import LLMResponse, Message, ToolCall
+from coworker.core.types import LLMResponse, Message, ThinkingMode, ToolCall, reasoning_effort
 from coworker.i18n import tr
 
-
-def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse tool call arguments for '{tool_name}': {raw!r}")
-        return {"__parse_error__": str(e), "__raw_arguments__": raw}
-
+_parse_tool_arguments = parse_tool_arguments
 
 _TOOL_USE_MODELS = {
     # GPT-5.x series (current flagship and variants)
@@ -118,18 +109,11 @@ _REASONING_MODELS = {
 }
 
 
-class OpenAIProvider(BaseLLMProvider):
+class OpenAIProvider(AnyLLMProvider):
     provider_type = "openai"
     api_dialect = "openai"
-
-    def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
-        super().__init__(name)
-        self._client = openai.AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
-        )
-        self._current_model = "gpt-4o"
+    any_llm_provider = "openai"
+    initial_model = "gpt-4o"
 
     def supports_vision(self, model_id: str) -> bool:
         return model_id in _VISION_MODELS
@@ -245,7 +229,10 @@ class OpenAIProvider(BaseLLMProvider):
                 ToolCall(
                     id=getattr(item, "call_id", ""),
                     name=name,
-                    arguments=_parse_tool_arguments(getattr(item, "arguments", "") or "{}", name),
+                    arguments=_parse_tool_arguments(
+                        getattr(item, "arguments", "") or "{}",
+                        name,
+                    ),
                 )
             )
         return tool_calls
@@ -273,26 +260,27 @@ class OpenAIProvider(BaseLLMProvider):
         system_prompt: str,
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
-        thinking: bool = True,
+        thinking: ThinkingMode = True,
     ) -> LLMResponse:
         try:
             input_items, _ = self._to_responses_input(messages, self._current_model)
             kwargs: dict = {
                 "model": self._current_model,
-                "input": input_items,
+                "input_data": input_items,
                 "instructions": system_prompt,
                 "max_output_tokens": max_tokens,
                 "prompt_cache_key": self._build_prompt_cache_key(system_prompt, tools),
             }
             if tools:
                 kwargs["tools"] = self._to_responses_tools(tools)
-            if self._current_model in _REASONING_MODELS and thinking:
-                kwargs["reasoning"] = {"effort": "high", "summary": "auto"}
-            elif not thinking:
+            effort = reasoning_effort(thinking)
+            if effort == "none":
                 kwargs["reasoning"] = {"effort": "none"}
-            response = await self._client.responses.create(**kwargs)
-        except openai.APIError as e:
-            raise ProviderError(str(e)) from e
+            elif self._current_model in _REASONING_MODELS and effort != "auto":
+                kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
+            response = await self._llm.aresponses(**kwargs)
+        except AnyLLMError as error:
+            raise ProviderError(str(error)) from error
 
         tool_calls = self._parse_responses_tool_calls(response)
         usage = self._extract_usage(response)
@@ -372,9 +360,6 @@ class OpenAIProvider(BaseLLMProvider):
             return result.input_tokens
         except Exception:
             return await super().count_tokens(messages, model_id)
-
-    def set_model(self, model_id: str) -> None:
-        self._current_model = model_id
 
     def list_models(self) -> list[str]:
         return sorted(_TOOL_USE_MODELS)

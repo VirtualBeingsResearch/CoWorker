@@ -10,7 +10,7 @@ from loguru import logger
 from coworker.brain.base import BaseLLMProvider
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
-from coworker.core.types import LLMResponse, Message, SummaryResult
+from coworker.core.types import LLMResponse, Message, SummaryResult, ThinkingMode
 from coworker.i18n import tr
 
 _WEEKDAY_KEYS = [
@@ -53,7 +53,7 @@ class Brain:
         message_time_prefix: bool = True,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         fallbacks: list[str] | None = None,
-        thinking: bool = True,
+        thinking: ThinkingMode = True,
         summary_provider: str = "",
         summary_model: str = "",
         summary_thinking: bool = False,
@@ -92,7 +92,7 @@ class Brain:
         return self._max_tokens
 
     @property
-    def thinking(self) -> bool:
+    def thinking(self) -> ThinkingMode:
         return self._thinking
 
     def register_provider(self, provider: BaseLLMProvider) -> None:
@@ -298,6 +298,7 @@ class Brain:
     def model_config_snapshot(self) -> dict[str, Any]:
         return {
             "providers": self.list_providers(),
+            "thinking": self._thinking,
             "active": {
                 "provider": self._active_provider_name,
                 "model": self._active_model,
@@ -319,6 +320,7 @@ class Brain:
     async def update_model_config(
         self,
         *,
+        thinking: ThinkingMode | None = None,
         summary_provider: str | None = None,
         summary_model: str | None = None,
         summary_thinking: bool | None = None,
@@ -327,6 +329,7 @@ class Brain:
         vision_model: str | None = None,
         vision_thinking: bool | None = None,
     ) -> dict[str, Any]:
+        next_thinking = self._thinking if thinking is None else thinking
         next_summary_provider = (
             self._summary_provider_name if summary_provider is None else summary_provider.strip()
         )
@@ -349,6 +352,7 @@ class Brain:
         self._validate_vision_config(next_vision_provider, next_vision_model)
 
         async with self._lock:
+            self._thinking = next_thinking
             self._summary_provider_name = next_summary_provider
             self._summary_model = next_summary_model
             self._summary_thinking = next_summary_thinking
@@ -399,7 +403,7 @@ class Brain:
         tools: list[dict],
         max_tokens: int,
         tries: int,
-        thinking: bool = True,
+        thinking: ThinkingMode = True,
     ) -> LLMResponse:
         """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
         last_err: Exception | None = None

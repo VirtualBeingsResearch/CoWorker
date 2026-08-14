@@ -35,13 +35,19 @@ def _create_bubble_brain(
 ) -> Brain:
     from coworker.brain.brain import Brain as _Brain
 
+    parent_thinking = parent_brain.thinking
+    bubble_thinking = (
+        parent_thinking
+        if thinking and isinstance(parent_thinking, (bool, str))
+        else thinking
+    )
     bubble_brain = _Brain(
         default_provider=provider,
         default_model=model,
         message_time_prefix=parent_brain.message_time_prefix,
         max_tokens=parent_brain.max_tokens,
         fallbacks=parent_brain._fallbacks,
-        thinking=thinking,
+        thinking=bubble_thinking,
         summary_provider=parent_brain.summary_provider_name,
         summary_model=parent_brain.summary_model,
         summary_thinking=parent_brain.summary_thinking,

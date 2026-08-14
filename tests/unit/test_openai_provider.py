@@ -14,9 +14,10 @@ def _make_provider(model_id: str = "gpt-5.4") -> tuple[OpenAIProvider, AsyncMock
     create = AsyncMock()
     provider = OpenAIProvider.__new__(OpenAIProvider)
     provider._current_model = model_id
-    provider._client = SimpleNamespace(
-        responses=SimpleNamespace(
-            create=create,
+    provider._llm = SimpleNamespace(
+        aresponses=create,
+        client=SimpleNamespace(
+            responses=SimpleNamespace(),
         ),
     )
     return provider, create
@@ -64,6 +65,7 @@ class TestOpenAIProvider:
 
         kwargs = create.await_args.kwargs
         assert kwargs["prompt_cache_key"].startswith("coworker:openai:")
+        assert kwargs["input_data"]
         assert kwargs["max_output_tokens"] == DEFAULT_LLM_MAX_TOKENS
         assert kwargs["instructions"] == "You are helpful."
         assert kwargs["tools"] == [{"type": "function", **tools[0]}]
@@ -83,6 +85,37 @@ class TestOpenAIProvider:
         assert response.usage["output_tokens"] == 45
         assert response.usage["cached_tokens"] == 67
         assert response.content == "ok"
+
+    @pytest.mark.asyncio
+    async def test_complete_passes_dynamic_reasoning_effort(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking="minimal",
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {
+            "effort": "minimal",
+            "summary": "auto",
+        }
+
+    @pytest.mark.asyncio
+    async def test_complete_disables_reasoning_without_summary_request(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking="none",
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {"effort": "none"}
 
     @pytest.mark.asyncio
     async def test_complete_reads_tool_calls_from_responses_output(self):
@@ -175,5 +208,3 @@ class TestOpenAIProvider:
         assert len(response.tool_calls) == 1
         assert "__parse_error__" in response.tool_calls[0].arguments
         assert response.tool_calls[0].arguments["__raw_arguments__"] == "not valid json{{{"
-
-

@@ -49,9 +49,11 @@ from coworker.core.config import (
     effective_admin_token,
     load_admin_overrides,
 )
+from coworker.core.exceptions import ProviderError
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
 )
+from coworker.core.types import ThinkingMode
 from coworker.desktop_updates import build_runtime_spec, provider_metadata
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.persona import Person, PersonAlias
@@ -171,6 +173,15 @@ class BootstrapPayload(BaseModel):
     secrets: dict[str, str | None] = Field(default_factory=dict)
 
 
+class ProviderModelsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
+    provider_name: str = Field(default="", max_length=128)
+    api_key: str = Field(default="", max_length=4096)
+    base_url: str = Field(default="", max_length=2048)
+
+
 class SummaryModelPatch(BaseModel):
     provider: str | None = None
     model: str | None = None
@@ -192,6 +203,7 @@ class Mem0ModelPatch(BaseModel):
 
 
 class ModelPatch(BaseModel):
+    thinking: ThinkingMode | None = None
     summary: SummaryModelPatch | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelPatch | None = None
@@ -1021,6 +1033,69 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     }
 
 
+@router.post("/provider-models")
+async def discover_provider_models(
+    payload: ProviderModelsPayload,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Read model IDs from a provider metadata endpoint without invoking a model."""
+
+    from coworker.brain.factory import build_provider
+
+    provider_name = payload.provider_name.strip()
+    api_key = payload.api_key.strip()
+    base_url = payload.base_url.strip()
+    if provider_name and (not api_key or not base_url):
+        configured = next(
+            (
+                spec
+                for spec in _require_config().llm.resolved_providers()
+                if spec.name == provider_name and spec.type == payload.provider_type
+            ),
+            None,
+        )
+        if configured is not None:
+            api_key = api_key or configured.api_key.strip()
+            base_url = base_url or configured.base_url.strip()
+    if not api_key:
+        raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
+
+    provider = None
+    try:
+        provider = build_provider(
+            payload.provider_type,
+            api_key,
+            base_url=base_url or None,
+            name=provider_name or payload.provider_type,
+        )
+        discovered = await provider.fetch_models()
+        return {
+            "models": discovered,
+            "catalog_models": provider.list_models(),
+            "source": "provider" if discovered else "catalog",
+        }
+    except (ProviderError, ValueError) as error:
+        logger.warning(
+            "Provider model discovery failed for {}: {}",
+            payload.provider_type,
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=tr("api.admin.model_discovery_failed"),
+        ) from error
+    finally:
+        if provider is not None:
+            try:
+                await provider.close()
+            except Exception as error:
+                logger.warning(
+                    "Failed to close provider client for {}: {}",
+                    payload.provider_type,
+                    type(error).__name__,
+                )
+
+
 @router.post("/bootstrap", status_code=202)
 async def complete_bootstrap(
     payload: BootstrapPayload,
@@ -1558,6 +1633,7 @@ async def patch_model(
     config = _require_config()
     try:
         snapshot = await brain.update_model_config(
+            thinking=payload.thinking,
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,

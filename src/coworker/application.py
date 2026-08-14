@@ -282,6 +282,7 @@ def _load_config() -> Config:
 
 async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
     await brain.update_model_config(
+        thinking=config.llm.thinking,
         summary_provider=config.llm.summary_provider,
         summary_model=config.llm.summary_model,
         summary_thinking=config.llm.summary_thinking,
@@ -324,6 +325,7 @@ async def _run_check() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            thinking=config.llm.thinking,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
             summary_thinking=config.llm.summary_thinking,
@@ -375,6 +377,7 @@ async def _run_backfill() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            thinking=config.llm.thinking,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
             summary_thinking=config.llm.summary_thinking,
@@ -457,6 +460,7 @@ async def _main() -> bool:
         message_time_prefix=config.agent.message_time_prefix,
         max_tokens=config.llm.max_tokens,
         fallbacks=config.llm.fallbacks,
+        thinking=config.llm.thinking,
         summary_provider=config.llm.summary_provider,
         summary_model=config.llm.summary_model,
         summary_thinking=config.llm.summary_thinking,

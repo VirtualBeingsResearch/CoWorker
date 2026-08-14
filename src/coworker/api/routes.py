@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
-from coworker.core.types import IncomingEvent, SummaryResult
+from coworker.core.types import IncomingEvent, SummaryResult, ThinkingMode
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
 
@@ -152,6 +152,7 @@ class VisionModelConfigPayload(BaseModel):
 
 
 class ModelConfigPatchPayload(BaseModel):
+    thinking: ThinkingMode | None = None
     summary: SummaryModelConfigPayload | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelConfigPayload | None = None
@@ -325,6 +326,7 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
 
     try:
         snapshot = await _brain.update_model_config(
+            thinking=payload.thinking,
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,

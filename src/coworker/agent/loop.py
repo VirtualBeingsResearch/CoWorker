@@ -12,7 +12,7 @@ from loguru import logger
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
-from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
+from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult, thinking_enabled
 from coworker.i18n import tr
 from coworker.persona import PersonaContext
 
@@ -357,7 +357,7 @@ class AgentLoop:
         if self._ilog:
             self._ilog.log_thinking_start(
                 self.state.cycle_count,
-                thinking=bool(self._brain.thinking),
+                thinking=thinking_enabled(self._brain.thinking),
             )
         response = await self._brain.think(
             messages,
@@ -387,7 +387,7 @@ class AgentLoop:
                 response.model,
                 response.usage,
                 provider=self._brain.current_provider_name,
-                thinking=bool(self._brain.thinking),
+                thinking=thinking_enabled(self._brain.thinking),
             )
 
         assistant_msg = Message(

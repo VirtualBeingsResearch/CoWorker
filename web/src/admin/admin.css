@@ -435,7 +435,14 @@ html:has(.admin-login),
 .bootstrap-name-warning { display: flex; align-items: center; gap: 6px; margin-top: 9px; color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); font-size: 10px; line-height: 1.45; }
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
 .bootstrap-model-field { position: relative; min-width: 0; }
-.bootstrap-model-field > label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.provider-model-field > label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.provider-model-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: start; }
+.provider-model-discover { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; padding-inline: 11px; white-space: nowrap; }
+.provider-model-discover:disabled svg { animation: none; }
+.provider-model-message { display: block; margin-top: 5px; color: var(--admin-vital); font-size: 10px; line-height: 1.4; }
+.provider-model-message.error { color: var(--admin-red); }
+.provider-row .provider-model-field { min-width: 0; }
+.provider-row .provider-model-field > label { color: var(--admin-muted); font-size: 11px; }
 .bootstrap-submit-row { display: grid; grid-template-columns: minmax(150px, .42fr) minmax(0, 1fr); gap: 10px; }
 .bootstrap-submit-row > .primary { min-height: 48px; }
 .bootstrap-advanced-trigger { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 12px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-muted); background: var(--admin-surface); text-align: left; cursor: pointer; }

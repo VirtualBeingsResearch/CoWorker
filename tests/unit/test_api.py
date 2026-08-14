@@ -1200,6 +1200,7 @@ class TestModelConfigAPI:
         resp = client.patch(
             "/model_config",
             json={
+                "thinking": "minimal",
                 "summary": {"provider": "mock", "model": "summary-model", "thinking": True},
                 "fallbacks": ["mock/mock-model"],
                 "vision": {"provider": "mock", "model": "vision-model", "thinking": False},
@@ -1208,6 +1209,7 @@ class TestModelConfigAPI:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["thinking"] == "minimal"
         assert body["summary"] == {"provider": "mock", "model": "summary-model", "thinking": True}
         assert body["fallbacks"] == ["mock/mock-model"]
         assert body["vision"]["provider"] == "mock"
@@ -1215,12 +1217,14 @@ class TestModelConfigAPI:
         assert body["vision"]["thinking"] is False
         assert body["persisted"] is True
         persisted = json.loads(path.read_text(encoding="utf-8"))
+        assert persisted["thinking"] == "minimal"
         assert persisted["summary"]["model"] == "summary-model"
         assert persisted["vision"]["model"] == "vision-model"
         assert persisted["vision"]["thinking"] is False
         assert brain.summary_model == "summary-model"
         assert brain.vision_model == "vision-model"
         assert brain.vision_thinking is False
+        assert brain.thinking == "minimal"
 
     def test_patch_invalid_payload_returns_400_and_does_not_write(self, client, tmp_path):
         mock_inbox = MagicMock()

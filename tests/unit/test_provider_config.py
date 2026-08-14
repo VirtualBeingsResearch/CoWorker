@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,10 +36,9 @@ def _llm(**kwargs) -> LLMConfig:
 
 @pytest.fixture(autouse=True)
 def stub_zhipu_sdk_client(monkeypatch):
-    monkeypatch.setattr("coworker.brain.zhipu_provider.openai.AsyncOpenAI", lambda **_: object())
     monkeypatch.setattr(
-        "coworker.brain.zhipu_provider.openai.DefaultAsyncHttpxClient",
-        lambda **_: object(),
+        "coworker.brain.any_llm_provider.AnyLLM.create",
+        lambda *_args, **_kwargs: SimpleNamespace(SUPPORTS_LIST_MODELS=False),
     )
 
 
@@ -281,6 +281,12 @@ def test_vision_thinking_defaults_to_enabled_and_can_be_disabled():
     assert _llm(vision_thinking=False).vision_thinking is False
 
 
+def test_main_thinking_accepts_dynamic_effort_and_legacy_boolean():
+    assert _llm().thinking is True
+    assert _llm(thinking=False).thinking is False
+    assert _llm(thinking="minimal").thinking == "minimal"
+
+
 def test_legacy_runtime_vision_config_keeps_thinking_enabled():
     runtime = RuntimeModelConfig.model_validate({
         "vision": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
@@ -294,6 +300,7 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     write_runtime_model_config(
         path,
         RuntimeModelConfig.model_validate({
+            "thinking": "medium",
             "summary": {"provider": "zhipu-b", "model": "glm-4.7", "thinking": True},
             "fallbacks": ["zhipu-b", "deepseek/deepseek-chat"],
             "vision": {
@@ -308,6 +315,7 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     runtime = apply_runtime_model_config_file(cfg)
 
     assert runtime is not None
+    assert cfg.thinking == "medium"
     assert cfg.summary_provider == "zhipu-b"
     assert cfg.summary_model == "glm-4.7"
     assert cfg.summary_thinking is True

@@ -15,7 +15,7 @@ from coworker.agent.bubble_log_index import (
     upsert_completed_bubble_index,
 )
 from coworker.agent.incoming_content import build_content_blocks
-from coworker.core.types import IncomingEvent, Message, SummaryResult
+from coworker.core.types import IncomingEvent, Message, SummaryResult, thinking_enabled
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -272,7 +272,10 @@ class BubbleMiniLoop:
             )
 
             if self._ilog:
-                self._ilog.log_thinking_start(cycle, thinking=bool(self._brain.thinking))
+                self._ilog.log_thinking_start(
+                    cycle,
+                    thinking=thinking_enabled(self._brain.thinking),
+                )
             response = await self._brain.think(
                 messages=self._stm.build_context(),
                 system_prompt=self._system_prompt,
@@ -288,7 +291,7 @@ class BubbleMiniLoop:
                     model=response.model,
                     usage=response.usage,
                     provider=self._brain.current_provider_name,
-                    thinking=bool(self._brain.thinking),
+                    thinking=thinking_enabled(self._brain.thinking),
                 )
 
             self._stm.primary.append(

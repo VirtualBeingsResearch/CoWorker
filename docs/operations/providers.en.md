@@ -6,6 +6,9 @@
 
 Coworker includes `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and `minimax` Providers.
 The first call may incur cost; the setup wizard does not run an online capability probe.
+All six connections share the Any-LLM adapter layer. Coworker still preserves the necessary
+message, attachment, tool, thinking, and token-usage differences instead of treating
+“OpenAI-compatible” as behaviorally identical.
 
 ## Choose a model
 
@@ -19,6 +22,10 @@ For a main model, confirm at least:
 The recommended catalog lists models statically declared to support tools. For a model outside the
 catalog, declare whether it supports tools, images, and video during first-time setup or on its
 Provider connection. Coworker does not run an online capability probe.
+
+Model orchestration can hot-adjust the primary reasoning effort. Providers with native effort
+controls use the selected level, while toggle-only thinking APIs safely collapse enabled levels
+to “on”.
 
 ## Configure
 
@@ -34,6 +41,13 @@ LLM__DEEPSEEK_BASE_URL=
 An empty Base URL uses the Provider default. For an OpenAI-compatible gateway, still choose the
 Provider type matching its actual request and response dialect. “Compatible” does not guarantee
 identical tools, thinking, video, or error behavior.
+
+“Read from API” in first-time setup and Provider connections requests only the connection's model
+list metadata; it does not start a chat, completion, or other model inference. Returned IDs are
+merged into the selector, but an administrator must still declare `tools`, `vision`, and `video`
+capabilities for models outside the catalog. A model list is not treated as capability evidence.
+Some compatible gateways do not implement model listing, so a model ID can still be entered
+manually when discovery fails.
 
 ## Multiple instances of one type
 
