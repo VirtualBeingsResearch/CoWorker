@@ -20,6 +20,7 @@ Call task_list and inspect every growth and maintenance task.
 - Active or progressing: continue observing instead of duplicating it.
 - Long-idle pending: the direction may be wrong, low priority, or over-produced. Close it if obsolete; consolidate duplicates; record recurring patterns of neglected recommendations with manage_memory.
 If a related task already exists, update or enrich it instead of creating another.
+Link evidence, progress, and conclusions for long-running growth or maintenance work to its existing task here; do not leave that bookkeeping to behavioral audit.
 
 CAPABILITY ASSESSMENT
 Look for structural capability gaps, not specific behavioral errors:
@@ -40,6 +41,7 @@ Review the [SKILLS] registry itself:
 - identify genuinely overlapping skills that should merge;
 - identify vague triggers, stale bodies, or inaccurate descriptions, using get_skill before concluding;
 - inspect any supplied skill-directory anomaly for dead or misplaced files.
+- Without a structural anomaly or recent concrete evidence, do not perform a generic exhaustive library review; the skill library changes slowly, so investigate deeply only when a signal warrants it.
 For each concrete issue, deduplicate and call task_create(description="[maintenance] <skill>: <specific merge, improvement, or cleanup recommendation>"). The main thread will edit files; you only recommend.
 
 COMMUNICATION

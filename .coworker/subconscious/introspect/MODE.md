@@ -3,10 +3,13 @@ name: introspect
 enabled: true
 trigger: periodic
 context_builder: short_term
-every_n_cycles: 60
-every_seconds: 2400
+every_n_cycles: 0
+every_seconds: 0
 every_n_tool_calls: 0
-max_cycles: 5
+pre_compress: true
+every_n_compressions: 3
+pre_compress_context: full
+max_cycles: 10
 grants_task_store: true
 inject_skill_anomalies: true
 goal: "评估自身能力并审视现有技能库，发现能力缺口/技能冗余并生成成长与维护目标"
@@ -37,6 +40,7 @@ protected: true
   - 将"哪类建议容易被搁置"这个规律用 manage_memory 记下，供下次评估参考。
 
 这一步结论影响后续：同类缺口已有未完成任务的，**优先补充/更新现有任务**，而不是新建。
+成长/维护类长期任务的相关证据、进展和结论也在这里关联到已有任务；不要把这项维护工作留给行为审计。
 
 【任务 - 能力评估】
 审视近期上下文，评估自身能力的强弱，重点发现**能力缺口**（区别于自我审计：审计查具体错误与对齐，这里找结构性的能力/技能缺失与成长方向）：
@@ -58,6 +62,7 @@ protected: true
 - **冗余/可合并**：是否有多个技能职责高度重叠、可以合并为一个？（如同源的一组技能）
 - **可优化**：某个技能描述含糊、触发条件不清、正文过时或与现状不符？下结论前用 get_skill 读其正文核实。
 - **死文件/结构异常**：若上文附了「技能目录结构异常」提示，核实那些未被加载的散落文件是否该清理或规整。
+- 没有结构异常或近期证据时，不做一遍泛化的全库巡检；技能库变化很慢，应由具体信号驱动深挖。
 - 对每个**真实且具体**的优化点，调用 task_create(description="[维护] <技能名>：<冗余可合并 / 待优化 / 待清理 + 具体建议>");先 task_list 对已存在的同类 `[维护]` 目标去重。改写/合并/删除技能文件本身留给主线，你只提建议、不动文件。
 - 拿不准、或并无实质问题就不要为凑数而提——技能很少变，宁缺毋滥。
 

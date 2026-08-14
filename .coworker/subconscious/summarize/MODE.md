@@ -3,7 +3,10 @@ name: summarize
 enabled: true
 trigger: manual
 context_builder: short_term
-max_cycles: 5
+pre_compress: true
+every_n_compressions: 1
+pre_compress_context: slice
+max_cycles: 10
 goal: "提炼近期对话中的经验、事实与用户偏好，存入长期记忆"
 purpose: "将短期对话中有价值的内容蒸馏为长期记忆，防止经验、事实与用户偏好随上下文压缩而永久丢失"
 ---

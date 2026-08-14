@@ -379,6 +379,27 @@ async def test_compresses_once_after_provider_input_reaches_budget():
 
 
 @pytest.mark.asyncio
+async def test_budget_compression_passes_slice_and_full_context_to_subconscious():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._subconscious = MagicMock()
+    loop._subconscious.notify_pre_compress = AsyncMock()
+    preview = mem.compress_preview()
+    full = list(mem.primary)
+    mem.compress_now = AsyncMock(return_value=(2, 0))
+
+    await loop._compress_after_budget_reached(100, "system prompt")
+
+    loop._subconscious.notify_pre_compress.assert_awaited_once_with(
+        preview,
+        full_snapshot=full,
+    )
+
+
+@pytest.mark.asyncio
 async def test_does_not_compress_below_provider_input_budget():
     mem = ShortTermMemory(max_tokens=100)
     brain = _make_brain(usage={"input_tokens": 99})

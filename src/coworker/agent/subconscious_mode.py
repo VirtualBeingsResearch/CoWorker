@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 _VALID_TRIGGERS = {"periodic", "garden", "cold_floor", "manual"}
 _VALID_CONTEXT_BUILDERS = {"short_term", "garden"}
+_VALID_PRE_COMPRESS_CONTEXTS = {"full", "slice"}
 
 
 class SubconsciousMode:
@@ -36,6 +37,9 @@ class SubconsciousMode:
         every_n_cycles: int = 0,
         every_seconds: int = 0,
         every_n_tool_calls: int = 0,
+        pre_compress: bool = False,
+        every_n_compressions: int = 0,
+        pre_compress_context: str = "full",
         cold_floor_seconds: int = 0,
         max_cycles: int = 0,
         goal: str = "",
@@ -58,6 +62,9 @@ class SubconsciousMode:
         self.every_n_cycles = every_n_cycles
         self.every_seconds = every_seconds
         self.every_n_tool_calls = every_n_tool_calls
+        self.pre_compress = pre_compress
+        self.every_n_compressions = every_n_compressions
+        self.pre_compress_context = pre_compress_context
         self.cold_floor_seconds = cold_floor_seconds
         self.max_cycles = max_cycles
         self.goal = goal
@@ -201,6 +208,17 @@ class SubconsciousModeLoader:
             )
             context_builder = "short_term"
 
+        pre_compress_context = str(fm.get("pre_compress_context", "full"))
+        if pre_compress_context not in _VALID_PRE_COMPRESS_CONTEXTS:
+            logger.warning(
+                tr(
+                    "log.mode_invalid_pre_compress_context",
+                    path=path,
+                    value=pre_compress_context,
+                )
+            )
+            pre_compress_context = "full"
+
         return SubconsciousMode(
             name=name,
             body=localized.body,
@@ -210,6 +228,9 @@ class SubconsciousModeLoader:
             every_n_cycles=int(fm.get("every_n_cycles", 0) or 0),
             every_seconds=int(fm.get("every_seconds", 0) or 0),
             every_n_tool_calls=int(fm.get("every_n_tool_calls", 0) or 0),
+            pre_compress=bool(fm.get("pre_compress", False)),
+            every_n_compressions=int(fm.get("every_n_compressions", 0) or 0),
+            pre_compress_context=pre_compress_context,
             cold_floor_seconds=int(fm.get("cold_floor_seconds", 0) or 0),
             max_cycles=int(fm.get("max_cycles", 0) or 0),
             goal=localized.fields["goal"],

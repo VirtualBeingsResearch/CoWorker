@@ -465,8 +465,10 @@ class AgentLoop:
             return
 
         if self._subconscious is not None:
-            # 只把即将离开原始尾部的切片交给潜意识，避免重复提炼仍驻留的内容。
-            await self._subconscious.notify_pre_compress(preview)
+            await self._subconscious.notify_pre_compress(
+                preview,
+                full_snapshot=list(self._short_term.primary),
+            )
 
         compressed, _ = await self._short_term.compress_now(
             self._brain,

@@ -29,6 +29,9 @@ def _make_mode(
     n_cycles=0,
     every_seconds=0,
     n_tool_calls=0,
+    pre_compress=False,
+    n_compressions=0,
+    pre_compress_context="full",
     cold_floor=0,
     max_cycles=5,
     grants_task_store=False,
@@ -49,6 +52,9 @@ def _make_mode(
         every_n_cycles=n_cycles,
         every_seconds=every_seconds,
         every_n_tool_calls=n_tool_calls,
+        pre_compress=pre_compress,
+        every_n_compressions=n_compressions,
+        pre_compress_context=pre_compress_context,
         cold_floor_seconds=cold_floor,
         max_cycles=max_cycles,
         grants_task_store=grants_task_store,
@@ -142,14 +148,33 @@ def mock_cfg(cfg_agent):
 @pytest.fixture
 def mode_loader():
     """In-memory mode loader with all 5 modes, thresholds all 0 so tests control them via mutation."""
-    return _populate_loader([
-        _make_mode("audit"),
-        _make_mode("summarize", trigger="manual"),
-        _make_mode("explore"),
-        _make_mode("introspect", grants_task_store=True, inject_skill_anomalies=True),
-        _make_mode("meta", trigger="cold_floor", context_builder="meta",
-                   inject_telemetry=True, grants_task_store=True),
-    ])
+    return _populate_loader(
+        [
+            _make_mode("audit", pre_compress=True, n_compressions=1),
+            _make_mode(
+                "summarize",
+                trigger="manual",
+                pre_compress=True,
+                n_compressions=1,
+                pre_compress_context="slice",
+            ),
+            _make_mode("explore"),
+            _make_mode(
+                "introspect",
+                grants_task_store=True,
+                inject_skill_anomalies=True,
+                pre_compress=True,
+                n_compressions=3,
+            ),
+            _make_mode(
+                "meta",
+                trigger="cold_floor",
+                context_builder="meta",
+                inject_telemetry=True,
+                grants_task_store=True,
+            ),
+        ]
+    )
 
 
 @pytest.fixture
@@ -666,19 +691,27 @@ class TestIntrospectSkillContext:
 
 
 class TestSchedulerPreCompress:
-    async def test_pre_compress_spawns_summarize(self, scheduler, messages):
+    async def test_pre_compress_uses_slice_for_summarize_and_full_for_audit(
+        self, scheduler, messages
+    ):
         spawned = []
+        full = [*messages, Message(role="assistant", content="full-only")]
 
         async def fake_spawn(mode, ctx, goal_override=None):
-            spawned.append((mode.name, goal_override))
+            spawned.append((mode.name, ctx, goal_override))
 
         scheduler._spawn = fake_spawn
-        await scheduler.notify_pre_compress(messages)
-        assert len(spawned) == 1
+        await scheduler.notify_pre_compress(messages, full_snapshot=full)
+        assert [item[0] for item in spawned] == ["summarize", "audit"]
         assert spawned[0][0] == "summarize"
-        assert "压缩" in (spawned[0][1] or "")
+        assert spawned[0][1] == messages
+        assert "压缩" in (spawned[0][2] or "")
+        assert spawned[1][1] == full
+        assert spawned[1][2] is None
 
-    async def test_pre_compress_skips_if_disabled(self, scheduler, cfg_agent, messages):
+    async def test_summary_switch_does_not_disable_other_pre_compress_modes(
+        self, scheduler, cfg_agent, messages
+    ):
         cfg_agent.subconscious_summarize_before_compress = False
         spawned = []
 
@@ -687,7 +720,7 @@ class TestSchedulerPreCompress:
 
         scheduler._spawn = fake_spawn
         await scheduler.notify_pre_compress(messages)
-        assert spawned == []
+        assert spawned == ["audit"]
 
     async def test_pre_compress_skips_if_summarize_active(self, scheduler, store, messages):
         bubble = store.create("running", messages, max_cycles=5)
@@ -700,9 +733,23 @@ class TestSchedulerPreCompress:
 
         scheduler._spawn = fake_spawn
         await scheduler.notify_pre_compress(messages)
-        assert spawned == []
+        assert spawned == ["audit"]
 
-    async def test_pre_compress_does_not_update_last_summarize_cycle(self, scheduler, messages):
+    async def test_introspect_runs_every_three_compressions(self, scheduler, messages):
+        spawned = []
+
+        async def fake_spawn(mode, ctx, goal_override=None):
+            spawned.append(mode.name)
+
+        scheduler._spawn = fake_spawn
+        await scheduler.notify_pre_compress(messages)
+        await scheduler.notify_pre_compress(messages)
+        assert "introspect" not in spawned
+
+        await scheduler.notify_pre_compress(messages)
+        assert spawned.count("introspect") == 1
+
+    async def test_pre_compress_does_not_update_last_cycle(self, scheduler, messages):
         async def fake_spawn(mode, ctx, goal_override=None):
             pass
 
@@ -915,6 +962,48 @@ class TestStatePersistence:
                                   mock_prompt_builder, mock_inbox, mock_ilog, state_path, mode_loader)
         gap = _time.monotonic() - s2._last_time.get("audit", _time.monotonic())
         assert 95 < gap < 120
+
+    def test_pre_compress_cadence_persists_across_restart(
+        self,
+        mock_cfg,
+        store,
+        mock_brain,
+        mock_registry,
+        mock_prompt_builder,
+        mock_inbox,
+        mock_ilog,
+        tmp_path,
+        mode_loader,
+    ):
+        state_path = tmp_path / "subconscious_state.json"
+        s1 = self._make_scheduler(
+            mock_cfg,
+            store,
+            mock_brain,
+            mock_registry,
+            mock_prompt_builder,
+            mock_inbox,
+            mock_ilog,
+            state_path,
+            mode_loader,
+        )
+        s1._compression_count = 8
+        s1._last_pre_compress_count["introspect"] = 6
+        s1.save_state()
+
+        s2 = self._make_scheduler(
+            mock_cfg,
+            store,
+            mock_brain,
+            mock_registry,
+            mock_prompt_builder,
+            mock_inbox,
+            mock_ilog,
+            state_path,
+            mode_loader,
+        )
+        assert s2._compression_count == 8
+        assert s2._last_pre_compress_count["introspect"] == 6
 
     def test_no_state_path_is_noop(self, mock_cfg, store, mock_brain, mock_registry,
                                    mock_prompt_builder, mock_inbox, mock_ilog, mode_loader):

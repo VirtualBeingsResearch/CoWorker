@@ -1991,8 +1991,9 @@ class TestClearShortTermMemoryTool:
         original = list(short_term.primary)
         subconscious = MagicMock()
 
-        async def notify_pre_compress(snapshot):
+        async def notify_pre_compress(snapshot, full_snapshot=None):
             assert snapshot == original
+            assert full_snapshot == original
             assert short_term.primary == original
             assert short_term.tree.nodes == []
 
@@ -2005,6 +2006,38 @@ class TestClearShortTermMemoryTool:
         subconscious.notify_pre_compress.assert_awaited_once()
         assert short_term.primary == []
         assert len(short_term.tree.nodes) == 1
+
+    @pytest.mark.asyncio
+    async def test_pre_compress_full_snapshot_excludes_active_tool_call_tail(self):
+        tool, short_term, brain = self._make_tool(msg_count=3)
+        active_call = Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": "compress-1",
+                    "type": "function",
+                    "function": {
+                        "name": "clear_short_term_memory",
+                        "arguments": "{}",
+                    },
+                }
+            ],
+        )
+        short_term.primary.append(active_call)
+        stable_prefix = list(short_term.primary[:-1])
+        subconscious = MagicMock()
+        subconscious.notify_pre_compress = AsyncMock()
+        tool = ClearShortTermMemoryTool(short_term, brain, subconscious)
+
+        result = await tool.execute()
+
+        assert not result.is_error
+        subconscious.notify_pre_compress.assert_awaited_once_with(
+            stable_prefix,
+            full_snapshot=stable_prefix,
+        )
+        assert short_term.primary == [active_call]
 
     @pytest.mark.asyncio
     async def test_subconscious_failure_does_not_block_compress(self):
