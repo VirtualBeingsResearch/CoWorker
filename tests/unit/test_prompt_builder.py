@@ -8,12 +8,17 @@ from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.palaces.loader import PalaceLoader
 from coworker.prompts.system_prompt import SystemPromptBuilder
+from coworker.prompts.template import DEFAULT_SYSTEM_PROMPT_TEMPLATE
 from coworker.skills.loader import SkillLoader
 from coworker.tools.file_tools import ReadFileTool
 from coworker.tools.registry import ToolRegistry
 
 
-def make_builder(tmp_path, with_name: bool = False) -> SystemPromptBuilder:
+def make_builder(
+    tmp_path,
+    with_name: bool = False,
+    system_prompt_template: str = "",
+) -> SystemPromptBuilder:
     identity_dir = tmp_path / "identity"
     identity_dir.mkdir()
     if with_name:
@@ -35,7 +40,13 @@ def make_builder(tmp_path, with_name: bool = False) -> SystemPromptBuilder:
 
     skill_loader = SkillLoader(str(skills_dir))
     thinking_path = tmp_path / "thinking.md"
-    return SystemPromptBuilder(identity, registry, skill_loader, thinking_path=thinking_path)
+    return SystemPromptBuilder(
+        identity,
+        registry,
+        skill_loader,
+        thinking_path=thinking_path,
+        system_prompt_template=system_prompt_template,
+    )
 
 
 def make_builder_with_thinking(tmp_path, thinking_text: str) -> SystemPromptBuilder:
@@ -47,6 +58,23 @@ def make_builder_with_thinking(tmp_path, thinking_text: str) -> SystemPromptBuil
 
 
 class TestSystemPromptBuilder:
+    def test_default_template_is_byte_compatible_with_explicit_standard_template(
+        self,
+        tmp_path,
+    ):
+        default_root = tmp_path / "default"
+        default_root.mkdir()
+        explicit_root = tmp_path / "explicit"
+        explicit_root.mkdir()
+
+        default_prompt = make_builder(default_root).build()
+        explicit_prompt = make_builder(
+            explicit_root,
+            system_prompt_template=DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        ).build()
+
+        assert explicit_prompt == default_prompt
+
     def test_build_contains_required_sections(self, tmp_path):
         builder = make_builder(tmp_path)
         prompt = builder.build()
@@ -184,6 +212,101 @@ class TestSystemPromptBuilder:
             english = english_builder.build()
         assert english != chinese
         assert "I am a newly born virtual being" in english
+
+    def test_custom_template_can_reorder_sections_and_add_named_content(self, tmp_path):
+        builder = make_builder(
+            tmp_path,
+            system_prompt_template=(
+                "{{GUIDELINES}}\n\n[PROJECT_RULES]\nShip carefully.\n\n{{IDENTITY}}"
+            ),
+        )
+
+        prompt = builder.build()
+
+        assert prompt.index("[GUIDELINES]") < prompt.index("[PROJECT_RULES]")
+        assert prompt.index("[PROJECT_RULES]") < prompt.index("[IDENTITY]")
+        assert prompt.endswith("\n")
+
+    def test_content_after_standard_template_appends_to_default_prompt(self, tmp_path):
+        default_root = tmp_path / "default"
+        default_root.mkdir()
+        appended_root = tmp_path / "appended"
+        appended_root.mkdir()
+
+        default_prompt = make_builder(default_root).build()
+        appended_prompt = make_builder(
+            appended_root,
+            system_prompt_template=(
+                f"{DEFAULT_SYSTEM_PROMPT_TEMPLATE}\n\n[CUSTOM]\nEditable content."
+            ),
+        ).build()
+
+        assert appended_prompt == default_prompt + "\n[CUSTOM]\nEditable content.\n"
+
+    def test_custom_template_without_variables_fully_replaces_builtin_prompt(self, tmp_path):
+        builder = make_builder(
+            tmp_path,
+            system_prompt_template="[PROJECT]\nYou are the project release assistant.",
+        )
+
+        assert builder.build() == "[PROJECT]\nYou are the project release assistant.\n"
+
+    def test_content_variable_omits_builtin_section_heading(self, tmp_path):
+        builder = make_builder(
+            tmp_path,
+            with_name=True,
+            system_prompt_template="[PROFILE]\n{{IDENTITY_CONTENT}}",
+        )
+
+        prompt = builder.build()
+
+        assert prompt.startswith("[PROFILE]\n")
+        assert "[IDENTITY]" not in prompt
+        assert "Luna" in prompt
+
+    def test_section_previews_share_the_prompt_cache_until_refresh(self, tmp_path):
+        builder = make_builder(tmp_path, with_name=True)
+
+        previews = {item["name"]: item for item in builder.section_previews()}
+        assert previews["IDENTITY"]["full_text"].startswith("[IDENTITY]\n")
+        assert not previews["IDENTITY"]["content"].startswith("[IDENTITY]")
+        assert previews["THINKING"]["available"] is False
+
+        (builder._identity._dir / "name.txt").write_text("Nova", encoding="utf-8")
+        cached = {item["name"]: item for item in builder.section_previews()}
+        assert "Luna" in cached["IDENTITY"]["content"]
+        assert "Nova" not in cached["IDENTITY"]["content"]
+
+        builder.refresh()
+        refreshed = {item["name"]: item for item in builder.section_previews()}
+        assert "Nova" in refreshed["IDENTITY"]["content"]
+
+    def test_empty_optional_section_does_not_leave_extra_separator(self, tmp_path):
+        builder = make_builder(
+            tmp_path,
+            system_prompt_template=(
+                "{{IDENTITY}}\n\n{{THINKING}}\n\n[CUSTOM]\nKeep the custom heading."
+            ),
+        )
+
+        prompt = builder.build()
+
+        assert "\n\n\n" not in prompt
+        assert "[IDENTITY]" in prompt
+        assert "[THINKING]" not in prompt
+        assert "[CUSTOM]\nKeep the custom heading." in prompt
+
+    def test_custom_text_is_not_translated_with_runtime_locale(self, tmp_path):
+        with locale_context("en"):
+            builder = make_builder(
+                tmp_path,
+                system_prompt_template="{{IDENTITY}}\n\n[自定义]\n保持原文",
+            )
+
+        prompt = builder.build()
+
+        assert "I am a newly born virtual being" in prompt
+        assert "[自定义]\n保持原文" in prompt
 
 
 class TestThinkingSnapshot:

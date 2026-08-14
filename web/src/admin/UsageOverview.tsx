@@ -3,12 +3,13 @@ import {
   Activity,
   ArrowUpRight,
   Bot,
+  CircleDollarSign,
   Database,
   TriangleAlert,
 } from 'lucide-react';
 
 import type { UsageStats } from '../api/types';
-import { t } from '../i18n/admin';
+import { t, useAdminI18n } from '../i18n/admin';
 import {
   USAGE_WINDOWS,
   formatCacheRate,
@@ -16,12 +17,14 @@ import {
   formatTokenUnits,
   type UsageWindowKey,
 } from '../lib/usageStats';
+import { CurrencyCostSummary } from './CurrencyCostSummary';
 
 type AdminUsageOverviewProps = {
   stats: UsageStats | null;
   loading: boolean;
   error: string;
   analyticsHref: string;
+  pricingHref: string;
   onOpenAnalytics: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
@@ -30,8 +33,10 @@ export function AdminUsageOverview({
   loading,
   error,
   analyticsHref,
+  pricingHref,
   onOpenAnalytics,
 }: AdminUsageOverviewProps) {
+  const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<UsageWindowKey>('today');
   const windowStats = stats?.[windowKey];
   const hasCalls = Number(windowStats?.llm_calls || 0) > 0;
@@ -61,6 +66,7 @@ export function AdminUsageOverview({
           : <>
             <div className="admin-usage-metrics compact">
               <article className="total"><Database size={17} /><span>{t('总 Token')}</span><strong>{formatTokenUnits(windowStats.total_tokens)}</strong><small>{t('{{count}} 次模型响应', { count: formatCount(windowStats.llm_calls) })}</small></article>
+              <article className="cost"><CircleDollarSign size={17} /><span>{t('预估消费')}</span><CurrencyCostSummary costs={windowStats.estimated_costs} language={language} /><small>{t('定价覆盖 {{rate}} · {{count}} 未定价 Token', { rate: formatCacheRate(windowStats.pricing_coverage), count: formatTokenUnits(windowStats.unpriced_tokens) })}</small><a className="usage-pricing-shortcut" href={pricingHref}>{t('管理定价')}<ArrowUpRight size={12} /></a></article>
               <article><span>{t('输入 Token')}</span><strong>{formatTokenUnits(windowStats.input_tokens)}</strong><small>{t('已记录输入')}</small></article>
               <article><span>{t('输出 Token')}</span><strong>{formatTokenUnits(windowStats.output_tokens)}</strong><small>{t('已记录输出')}</small></article>
               <article><Bot size={16} /><span>{t('缓存 Token 占比')}</span><strong>{formatCacheRate(windowStats.cache_rate)}</strong><small>{t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })}</small></article>

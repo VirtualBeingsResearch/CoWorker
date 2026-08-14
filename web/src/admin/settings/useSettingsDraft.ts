@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { t } from '../../i18n/admin';
+import { validateModelPrices } from './modelPricing';
 import type { AdminRequest, Json } from './types';
 
 type SaveMessage = {
@@ -262,6 +263,12 @@ function settingsValidationMessage(
       if (new Set(ids).size !== ids.length) return t('同一个 Provider 中不能重复声明模型能力。');
       if (models.some((item: Json) => item.video && !item.vision)) return t('支持视频的模型也必须支持图片理解。');
     }
+    const pricingError = validateModelPrices(draft.llm?.model_prices);
+    if (pricingError === 'identity') return t('模型定价必须填写 Provider 和模型 ID。');
+    if (pricingError === 'currency') return t('模型定价币种必须是三个英文字母。');
+    if (pricingError === 'rates') return t('输入价和输出价必须是非负数。');
+    if (pricingError === 'cached_rate') return t('缓存输入价必须留空或填写非负数。');
+    if (pricingError === 'duplicate') return t('同一个 Provider 中不能重复配置模型价格。');
   }
   return '';
 }

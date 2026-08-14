@@ -29,6 +29,11 @@ from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.memory.short_term import ShortTermMemory
 from coworker.persona import PersonaCard, PersonStore
+from coworker.prompts.template import (
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_CONTENT_VARIABLES,
+    SYSTEM_PROMPT_VARIABLES,
+)
 from coworker.skills.loader import SkillLoader
 
 
@@ -40,6 +45,7 @@ def _client(
     tmp_path,
     *,
     providers_file: str = "",
+    llm: dict | None = None,
     api: dict | None = None,
     desktop_updates: dict | None = None,
     desktop_update_sync=None,
@@ -53,14 +59,19 @@ def _client(
     persona: bool = False,
     usage_stats=None,
     long_term=None,
+    agent_config: dict | None = None,
 ):
     config = Config.model_validate(
         {
             "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
             "api": api or {},
-            "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
+            "llm": {
+                "openai_api_key": "sk-original",
+                "providers_file": providers_file,
+                **(llm or {}),
+            },
             "memory": {"db_path": str(tmp_path / "memory")},
-            "agent": {"logs_dir": str(tmp_path / "logs")},
+            "agent": {"logs_dir": str(tmp_path / "logs"), **(agent_config or {})},
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
             "weixin": weixin or {},
@@ -68,11 +79,23 @@ def _client(
             "channel_access": channel_access or {},
         }
     )
+    section_previews = [
+        {
+            "name": "IDENTITY",
+            "variable": "IDENTITY",
+            "content_variable": "IDENTITY_CONTENT",
+            "full_text": "[IDENTITY]\nMy name is Luna.",
+            "content": "My name is Luna.",
+            "available": True,
+            "lines": 2,
+        }
+    ]
     agent = SimpleNamespace(
         _identity=_Identity(),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
+        current_system_prompt_sections=MagicMock(return_value=section_previews),
         refresh_system_prompt=MagicMock(),
     )
     _brain_snapshot = {
@@ -226,7 +249,7 @@ def test_admin_usage_requires_admin_and_returns_detailed_report(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == report
-    usage_stats.report.assert_called_once_with()
+    usage_stats.report.assert_called_once_with(model_prices=[])
 
 
 def test_admin_usage_serializes_schema_timestamps_without_guessing_field_names(tmp_path):
@@ -285,6 +308,7 @@ def test_admin_usage_returns_a_requested_date_range(tmp_path):
     usage_stats.report.assert_called_once_with(
         start_date=date(2026, 6, 20),
         end_date=date(2026, 6, 22),
+        model_prices=[],
     )
 
 
@@ -301,7 +325,35 @@ def test_admin_usage_treats_one_requested_date_as_a_single_day(tmp_path):
     usage_stats.report.assert_called_once_with(
         start_date=date(2026, 6, 20),
         end_date=date(2026, 6, 20),
+        model_prices=[],
     )
+
+
+def test_admin_usage_prices_report_with_current_llm_config(tmp_path):
+    usage_stats = SimpleNamespace(report=MagicMock(return_value={"today": {}}))
+    client, config = _client(
+        tmp_path,
+        usage_stats=usage_stats,
+        llm={
+            "model_prices": [
+                {
+                    "provider": "openai",
+                    "model": "gpt-5.2",
+                    "currency": "USD",
+                    "input_per_million": 1.75,
+                    "output_per_million": 14,
+                }
+            ]
+        },
+    )
+
+    response = client.get(
+        "/api/admin/usage",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    usage_stats.report.assert_called_once_with(model_prices=config.llm.model_prices)
 
 
 def test_admin_usage_rejects_a_reversed_date_range(tmp_path):
@@ -446,8 +498,108 @@ def test_system_prompt_api_is_authenticated_read_only_and_uncached(tmp_path):
         "content": "[IDENTITY]\nMy name is Luna.\n",
         "characters": 28,
         "lines": 2,
+        "active_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "desired_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "inherited_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "default_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "variables": list(SYSTEM_PROMPT_VARIABLES),
+        "content_variables": list(SYSTEM_PROMPT_CONTENT_VARIABLES),
+        "section_previews": [
+            {
+                "name": "IDENTITY",
+                "variable": "IDENTITY",
+                "content_variable": "IDENTITY_CONTENT",
+                "full_text": "[IDENTITY]\nMy name is Luna.",
+                "content": "My name is Luna.",
+                "available": True,
+                "lines": 2,
+            }
+        ],
+        "overridden": False,
+        "prompt_pending_restart": False,
     }
     admin._agent.current_system_prompt.assert_called_once_with()
+    admin._agent.current_system_prompt_sections.assert_called_once_with()
+
+
+def test_system_prompt_template_patch_waits_for_restart_and_keeps_active_prompt(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    custom = "{{IDENTITY}}\n\n[PROJECT]\nUse the release checklist."
+
+    updated = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"agent": {"system_prompt_template": custom}}},
+    )
+    snapshot = client.get("/api/admin/system-prompt", headers=headers)
+
+    assert updated.status_code == 200
+    assert updated.json()["applied_now"] == []
+    assert updated.json()["requires_restart"] == ["agent.system_prompt_template"]
+    assert config.agent.system_prompt_template == ""
+    assert snapshot.json()["content"] == "[IDENTITY]\nMy name is Luna.\n"
+    assert snapshot.json()["active_template"] == DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    assert snapshot.json()["desired_template"] == custom
+    assert snapshot.json()["overridden"] is True
+    assert snapshot.json()["prompt_pending_restart"] is True
+    assert json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))[
+        "agent"
+    ]["system_prompt_template"] == custom
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{{UNKNOWN}}",
+        "{{IDENTITY}}\n\n{{IDENTITY_CONTENT}}",
+    ],
+)
+def test_system_prompt_template_validation_failure_does_not_write_override(
+    tmp_path,
+    template,
+):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"agent": {"system_prompt_template": template}}},
+    )
+
+    assert response.status_code == 422
+    assert not (tmp_path / "admin_config.json").exists()
+
+
+def test_system_prompt_template_can_restore_builtin_then_inherited_value(tmp_path):
+    inherited = "{{IDENTITY}}\n\n[ENVIRONMENT_RULE]\nInherited text"
+    client, _ = _client(
+        tmp_path,
+        agent_config={"system_prompt_template": inherited},
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    builtin = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"agent": {"system_prompt_template": ""}}},
+    )
+    builtin_snapshot = client.get("/api/admin/system-prompt", headers=headers).json()
+    restored = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"clear_overrides": ["agent.system_prompt_template"]},
+    )
+    inherited_snapshot = client.get("/api/admin/system-prompt", headers=headers).json()
+
+    assert builtin.status_code == 200
+    assert builtin_snapshot["desired_template"] == DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    assert builtin_snapshot["inherited_template"] == inherited
+    assert builtin_snapshot["overridden"] is True
+    assert restored.status_code == 200
+    assert restored.json()["pending_restart"] is False
+    assert inherited_snapshot["desired_template"] == inherited
+    assert inherited_snapshot["overridden"] is False
 
 
 def test_identity_api_rejects_all_retired_fields_together(tmp_path):
@@ -497,6 +649,33 @@ def test_config_response_masks_secrets_and_blank_form_does_not_clear_them(tmp_pa
     assert "openai_api_key" not in saved["llm"]
     assert config.llm.openai_api_key == "sk-original"
     assert config.api.communication_token == "desktop-secret"
+
+
+def test_config_patch_hot_applies_model_prices_without_rebuilding_provider(tmp_path):
+    client, config = _client(tmp_path)
+    price = {
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "currency": "usd",
+        "input_per_million": 1.75,
+        "output_per_million": 14,
+        "cached_input_per_million": 0.175,
+    }
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"llm": {"model_prices": [price]}}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["llm.model_prices"]
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    assert config.llm.model_prices[0].currency == "USD"
+    admin._brain.upsert_provider.assert_not_awaited()
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["llm"]["model_prices"][0]["currency"] == "USD"
 
 
 def test_desktop_update_sync_config_status_and_trigger_are_safe(tmp_path):

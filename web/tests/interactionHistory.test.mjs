@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadInteractionHistoryPage } from '../src/interactionHistory.ts';
+import { loadInteractionHistoryPage } from '../src/admin/interactionHistory.ts';
 
 test('filtered history skips empty scan windows until a match is found', async () => {
   const requestedCursors = [];

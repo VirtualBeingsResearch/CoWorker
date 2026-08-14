@@ -199,6 +199,13 @@ names_must_be_strings = "Channel access names must be strings"
 names_must_not_be_empty = "Channel access names must not be empty"
 duplicate_name = "Duplicate channel access name after trimming: {{channel}}"
 
+[config.system_prompt]
+too_long = "The system prompt template must not exceed {{limit}} characters"
+unknown_variable = "Unknown system prompt template variable: {{variable}}"
+duplicate_variable = "System prompt template variable appears more than once: {{variable}}"
+conflicting_variable = "Use either the full or content-only variable for this system prompt section, not both: {{variable}}"
+standalone_variable = "System prompt template variable must appear on its own line: {{variable}}"
+
 [config.api]
 public_url_absolute = "The public API URL must be an absolute HTTP(S) URL"
 public_url_wildcard = "The public API URL must use a browser-reachable hostname, not a wildcard bind address"
@@ -208,6 +215,12 @@ public_url_origin_only = "The public API URL must not contain credentials, a pat
 model_required = "A model capability declaration requires a model ID"
 video_requires_vision = "A video-capable model must also be marked as vision-capable"
 duplicate_model_capability = "Duplicate model capability declaration: {{model}}"
+
+[config.model_price]
+provider_and_model_required = "Model pricing requires both a Provider and model ID"
+currency_invalid = "A model pricing currency must contain three letters"
+price_non_negative = "A model price must be finite and non-negative"
+duplicate = "Duplicate model price: {{provider}}/{{model}}"
 
 [channel.desktop]
 command_rejected = "Command was not accepted"

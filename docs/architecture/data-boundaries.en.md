@@ -13,7 +13,7 @@ The following paths are relative to Coworker's working directory unless configur
 | Path | Main contents |
 |---|---|
 | `.env`, `providers.json` | External configuration such as provider endpoints, models, and API keys |
-| `data/admin_config.json` | Administrator token and settings saved through the administration page, which may include API keys |
+| `data/admin_config.json` | Administrator token and settings saved through the administration page, which may include API keys and a custom system prompt template |
 | `data/` | Identity, memory stores, tasks, inboxes and outboxes, attachments, screenshots, runtime state, and logs |
 | `.coworker/` | Skills, memory palaces, subconscious modes, and user changes to them |
 | Desktop application data directory | Desktop settings, credentials, bridge state, and logs; the operating system determines the exact location |
@@ -40,6 +40,9 @@ volume or the host checkout also deletes the corresponding history, state, or mo
 ## Data that may leave the machine
 
 - Model calls send the system prompt and the conversations, memories, tool results, and attachment contents needed for the current task. Coworker does not upload the whole working directory unconditionally, but file content read by the agent may later enter model context.
+- Custom system prompt text is administrator-trusted input. It enters the system prompt verbatim
+  and is sent to the model provider; do not paste untrusted external content or put secrets in the
+  template if they must not leave the machine.
 - `visual_analyze` sends selected images or videos to the configured vision model service.
 - Search tools send queries. Browser tools visit target websites and are subject to those sites' logging, cookie, and session policies.
 - WeCom, Telegram, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.

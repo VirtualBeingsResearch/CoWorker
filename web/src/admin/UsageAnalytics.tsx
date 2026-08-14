@@ -1,12 +1,14 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from 'react';
+import { useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   Activity,
+  ArrowUpRight,
   Bot,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   CircleAlert,
+  CircleDollarSign,
   Database,
   Download,
   FileJson,
@@ -34,15 +36,20 @@ import {
   USAGE_SCOPE_LABELS,
   USAGE_SCOPE_ORDER,
   clampPercent,
+  costEntries,
   formatCacheRate,
   formatCount,
+  formatCostSummary,
+  formatCurrencyAmount,
   formatTokenUnits,
   totalFromModelStats,
   usageModelLabel,
+  usageCost,
   usageScopeClassName,
   usageScopeEntries,
   type UsageWindowKey,
 } from '../lib/usageStats';
+import { CurrencyCostSummary } from './CurrencyCostSummary';
 
 type AdminUsageAnalyticsProps = {
   stats: UsageStats | null;
@@ -51,6 +58,7 @@ type AdminUsageAnalyticsProps = {
   onReload: () => void | Promise<void>;
   onLoadRange: (startDate: string, endDate: string) => Promise<UsageStats>;
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 };
 
 type AttentionItem = {
@@ -65,6 +73,7 @@ type AnalyticsWindowKey = UsageWindowKey | 'custom';
 type DateSelectionMode = 'single' | 'range';
 type UsageScopeKey = 'all' | string;
 type UsageDailyStats = UsageWindowStats & { date: string };
+type UsageTrendMetric = 'tokens' | `currency:${string}`;
 
 function finite(value?: number | null): number {
   const numeric = Number(value ?? 0);
@@ -125,7 +134,7 @@ function scopedIntraday(
   }));
 }
 
-function comparisonFor(current: number, previous?: number | null) {
+function comparisonFor(current: number, previous: number | null | undefined, previousValue: string) {
   if (typeof previous !== 'number' || !Number.isFinite(previous)) {
     return { label: '—', detail: t('暂无可比基线') };
   }
@@ -136,8 +145,28 @@ function comparisonFor(current: number, previous?: number | null) {
   const rate = ((current - previous) / previous) * 100;
   return {
     label: `${rate > 0 ? '+' : ''}${rate.toFixed(1)}%`,
-    detail: t('上一周期 {{count}} Token', { count: formatTokenUnits(previous) }),
+    detail: t('上一周期 {{value}}', { value: previousValue }),
   };
+}
+
+function metricCurrency(metric: UsageTrendMetric): string | null {
+  return metric === 'tokens' ? null : metric.slice('currency:'.length);
+}
+
+function trendValue(stats: UsageWindowStats | undefined, metric: UsageTrendMetric): number {
+  const currency = metricCurrency(metric);
+  return currency ? usageCost(stats, currency) : finite(stats?.total_tokens);
+}
+
+function formatTrendValue(
+  value: number,
+  metric: UsageTrendMetric,
+  language: 'zh' | 'en',
+): string {
+  const currency = metricCurrency(metric);
+  return currency
+    ? formatCurrencyAmount(currency, value, language)
+    : formatTokenUnits(value);
 }
 
 function csvCell(value: string | number): string {
@@ -161,7 +190,12 @@ function exportCsv(
   stats: UsageStats,
   daily: Array<UsageWindowStats & { date: string }> = stats.daily || [],
   scope: UsageScopeKey = 'all',
+  windowStats?: UsageWindowStats,
 ) {
+  const currencies = Array.from(new Set([
+    ...costEntries(windowStats?.estimated_costs).map(([currency]) => currency),
+    ...daily.flatMap(item => costEntries(item.estimated_costs).map(([currency]) => currency)),
+  ])).sort();
   const columns = [
     'date',
     'input_tokens',
@@ -186,10 +220,20 @@ function exportCsv(
     'messages_compressed',
     'memory_compression_summary_calls',
     'memory_compression_total_tokens',
+    'priced_tokens',
+    'unpriced_tokens',
+    'pricing_coverage',
+    ...currencies.map(currency => `estimated_cost_${currency.toLowerCase()}`),
   ];
-  const rows = daily.map(item => columns.map(column => (
-    csvCell(column === 'date' ? item.date : finite(item[column as keyof UsageWindowStats] as number))
-  )).join(','));
+  const rows = daily.map(item => columns.map(column => {
+    if (column === 'date') return csvCell(item.date);
+    if (column === 'pricing_coverage') return csvCell(item.pricing_coverage ?? '');
+    if (column.startsWith('estimated_cost_')) {
+      const currency = column.slice('estimated_cost_'.length).toUpperCase();
+      return csvCell(item.estimated_costs?.[currency] ?? '');
+    }
+    return csvCell(finite(item[column as keyof UsageWindowStats] as number));
+  }).join(','));
   const stamp = localDateKey(stats.generated_at || new Date());
   const scopeSuffix = scope === 'all' ? '' : `-${scope}`;
   downloadText(`coworker-runtime${scopeSuffix}-${stamp}.csv`, `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`, 'text/csv;charset=utf-8');
@@ -225,23 +269,30 @@ function MetricCard({
   detail,
   icon: Icon,
   tone,
+  compactValue = false,
+  featured = false,
   onActivate,
   actionLabel,
+  actionHref,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   detail: string;
   icon: typeof Database;
   tone?: 'tool' | 'skill' | 'autonomy' | 'memory';
+  compactValue?: boolean;
+  featured?: boolean;
   onActivate?: () => void;
   actionLabel?: string;
+  actionHref?: string;
 }) {
-  const className = `usage-analytics-metric${tone ? ` metric-${tone}` : ''}`;
+  const className = `usage-analytics-metric${tone ? ` metric-${tone}` : ''}${compactValue ? ' compact-value' : ''}${featured ? ' featured' : ''}`;
   const content = <>
     <Icon size={16} />
     <span>{label}</span>
-    <strong>{value}</strong>
+    {typeof value === 'string' ? <strong>{value}</strong> : <div className="usage-analytics-metric-value">{value}</div>}
     <small>{detail}</small>
+    {actionHref && <a className="usage-pricing-shortcut" href={actionHref}>{actionLabel || label}<ArrowUpRight size={12} /></a>}
   </>;
   if (onActivate) {
     return <button
@@ -276,49 +327,77 @@ function DetailToggle({
   </button>;
 }
 
+function TrendMetricToggle({
+  currencies,
+  metric,
+  onChange,
+}: {
+  currencies: string[];
+  metric: UsageTrendMetric;
+  onChange: (metric: UsageTrendMetric) => void;
+}) {
+  if (!currencies.length) return null;
+  return <div className="usage-trend-metric-toggle" role="group" aria-label={t('趋势指标')}>
+    <button type="button" className={metric === 'tokens' ? 'active' : ''} aria-pressed={metric === 'tokens'} onClick={() => onChange('tokens')}>Token</button>
+    {currencies.map(currency => {
+      const value = `currency:${currency}` as UsageTrendMetric;
+      return <button type="button" className={metric === value ? 'active' : ''} aria-pressed={metric === value} onClick={() => onChange(value)} key={currency}>{currency}</button>;
+    })}
+  </div>;
+}
+
 function IntradayTrend({
   items,
   selected,
+  metric,
+  currencies,
+  language,
+  onMetricChange,
   onSelect,
   onOpenLogs,
 }: {
   items: UsageIntradayStats[];
   selected: UsageIntradayStats;
+  metric: UsageTrendMetric;
+  currencies: string[];
+  language: 'zh' | 'en';
+  onMetricChange: (metric: UsageTrendMetric) => void;
   onSelect: (startTime: string) => void;
   onOpenLogs: (startTime: string, endTime: string) => void;
 }) {
-  const maximum = Math.max(1, ...items.map(item => finite(item.total_tokens)));
-  const total = items.reduce((sum, item) => sum + finite(item.total_tokens), 0);
+  const currency = metricCurrency(metric);
+  const maximum = Math.max(1e-12, ...items.map(item => trendValue(item, metric)));
+  const total = items.reduce((sum, item) => sum + trendValue(item, metric), 0);
   let cumulative = 0;
   const cumulativePoints = [
     '0,96',
     ...items.map((item, index) => {
-      cumulative += finite(item.total_tokens);
+      cumulative += trendValue(item, metric);
       const x = ((index + 0.5) / Math.max(1, items.length)) * 1000;
-      const y = 96 - (cumulative / Math.max(1, total)) * 82;
+      const y = 96 - (cumulative / Math.max(1e-12, total)) * 82;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }),
   ].join(' ');
   const peak = items.reduce<UsageIntradayStats | null>((current, item) => (
-    !current || finite(item.total_tokens) > finite(current.total_tokens) ? item : current
+    !current || trendValue(item, metric) > trendValue(current, metric) ? item : current
   ), null);
   const date = formatDate(selected.start_time);
   const selectedLabel = `${formatTime(selected.start_time, [], { hour: '2-digit', minute: '2-digit' })}–${formatTime(selected.end_time, [], { hour: '2-digit', minute: '2-digit' })}`;
 
   return <section className="admin-panel usage-trend-panel usage-intraday-panel">
     <header>
-      <div><h2>{t('{{date}} 日内 Token 变化', { date })}</h2><p>{t('按本地小时查看增量，并用折线显示当日累计')}</p></div>
+      <div><h2>{t('{{date}} 日内 {{metric}} 变化', { date, metric: currency || 'Token' })}</h2><p>{t('按本地小时查看增量，并用折线显示当日累计')}</p></div>
       <div className="usage-trend-head-meta">
-        {peak && <span>{t('峰值')} <b>{formatTokenUnits(peak.total_tokens)}</b> · {formatTime(peak.start_time, [], { hour: '2-digit', minute: '2-digit' })}</span>}
+        {peak && <span>{t('峰值')} <b>{formatTrendValue(trendValue(peak, metric), metric, language)}</b> · {formatTime(peak.start_time, [], { hour: '2-digit', minute: '2-digit' })}</span>}
+        <TrendMetricToggle currencies={currencies} metric={metric} onChange={onMetricChange} />
         <div className="usage-trend-legend">
-          <span><i className="input" />{t('输入')}</span>
-          <span><i className="output" />{t('输出')}</span>
+          {currency ? <span><i className="cost" />{t('本地估算')}</span> : <><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></>}
           <span><i className="cumulative" />{t('累计趋势')}</span>
         </div>
       </div>
     </header>
     <div className="usage-intraday-scroll">
-      <div className="usage-intraday-stage" role="group" aria-label={t('{{date}} 的 24 小时 Token 变化', { date })}>
+      <div className="usage-intraday-stage" role="group" aria-label={t('{{date}} 的 24 小时 {{metric}} 变化', { date, metric: currency || 'Token' })}>
         <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
           <polyline points={cumulativePoints} />
         </svg>
@@ -326,25 +405,29 @@ function IntradayTrend({
           {items.map((item, index) => {
             const input = finite(item.input_tokens);
             const output = finite(item.output_tokens);
-            const itemTotal = finite(item.total_tokens);
+            const itemTotal = trendValue(item, metric);
             const active = item.start_time === selected.start_time;
             return <button
               type="button"
               className={active ? 'active' : ''}
               aria-pressed={active}
-              aria-label={t('{{time}}：输入 {{input}}，输出 {{output}}，共 {{total}} Token', {
-                time: formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }),
-                input: formatCount(input),
-                output: formatCount(output),
-                total: formatCount(itemTotal),
-              })}
+              aria-label={currency
+                ? t('{{time}}：本地估算 {{cost}}', { time: formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }), cost: formatTrendValue(itemTotal, metric, language) })
+                : t('{{time}}：输入 {{input}}，输出 {{output}}，共 {{total}} Token', {
+                  time: formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }),
+                  input: formatCount(input),
+                  output: formatCount(output),
+                  total: formatCount(itemTotal),
+                })}
               onClick={() => onSelect(item.start_time)}
               key={item.start_time}
             >
-              <b>{itemTotal > 0 ? formatTokenUnits(itemTotal) : ''}</b>
+              <b>{itemTotal > 0 ? formatTrendValue(itemTotal, metric, language) : ''}</b>
               <span className="usage-intraday-column"><span className="usage-trend-stack" style={{ '--h': clampPercent(itemTotal / maximum * 100) } as CSSProperties}>
-                {input > 0 && <i className="input" style={{ flexGrow: input }} />}
-                {output > 0 && <i className="output" style={{ flexGrow: output }} />}
+                {currency ? itemTotal > 0 && <i className="cost" style={{ flexGrow: itemTotal }} /> : <>
+                  {input > 0 && <i className="input" style={{ flexGrow: input }} />}
+                  {output > 0 && <i className="output" style={{ flexGrow: output }} />}
+                </>}
               </span></span>
               <small>{index % 3 === 0 ? formatTime(item.start_time, [], { hour: '2-digit', minute: '2-digit' }) : ''}</small>
             </button>;
@@ -354,7 +437,9 @@ function IntradayTrend({
     </div>
     <div className="usage-intraday-detail">
       <div><span>{t('所选时段')}</span><strong>{date} · {selectedLabel}</strong></div>
-      <div><span>Token</span><strong>{formatTokenUnits(selected.total_tokens)}</strong><small>{t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
+      <div><span>{currency || 'Token'}</span><strong>{formatTrendValue(trendValue(selected, metric), metric, language)}</strong><small>{currency
+        ? t('定价覆盖率 {{coverage}}', { coverage: formatCacheRate(selected.pricing_coverage) })
+        : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
       <div><span>{t('模型调用')}</span><strong>{formatCount(selected.llm_calls)}</strong><small>{t('缓存 Token {{count}}', { count: formatTokenUnits(selected.cached_tokens) })}</small></div>
       <button type="button" className="ghost mini" onClick={() => onOpenLogs(selected.start_time, selected.end_time)}><FileText size={13} />{t('查看该时段日志')}</button>
     </div>
@@ -369,6 +454,14 @@ function attentionItems(stats: UsageWindowStats): AttentionItem[] {
   const skillErrors = finite(stats.skill_load_errors);
   const bubbleErrors = finite(stats.bubble_errors);
   const bubbleTimeouts = finite(stats.bubble_timeouts);
+  const unpricedTokens = finite(stats.unpriced_tokens);
+  if (unpricedTokens > 0) items.push({
+    tone: 'amber',
+    title: t('定价覆盖不完整'),
+    detail: t('{{count}} Token 尚未定价，金额仅包含已定价部分。', {
+      count: formatTokenUnits(unpricedTokens),
+    }),
+  });
   if (untracked > 0) items.push({
     tone: 'amber',
     title: t('Token 数据不完整'),
@@ -407,6 +500,7 @@ export function AdminUsageAnalytics({
   onReload,
   onLoadRange,
   onOpenLogs,
+  pricingHref,
 }: AdminUsageAnalyticsProps) {
   const { language } = useAdminI18n();
   const [windowKey, setWindowKey] = useState<AnalyticsWindowKey>('last_7_days');
@@ -422,6 +516,7 @@ export function AdminUsageAnalytics({
   const [rangeError, setRangeError] = useState('');
   const [customStats, setCustomStats] = useState<UsageStats | null>(null);
   const [selectedIntradayStart, setSelectedIntradayStart] = useState('');
+  const [trendMetric, setTrendMetric] = useState<UsageTrendMetric>('tokens');
   const selectedRange = customStats?.selected_range;
   const baseWindowStats = windowKey === 'custom'
     ? selectedRange?.stats
@@ -433,10 +528,6 @@ export function AdminUsageAnalytics({
       ? undefined
       : stats?.previous?.[windowKey];
   const previousStats = scopedWindow(basePreviousStats, scopeKey);
-  const comparison = comparisonFor(
-    finite(windowStats?.total_tokens),
-    previousStats ? finite(previousStats.total_tokens) : undefined,
-  );
   const baseDaily = windowKey === 'custom' ? selectedRange?.daily || [] : stats?.daily || [];
   const daily = scopedDaily(baseDaily, scopeKey);
   const baseIntraday = windowKey === 'today'
@@ -445,8 +536,25 @@ export function AdminUsageAnalytics({
       ? selectedRange?.intraday || []
       : [];
   const intraday = scopedIntraday(baseIntraday, scopeKey);
+  const currencies = useMemo(() => Array.from(new Set([
+    ...costEntries(windowStats?.estimated_costs).map(([currency]) => currency),
+    ...daily.flatMap(item => costEntries(item.estimated_costs).map(([currency]) => currency)),
+    ...intraday.flatMap(item => costEntries(item.estimated_costs).map(([currency]) => currency)),
+  ])).sort(), [windowStats, daily, intraday]);
+  const activeTrendMetric = trendMetric === 'tokens' || currencies.includes(metricCurrency(trendMetric) || '')
+    ? trendMetric
+    : 'tokens';
+  const currentTrendValue = trendValue(windowStats, activeTrendMetric);
+  const previousTrendValue = previousStats ? trendValue(previousStats, activeTrendMetric) : undefined;
+  const comparison = comparisonFor(
+    currentTrendValue,
+    previousTrendValue,
+    previousTrendValue === undefined
+      ? '—'
+      : formatTrendValue(previousTrendValue, activeTrendMetric, language),
+  );
   const peakIntraday = intraday.reduce<UsageIntradayStats | null>((peak, item) => (
-    !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
+    !peak || trendValue(item, activeTrendMetric) > trendValue(peak, activeTrendMetric) ? item : peak
   ), null);
   const selectedIntraday = intraday.find(item => item.start_time === selectedIntradayStart)
     || peakIntraday;
@@ -455,9 +563,9 @@ export function AdminUsageAnalytics({
     ? daily.slice(-7)
     : daily;
   const trendLabelStep = Math.max(1, Math.ceil(visibleDaily.length / 7));
-  const maxDailyTokens = Math.max(1, ...visibleDaily.map(item => finite(item.total_tokens)));
+  const maxDailyValue = Math.max(1e-12, ...visibleDaily.map(item => trendValue(item, activeTrendMetric)));
   const peakDaily = visibleDaily.reduce<(UsageWindowStats & { date: string }) | null>((peak, item) => (
-    !peak || finite(item.total_tokens) > finite(peak.total_tokens) ? item : peak
+    !peak || trendValue(item, activeTrendMetric) > trendValue(peak, activeTrendMetric) ? item : peak
   ), null);
   const scopeOptions = useMemo(() => {
     const scopes = baseWindowStats?.by_scope || {};
@@ -642,7 +750,7 @@ export function AdminUsageAnalytics({
           <p>{t('本地脱敏聚合，不等同于 Provider 账单或结果质量评价。')}</p>
         </div>
         <div className="usage-analytics-actions">
-          <button type="button" onClick={() => exportCsv(reportStats, exportDaily, scopeKey)}><Download size={14} />CSV</button>
+          <button type="button" onClick={() => exportCsv(reportStats, exportDaily, scopeKey, windowStats)}><Download size={14} />CSV</button>
           <button type="button" onClick={() => exportJson(reportStats, scopeKey, windowKey, windowStats, exportDaily)}><FileJson size={14} />JSON</button>
           <button type="button" className="icon-btn" onClick={() => void reloadAnalytics()} disabled={loading || rangeLoading} title={t('刷新运行分析')} aria-label={t('刷新运行分析')}><RefreshCw size={15} /></button>
         </div>
@@ -741,7 +849,11 @@ export function AdminUsageAnalytics({
         {rangeError && <span className="usage-date-range-error" role="alert"><TriangleAlert size={13} />{rangeError}</span>}
       </form>}
       <div className="usage-analytics-metrics">
-        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} />
+        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
+        <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
+          coverage: formatCacheRate(windowStats.pricing_coverage),
+          count: formatTokenUnits(windowStats.unpriced_tokens),
+        })} icon={CircleDollarSign} compactValue featured actionHref={pricingHref} actionLabel={t('管理定价')} />
         <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
         <MetricCard label={t('缓存 Token')} value={formatTokenUnits(windowStats.cached_tokens)} detail={t('命中率 {{rate}}', { rate: formatCacheRate(windowStats.cache_rate) })} icon={Activity} />
         <MetricCard label={t('工具执行')} value={formatCount(windowStats.tool_calls)} detail={t('{{success}} 成功 · {{errors}} 错误 · {{pending}} 未结算', {
@@ -804,32 +916,44 @@ export function AdminUsageAnalytics({
       {intraday.length > 0 && selectedIntraday ? <IntradayTrend
         items={intraday}
         selected={selectedIntraday}
+        metric={activeTrendMetric}
+        currencies={currencies}
+        language={language}
+        onMetricChange={setTrendMetric}
         onSelect={setSelectedIntradayStart}
         onOpenLogs={onOpenLogs}
       /> : <section className="admin-panel usage-trend-panel">
       <header>
-        <div><h2>{t('{{days}} 日趋势', { days: visibleDaily.length })}</h2><p>{t('按本地日期汇总输入与输出 Token')}</p></div>
+        <div><h2>{t('{{days}} 日趋势', { days: visibleDaily.length })}</h2><p>{metricCurrency(activeTrendMetric) ? t('按本地日期汇总当前价格估算') : t('按本地日期汇总输入与输出 Token')}</p></div>
         <div className="usage-trend-head-meta">
-          {peakDaily && <span>{t('峰值')} <b>{formatTokenUnits(peakDaily.total_tokens)}</b> · {peakDaily.date.slice(5).replace('-', '/')}</span>}
-          <div className="usage-trend-legend"><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></div>
+          {peakDaily && <span>{t('峰值')} <b>{formatTrendValue(trendValue(peakDaily, activeTrendMetric), activeTrendMetric, language)}</b> · {peakDaily.date.slice(5).replace('-', '/')}</span>}
+          <TrendMetricToggle currencies={currencies} metric={activeTrendMetric} onChange={setTrendMetric} />
+          <div className="usage-trend-legend">{metricCurrency(activeTrendMetric)
+            ? <span><i className="cost" />{t('本地估算')}</span>
+            : <><span><i className="input" />{t('输入')}</span><span><i className="output" />{t('输出')}</span></>}</div>
         </div>
       </header>
       <div
         className="usage-trend-chart"
         role="img"
-        aria-label={t('{{days}} 日 Token 趋势', { days: visibleDaily.length })}
+        aria-label={t('{{days}} 日 {{metric}} 趋势', { days: visibleDaily.length, metric: metricCurrency(activeTrendMetric) || 'Token' })}
         style={{ '--usage-days': Math.max(1, visibleDaily.length) } as CSSProperties}
       >
         {visibleDaily.map((item, index) => {
           const input = finite(item.input_tokens);
           const output = finite(item.output_tokens);
-          const total = finite(item.total_tokens);
+          const total = trendValue(item, activeTrendMetric);
+          const currency = metricCurrency(activeTrendMetric);
           const showLabel = visibleDaily.length <= 7 || index % trendLabelStep === 0 || index === visibleDaily.length - 1;
-          return <article aria-label={t('{{date}}：输入 {{input}}，输出 {{output}}', { date: item.date, input: formatCount(input), output: formatCount(output) })} key={item.date}>
-            <b>{formatTokenUnits(total)}</b>
-            <div className="usage-trend-column"><div className="usage-trend-stack" style={{ '--h': clampPercent((total / maxDailyTokens) * 100) } as CSSProperties}>
-              {input > 0 && <i className="input" style={{ flexGrow: input }} />}
-              {output > 0 && <i className="output" style={{ flexGrow: output }} />}
+          return <article aria-label={currency
+            ? t('{{date}}：本地估算 {{cost}}', { date: item.date, cost: formatTrendValue(total, activeTrendMetric, language) })
+            : t('{{date}}：输入 {{input}}，输出 {{output}}', { date: item.date, input: formatCount(input), output: formatCount(output) })} key={item.date}>
+            <b>{formatTrendValue(total, activeTrendMetric, language)}</b>
+            <div className="usage-trend-column"><div className="usage-trend-stack" style={{ '--h': clampPercent((total / maxDailyValue) * 100) } as CSSProperties}>
+              {currency ? total > 0 && <i className="cost" style={{ flexGrow: total }} /> : <>
+                {input > 0 && <i className="input" style={{ flexGrow: input }} />}
+                {output > 0 && <i className="output" style={{ flexGrow: output }} />}
+              </>}
             </div></div>
             <span>{showLabel ? item.date.slice(5).replace('-', '/') : ''}</span>
           </article>;
@@ -840,15 +964,22 @@ export function AdminUsageAnalytics({
       <section className="admin-panel usage-model-table-panel">
         <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><div className="usage-panel-actions"><b>{allModelEntries.length}</b><DetailToggle expanded={expandedModels} label={t('模型与 Provider')} total={allModelEntries.length} onToggle={() => setExpandedModels(value => !value)} /></div></header>
         <div className="usage-model-table-wrap"><table className="usage-model-table">
-          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('单次平均')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
+          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('预估消费')}</th><th>{t('单次平均')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
           <tbody>{modelEntries.length ? modelEntries.map(([key, item]) => <tr key={key}>
             <td title={usageModelLabel(key, item)}>{usageModelLabel(key, item)}</td>
             <td>{formatCount(item.llm_calls)}</td>
             <td className="usage-model-token"><span>{formatTokenUnits(item.total_tokens)}</span><i aria-hidden="true" style={{ '--w': clampPercent(totalTokens ? totalFromModelStats(item) / totalTokens * 100 : 0) } as CSSProperties} /></td>
+            <td>{(item as UsageProviderModelStats).currency
+              ? formatCurrencyAmount(
+                (item as UsageProviderModelStats).currency || '',
+                (item as UsageProviderModelStats).estimated_cost,
+                language,
+              )
+              : t('未定价')}</td>
             <td>{formatOptionalTokenUnits(item.avg_tokens_per_call)}</td>
             <td>{formatCacheRate(item.cache_rate)}</td>
             <td>{formatCacheRate(item.exact_coverage)}</td>
-          </tr>) : <tr><td colSpan={6}>{t('暂无模型调用')}</td></tr>}</tbody>
+          </tr>) : <tr><td colSpan={7}>{t('暂无模型调用')}</td></tr>}</tbody>
         </table></div>
       </section>
 
@@ -870,7 +1001,8 @@ export function AdminUsageAnalytics({
             <i className={usageScopeClassName(name)} />
             <span>{t(USAGE_SCOPE_LABELS[name] || name)}</span>
             <strong>{formatTokenUnits(item.total_tokens)}</strong>
-            <small>{t('{{share}} 占比 · {{calls}} 次调用 · 缓存 {{cache}}', {
+            <small>{t('{{cost}} 本地估算 · {{share}} 占比 · {{calls}} 次调用 · 缓存 {{cache}}', {
+              cost: formatCostSummary(item.estimated_costs, language),
               share: formatCacheRate(share),
               calls: formatCount(item.llm_calls),
               cache: formatCacheRate(item.cache_rate),

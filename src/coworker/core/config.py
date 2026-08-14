@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
@@ -29,6 +30,11 @@ from coworker.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
 )
 from coworker.i18n import SupportedLocale, normalize_locale, tr
+from coworker.prompts.template import (
+    MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
+    SystemPromptTemplateError,
+    validate_system_prompt_template,
+)
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
@@ -111,6 +117,50 @@ class ProviderSpec(BaseModel):
         return self
 
 
+class ModelPriceSpec(BaseModel):
+    """Administrator-defined price for one exact provider/model pair."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(max_length=128)
+    model: str = Field(max_length=256)
+    currency: str = Field(max_length=3)
+    input_per_million: float
+    output_per_million: float
+    cached_input_per_million: float | None = None
+
+    @field_validator("provider", "model", mode="before")
+    @classmethod
+    def _normalize_required_part(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError(tr("config.model_price.provider_and_model_required"))
+        value = value.strip()
+        if not value:
+            raise ValueError(tr("config.model_price.provider_and_model_required"))
+        return value
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _normalize_currency(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError(tr("config.model_price.currency_invalid"))
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", value):
+            raise ValueError(tr("config.model_price.currency_invalid"))
+        return value
+
+    @field_validator(
+        "input_per_million",
+        "output_per_million",
+        "cached_input_per_million",
+    )
+    @classmethod
+    def _validate_price(cls, value: float | None) -> float | None:
+        if value is not None and (not math.isfinite(value) or value < 0):
+            raise ValueError(tr("config.model_price.price_non_negative"))
+        return value
+
+
 class _EnvSettings(BaseSettings):
     """所有配置类的基类：让 .env 文件优先于 OS 环境变量。
 
@@ -166,11 +216,29 @@ class LLMConfig(_EnvSettings):
     runtime_config_file: str = "data/model_runtime_config.json"
     # 管理控制台维护的命名实例；由 admin_config.json 持久化，按 name 覆盖其他来源。
     managed_providers: list[ProviderSpec] = Field(default_factory=list)
+    # 按精确 provider/model 匹配的每百万 Token 价格；与 Provider 来源相互独立。
+    model_prices: list[ModelPriceSpec] = Field(default_factory=list)
 
     vision_provider: str = ""
     vision_model: str = ""
     # 保持历史视觉分析默认启用 thinking；可设为 false 以降低延迟和成本。
     vision_thinking: bool = True
+
+    @model_validator(mode="after")
+    def _unique_model_prices(self) -> LLMConfig:
+        seen: set[tuple[str, str]] = set()
+        for price in self.model_prices:
+            key = (price.provider, price.model)
+            if key in seen:
+                raise ValueError(
+                    tr(
+                        "config.model_price.duplicate",
+                        provider=price.provider,
+                        model=price.model,
+                    )
+                )
+            seen.add(key)
+        return self
 
     def resolved_providers(self) -> list[ProviderSpec]:
         """合并「扁平字段展开的默认实例」与「providers_file 中的命名实例」。
@@ -489,6 +557,29 @@ class AgentConfig(_EnvSettings):
     skills_dir: str = ".coworker/skills"
     palaces_dir: str = ".coworker/palaces"
     subconscious_dir: str = ".coworker/subconscious"
+    system_prompt_template: str = ""
+
+    @field_validator("system_prompt_template", mode="before")
+    @classmethod
+    def _validate_system_prompt_template(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            return validate_system_prompt_template(value)
+        except SystemPromptTemplateError as error:
+            if error.code == "too_long":
+                raise ValueError(
+                    tr(
+                        "config.system_prompt.too_long",
+                        limit=MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
+                    )
+                ) from error
+            raise ValueError(
+                tr(
+                    f"config.system_prompt.{error.code}",
+                    variable=error.variable,
+                )
+            ) from error
 
     idle_sleep_seconds: int = Field(default=30, ge=0)
     inbox_poll_interval: float = 2.0

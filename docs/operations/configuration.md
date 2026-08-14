@@ -54,6 +54,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__SUMMARY_MODEL` | 空 | 摘要/压缩专用模型；只填它会复用当前 provider，留空且已配置 `SUMMARY_PROVIDER` 时使用该 provider 的 `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
+| `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
 | `LLM__ANTHROPIC_BASE_URL` | 空 | Anthropic 自定义 Base URL |
 | `LLM__OPENAI_API_KEY` | 空 | OpenAI API Key |
@@ -71,6 +72,29 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__VISION_PROVIDER` | 空 | 视觉分析工具使用的 provider；留空时 `visual_analyze` 会提示先配置 |
 | `LLM__VISION_MODEL` | 空 | 视觉分析工具使用的模型；分析视频时还需 Provider 声明原生视频能力 |
 | `LLM__VISION_THINKING` | `true` | 视觉分析调用是否启用 thinking；设为 `false` 可使用支持的 Provider 的非思考模式，降低延迟和成本 |
+
+`LLM__MODEL_PRICES` 的每项包含 `provider`、`model`、三个大写字母的 `currency`，以及
+`input_per_million`、`output_per_million` 和可选的 `cached_input_per_million`。价格必须是
+有限非负数；同一 Provider/模型只能出现一次。缓存输入价留空时使用普通输入价。例如：
+
+```json
+[
+  {
+    "provider": "openai",
+    "model": "gpt-5.2",
+    "currency": "USD",
+    "input_per_million": 1.75,
+    "output_per_million": 14,
+    "cached_input_per_million": 0.175
+  }
+]
+```
+
+定价与连接来源相互独立，因此也能为 `.env` 或 `providers.json` 提供的只读连接补充价格。
+管理后台保存定价不重建 Provider、无需重启；历史 Token 始终按当前价格实时重算。不同币种
+分别汇总，不做汇率换算。管理后台会建议常用的 ISO 4217 三字母币种代码，同时保留其他
+三字母代码的手动输入；金额符号由浏览器根据币种代码和界面语言生成，没有专用符号时显示
+币种代码。
 
 ### 记忆
 
@@ -100,6 +124,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__OUTBOX_DIR` | `data/outbox` | 文件消息输出目录 |
 | `AGENT__IDENTITY_DIR` | `data/identity` | 身份文件目录 |
 | `AGENT__LOGS_DIR` | `data/logs` | 日志目录 |
+| `AGENT__SYSTEM_PROMPT_TEMPLATE` | 空 | System Prompt 模板；空值或纯空白使用产品标准模板，最长 100,000 字符。保存管理端覆盖后需安全重启 |
 | `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `52428800` | 单个交互日志分片的最大字节数；达到阈值后当前 `interactions.jsonl` 会归档为递增编号分片并继续写入新文件。设为 `0` 可关闭轮转。 |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
@@ -116,6 +141,17 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | 压缩前是否触发潜意识总结 |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | 单次潜意识任务最大 cycle 数 |
+
+`AGENT__SYSTEM_PROMPT_TEMPLATE` 可以引用 `{{IDENTITY}}`、`{{ENVIRONMENT}}`、
+`{{INSTINCTS}}`、`{{GUIDELINES}}`、`{{LANGUAGE_POLICY}}`、`{{THINKING}}`、
+`{{CHANNELS}}`、`{{SKILLS}}` 和 `{{PALACES}}`。每个变量都包含区段标题和已渲染正文，
+对应的 `{{IDENTITY_CONTENT}}`、`{{ENVIRONMENT_CONTENT}}` 等 `_CONTENT` 变量只包含正文，
+可用于省略或自行定义 `[IDENTITY]` 之类的标题。变量必须独占一行且最多出现一次；同一区段的
+完整变量和正文变量不能同时使用，未知、重复或冲突变量会导致配置校验失败。使用 `\{{NAME}}`
+输出字面量占位符。变量可以重排或省略；模板不引用任何变量时会完全替换内置 Prompt。
+方括号标题（包括 `[CUSTOM]`）只是普通正文，可自由改名、拆分或删除。工具 Schema 不属于模板，
+仍由模型调用层提供。建议在管理页面“关系 → 身份档案”编辑多行模板；保存后通过安全重启生效。
+编辑器提供同步行号和空白行计数；每个变量卡片还可预览当前运行实例渲染出的完整区段与正文。
 
 ### API、管理端与通信
 

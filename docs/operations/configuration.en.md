@@ -66,6 +66,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__SUMMARY_MODEL` | Empty | Model dedicated to summarization/compression; setting only this field reuses the current provider, while leaving it empty with `SUMMARY_PROVIDER` configured uses that provider's `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
 | `LLM__FALLBACKS` | `[]` | Ordered fallback chain used after a main-model failure; a JSON array of `providerName` or `providerName/modelId` entries |
+| `LLM__MODEL_PRICES` | `[]` | Model-price JSON array, exact-matched by Provider registry name and model ID; hot-applied and used to reprice historical estimates at current prices |
 | `LLM__ANTHROPIC_API_KEY` | Empty | Anthropic API key |
 | `LLM__ANTHROPIC_BASE_URL` | Empty | Custom Anthropic base URL |
 | `LLM__OPENAI_API_KEY` | Empty | OpenAI API key |
@@ -83,6 +84,32 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
 | `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |
+
+Each `LLM__MODEL_PRICES` item contains `provider`, `model`, a three-letter uppercase `currency`,
+`input_per_million`, `output_per_million`, and optional `cached_input_per_million`. Prices must be
+finite and non-negative, and each Provider/model pair may appear only once. A missing cached-input
+price falls back to the regular input price. For example:
+
+```json
+[
+  {
+    "provider": "openai",
+    "model": "gpt-5.2",
+    "currency": "USD",
+    "input_per_million": 1.75,
+    "output_per_million": 14,
+    "cached_input_per_million": 0.175
+  }
+]
+```
+
+Pricing is independent of connection sources, so it can supplement read-only connections from
+`.env` or `providers.json`. Saving prices in the management console neither rebuilds Providers nor
+requires a restart; historical tokens are recalculated against current prices. Currencies remain
+separate and are never converted. The management console suggests common three-letter ISO 4217
+currency codes while still allowing other three-letter codes to be entered manually. Currency symbols
+come from the browser using the code and interface locale; codes without a dedicated symbol are shown
+as codes.
 
 ### Memory
 
@@ -112,6 +139,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `AGENT__OUTBOX_DIR` | `data/outbox` | Directory for outgoing file messages |
 | `AGENT__IDENTITY_DIR` | `data/identity` | Identity file directory |
 | `AGENT__LOGS_DIR` | `data/logs` | Log directory |
+| `AGENT__SYSTEM_PROMPT_TEMPLATE` | Empty | System prompt template. Empty or whitespace-only values use the product-standard template; maximum 100,000 characters. A saved administration override requires a safe restart |
 | `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `52428800` | Maximum bytes in one interaction-log shard. At the limit, the active `interactions.jsonl` is archived under an increasing number and a new file is used. Set to `0` to disable rotation. |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
@@ -128,6 +156,22 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | Whether to trigger subconscious summarization before compression |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | Maximum cycles for one subconscious task |
+
+`AGENT__SYSTEM_PROMPT_TEMPLATE` may reference `{{IDENTITY}}`, `{{ENVIRONMENT}}`,
+`{{INSTINCTS}}`, `{{GUIDELINES}}`, `{{LANGUAGE_POLICY}}`, `{{THINKING}}`,
+`{{CHANNELS}}`, `{{SKILLS}}`, and `{{PALACES}}`. Each variable contains its section
+heading and rendered body. Matching `_CONTENT` variables such as `{{IDENTITY_CONTENT}}`
+and `{{ENVIRONMENT_CONTENT}}` contain only the body, so headings such as `[IDENTITY]`
+may be omitted or supplied by the template. A variable must occupy its own line and may
+appear at most once; the full and content-only forms of one section cannot be used together.
+Unknown, duplicate, or conflicting variables fail configuration validation. Use `\{{NAME}}` for a literal
+placeholder. Variables may be reordered or omitted; a template with no variables fully
+replaces the built-in prompt. Bracketed headings, including `[CUSTOM]`, are ordinary text
+and may be renamed, split, or removed. Tool schemas are not part of the template and remain
+supplied by the model-call layer. For multiline templates, use **Relationships → Identity
+Profile** in the administration page; save, then perform a safe restart to apply the change.
+The editor has synchronized line numbers and a blank-line count. Each variable card also
+previews the full section and body rendered by the currently running instance.
 
 ### API, administration, and communication
 

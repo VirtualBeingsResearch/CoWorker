@@ -70,7 +70,8 @@ docker compose up --pull always --no-build
 
 `/app` is both the source directory Python actually loads and the Agent workspace, so the host,
 Agent, and running process see the same Git checkout. The image supplies the Linux Python
-environment, Chromium, FFmpeg, and preloaded embedding model; restart the container after source
+environment, Chromium, FFmpeg, a preloaded embedding model, and lightweight command-line tools
+including `vim-tiny`, `nano`, `less`, `jq`, and `ripgrep`. Restart the container after source
 changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
 `docker compose up --build`.
 

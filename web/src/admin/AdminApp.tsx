@@ -1,4 +1,4 @@
-import { createContext, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -7,6 +7,12 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
+import {
+  COMMON_MODEL_PRICE_CURRENCIES,
+  modelPriceCurrencyDetails,
+  validateModelPrices,
+} from './settings/modelPricing';
+import { EditableCombobox } from './EditableCombobox';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { configFieldPresentation } from './settings/configFieldPresentation';
@@ -16,6 +22,7 @@ import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type Bootst
 import { bootstrapTimezoneAdvice, detectBrowserTimezone } from './bootstrapTimezone';
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
+import { LineNumberTextarea } from './LineNumberTextarea';
 import type { UsageStats } from '../api/types';
 import {
   formatDate,
@@ -35,6 +42,15 @@ type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' |
 type RuntimeTab = 'tasks' | 'alarms' | 'logs' | 'maintenance';
 type LifeState = 'live' | 'resting' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
+type PromptSectionPreview = {
+  name: string;
+  variable: string;
+  content_variable: string;
+  full_text: string;
+  content: string;
+  available: boolean;
+  lines: number;
+};
 
 const NAV: Array<{ id: Section; label: string; description: string; workspace: Workspace; icon: typeof Activity }> = [
   { id: 'overview', label: '生命总览', description: '状态、模型用量和关键运行指标', workspace: 'overview', icon: HeartPulse },
@@ -100,6 +116,16 @@ function sectionHref(next: Section) {
     url.searchParams.delete('log_end');
     url.searchParams.delete('log_type');
   }
+  url.hash = '';
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function modelPricingHref() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('section', 'settings');
+  url.searchParams.set('group', 'llm');
+  url.searchParams.delete('source');
+  url.hash = 'model-pricing';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -363,11 +389,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
   const [customModelCapabilities, setCustomModelCapabilities] = useState({ tools: false, vision: false, video: false });
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
-  const modelComboboxRef = useRef<HTMLDivElement | null>(null);
-  const modelOptionRefs = useRef<Array<HTMLLIElement | null>>([]);
   const submitInFlight = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -389,13 +410,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
     browserTimezone: timezoneAdvice.detectedTimezone,
   });
-  const modelListboxId = `bootstrap-model-listbox-${providerType}`;
-  const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
-  const filteredModels = useMemo(() => {
-    if (modelFilter === null) return models;
-    const filter = modelFilter.toLowerCase();
-    return models.filter(item => item.toLowerCase().includes(filter));
-  }, [modelFilter, models]);
   const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
   const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
   const setConfigurationJsonValidity = useCallback((path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
@@ -415,50 +429,12 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     window.requestAnimationFrame(() => advancedReturnFocus.current?.focus());
   };
 
-  const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
-  const openAllModels = () => {
-    const selectedIndex = models.findIndex(item => item === normalizedModel);
-    setModelFilter(null);
-    setHighlightedModelIndex(selectedIndex);
-    setModelMenuOpen(true);
-  };
-  const chooseRecommendedModel = (value: string) => {
-    setModel(value);
-    setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
-  };
   const changeProvider = (nextProvider: string) => {
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
   };
-  const moveHighlight = (direction: 1 | -1) => {
-    if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
-    setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
-  };
-  const handleModelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
-    else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
-    else if (event.key === 'Escape' && modelMenuOpen) { event.preventDefault(); closeModelMenu(); }
-    else if (event.key === 'Tab') closeModelMenu();
-  };
-
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !modelComboboxRef.current?.contains(target)) closeModelMenu();
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [modelMenuOpen]);
-
-  useEffect(() => {
-    if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [highlightedModelIndex, filteredModels]);
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -549,14 +525,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
               <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
+              <div className="bootstrap-model-field">
                 <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
-                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); }} placeholder={t('选择推荐模型或输入模型 ID')} />
-                  {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
-                    {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
-                  </ul>}
-                </div>
+                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
               </div>
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
@@ -706,6 +677,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         loading={usage.loading}
         error={usage.error}
         analyticsHref={sectionHref('usage')}
+        pricingHref={modelPricingHref()}
         onOpenAnalytics={event => onNavigate(event, 'usage')}
       />
       <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
@@ -721,8 +693,9 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   </div>;
 }
 
-function UsageAnalyticsPage({ onOpenLogs }: {
+function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 }) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
@@ -735,6 +708,7 @@ function UsageAnalyticsPage({ onOpenLogs }: {
       return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
     }}
     onOpenLogs={onOpenLogs}
+    pricingHref={pricingHref}
   />;
 }
 
@@ -744,13 +718,14 @@ function Models() {
   const [switchError, setSwitchError] = useState('');
   const [switching, setSwitching] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
-  useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
+  const [fallbackText, setFallbackText] = useState('');
+  useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
   const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
     const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
-    setData(next); setDraft(next);
+    setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
   };
   const switchModel = async () => {
     setSwitchError('');
@@ -784,13 +759,17 @@ function Models() {
       <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.mem0.model} onChange={e => set('mem0.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
-      <textarea className="code-area short" value={(draft.fallbacks || []).join('\n')} onChange={e => setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) })} />
-      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => void reload()}>{t('放弃修改')}</button></div>
+      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
+      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => { setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
+
+function ComboboxField({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }) {
+  return <div className="field"><label className="field-label" htmlFor={id}>{t(label)}</label>{children}{hint && <small>{t(hint)}</small>}</div>;
+}
 
 function StringListEditor({ label, hint, value, onChange, placeholder }: {
   label: string;
@@ -840,6 +819,72 @@ function ProviderModelCapabilityEditor({ value, onChange }: {
       </div>
       <button type="button" className="danger-icon" title={t('移除模型能力')} aria-label={t('移除模型能力')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
     </article>)}</div> : <p>{t('尚未声明自定义模型；未列出的模型继续使用接口协议的内置能力目录。')}</p>}
+  </section>;
+}
+
+function ProviderModelPriceEditor({ value, onChange, providerNames }: {
+  value: Json[];
+  onChange: (value: Json[]) => void;
+  providerNames: string[];
+}) {
+  const { language } = useAdminI18n();
+  const changePrice = (index: number, key: string, nextValue: unknown) => {
+    onChange(value.map((item, itemIndex) => itemIndex === index
+      ? { ...item, [key]: nextValue }
+      : item));
+  };
+  const numberValue = (raw: string, optional = false) => raw === ''
+    ? (optional ? null : '')
+    : Number(raw);
+  const validationError = validateModelPrices(value);
+  const validationMessage = validationError === 'identity'
+    ? t('模型定价必须填写 Provider 和模型 ID。')
+    : validationError === 'currency'
+      ? t('模型定价币种必须是三个英文字母。')
+      : validationError === 'rates'
+        ? t('输入价和输出价必须是非负数。')
+        : validationError === 'cached_rate'
+          ? t('缓存输入价必须留空或填写非负数。')
+          : validationError === 'duplicate'
+            ? t('同一个 Provider 中不能重复配置模型价格。')
+            : '';
+  const providerOptions = providerNames.map(name => ({ value: name }));
+  const currencyOptions = COMMON_MODEL_PRICE_CURRENCIES.map(currency => {
+    const details = modelPriceCurrencyDetails(currency, language);
+    return {
+      value: currency,
+      label: details.displayName,
+      detail: details.symbol === currency ? undefined : details.symbol,
+    };
+  });
+  return <section className="provider-model-prices" id="model-pricing">
+    <header><div><b>{t('模型定价')}</b><small>{t('按 Provider 与模型 ID 精确匹配；价格单位为每百万 Token，修改后立即重算历史消费估算。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, {
+      provider: providerNames[0] || '',
+      model: '',
+      currency: 'USD',
+      input_per_million: 0,
+      output_per_million: 0,
+      cached_input_per_million: null,
+    }])}><Plus size={13} />{t('添加价格')}</button></header>
+    {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
+      <div className="provider-price-object-grid">
+        <ComboboxField id={`model-price-provider-${index}`} label="Provider" hint="可选择有效连接，也可输入历史 Provider">
+          <EditableCombobox id={`model-price-provider-${index}`} value={String(price.provider || '')} options={providerOptions} onChange={next => changePrice(index, 'provider', next)} placeholder="openai" emptyMessage={t('没有匹配的 Provider；可继续使用当前输入。')} toggleLabel={t('展开 Provider 选项')} />
+        </ComboboxField>
+        <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
+        <ComboboxField id={`model-price-currency-${index}`} label="币种" hint="可选择常用币种，也可输入其他三字母代码">
+          <EditableCombobox id={`model-price-currency-${index}`} value={String(price.currency || '')} options={currencyOptions} onChange={next => changePrice(index, 'currency', next)} placeholder="USD" emptyMessage={t('没有匹配的常用币种；可继续使用三字母代码。')} toggleLabel={t('展开币种选项')} maxLength={3} normalize={next => next.toUpperCase()} />
+        </ComboboxField>
+      </div>
+      <button type="button" className="danger-icon provider-price-remove" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+      <div className="provider-price-rate-block"><div className="provider-price-rate-heading"><span>{t('Token 单价')}</span><small>{t('以下金额均按每百万 Token 计算')}</small></div><div className="provider-price-rate-grid">
+        <Field label="输入"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="输出"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="缓存输入" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
+      </div></div>
+    </article>)}</div> : <p>{t('尚未配置模型价格；用量仍会统计 Token，但消费估算会标记为未定价。')}</p>}
+    {validationMessage && <p className="field-error" role="alert">{validationMessage}</p>}
+    <div className="provider-price-note"><TriangleAlert size={15} /><span>{t('消费为本地估算，不含请求费、图片或视频独立计费、缓存写入、阶梯价、折扣与税费；最终以 Provider 账单为准。')}</span></div>
   </section>;
 }
 
@@ -897,7 +942,7 @@ function JsonEditor({ value, onChange, onValidityChange }: {
     }
   };
   return <>
-    <textarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
+    <LineNumberTextarea className={`code-area compact${valid ? '' : ' invalid'}`} value={text} onChange={event => edit(event.target.value)} aria-invalid={!valid} />
     {!valid && <small className="field-error" role="alert">{t('JSON 格式无效；修正后才能保存这个字段。')}</small>}
   </>;
 }
@@ -942,7 +987,18 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
 }
 
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
-const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token']);
+const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template']);
+const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
+  IDENTITY: '姓名、位置与人格身份',
+  ENVIRONMENT: '操作系统、Python、目录与时区',
+  INSTINCTS: '内置本能与新生指引',
+  GUIDELINES: '通用行为与记忆指引',
+  LANGUAGE_POLICY: '参与者回复语言策略',
+  THINKING: 'thinking.md 中的可选思维内容',
+  CHANNELS: '当前信道的可选操作指引',
+  SKILLS: '已加载 Skill 的可选注册表',
+  PALACES: '已加载 Palace 的可选注册表',
+};
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
   id: string;
@@ -1253,9 +1309,20 @@ function Settings() {
     toggleClearOverride,
   } = settings;
   useNavigationGuard('settings', dirtyGroups.size > 0);
+  useEffect(() => {
+    if (!data || !draft || group !== 'llm' || window.location.hash !== '#model-pricing') return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('model-pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, draft, group]);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
+  const providerNames = Array.from(new Set([
+    ...effectiveProviders,
+    ...(draft.llm?.managed_providers || []),
+  ].map((provider: Json) => String(provider.name || '')).filter(Boolean)));
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
   const adminToken = data.secret_status['admin.token'];
   const fallbackToken = data.secret_status['desktop_updates.admin_token'];
@@ -1283,10 +1350,11 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
+        if (key === 'model_prices' && Array.isArray(value)) return <ProviderModelPriceEditor key={key} value={value} providerNames={providerNames} onChange={next => change('model_prices', next)} />;
         if (key === 'managed_providers' && Array.isArray(value)) return <div className="provider-editor" key={key}>
           <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
           <div className="provider-source-note"><Database size={16} /><p><b>{t('配置来源彼此独立')}</b><span><code>.env</code> {t('和')} <code>providers.json</code>{t('中的连接只读展示；下方只编辑管理端覆盖，不会复制或接管外部密钥。')}</span></p></div>
@@ -1305,7 +1373,7 @@ function Settings() {
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
-        if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
+        if (path === 'llm.default_provider') return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(String(value)) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>;
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
@@ -2074,9 +2142,17 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptMessage, setPromptMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const promptEditor = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { if (identity.data) setDraft({ ...identity.data }); }, [identity.data]);
+  useEffect(() => {
+    if (systemPrompt.data) setPromptDraft(String(systemPrompt.data.desired_template || systemPrompt.data.default_template || ''));
+  }, [systemPrompt.data]);
   const identityDirty = Boolean(identity.data && draft && ['name', 'current_location', 'personality'].some(key => (draft[key] || '') !== (identity.data?.[key] || '')));
-  useNavigationGuard('identity', identityDirty);
+  const promptDirty = Boolean(systemPrompt.data && promptDraft !== null && promptDraft !== String(systemPrompt.data.desired_template || ''));
+  useNavigationGuard('identity', identityDirty || promptDirty);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
   const save = async () => {
     await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
@@ -2085,10 +2161,109 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
     setSaved(true);
     await Promise.all([identity.reload(), systemPrompt.reload()]);
   };
+  const savePrompt = async () => {
+    if (!systemPrompt.data || promptDraft === null || !promptDraft.trim()) {
+      setPromptMessage({ kind: 'error', text: t('完整替换模式需要填写非空 System Prompt。') });
+      return;
+    }
+    setPromptSaving(true);
+    setPromptMessage(null);
+    try {
+      const storedTemplate = promptDraft === systemPrompt.data.default_template ? '' : promptDraft;
+      await api('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ changes: { agent: { system_prompt_template: storedTemplate } } }) });
+      setPromptMessage({ kind: 'success', text: t('模板已保存，将在安全重启后用于所有新推理。') });
+      await systemPrompt.reload();
+    } catch (error) {
+      setPromptMessage({ kind: 'error', text: error instanceof Error ? error.message : t('保存失败') });
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+  const restoreInheritedPrompt = async () => {
+    setPromptSaving(true);
+    setPromptMessage(null);
+    try {
+      await api('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ clear_overrides: ['agent.system_prompt_template'] }) });
+      setPromptMessage({ kind: 'success', text: t('管理端模板覆盖已清除，将在安全重启后恢复启动配置。') });
+      await systemPrompt.reload();
+    } catch (error) {
+      setPromptMessage({ kind: 'error', text: error instanceof Error ? error.message : t('保存失败') });
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+  const insertPromptVariable = (name: string) => {
+    const token = `{{${name}}}`;
+    const editor = promptEditor.current;
+    const current = promptDraft || '';
+    const start = editor?.selectionStart ?? current.length;
+    const end = editor?.selectionEnd ?? start;
+    const prefix = start > 0 && current[start - 1] !== '\n' ? '\n' : '';
+    const suffix = end < current.length && current[end] !== '\n' ? '\n' : '';
+    const inserted = `${prefix}${token}${suffix}`;
+    setPromptDraft(current.slice(0, start) + inserted + current.slice(end));
+    requestAnimationFrame(() => {
+      const cursor = start + inserted.length;
+      promptEditor.current?.focus();
+      promptEditor.current?.setSelectionRange(cursor, cursor);
+    });
+  };
+  const promptVariables = (systemPrompt.data?.variables || []) as string[];
+  const promptData = systemPrompt.data;
+  const sectionPreviews = (promptData?.section_previews || promptVariables.map(name => ({
+    name,
+    variable: name,
+    content_variable: `${name}_CONTENT`,
+    full_text: '',
+    content: '',
+    available: false,
+    lines: 0,
+  }))) as PromptSectionPreview[];
+  const usedPromptSections = new Set(sectionPreviews.filter(section => (
+    promptDraft?.includes(`{{${section.variable}}}`)
+    || promptDraft?.includes(`{{${section.content_variable}}}`)
+  )).map(section => section.name));
+  const usesBuiltInSections = usedPromptSections.size > 0;
+  const promptLines = (promptDraft || '').split('\n');
+  const blankPromptLines = promptLines.filter(line => !line.trim()).length;
   return <div className="page-stack">
     <Panel title="身份档案" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
+    <Panel title="System Prompt 模板" note="通过只读分段变量组合 Prompt；自定义正文和方括号标题会原样保留。保存后需要安全重启。">
+      {systemPrompt.loading || promptDraft === null || !promptData ? <Loading error={systemPrompt.error} /> : <div className="system-prompt-template-workbench">
+        <div className="system-prompt-template-status"><span><b>{t(promptData.overridden ? '管理端覆盖' : '继承启动配置')}</b><small>{t(promptData.overridden ? '当前期望模板保存在 admin_config.json。' : '当前没有管理端模板覆盖。')}</small></span><em className={promptData.prompt_pending_restart ? 'pending' : 'active'}>{t(promptData.prompt_pending_restart ? '等待安全重启' : '当前已生效')}</em></div>
+        {promptData.prompt_pending_restart && <div className="notice amber"><TriangleAlert size={16} /><span>{t('当前运行仍使用旧模板；安全重启后，主 Agent、Bubble 和潜意识会统一使用新模板。')}</span><a className="ghost mini" href="?section=runtime&runtime_tab=maintenance">{t('前往安全重启')}</a></div>}
+        {!usesBuiltInSections && promptDraft.trim() && <div className="notice amber"><TriangleAlert size={16} /><span>{t('此模板没有引用任何内置分段，将完全替换 Identity、语言策略、Skill、Palace 和 Channel 指引。')}</span></div>}
+        <div className="system-prompt-presets"><span>{t('快捷预设')}</span><button type="button" className="ghost mini" onClick={() => setPromptDraft(String(promptData.default_template || ''))}>{t('恢复标准模板')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft(`${promptData.default_template}\n\n[CUSTOM]\n`)}>{t('在标准模板后追加')}</button><button type="button" className="ghost mini" onClick={() => setPromptDraft('')}>{t('完全替换')}</button></div>
+        <div className="system-prompt-template-grid">
+          <div className="system-prompt-variable-list">
+            <b>{t('可用分段变量')}</b>
+            <small>{t('展开区段可预览当前运行内容，并选择插入完整区段或仅正文；同一区段只能选择一种。')}</small>
+            {sectionPreviews.map(section => <details className="system-prompt-variable-card" key={section.name}>
+              <summary><span><code>{`{{${section.variable}}}`}</code><small>{t(SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS[section.name] || '')}</small></span><em>{section.available ? t('{{count}} 行', { count: section.lines }) : t('当前为空')}</em></summary>
+              <div className="system-prompt-variable-card-body">
+                <div className="system-prompt-variable-actions">
+                  <button type="button" disabled={usedPromptSections.has(section.name)} onClick={() => insertPromptVariable(section.variable)}><Plus size={12} /><span>{t('完整区段')}<code>{`{{${section.variable}}}`}</code></span></button>
+                  <button type="button" disabled={usedPromptSections.has(section.name)} onClick={() => insertPromptVariable(section.content_variable)}><Plus size={12} /><span>{t('仅正文')}<code>{`{{${section.content_variable}}}`}</code></span></button>
+                </div>
+                {!section.available ? <p>{t('当前运行实例中此可选区段为空；渲染时会自动省略。')}</p> : <div className="system-prompt-section-previews">
+                  <span>{t('完整区段')}</span><pre>{section.full_text}</pre>
+                  <span>{t('仅正文')}</span><pre>{section.content}</pre>
+                </div>}
+              </div>
+            </details>)}
+          </div>
+          <label className="system-prompt-template-editor">
+            <span>{t('期望模板')}<small>{t('{{lines}} 行 · {{blank}} 个空白行 · {{count}} / 100000 字符', { lines: promptLines.length, blank: blankPromptLines, count: promptDraft.length })}</small></span>
+            <LineNumberTextarea ref={promptEditor} wrapperClassName="system-prompt-line-number-field" showSummary={false} maxLength={100000} spellCheck={false} value={promptDraft} aria-label={t('System Prompt 期望模板')} onChange={event => { setPromptDraft(event.target.value); setPromptMessage(null); }} placeholder={t('填写完整 System Prompt，或插入左侧分段变量。')} />
+          </label>
+        </div>
+        <div className="system-prompt-template-help"><code>{'\\{{NAME}}'}</code><span>{t('用于输出字面量 {{NAME}}；未知、重复、未独占一行，或同一区段同时使用完整与正文变量都会被拒绝。')}</span></div>
+        {promptMessage && <div className={`notice ${promptMessage.kind}`} role={promptMessage.kind === 'error' ? 'alert' : 'status'}>{promptMessage.text}</div>}
+        <div className="panel-actions"><span className={'save-state ' + (promptDirty ? 'dirty' : '')}>{t(promptDirty ? '有未保存修改' : '当前模板草稿已同步')}</span><button type="button" className="primary" disabled={promptSaving || !promptDirty || !promptDraft.trim()} onClick={() => void savePrompt()}><Save size={15} />{t(promptSaving ? '正在保存…' : '保存模板')}</button><button type="button" className="ghost" disabled={promptSaving || !promptData.overridden} onClick={() => void restoreInheritedPrompt()}><RotateCcw size={15} />{t('恢复继承')}</button><button type="button" className="ghost" disabled={promptSaving || !promptDirty} onClick={() => setPromptDraft(String(promptData.desired_template || ''))}>{t('放弃修改')}</button></div>
+      </div>}
+    </Panel>
     <Panel title="当前 System Prompt" note="只读展示 Agent 当前实际使用的缓存版本；不包含工具 Schema、短期上下文或本轮消息。" action={<button className="ghost mini" disabled={systemPrompt.loading} onClick={() => void systemPrompt.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
-      {systemPrompt.loading || !systemPrompt.data ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{systemPrompt.data.characters ?? 0}</b>{t('字符')}</span><span><b>{systemPrompt.data.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{systemPrompt.data.content || ''}</code></pre></details></>}
+      {systemPrompt.loading || !promptData ? <Loading error={systemPrompt.error} /> : <><div className="system-prompt-facts"><span><b>{promptData.characters ?? 0}</b>{t('字符')}</span><span><b>{promptData.lines ?? 0}</b>{t('行')}</span><em>{t('只读')}</em></div><details className="system-prompt-preview"><summary><FileText size={16} /><span>{t('展开完整 System Prompt')}</span><small>{t('内容可选择复制，但不能在这里编辑')}</small></summary><pre tabIndex={0}><code>{promptData.content || ''}</code></pre></details></>}
     </Panel>
   </div>;
 }
@@ -2302,7 +2477,7 @@ function PeopleView() {
             <section className="person-detail-section person-card-section">
               <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>
               <div className={`person-card-preview${cardLoading ? ' loading' : ''}`}>{cardLoading ? <Loading /> : <pre>{renderedCard || t('暂无记录')}</pre>}</div>
-              <Field label={t('个性化备注（每行一条）')}><textarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
+              <Field label={t('个性化备注（每行一条）')}><LineNumberTextarea rows={7} value={notesDraft} onChange={event => setNotesDraft(event.target.value)} placeholder={t('每行一条备注：称呼、关系、背景、偏好…')} /></Field>
               <div className="person-note-actions"><small>{t('保存后会立即更新人物画像')}</small><button className="primary" disabled={busy || !notesChanged} onClick={() => void saveNotes()}><Save size={15} />{t('保存备注')}</button></div>
             </section>
             <details className="person-maintenance">
@@ -2471,9 +2646,9 @@ function ContentManager() {
           {!selected && <section className="source-create-card"><div className="source-create-mark"><FileCode2 size={20} /></div><div><span>{t('新建源定义')}</span><h3>{t('创建 {{label}}', { label: kindLabel })}</h3><p>{t('模板已准备好。填写目录 ID，然后直接编辑定义文件。')}</p></div><label><span>{t('目录 ID')}</span><input autoFocus className={newId && (!idValid || idTaken) ? 'invalid' : ''} value={newId} onChange={event => { setNewId(event.target.value); setMessage(''); }} placeholder={kind === 'skills' ? 'release-check' : kind === 'palaces' ? 'product-testing' : 'architecture-review'} /><small>{idTaken ? t('这个 ID 已存在') : !newId || idValid ? t('字母、数字、点、短横线或下划线') : t('ID 含有不支持的字符')}</small></label></section>}
           {activeItem && !activeItem.valid && <div className="notice error"><TriangleAlert size={16} />{activeItem.warning}</div>}
           <div className="source-workbench">
-            <div className="source-toolbar"><div className="editor-file"><span className={'source-status ' + (dirty ? 'dirty' : '')} title={dirty ? t('有未保存修改') : t('内容已同步')} /><FileText size={14} /><code><b>{selected || newId || t('目录-id')}</b><i>/</i>{activeFile || CONTENT_KIND[kind].filename}</code></div><div className="source-readout"><span>YAML + MD</span><span>UTF-8</span><b>{t('{{count}} 行', { count: meta.lines })}</b><b>{new Blob([raw]).size.toLocaleString()} B</b></div></div>
+            <div className="source-toolbar"><div className="editor-file"><span className={'source-status ' + (dirty ? 'dirty' : '')} title={dirty ? t('有未保存修改') : t('内容已同步')} /><FileText size={14} /><code><b>{selected || newId || t('目录-id')}</b><i>/</i>{activeFile || CONTENT_KIND[kind].filename}</code></div><div className="source-readout"><span>YAML + MD</span><span>UTF-8</span><b>{t('{{count}} 行', { count: meta.lines })}</b><b>{t('{{count}} 个空白行', { count: raw ? raw.split('\n').filter(line => !line.trim()).length : 0 })}</b><b>{new Blob([raw]).size.toLocaleString()} B</b></div></div>
             <div className="source-schema"><span>{t('必填字段')}</span><code>{CONTENT_SOURCE_GUIDE[kind].required}</code><i /> <p>{t(CONTENT_SOURCE_GUIDE[kind].tip)}</p><kbd>Ctrl S</kbd></div>
-            <textarea className="source-editor" value={raw} onChange={event => { setRaw(event.target.value); setMessage(''); }} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if ((selected || newSourceReady) && raw.trim()) void save(); } }} spellCheck={false} aria-label={t('能力内容源码')} />
+            <LineNumberTextarea wrapperClassName="source-line-number-field" showSummary={false} className="source-editor" value={raw} onChange={event => { setRaw(event.target.value); setMessage(''); }} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if ((selected || newSourceReady) && raw.trim()) void save(); } }} spellCheck={false} aria-label={t('能力内容源码')} />
           </div>
           {actionError && <div className="notice error"><TriangleAlert size={16} />{actionError}</div>}{message && <div className="notice success"><Check size={16} />{message}</div>}
           <div className="panel-actions"><span className={'save-state ' + (dirty ? 'dirty' : '')}>{selected ? (dirty ? t('有未保存修改') : t('内容已同步')) : newSourceReady ? t('定义已就绪') : !idValid || idTaken ? t('填写有效的目录 ID') : t('补全源码中的必填字段')}</span><button className="primary" disabled={selected ? !dirty : (!newSourceReady || !dirty)} onClick={() => void save()}><Save size={15} />{selected ? (activeFile && activeFile !== CONTENT_KIND[kind].filename ? t('保存文件') : t('保存并加载')) : t('创建并加载')}</button>{selected && activeFile !== CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={() => void deleteFile()}><Trash2 size={14} />{t('删除文件')}</button>}{selected && activeFile === CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={async () => { if (confirm(t('删除 {{kind}}/{{id}} 整个能力目录？其中的 scripts、references 和其他附属文件也会一并删除。', { kind, id: selected }))) { await api('/api/admin/content/' + kind + '/' + encodeURIComponent(selected), { method: 'DELETE' }); setSelected(''); setActiveFile(''); setFileList([]); setRaw(''); setOriginalRaw(''); setMessage(''); await reload(); } }}><Trash2 size={14} />{t('删除能力')}</button>}</div>
@@ -3390,7 +3565,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
-        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} pricingHref={modelPricingHref()} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}

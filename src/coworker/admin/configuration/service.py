@@ -49,6 +49,7 @@ SECRET_PATHS = {
 
 HOT_CONFIG_PATHS = {
     "llm.max_tokens",
+    "llm.model_prices",
     "agent.idle_sleep_seconds",
     "agent.passive_mode",
     "agent.inbox_batch_max",
@@ -202,6 +203,11 @@ class AdminConfigService:
             current_overrides,
             next_overrides,
         )
+        llm_overrides = next_overrides.get("llm")
+        if isinstance(llm_overrides, dict) and "model_prices" in llm_overrides:
+            llm_overrides["model_prices"] = [
+                price.model_dump(mode="json") for price in desired_config.llm.model_prices
+            ]
         changed_paths = _changed_paths(
             before_config.model_dump(mode="json"),
             desired_config.model_dump(mode="json"),
