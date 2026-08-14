@@ -7,7 +7,11 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
-import { validateModelPrices } from './settings/modelPricing';
+import {
+  COMMON_MODEL_PRICE_CURRENCIES,
+  modelPriceCurrencyLabel,
+  validateModelPrices,
+} from './settings/modelPricing';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { configFieldPresentation } from './settings/configFieldPresentation';
@@ -101,6 +105,16 @@ function sectionHref(next: Section) {
     url.searchParams.delete('log_end');
     url.searchParams.delete('log_type');
   }
+  url.hash = '';
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function modelPricingHref() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('section', 'settings');
+  url.searchParams.set('group', 'llm');
+  url.searchParams.delete('source');
+  url.hash = 'model-pricing';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -708,6 +722,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         loading={usage.loading}
         error={usage.error}
         analyticsHref={sectionHref('usage')}
+        pricingHref={modelPricingHref()}
         onOpenAnalytics={event => onNavigate(event, 'usage')}
       />
       <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
@@ -723,8 +738,9 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   </div>;
 }
 
-function UsageAnalyticsPage({ onOpenLogs }: {
+function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 }) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
@@ -737,6 +753,7 @@ function UsageAnalyticsPage({ onOpenLogs }: {
       return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
     }}
     onOpenLogs={onOpenLogs}
+    pricingHref={pricingHref}
   />;
 }
 
@@ -851,6 +868,7 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
   onChange: (value: Json[]) => void;
   providerNames: string[];
 }) {
+  const { language } = useAdminI18n();
   const changePrice = (index: number, key: string, nextValue: unknown) => {
     onChange(value.map((item, itemIndex) => itemIndex === index
       ? { ...item, [key]: nextValue }
@@ -871,7 +889,7 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
           : validationError === 'duplicate'
             ? t('同一个 Provider 中不能重复配置模型价格。')
             : '';
-  return <section className="provider-model-prices">
+  return <section className="provider-model-prices" id="model-pricing">
     <header><div><b>{t('模型定价')}</b><small>{t('按 Provider 与模型 ID 精确匹配；价格单位为每百万 Token，修改后立即重算历史消费估算。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, {
       provider: providerNames[0] || '',
       model: '',
@@ -881,10 +899,15 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
       cached_input_per_million: null,
     }])}><Plus size={13} />{t('添加价格')}</button></header>
     <datalist id="model-price-provider-options">{providerNames.map(name => <option value={name} key={name} />)}</datalist>
+    <datalist id="model-price-currency-options">{COMMON_MODEL_PRICE_CURRENCIES.map(currency => <option
+      value={currency}
+      label={modelPriceCurrencyLabel(currency, language)}
+      key={currency}
+    />)}</datalist>
     {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
       <Field label="Provider" hint="连接注册名，支持已停用的历史 Provider"><input list="model-price-provider-options" value={price.provider || ''} onChange={event => changePrice(index, 'provider', event.target.value)} placeholder="openai" /></Field>
       <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
-      <Field label="币种" hint="三个字母，如 CNY 或 USD"><input maxLength={3} value={price.currency || ''} onChange={event => changePrice(index, 'currency', event.target.value.toUpperCase())} placeholder="USD" /></Field>
+      <Field label="币种" hint="可选择常用币种，也可输入其他三字母代码"><input list="model-price-currency-options" maxLength={3} value={price.currency || ''} onChange={event => changePrice(index, 'currency', event.target.value.toUpperCase())} placeholder="USD" /></Field>
       <Field label="输入 / 百万 Token"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
       <Field label="输出 / 百万 Token"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
       <Field label="缓存输入 / 百万 Token" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
@@ -1316,6 +1339,13 @@ function Settings() {
     toggleClearOverride,
   } = settings;
   useNavigationGuard('settings', dirtyGroups.size > 0);
+  useEffect(() => {
+    if (!data || !draft || group !== 'llm' || window.location.hash !== '#model-pricing') return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('model-pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, draft, group]);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -3567,7 +3597,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
-        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} pricingHref={modelPricingHref()} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}

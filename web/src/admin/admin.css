@@ -1012,9 +1012,13 @@ html:has(.admin-login),
 .admin-usage-state { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 184px; color: var(--admin-muted); font-size: 11px; }
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.admin-usage-metrics.compact { grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); }
+.admin-usage-metrics.compact { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.admin-usage-metrics.compact article { grid-column: span 2; }
+.admin-usage-metrics.compact article.total,
+.admin-usage-metrics.compact article.cost { grid-column: span 3; min-height: 112px; }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
+.admin-usage-metrics article.cost { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-sky) 8%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article > svg { position: absolute; top: 11px; right: 11px; color: var(--admin-vital); }
 .admin-usage-metrics span,
 .admin-usage-metrics strong,
@@ -1022,6 +1026,8 @@ html:has(.admin-login),
 .admin-usage-metrics span { overflow: hidden; padding-right: 14px; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-usage-metrics strong { margin-top: 10px; font: 680 20px/1 var(--admin-data); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .admin-usage-metrics small { overflow: hidden; margin-top: 7px; color: var(--admin-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-usage-metrics .currency-cost-summary { display: flex; overflow: visible; margin-top: 10px; padding-right: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); text-overflow: clip; white-space: normal; }
+.admin-usage-metrics .currency-cost-summary > span { font: inherit; }
 .admin-usage-notice { display: flex; align-items: center; gap: 8px; margin-top: 9px; padding: 8px 10px; border-radius: 8px; color: var(--admin-muted); background: var(--admin-paper); font-size: 10px; }
 .admin-usage-notice.amber { color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
 .admin-usage-quality { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(110px, .65fr) auto; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--admin-line); }
@@ -1101,8 +1107,9 @@ html:has(.admin-login),
 .usage-attention article small { overflow: hidden; margin-top: 3px; color: var(--admin-muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .usage-attention.clear { display: flex; align-items: center; min-height: 37px; border-color: color-mix(in oklch, var(--admin-vital) 22%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 4%, var(--admin-surface)); }
 .usage-attention.clear > header { width: auto; color: var(--admin-vital); }
-.usage-analytics-metrics { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.usage-analytics-metric { position: relative; display: grid; align-content: start; min-width: 0; min-height: 98px; padding: 12px; background: var(--admin-surface); }
+.usage-analytics-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
+.usage-analytics-metric { position: relative; display: grid; grid-column: span 2; align-content: start; min-width: 0; min-height: 104px; padding: 12px; background: var(--admin-surface); }
+.usage-analytics-metric.featured { grid-column: span 3; min-height: 122px; }
 .usage-analytics-metric[type="button"] { border: 0; border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .usage-analytics-metric[type="button"]:hover { z-index: 1; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
 .usage-analytics-metric[type="button"]:focus-visible { z-index: 2; outline: 2px solid var(--admin-vital); outline-offset: -2px; }
@@ -1118,11 +1125,22 @@ html:has(.admin-login),
 .usage-analytics-metric > svg { position: absolute; top: 12px; right: 12px; color: var(--admin-vital); }
 .usage-analytics-metric > span,
 .usage-analytics-metric > strong,
+.usage-analytics-metric > .usage-analytics-metric-value,
 .usage-analytics-metric > small { display: block; min-width: 0; }
 .usage-analytics-metric > span { overflow: hidden; padding-right: 15px; color: var(--admin-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .usage-analytics-metric > strong { overflow: hidden; margin-top: 10px; font: 690 21px/1 var(--admin-data); letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
 .usage-analytics-metric.compact-value > strong { font-size: 14px; line-height: 1.22; white-space: normal; }
+.usage-analytics-metric-value { margin-top: 10px; }
 .usage-analytics-metric > small { display: -webkit-box; overflow: hidden; margin-top: 8px; color: var(--admin-muted); font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.currency-cost-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+.currency-cost-summary > span { overflow: hidden; max-width: 100%; padding: 4px 7px; border-radius: 6px; background: color-mix(in oklch, var(--admin-sky) 9%, var(--admin-paper)); text-overflow: ellipsis; white-space: nowrap; }
+.currency-cost-summary > button { display: inline-grid; place-items: center; min-width: 25px; min-height: 25px; padding: 0 6px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: var(--admin-paper); font: 650 9px var(--admin-data); letter-spacing: 0; cursor: pointer; }
+.currency-cost-summary > button:hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
+.currency-cost-summary > button:focus-visible { outline: 2px solid var(--admin-vital); outline-offset: 2px; }
+.currency-cost-summary.empty { color: var(--admin-muted); font-size: 18px; }
+.usage-pricing-shortcut { display: inline-flex; align-items: center; gap: 3px; width: max-content; max-width: 100%; margin-top: 8px; color: var(--admin-vital); font-size: 9px; font-weight: 680; line-height: 1.35; text-decoration: none; }
+.usage-pricing-shortcut:hover { text-decoration: underline; }
+.usage-pricing-shortcut:focus-visible { border-radius: 3px; outline: 2px solid var(--admin-vital); outline-offset: 2px; }
 .usage-quality { display: grid; grid-template-columns: minmax(170px, auto) minmax(180px, 1fr) auto; align-items: center; gap: 12px; margin-top: 9px; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 8px; background: var(--admin-paper); }
 .usage-quality-copy span,
 .usage-quality-copy strong { display: block; }
@@ -1274,6 +1292,8 @@ html:has(.admin-login),
 
 @media (max-width: 1250px) {
   .usage-analytics-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .usage-analytics-metric,
+  .usage-analytics-metric.featured { grid-column: span 2; }
   .usage-execution-list { grid-template-columns: 1fr; }
 }
 
@@ -1294,6 +1314,8 @@ html:has(.admin-login),
 
 @media (max-width: 820px) {
   .usage-analytics-metrics { grid-template-columns: 1fr 1fr; }
+  .usage-analytics-metric,
+  .usage-analytics-metric.featured { grid-column: span 1; }
   .usage-scope-filter { grid-template-columns: auto minmax(0, 1fr); }
   .usage-scope-filter > small { grid-column: 1 / -1; }
   .usage-quality { grid-template-columns: 1fr; }
@@ -1307,6 +1329,9 @@ html:has(.admin-login),
 }
 
 @media (max-width: 620px) {
+  .usage-analytics-metrics { grid-template-columns: 1fr; }
+  .usage-analytics-metric,
+  .usage-analytics-metric.featured { grid-column: span 1; }
   .usage-analytics-hero > header { align-items: stretch; flex-direction: column; }
   .usage-analytics-actions { width: 100%; }
   .usage-analytics-actions > button:not(.icon-btn) { flex: 1; justify-content: center; }
@@ -1672,7 +1697,7 @@ html:has(.admin-login),
 .provider-model-capabilities > header b { font-size: 12px; }
 .provider-model-capabilities > header small,
 .provider-model-capabilities > p { margin: 3px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
-.provider-model-prices { grid-column: 1 / -1; display: grid; gap: 10px; padding: 16px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }
+.provider-model-prices { grid-column: 1 / -1; display: grid; gap: 10px; padding: 16px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); scroll-margin-top: 88px; }
 .provider-model-prices > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .provider-model-prices > header > div { min-width: 0; }
 .provider-model-prices > header b,
@@ -3596,7 +3621,10 @@ html:has(.admin-login),
   .overview-status-facts > div:nth-child(3) { padding-left: 0; }
   .admin-usage-metrics { grid-template-columns: 1fr 1fr; }
   .admin-usage-metrics.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .admin-usage-metrics article.total { grid-column: 1 / -1; }
+  .admin-usage-metrics.compact article { grid-column: span 1; }
+  .admin-usage-metrics.compact article.total,
+  .admin-usage-metrics.compact article.cost,
+  .admin-usage-metrics.compact article:last-child { grid-column: 1 / -1; }
   .admin-usage-quality { grid-template-columns: 1fr auto; }
   .admin-usage-quality > div:first-child { grid-column: 1 / -1; }
   .overview-operation-grid { grid-template-columns: 1fr 1fr; }

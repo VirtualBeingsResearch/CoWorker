@@ -8,10 +8,17 @@ import {
   formatCurrencyAmount,
   usageCost,
 } from '../src/lib/usageStats.ts';
-import { validateModelPrices } from '../src/admin/settings/modelPricing.ts';
+import {
+  COMMON_MODEL_PRICE_CURRENCIES,
+  modelPriceCurrencyLabel,
+  validateModelPrices,
+} from '../src/admin/settings/modelPricing.ts';
 
 const analytics = await readFile(new URL('../src/admin/UsageAnalytics.tsx', import.meta.url), 'utf8');
 const adminApp = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
+const overview = await readFile(new URL('../src/admin/UsageOverview.tsx', import.meta.url), 'utf8');
+const costSummary = await readFile(new URL('../src/admin/CurrencyCostSummary.tsx', import.meta.url), 'utf8');
+const adminCss = await readFile(new URL('../src/admin/admin.css', import.meta.url), 'utf8');
 
 test('formats and orders independent currency estimates', () => {
   assert.deepEqual(costEntries({ USD: 1.25, CNY: 8.5, invalid: Number.NaN }), [
@@ -56,4 +63,33 @@ test('validates price identity, currency, rates, and duplicate pairs before savi
   assert.equal(validateModelPrices([price, { ...price }]), 'duplicate');
   assert.match(adminApp, /const validationError = validateModelPrices\(value\)/);
   assert.match(adminApp, /validationMessage && <p className="field-error" role="alert">/);
+});
+
+test('suggests common localized currencies while retaining custom codes', () => {
+  assert.deepEqual(COMMON_MODEL_PRICE_CURRENCIES.slice(0, 6), [
+    'CNY',
+    'USD',
+    'EUR',
+    'JPY',
+    'HKD',
+    'GBP',
+  ]);
+  assert.ok(COMMON_MODEL_PRICE_CURRENCIES.every(currency => /^[A-Z]{3}$/.test(currency)));
+  assert.match(modelPriceCurrencyLabel('USD', 'en'), /^USD · /);
+  assert.match(adminApp, /datalist id="model-price-currency-options"/);
+  assert.match(adminApp, /list="model-price-currency-options"/);
+  assert.match(adminApp, /可选择常用币种，也可输入其他三字母代码/);
+});
+
+test('keeps multi-currency spend compact and links summaries to pricing', () => {
+  assert.match(costSummary, /entries\.slice\(0, collapsedLimit\)/);
+  assert.match(costSummary, /aria-expanded=\{expanded\}/);
+  assert.match(overview, /CurrencyCostSummary costs=\{windowStats\.estimated_costs\}/);
+  assert.match(overview, /className="usage-pricing-shortcut" href=\{pricingHref\}/);
+  assert.match(analytics, /featured actionHref=\{pricingHref\}/);
+  assert.match(adminApp, /function sectionHref[\s\S]*url\.hash = '';/);
+  assert.match(adminApp, /url\.hash = 'model-pricing'/);
+  assert.match(adminApp, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  assert.match(adminCss, /usage-analytics-metrics \{[^}]*repeat\(6/);
+  assert.match(adminCss, /admin-usage-metrics\.compact \{[^}]*repeat\(6/);
 });
