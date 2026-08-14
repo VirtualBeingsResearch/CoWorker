@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
 
@@ -74,12 +74,14 @@ class Brain:
         self._max_tokens = max_tokens
         self._thinking = thinking
         self._lock = asyncio.Lock()
+        self._model_switch_listener_lock = asyncio.Lock()
         # 降级链原始配置（"name" 或 "name/model"）；运行时按当前注册表解析，构造时不解析。
         self._fallbacks = list(fallbacks or [])
         # 上次切换是否由主模型失败触发（区别于用户/模型主动 switch_model），供主循环措辞使用。
         self._last_switch_was_fallback = False
         self._summary_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._vision_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
+        self._model_switch_listeners: list[Callable[[str, str], Awaitable[None]]] = []
 
     @property
     def message_time_prefix(self) -> bool:
@@ -135,6 +137,13 @@ class Brain:
     ) -> None:
         self._vision_usage_listeners.append(fn)
 
+    def add_model_switch_listener(
+        self,
+        fn: Callable[[str, str], Awaitable[None]],
+    ) -> None:
+        """Register an async observer for persistent active-model changes."""
+        self._model_switch_listeners.append(fn)
+
     def inherit_usage_listeners_from(self, other: Brain) -> None:
         self._summary_usage_listeners.extend(other._summary_usage_listeners)
         self._vision_usage_listeners.extend(other._vision_usage_listeners)
@@ -150,6 +159,25 @@ class Brain:
                 fn(response, metadata)
             except Exception as e:
                 logger.warning(f"Brain usage listener raised, ignored: {e}")
+
+    async def _notify_model_switch_listeners(self, provider: str, model: str) -> None:
+        # Serialize notifications so concurrent switches cannot leave observers on
+        # an older model after a newer switch has already completed.
+        async with self._model_switch_listener_lock:
+            if (provider, model) != (self._active_provider_name, self._active_model):
+                return
+            for fn in self._model_switch_listeners:
+                try:
+                    await fn(provider, model)
+                except Exception as e:
+                    logger.warning(
+                        tr(
+                            "brain.listeners.model_switch_failed",
+                            provider=provider,
+                            model=model,
+                            error=e,
+                        )
+                    )
 
     def list_providers(self) -> list[str]:
         """已注册的 provider 实例名（注册表 key）。"""
@@ -439,6 +467,7 @@ class Brain:
                     self._active_model = model
                     self._last_switch_was_fallback = True
                 logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
+                await self._notify_model_switch_listeners(name, model)
             return response
 
         assert last_err is not None
@@ -569,6 +598,8 @@ class Brain:
             self._active_provider_name = provider_name
             self._active_model = model_id
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
+        if old != (provider_name, model_id):
+            await self._notify_model_switch_listeners(provider_name, model_id)
 
     @staticmethod
     def _sanitize_for_summary(content: str | list) -> str | list:

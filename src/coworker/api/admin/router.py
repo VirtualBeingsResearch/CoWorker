@@ -1612,7 +1612,9 @@ async def switch_model(
     agent.state.current_provider = brain.current_provider_name
     agent.state.current_model = brain.current_model
     _audit(request, "model.switch", f"{brain.current_provider_name}/{brain.current_model}")
-    return cast(ApiResponse, brain.model_config_snapshot())
+    snapshot = brain.model_config_snapshot()
+    snapshot["mem0"] = _mem0_model_view(_require_config())
+    return cast(ApiResponse, snapshot)
 
 
 @router.post("/restart", status_code=202)

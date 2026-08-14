@@ -468,6 +468,32 @@ class TestReconfigure:
         assert lt._mem.config.llm.config["thinking"] is True
         assert lt._llm is new_cfg
 
+    async def test_factory_failure_preserves_previous_runtime(self, monkeypatch):
+        import mem0.utils.factory as mem0_factory
+
+        old_cfg = LongTermLLMConfig(provider="openai", api_dialect="openai", model="old")
+        lt = LongTermMemory(db_path="data/_unused", llm=old_cfg)
+        old_llm = MagicMock()
+        lt._mem = MagicMock()
+        lt._mem.llm = old_llm
+        lt._mem.config.llm.provider = "openai"
+        lt._mem.config.llm.config = {"model": "old"}
+        monkeypatch.setattr(
+            mem0_factory.LlmFactory,
+            "create",
+            MagicMock(side_effect=RuntimeError("factory failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="factory failed"):
+            await lt.reconfigure(
+                LongTermLLMConfig(provider="deepseek", api_dialect="openai", model="new")
+            )
+
+        assert lt._llm is old_cfg
+        assert lt._mem.llm is old_llm
+        assert lt._mem.config.llm.provider == "openai"
+        assert lt._mem.config.llm.config == {"model": "old"}
+
     async def test_deferred_when_not_initialized(self):
         lt = LongTermMemory(db_path="data/_unused")
         new_cfg = LongTermLLMConfig(

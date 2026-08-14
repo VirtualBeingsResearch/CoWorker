@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from loguru import logger
 from pydantic import ValidationError
 
 from coworker.core.config import (
@@ -47,6 +46,12 @@ SECRET_PATHS = {
     "wecom.secret",
 }
 
+MEM0_LLM_CONFIG_PATHS = {
+    "memory.mem0_llm_provider",
+    "memory.mem0_llm_model",
+    "memory.mem0_llm_thinking",
+}
+
 HOT_CONFIG_PATHS = {
     "llm.max_tokens",
     "llm.model_prices",
@@ -57,10 +62,7 @@ HOT_CONFIG_PATHS = {
     "memory.auto_recall_enabled",
     "memory.auto_recall_relevance_threshold",
     "memory.auto_recall_limit",
-    "memory.mem0_llm_provider",
-    "memory.mem0_llm_model",
-    "memory.mem0_llm_thinking",
-}
+} | MEM0_LLM_CONFIG_PATHS
 
 _SOURCE_TOKEN_PATH_RE = re.compile(
     r"^desktop_updates\.sync_sources\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
@@ -401,24 +403,26 @@ class AdminConfigService:
 
         未初始化或未注入 long_term 依赖时只把变更落到覆盖配置，待下次初始化生效。
         """
-        changed = changed_paths & {
-            "memory.mem0_llm_provider",
-            "memory.mem0_llm_model",
-            "memory.mem0_llm_thinking",
-        }
+        changed = changed_paths & MEM0_LLM_CONFIG_PATHS
         if not changed:
             return
         from coworker.memory.long_term import build_memory_llm_config
 
-        self._dependencies.config.memory.mem0_llm_provider = desired.memory.mem0_llm_provider
-        self._dependencies.config.memory.mem0_llm_model = desired.memory.mem0_llm_model
-        self._dependencies.config.memory.mem0_llm_thinking = desired.memory.mem0_llm_thinking
         long_term = self._dependencies.long_term
         brain = self._dependencies.brain
-        if long_term is not None:
-            # reconfigure 在未初始化（setup 模式）时只记录配置，待 initialize 生效。
-            # 跟随运行态主线：mem0 未显式配置时用当前 active provider/model，而非启动默认值。
-            try:
+        current_memory = self._dependencies.config.memory
+        previous = (
+            current_memory.mem0_llm_provider,
+            current_memory.mem0_llm_model,
+            current_memory.mem0_llm_thinking,
+        )
+        current_memory.mem0_llm_provider = desired.memory.mem0_llm_provider
+        current_memory.mem0_llm_model = desired.memory.mem0_llm_model
+        current_memory.mem0_llm_thinking = desired.memory.mem0_llm_thinking
+        try:
+            if long_term is not None:
+                # reconfigure 在未初始化（setup 模式）时只记录配置，待 initialize 生效。
+                # 跟随运行态主线：mem0 未显式配置时用当前 active provider/model，而非启动默认值。
                 await long_term.reconfigure(
                     build_memory_llm_config(
                         desired,
@@ -426,8 +430,13 @@ class AdminConfigService:
                         active_model=brain.current_model,
                     )
                 )
-            except Exception as e:
-                logger.warning(f"mem0 LLM hot reconfigure failed: {e}")
+        except Exception:
+            (
+                current_memory.mem0_llm_provider,
+                current_memory.mem0_llm_model,
+                current_memory.mem0_llm_thinking,
+            ) = previous
+            raise
         for path in sorted(changed):
             applied.append(path)
 
@@ -530,7 +539,9 @@ class AdminConfigService:
         changed_paths: set[str],
         applied: list[str],
     ) -> None:
-        scalar_paths = changed_paths & HOT_CONFIG_PATHS - {"llm.max_tokens"}
+        scalar_paths = changed_paths & (
+            HOT_CONFIG_PATHS - {"llm.max_tokens"} - MEM0_LLM_CONFIG_PATHS
+        )
         for path in sorted(scalar_paths):
             _assign_config_path(self._dependencies.config, path, desired)
             applied.append(path)

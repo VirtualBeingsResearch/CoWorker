@@ -92,6 +92,7 @@ def _client(
     ]
     agent = SimpleNamespace(
         _identity=_Identity(),
+        state=SimpleNamespace(current_provider="", current_model=""),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
@@ -112,6 +113,7 @@ def _client(
         set_max_tokens=lambda value: None,
         list_providers=lambda: [],
         upsert_provider=AsyncMock(),
+        switch_model=AsyncMock(),
         model_config_snapshot=lambda: _brain_snapshot,
         update_model_config=AsyncMock(return_value=_brain_snapshot),
     )
@@ -1313,6 +1315,33 @@ def test_mem0_llm_config_hot_applies_and_reconfigures(tmp_path):
     assert config.memory.mem0_llm_model == "qwen3.6-flash"
 
 
+def test_mem0_llm_config_rejects_failed_runtime_reconfigure(tmp_path):
+    long_term = SimpleNamespace(
+        reconfigure=AsyncMock(side_effect=RuntimeError("factory failed"))
+    )
+    client, config = _client(tmp_path, long_term=long_term)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "memory": {
+                    "mem0_llm_provider": "qwen",
+                    "mem0_llm_model": "qwen3.6-flash",
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "factory failed" in str(response.json()["detail"])
+    assert config.memory.mem0_llm_provider == ""
+    assert config.memory.mem0_llm_model == ""
+
+
 def test_model_orchestration_reads_and_updates_mem0(tmp_path):
     long_term = SimpleNamespace(reconfigure=AsyncMock())
     client, config = _client(tmp_path, long_term=long_term)
@@ -1344,6 +1373,24 @@ def test_model_orchestration_reads_and_updates_mem0(tmp_path):
     assert applied.model == "qwen3.6-flash"
     assert applied.thinking is True
     assert config.memory.mem0_llm_provider == "qwen"
+
+
+def test_model_switch_response_preserves_mem0_view(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/admin/model/switch",
+        headers=headers,
+        json={"provider": "openai", "model_id": "gpt-5.2"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mem0"] == {
+        "provider": "",
+        "model": "",
+        "thinking": False,
+    }
 
 
 def test_channel_access_config_hot_applies_with_direct_channel_shape(tmp_path):

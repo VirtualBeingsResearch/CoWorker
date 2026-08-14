@@ -292,6 +292,27 @@ async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
     )
 
 
+def _bind_memory_model_following(
+    brain: Brain,
+    long_term: LongTermMemory,
+    config: Config,
+) -> None:
+    """Keep mem0 on the active model while its provider remains implicit."""
+
+    async def reconfigure_for_active_model(provider: str, model: str) -> None:
+        if config.memory.mem0_llm_provider:
+            return
+        await long_term.reconfigure(
+            build_memory_llm_config(
+                config,
+                active_provider=provider,
+                active_model=model,
+            )
+        )
+
+    brain.add_model_switch_listener(reconfigure_for_active_model)
+
+
 async def _run_check() -> int:
     """--check 模式：走配置加载 + Provider 注册，不启动服务。0=通过，1=失败。"""
     try:
@@ -473,6 +494,7 @@ async def _main() -> bool:
         logger.warning("Long-term memory initialization deferred until first-run setup completes")
     else:
         await long_term.initialize()
+    _bind_memory_model_following(brain, long_term, config)
 
     snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"
     alarm_persist_path = Path(config.memory.db_path) / "alarms.json"

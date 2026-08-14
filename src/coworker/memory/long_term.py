@@ -80,9 +80,12 @@ def build_memory_llm_config(
     """按「跟随主线」语义解析 mem0 的 LLM 配置。
 
     - mem0_llm_provider 为空 → active_provider（运行态主线），无则 llm.default_provider。
-    - mem0_llm_model 为空 → 该 provider 的 default_model，无则 active_model，再无则 llm.default_model。
-    与 Brain._resolve_summary_model 一致：跟随运行态 active provider/model，
-    而不是启动默认值（运行时 switch_model 后主线会变）。
+    - provider/model 都为空 → 跟随运行态 active provider/model。
+    - 显式配置 provider 但 model 为空 → 该 provider 的 default_model，
+      无则 llm.default_model。
+
+    两项都留空时与 Brain 的 summary 跟随语义一致：使用当前主线模型，
+    而不是 provider 的启动默认值。
     """
     provider_name = (
         config.memory.mem0_llm_provider
@@ -94,11 +97,16 @@ def build_memory_llm_config(
     configured_base_url = provider.base_url if provider is not None else ""
     model = config.memory.mem0_llm_model
     if not model:
-        model = (
-            (provider.default_model if provider is not None else None)
-            or active_model
-            or config.llm.default_model
+        follows_active_model = not config.memory.mem0_llm_provider and bool(
+            active_provider and active_model
         )
+        if follows_active_model:
+            model = active_model
+        else:
+            model = (
+                (provider.default_model if provider is not None else None)
+                or config.llm.default_model
+            )
     return LongTermLLMConfig(
         provider=provider_type,
         api_dialect=api_dialect(provider_type),
@@ -173,8 +181,8 @@ class LongTermMemory:
         仅替换 ``self._mem.llm`` 与 ``self._mem.config.llm``，避免重建 Chroma 连接。
         未初始化（setup 模式）时只记录配置，待 :meth:`initialize` 时生效。
         """
-        self._llm = llm
         if self._mem is None:
+            self._llm = llm
             logger.info("Long-term memory not initialized; deferred LLM reconfiguration")
             return
         from mem0.utils.factory import LlmFactory
@@ -184,12 +192,17 @@ class LongTermMemory:
         register_mem0_adapters()
         provider, config_dict = llm.as_mem0_config()
         new_llm = LlmFactory.create(provider, config_dict)
-        self._mem.llm = new_llm
-        self._mem.config.llm.provider = provider
-        self._mem.config.llm.config = config_dict
-        # 换 LLM 后旧 hook 已挂在新实例上，需要重装到新实例。
-        self._usage_hook_installed = False
-        self._install_usage_hook()
+        # Wait for any in-flight write to finish, then atomically swap the LLM
+        # reference used by mem0's next extraction. Factory failures leave both
+        # the runtime instance and Coworker's effective config unchanged.
+        async with self._write_lock:
+            self._mem.llm = new_llm
+            self._mem.config.llm.provider = provider
+            self._mem.config.llm.config = config_dict
+            self._llm = llm
+            # 换 LLM 后旧 hook 仍挂在旧实例上，需要重装到新实例。
+            self._usage_hook_installed = False
+            self._install_usage_hook()
         logger.info(f"Long-term memory LLM reconfigured: provider={llm.provider} model={llm.model}")
 
     def add_usage_listener(self, fn: _UsageListener) -> None:
