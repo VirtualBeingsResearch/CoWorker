@@ -59,13 +59,10 @@ common traps, and pointers. Put procedures in Skills and facts in long-term memo
 Mode frontmatter supports `periodic`, `garden`, `cold_floor`, and `manual` triggers, with cycle,
 time, tool-call, or cold-floor cadence. The body may use `{bubble_id}`, `{goal}`, and `{max_cycles}`.
 
-A mode can also opt into an independent pre-compression trigger. Set `pre_compress: true`, use
-`every_n_compressions` for the compression-event cadence, and use
-`pre_compress_min_interval_seconds` for a wall-clock floor; both cadence conditions must be met.
-`pre_compress_context: slice` passes only the messages about to be compressed, while `full` passes
-the complete main-line context before compression. This trigger can coexist with `periodic`, for
-example using compression boundaries as the primary trigger and a tool-call threshold as a
-fallback when compression is delayed.
+A mode can also opt into an independent pre-compression trigger. Set `pre_compress: true` and use
+`every_n_compressions` for the compression-event cadence. `pre_compress_context: slice` passes only
+the messages about to be compressed, while `full` passes the complete main-line context before
+compression. This trigger can coexist with `periodic`, but each is evaluated independently.
 
 Start from the closest existing `.coworker/subconscious/*/MODE.md`. Define at least:
 

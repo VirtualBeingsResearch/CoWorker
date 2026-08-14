@@ -39,7 +39,6 @@ class SubconsciousMode:
         every_n_tool_calls: int = 0,
         pre_compress: bool = False,
         every_n_compressions: int = 0,
-        pre_compress_min_interval_seconds: int = 0,
         pre_compress_context: str = "full",
         cold_floor_seconds: int = 0,
         max_cycles: int = 0,
@@ -65,7 +64,6 @@ class SubconsciousMode:
         self.every_n_tool_calls = every_n_tool_calls
         self.pre_compress = pre_compress
         self.every_n_compressions = every_n_compressions
-        self.pre_compress_min_interval_seconds = pre_compress_min_interval_seconds
         self.pre_compress_context = pre_compress_context
         self.cold_floor_seconds = cold_floor_seconds
         self.max_cycles = max_cycles
@@ -232,9 +230,6 @@ class SubconsciousModeLoader:
             every_n_tool_calls=int(fm.get("every_n_tool_calls", 0) or 0),
             pre_compress=bool(fm.get("pre_compress", False)),
             every_n_compressions=int(fm.get("every_n_compressions", 0) or 0),
-            pre_compress_min_interval_seconds=int(
-                fm.get("pre_compress_min_interval_seconds", 0) or 0
-            ),
             pre_compress_context=pre_compress_context,
             cold_floor_seconds=int(fm.get("cold_floor_seconds", 0) or 0),
             max_cycles=int(fm.get("max_cycles", 0) or 0),

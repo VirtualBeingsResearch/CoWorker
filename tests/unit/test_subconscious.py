@@ -31,7 +31,6 @@ def _make_mode(
     n_tool_calls=0,
     pre_compress=False,
     n_compressions=0,
-    pre_compress_min_interval=0,
     pre_compress_context="full",
     cold_floor=0,
     max_cycles=5,
@@ -55,7 +54,6 @@ def _make_mode(
         every_n_tool_calls=n_tool_calls,
         pre_compress=pre_compress,
         every_n_compressions=n_compressions,
-        pre_compress_min_interval_seconds=pre_compress_min_interval,
         pre_compress_context=pre_compress_context,
         cold_floor_seconds=cold_floor,
         max_cycles=max_cycles,
@@ -167,7 +165,6 @@ def mode_loader():
                 inject_skill_anomalies=True,
                 pre_compress=True,
                 n_compressions=3,
-                pre_compress_min_interval=21600,
             ),
             _make_mode(
                 "meta",
@@ -738,8 +735,7 @@ class TestSchedulerPreCompress:
         await scheduler.notify_pre_compress(messages)
         assert spawned == ["audit"]
 
-    async def test_introspect_requires_three_compressions_and_six_hours(self, scheduler, messages):
-        scheduler._last_pre_compress_time["introspect"] -= 21601
+    async def test_introspect_runs_every_three_compressions(self, scheduler, messages):
         spawned = []
 
         async def fake_spawn(mode, ctx, goal_override=None):
@@ -752,39 +748,6 @@ class TestSchedulerPreCompress:
 
         await scheduler.notify_pre_compress(messages)
         assert spawned.count("introspect") == 1
-
-    async def test_introspect_waits_for_minimum_interval(self, scheduler, messages):
-        spawned = []
-
-        async def fake_spawn(mode, ctx, goal_override=None):
-            spawned.append(mode.name)
-
-        scheduler._spawn = fake_spawn
-        for _ in range(3):
-            await scheduler.notify_pre_compress(messages)
-        assert "introspect" not in spawned
-
-        scheduler._last_pre_compress_time["introspect"] -= 21601
-        await scheduler.notify_pre_compress(messages)
-        assert spawned.count("introspect") == 1
-
-    async def test_pre_compress_resets_periodic_tool_fallback(self, scheduler, messages):
-        audit = scheduler._mode_loader.get("audit")
-        audit.every_n_tool_calls = 100
-        spawned = []
-
-        async def fake_spawn(mode, ctx, goal_override=None):
-            spawned.append(mode.name)
-
-        scheduler._spawn = fake_spawn
-        scheduler._total_tool_calls = 75
-        await scheduler.notify_pre_compress(messages)
-        assert scheduler._last_tool_calls["audit"] == 75
-
-        await scheduler.notify_cycle_complete(1, messages, tool_calls_this_cycle=99)
-        assert spawned.count("audit") == 1
-        await scheduler.notify_cycle_complete(2, messages, tool_calls_this_cycle=1)
-        assert spawned.count("audit") == 2
 
     async def test_pre_compress_does_not_update_last_cycle(self, scheduler, messages):
         async def fake_spawn(mode, ctx, goal_override=None):
@@ -1012,8 +975,6 @@ class TestStatePersistence:
         tmp_path,
         mode_loader,
     ):
-        import time as _time
-
         state_path = tmp_path / "subconscious_state.json"
         s1 = self._make_scheduler(
             mock_cfg,
@@ -1028,7 +989,6 @@ class TestStatePersistence:
         )
         s1._compression_count = 8
         s1._last_pre_compress_count["introspect"] = 6
-        s1._last_pre_compress_time["introspect"] = _time.monotonic() - 7200
         s1.save_state()
 
         s2 = self._make_scheduler(
@@ -1044,8 +1004,6 @@ class TestStatePersistence:
         )
         assert s2._compression_count == 8
         assert s2._last_pre_compress_count["introspect"] == 6
-        gap = _time.monotonic() - s2._last_pre_compress_time["introspect"]
-        assert 7195 < gap < 7220
 
     def test_no_state_path_is_noop(self, mock_cfg, store, mock_brain, mock_registry,
                                    mock_prompt_builder, mock_inbox, mock_ilog, mode_loader):

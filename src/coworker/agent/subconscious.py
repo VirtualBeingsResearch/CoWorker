@@ -72,7 +72,6 @@ def _mode_hash(mode: SubconsciousMode) -> str:
             str(mode.every_n_tool_calls),
             str(mode.pre_compress),
             str(mode.every_n_compressions),
-            str(mode.pre_compress_min_interval_seconds),
             str(mode.pre_compress_context),
             str(mode.cold_floor_seconds),
             str(mode.use_threshold),
@@ -163,7 +162,6 @@ class SubconsciousScheduler:
         self._last_time: dict[str, float] = {}
         self._last_tool_calls: dict[str, int] = {}
         self._last_pre_compress_count: dict[str, int] = {}
-        self._last_pre_compress_time: dict[str, float] = {}
         self._active_by_mode: dict[str, str | None] = {}
         self._compression_count: int = 0
 
@@ -193,7 +191,6 @@ class SubconsciousScheduler:
             self._last_time[mode.name] = _now
             self._last_tool_calls[mode.name] = 0
             self._last_pre_compress_count[mode.name] = 0
-            self._last_pre_compress_time[mode.name] = _now
             self._active_by_mode[mode.name] = None
 
         self._load_state()
@@ -204,7 +201,6 @@ class SubconsciousScheduler:
             self._last_time.setdefault(mode.name, _now)
             self._last_tool_calls.setdefault(mode.name, 0)
             self._last_pre_compress_count.setdefault(mode.name, 0)
-            self._last_pre_compress_time.setdefault(mode.name, _now)
             self._active_by_mode.setdefault(mode.name, None)
             # Compute initial hash for modes without persisted fingerprint.
             # We don't record a change timestamp here — the system was just started,
@@ -242,8 +238,7 @@ class SubconsciousScheduler:
         """Dispatch MODE-defined work immediately before one compression event.
 
         Slice modes see only messages about to leave the raw tail. Full modes see the
-        complete current main-line snapshot. Compression cadence and wall-clock cooldown
-        are conjunctive so expensive reviews can require both conditions.
+        complete current main-line snapshot. Each mode defines its compression cadence.
         """
         if not compressing_snapshot:
             logger.debug("Subconscious pre-compress skipped: nothing to be compressed yet")
@@ -267,7 +262,7 @@ class SubconsciousScheduler:
             if self._has_active_mode(mode.name):
                 logger.debug(f"Subconscious pre-compress {mode.name} skipped: already running")
                 continue
-            if not self._pre_compress_due(mode, now):
+            if not self._pre_compress_due(mode):
                 continue
 
             source = (
@@ -282,10 +277,6 @@ class SubconsciousScheduler:
                 continue
 
             self._last_pre_compress_count[mode.name] = self._compression_count
-            self._last_pre_compress_time[mode.name] = now
-            # A pre-compression run satisfies the same mode's time/tool fallback too.
-            self._last_time[mode.name] = now
-            self._last_tool_calls[mode.name] = self._total_tool_calls
 
         self.save_state()
 
@@ -316,7 +307,6 @@ class SubconsciousScheduler:
             self._last_time.setdefault(name, now)
             self._last_tool_calls.setdefault(name, 0)
             self._last_pre_compress_count.setdefault(name, 0)
-            self._last_pre_compress_time.setdefault(name, now)
             self._active_by_mode.setdefault(name, None)
             loaded_mode = self._mode_loader.get(name)
             if loaded_mode and name not in self._mode_content_hash:
@@ -330,7 +320,6 @@ class SubconsciousScheduler:
                 self._last_time.pop(name, None)
                 self._last_tool_calls.pop(name, None)
                 self._last_pre_compress_count.pop(name, None)
-                self._last_pre_compress_time.pop(name, None)
 
     # ------------------------------------------------------------------
     # Scheduling
@@ -361,15 +350,11 @@ class SubconsciousScheduler:
         last_t = self._last_time.get(name, now - cf - 1)
         return now - last_t >= cf
 
-    def _pre_compress_due(self, mode: SubconsciousMode, now: float) -> bool:
+    def _pre_compress_due(self, mode: SubconsciousMode) -> bool:
         if not mode.pre_compress or mode.every_n_compressions <= 0:
             return False
         last_count = self._last_pre_compress_count.get(mode.name, 0)
-        last_time = self._last_pre_compress_time.get(mode.name, now)
-        return (
-            self._compression_count - last_count >= mode.every_n_compressions
-            and now - last_time >= mode.pre_compress_min_interval_seconds
-        )
+        return self._compression_count - last_count >= mode.every_n_compressions
 
     def _build_context(self, mode: SubconsciousMode, snapshot: list[Message]) -> list[Message]:
         ctx: list[Message] = [] if mode.fresh_start else list(snapshot)
@@ -680,8 +665,6 @@ class SubconsciousScheduler:
                 cfg_str += (
                     f" pre_compress=true"
                     f" every_n_compressions={mode.every_n_compressions}"
-                    f" pre_compress_min_interval_seconds="
-                    f"{mode.pre_compress_min_interval_seconds}"
                     f" pre_compress_context={mode.pre_compress_context}"
                 )
 
@@ -843,9 +826,7 @@ class SubconsciousScheduler:
         now_wall = datetime.now().timestamp()
 
         modes_data: dict[str, dict] = {}
-        all_mode_names = (
-            set(self._last_time) | set(self._last_pre_compress_time) | set(self._mode_run_count)
-        )
+        all_mode_names = set(self._last_time) | set(self._mode_run_count)
         for mode_name in all_mode_names:
             md: dict = {}
             md["last_tool_calls"] = self._last_tool_calls.get(mode_name, 0)
@@ -853,9 +834,6 @@ class SubconsciousScheduler:
             if last_t is not None:
                 md["last_wall"] = now_wall - (now_mono - last_t)
             md["last_pre_compress_count"] = self._last_pre_compress_count.get(mode_name, 0)
-            last_pre_t = self._last_pre_compress_time.get(mode_name)
-            if last_pre_t is not None:
-                md["last_pre_compress_wall"] = now_wall - (now_mono - last_pre_t)
             run_count = self._mode_run_count.get(mode_name, 0)
             if run_count:
                 md["run_count"] = run_count
@@ -944,10 +922,6 @@ class SubconsciousScheduler:
             last_pre_count = md.get("last_pre_compress_count")
             if last_pre_count is not None:
                 self._last_pre_compress_count[mode_name] = int(last_pre_count)
-            last_pre_wall = md.get("last_pre_compress_wall")
-            if last_pre_wall is not None:
-                elapsed = max(0.0, now_wall - float(last_pre_wall))
-                self._last_pre_compress_time[mode_name] = now_mono - elapsed
             run_count = md.get("run_count", 0)
             if run_count:
                 self._mode_run_count[mode_name] = int(run_count)

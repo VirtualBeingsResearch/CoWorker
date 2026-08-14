@@ -5,7 +5,6 @@ trigger: manual
 context_builder: short_term
 pre_compress: true
 every_n_compressions: 1
-pre_compress_min_interval_seconds: 0
 pre_compress_context: slice
 max_cycles: 5
 goal: "提炼近期对话中的经验、事实与用户偏好，存入长期记忆"

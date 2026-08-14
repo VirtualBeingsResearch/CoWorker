@@ -238,11 +238,10 @@ class TestSubconsciousModeLoader:
         assert m.inject_skill_anomalies is True
         assert m.pre_compress is True
         assert m.every_n_compressions == 3
-        assert m.pre_compress_min_interval_seconds == 21600
         assert m.pre_compress_context == "full"
         assert "最多新建 **1 个**" in m.body
 
-    def test_seed_audit_pre_compress_and_tool_fallback(self, real_loader):
+    def test_seed_audit_uses_only_pre_compress_cadence(self, real_loader):
         m = real_loader.get("audit")
         assert m is not None
         assert m.pre_compress is True
@@ -250,7 +249,7 @@ class TestSubconsciousModeLoader:
         assert m.pre_compress_context == "full"
         assert m.every_n_cycles == 0
         assert m.every_seconds == 0
-        assert m.every_n_tool_calls == 100
+        assert m.every_n_tool_calls == 0
 
     def test_seed_explore_uses_six_hour_cadence(self, real_loader):
         m = real_loader.get("explore")

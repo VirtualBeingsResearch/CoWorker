@@ -8,7 +8,6 @@ every_seconds: 0
 every_n_tool_calls: 0
 pre_compress: true
 every_n_compressions: 3
-pre_compress_min_interval_seconds: 21600
 pre_compress_context: full
 max_cycles: 5
 grants_task_store: true
