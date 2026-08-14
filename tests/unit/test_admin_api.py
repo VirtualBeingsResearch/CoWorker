@@ -29,6 +29,11 @@ from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
 from coworker.memory.short_term import ShortTermMemory
 from coworker.persona import PersonaCard, PersonStore
+from coworker.prompts.template import (
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_CONTENT_VARIABLES,
+    SYSTEM_PROMPT_VARIABLES,
+)
 from coworker.skills.loader import SkillLoader
 
 
@@ -53,6 +58,7 @@ def _client(
     persona: bool = False,
     usage_stats=None,
     long_term=None,
+    agent_config: dict | None = None,
 ):
     config = Config.model_validate(
         {
@@ -60,7 +66,7 @@ def _client(
             "api": api or {},
             "llm": {"openai_api_key": "sk-original", "providers_file": providers_file},
             "memory": {"db_path": str(tmp_path / "memory")},
-            "agent": {"logs_dir": str(tmp_path / "logs")},
+            "agent": {"logs_dir": str(tmp_path / "logs"), **(agent_config or {})},
             "desktop_updates": desktop_updates or {},
             "wecom": wecom or {},
             "weixin": weixin or {},
@@ -68,11 +74,23 @@ def _client(
             "channel_access": channel_access or {},
         }
     )
+    section_previews = [
+        {
+            "name": "IDENTITY",
+            "variable": "IDENTITY",
+            "content_variable": "IDENTITY_CONTENT",
+            "full_text": "[IDENTITY]\nMy name is Luna.",
+            "content": "My name is Luna.",
+            "available": True,
+            "lines": 2,
+        }
+    ]
     agent = SimpleNamespace(
         _identity=_Identity(),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
+        current_system_prompt_sections=MagicMock(return_value=section_previews),
         refresh_system_prompt=MagicMock(),
     )
     _brain_snapshot = {
@@ -412,8 +430,108 @@ def test_system_prompt_api_is_authenticated_read_only_and_uncached(tmp_path):
         "content": "[IDENTITY]\nMy name is Luna.\n",
         "characters": 28,
         "lines": 2,
+        "active_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "desired_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "inherited_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "default_template": DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        "variables": list(SYSTEM_PROMPT_VARIABLES),
+        "content_variables": list(SYSTEM_PROMPT_CONTENT_VARIABLES),
+        "section_previews": [
+            {
+                "name": "IDENTITY",
+                "variable": "IDENTITY",
+                "content_variable": "IDENTITY_CONTENT",
+                "full_text": "[IDENTITY]\nMy name is Luna.",
+                "content": "My name is Luna.",
+                "available": True,
+                "lines": 2,
+            }
+        ],
+        "overridden": False,
+        "prompt_pending_restart": False,
     }
     admin._agent.current_system_prompt.assert_called_once_with()
+    admin._agent.current_system_prompt_sections.assert_called_once_with()
+
+
+def test_system_prompt_template_patch_waits_for_restart_and_keeps_active_prompt(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    custom = "{{IDENTITY}}\n\n[PROJECT]\nUse the release checklist."
+
+    updated = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"agent": {"system_prompt_template": custom}}},
+    )
+    snapshot = client.get("/api/admin/system-prompt", headers=headers)
+
+    assert updated.status_code == 200
+    assert updated.json()["applied_now"] == []
+    assert updated.json()["requires_restart"] == ["agent.system_prompt_template"]
+    assert config.agent.system_prompt_template == ""
+    assert snapshot.json()["content"] == "[IDENTITY]\nMy name is Luna.\n"
+    assert snapshot.json()["active_template"] == DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    assert snapshot.json()["desired_template"] == custom
+    assert snapshot.json()["overridden"] is True
+    assert snapshot.json()["prompt_pending_restart"] is True
+    assert json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))[
+        "agent"
+    ]["system_prompt_template"] == custom
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{{UNKNOWN}}",
+        "{{IDENTITY}}\n\n{{IDENTITY_CONTENT}}",
+    ],
+)
+def test_system_prompt_template_validation_failure_does_not_write_override(
+    tmp_path,
+    template,
+):
+    client, _ = _client(tmp_path)
+
+    response = client.patch(
+        "/api/admin/config",
+        headers={"Authorization": "Bearer secret"},
+        json={"changes": {"agent": {"system_prompt_template": template}}},
+    )
+
+    assert response.status_code == 422
+    assert not (tmp_path / "admin_config.json").exists()
+
+
+def test_system_prompt_template_can_restore_builtin_then_inherited_value(tmp_path):
+    inherited = "{{IDENTITY}}\n\n[ENVIRONMENT_RULE]\nInherited text"
+    client, _ = _client(
+        tmp_path,
+        agent_config={"system_prompt_template": inherited},
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    builtin = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {"agent": {"system_prompt_template": ""}}},
+    )
+    builtin_snapshot = client.get("/api/admin/system-prompt", headers=headers).json()
+    restored = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"clear_overrides": ["agent.system_prompt_template"]},
+    )
+    inherited_snapshot = client.get("/api/admin/system-prompt", headers=headers).json()
+
+    assert builtin.status_code == 200
+    assert builtin_snapshot["desired_template"] == DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    assert builtin_snapshot["inherited_template"] == inherited
+    assert builtin_snapshot["overridden"] is True
+    assert restored.status_code == 200
+    assert restored.json()["pending_restart"] is False
+    assert inherited_snapshot["desired_template"] == inherited
+    assert inherited_snapshot["overridden"] is False
 
 
 def test_identity_api_rejects_all_retired_fields_together(tmp_path):
