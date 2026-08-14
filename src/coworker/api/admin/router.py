@@ -997,19 +997,6 @@ def _server_timezone() -> str:
     return _server_utc_offset()
 
 
-def _server_timezone_description() -> str:
-    """Describe the operating system timezone without creating app-level state."""
-
-    offset = _server_utc_offset()
-    hours, minutes = offset[1:].split(":", maxsplit=1)
-    display_offset = (
-        f"UTC{offset[0]}{int(hours)}"
-        if minutes == "00"
-        else f"UTC{offset[0]}{int(hours)}:{minutes}"
-    )
-    return f"{_server_timezone()} ({display_offset})"
-
-
 @router.get("/bootstrap")
 async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     """Describe whether this installation still needs its first model connection."""
@@ -1026,7 +1013,6 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
         "server_timezone": _server_timezone(),
-        "server_timezone_description": _server_timezone_description(),
         "providers": providers,
         "defaults": {
             "configuration": snapshot.config,

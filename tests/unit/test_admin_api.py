@@ -1773,11 +1773,6 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     admin._brain.active_provider = None
     admin._agent._identity._dir = tmp_path / "identity"
     admin._agent._identity.load = lambda: None
-    monkeypatch.setattr(
-        admin,
-        "_server_timezone_description",
-        lambda: "Asia/Shanghai (UTC+8)",
-    )
     monkeypatch.setattr(admin, "_server_timezone", lambda: "Asia/Shanghai")
     headers = {"Authorization": "Bearer secret"}
 
@@ -1785,7 +1780,6 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     assert status.status_code == 200
     assert status.json()["required"] is True
     assert status.json()["server_timezone"] == "Asia/Shanghai"
-    assert status.json()["server_timezone_description"] == "Asia/Shanghai (UTC+8)"
     defaults = status.json()["defaults"]
     assert defaults["configuration"]["llm"]["max_tokens"] == 8192
     assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
