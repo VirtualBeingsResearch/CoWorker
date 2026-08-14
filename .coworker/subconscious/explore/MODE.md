@@ -6,7 +6,7 @@ context_builder: short_term
 every_n_cycles: 0
 every_seconds: 21600
 every_n_tool_calls: 0
-max_cycles: 5
+max_cycles: 10
 goal: "自由联想与发散性思考，从任意角度审视近期上下文"
 purpose: "保持发散性思考，发现主线固有框架下容易忽视的隐藏联系和新视角"
 ---

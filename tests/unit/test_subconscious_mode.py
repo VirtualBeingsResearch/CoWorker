@@ -239,7 +239,8 @@ class TestSubconsciousModeLoader:
         assert m.pre_compress is True
         assert m.every_n_compressions == 3
         assert m.pre_compress_context == "full"
-        assert "最多新建 **1 个**" in m.body
+        assert m.max_cycles == 10
+        assert "优先补充/更新现有任务" in m.body
 
     def test_seed_audit_uses_only_pre_compress_cadence(self, real_loader):
         m = real_loader.get("audit")
@@ -250,6 +251,7 @@ class TestSubconsciousModeLoader:
         assert m.every_n_cycles == 0
         assert m.every_seconds == 0
         assert m.every_n_tool_calls == 0
+        assert m.max_cycles == 10
 
     def test_seed_explore_uses_six_hour_cadence(self, real_loader):
         m = real_loader.get("explore")
@@ -257,6 +259,7 @@ class TestSubconsciousModeLoader:
         assert m.every_n_cycles == 0
         assert m.every_seconds == 21600
         assert m.every_n_tool_calls == 0
+        assert m.max_cycles == 10
 
     def test_meta_flags(self, real_loader):
         m = real_loader.get("meta")
@@ -370,13 +373,14 @@ class TestSubconsciousModeLoader:
         assert m.pre_compress is True
         assert m.every_n_compressions == 1
         assert m.pre_compress_context == "slice"
+        assert m.max_cycles == 10
 
     def test_seed_english_companions_include_optimized_output_rules(self):
         with locale_context("en"):
             loader = SubconsciousModeLoader(".coworker/subconscious")
             loader.load_all()
         assert "at most once per run" in loader.get("explore").body
-        assert "create at most **one** new task" in loader.get("introspect").body
+        assert "update or enrich it instead of creating another" in loader.get("introspect").body
         assert "For long-running tasks" not in loader.get("audit").body
 
 

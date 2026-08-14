@@ -9,7 +9,7 @@ every_n_tool_calls: 0
 pre_compress: true
 every_n_compressions: 1
 pre_compress_context: full
-max_cycles: 5
+max_cycles: 10
 goal: "回顾近期行为，检查错误/遗漏/风险与自我对齐"
 purpose: "确保行为对齐与合规，在压力或迎合下防止偏离自身立场与价值观"
 protected: true

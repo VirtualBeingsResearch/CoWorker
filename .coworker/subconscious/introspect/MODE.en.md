@@ -35,7 +35,6 @@ CREATE INTERNAL GOALS
 - Never modify or delete tasks that are not growth or maintenance tasks; those belong to users or operations.
 - Store valuable capability reflections as experience memories when appropriate.
 - Do not create goals merely to produce output.
-- Across `[growth]` and `[maintenance]`, create at most **one** new task in this run. If several issues appear, merge them into existing work or keep only the highest-value item.
 
 SKILL LIBRARY REVIEW
 Review the [SKILLS] registry itself:

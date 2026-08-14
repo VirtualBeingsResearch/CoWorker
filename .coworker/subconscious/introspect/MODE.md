@@ -9,7 +9,7 @@ every_n_tool_calls: 0
 pre_compress: true
 every_n_compressions: 3
 pre_compress_context: full
-max_cycles: 5
+max_cycles: 10
 grants_task_store: true
 inject_skill_anomalies: true
 goal: "评估自身能力并审视现有技能库，发现能力缺口/技能冗余并生成成长与维护目标"
@@ -56,7 +56,6 @@ protected: true
 - **严禁**修改或删除非成长/维护类任务——那些是用户或运维任务，与你无关。
 - 对有价值的能力反思，也可调用 manage_memory 写入一条 experience 记忆。
 - 若审视后并无真实能力缺口，不要为了凑数而创建目标。
-- 本轮所有 `[成长]` 与 `[维护]` 类别合计最多新建 **1 个**任务；若观察到多个问题，优先合并进已有任务或保留最有价值的一项。
 
 【任务 - 技能库审视】
 系统提示词的 [SKILLS] 段已列出当前所有已加载技能（name: description）。审视这份现有清单本身（区别于上面的能力缺口找「缺什么」，这里看现有内容「能否更好」）：
