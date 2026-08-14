@@ -384,6 +384,7 @@ async def assemble_runtime(workdir: Path) -> Runtime:
         palace_loader=palace_loader,
         thinking_path=str(thinking_path),
         git_commit=None,
+        system_prompt_template=config.agent.system_prompt_template,
     )
 
     bubble_store: BubbleStore | None = None
