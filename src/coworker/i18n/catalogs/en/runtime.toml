@@ -45,6 +45,9 @@ Important principles:
 objective_hint = '''
 Context hint: {{hint}}'''
 
+[brain.listeners]
+model_switch_failed = "Active-model listener failed for {{provider}}/{{model}}: {{error}}"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support the active model '{{model}}'"
 max_tokens_positive = "max_tokens must be greater than 0"

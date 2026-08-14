@@ -100,6 +100,17 @@ class TestBrain:
         assert brain.current_model == "mock-model"
 
     @pytest.mark.asyncio
+    async def test_switch_model_notifies_persistent_model_listeners(self):
+        brain = Brain("mock", "old-model")
+        brain.register_provider(MockProvider())
+        listener = AsyncMock()
+        brain.add_model_switch_listener(listener)
+
+        await brain.switch_model("mock", "new-model")
+
+        listener.assert_awaited_once_with("mock", "new-model")
+
+    @pytest.mark.asyncio
     async def test_switch_model_unknown_provider(self):
         brain = Brain("mock", "mock-model")
         brain.register_provider(MockProvider())
@@ -584,6 +595,8 @@ class TestBrainFallback:
         brain = Brain("primary", "primary-model", fallbacks=["backup"])
         brain.register_provider(_FailingProvider())
         brain.register_provider(_BackupProvider())
+        listener = AsyncMock()
+        brain.add_model_switch_listener(listener)
 
         original_sleep = asyncio.sleep
         asyncio.sleep = AsyncMock()
@@ -596,6 +609,7 @@ class TestBrainFallback:
         # 降级后停在备用模型，并标记为失败降级
         assert brain.current_provider_name == "backup"
         assert brain.current_model == "backup-model"
+        listener.assert_awaited_once_with("backup", "backup-model")
         assert brain.consume_fallback_switch() is True
         # consume 后复位
         assert brain.consume_fallback_switch() is False

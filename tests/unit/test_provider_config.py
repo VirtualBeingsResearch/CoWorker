@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
-from coworker.application import _register_providers
+from coworker.application import _bind_memory_model_following, _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
 from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
@@ -533,7 +534,7 @@ def test_memory_llm_follows_runtime_active_provider_when_unset():
                         "name": "deepseek-official",
                         "type": "deepseek",
                         "api_key": "official-key",
-                        "default_model": "",
+                        "default_model": "official-default",
                     },
                 ],
             },
@@ -552,6 +553,46 @@ def test_memory_llm_follows_runtime_active_provider_when_unset():
     assert llm.api_key == "official-key"
     assert llm.base_url == "https://api.deepseek.com"
     assert llm.model == "deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_memory_model_binding_reconfigures_after_active_switch():
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "deepseek",
+                "default_model": "deepseek-v4-pro",
+                "providers_file": "",
+                "managed_providers": [
+                    {
+                        "name": "deepseek-official",
+                        "type": "deepseek",
+                        "api_key": "official-key",
+                        "default_model": "official-default",
+                    }
+                ],
+            },
+            "memory": {},
+        }
+    )
+    brain = Brain("deepseek", "deepseek-v4-pro")
+    brain.register_provider(
+        build_provider(
+            "deepseek",
+            "official-key",
+            name="deepseek-official",
+            default_model="official-default",
+        )
+    )
+    long_term = AsyncMock()
+    _bind_memory_model_following(brain, long_term, config)
+
+    await brain.switch_model("deepseek-official", "deepseek-v4-flash")
+
+    long_term.reconfigure.assert_awaited_once()
+    applied = long_term.reconfigure.await_args.args[0]
+    assert applied.provider == "deepseek"
+    assert applied.model == "deepseek-v4-flash"
 
 
 @pytest.mark.parametrize(

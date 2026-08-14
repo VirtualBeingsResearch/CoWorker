@@ -123,8 +123,8 @@ separate and are never converted.
 | `MEMORY__AUTO_RECALL_ENABLED` | `true` | Whether to search long-term memory automatically when a message arrives |
 | `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | Relevance threshold for automatic recall (0–1) |
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | Maximum number of memories injected by each automatic recall |
-| `MEMORY__MEM0_LLM_PROVIDER` | `""` (follows main line) | Independent provider for mem0 extraction; leave empty to follow `LLM__DEFAULT_PROVIDER`, or set a Brain provider name or type to reuse its credentials and effective `base_url`. Hot-applied, no restart needed |
-| `MEMORY__MEM0_LLM_MODEL` | `""` (follows main line) | Independent model ID for mem0 extraction; leave empty to follow the provider's `default_model` (or `LLM__DEFAULT_MODEL`), passed through to the API dialect. Hot-applied, no restart needed |
+| `MEMORY__MEM0_LLM_PROVIDER` | `""` (follows main line) | Independent provider for mem0 extraction; leave empty to follow the runtime active provider, including manual switches and failure fallbacks, or set a Brain provider name or type to reuse its credentials and effective `base_url`. Hot-applied, no restart needed |
+| `MEMORY__MEM0_LLM_MODEL` | `""` (follows main line) | Independent model ID for mem0 extraction. When the provider is also empty, it follows the runtime active model. With an explicit provider and an empty model, it uses that provider's `default_model` (or `LLM__DEFAULT_MODEL`). The model ID is passed through to the API dialect; changes are hot-applied with no restart needed |
 | `MEMORY__MEM0_LLM_THINKING` | `false` | Thinking toggle for the mem0 extraction LLM; injects the matching parameter for known thinking models (extraction is a structured JSON task, so thinking is off by default to avoid burning tokens). Hot-applied, no restart needed |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0; do not switch it directly when existing data is present |
 
