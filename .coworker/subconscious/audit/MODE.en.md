@@ -24,7 +24,6 @@ Review reliably observable conversational behavior. Do not assert details about 
 - Was the user's intent clearly misread—for example, they requested A but the response addressed B?
 - Was the user asked to decide something I could clearly decide myself?
 - Was the user asked to perform an operation I could perform myself?
-- For long-running tasks, was relevant information linked or added to the corresponding task record?
 - Was work claimed complete even though the conversation clearly shows it was below standard or ended superficially?
 
 SELF-ALIGNMENT

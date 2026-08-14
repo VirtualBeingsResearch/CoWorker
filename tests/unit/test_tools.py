@@ -1991,8 +1991,9 @@ class TestClearShortTermMemoryTool:
         original = list(short_term.primary)
         subconscious = MagicMock()
 
-        async def notify_pre_compress(snapshot):
+        async def notify_pre_compress(snapshot, full_snapshot=None):
             assert snapshot == original
+            assert full_snapshot == original
             assert short_term.primary == original
             assert short_term.tree.nodes == []
 

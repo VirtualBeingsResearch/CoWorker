@@ -4,11 +4,11 @@ import pytest
 
 from coworker.agent.bubble import Bubble
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
+from coworker.i18n import locale_context
 
 # ---------------------------------------------------------------------------
-# Golden comparison strings: exact identity text from the old hardcoded
-# _build_identity_content branches. render_identity() must produce identical
-# output so that migrating prompts to MODE.md causes zero drift.
+# Golden comparison strings for the built-in mode identities. Intentional prompt
+# changes must update these fixtures so accidental drift remains visible.
 # ---------------------------------------------------------------------------
 
 _BUBBLE_ID = "bbl_test"
@@ -43,7 +43,6 @@ _GOLDEN_AUDIT = (
     f"- 是否有明显的用户意图误读——用户说要A，实际回应了B？\n"
     f"- 是否有事情显然自己能够决策却还需要用户的？\n"
     f"- 是否有事情自己能够操作却还需要用户操作的？\n"
-    f"- 针对长期任务，是否有将其相关信息全部关联或补充到任务列表中对应任务中？\n"
     f"- 完成度：是否有任务在对话中被声称完成，但对话内容显示明显未达标或敷衍收尾？\n"
     f"\n"
     f"【任务 - 自我对齐】\n"
@@ -129,13 +128,16 @@ _GOLDEN_EXPLORE = (
     f"- 对自己的某个习惯性做法产生质疑或新的想法\n"
     f"- 产生对未来可能有用的假设或创意\n"
     f"- 从更高的层次审视整个对话过程\n"
-    f"如果产生了有价值的洞察，调用 manage_memory 存入长期记忆；\n"
-    f"如果发现了值得主线知道的事情，调用 bubble_send(target='main') 分享。\n"
+    f"把本轮可见上下文作为一个窗口整体审视，而不是逐条回应或为每个想法分别通知主线。\n"
+    f"如果产生了有长期价值的洞察，调用 manage_memory 存入长期记忆；\n"
+    f"只有当洞察同时满足**新颖**（主线尚未明确意识到）和**可行动**（会改变当前判断或下一步）时，才值得通知主线。\n"
     f"如果什么都没有也完全正常——调用 bubble_done(result='本次发散无特别发现') 结束。\n"
     f"\n"
     f"【通信规则】\n"
     f"- 你的 bubble_done 结论不会传递给主线。\n"
-    f"- 完全自由，不需要找到什么，发现了就留下，没有也可以。"
+    f"- 每轮最多调用一次 bubble_send(target='main')，把所有值得打扰主线的内容合并成一份摘要。\n"
+    f"- 摘要最多 3 点、总长不超过 600 字；不要复述主线已经知道的内容，也不要为了输出而凑结论。\n"
+    f"- 没有足够新颖且可行动的洞察时保持静默；可持久化的内容仍可写入长期记忆。"
 )
 
 
@@ -234,6 +236,28 @@ class TestSubconsciousModeLoader:
         assert m is not None
         assert m.grants_task_store is True
         assert m.inject_skill_anomalies is True
+        assert m.pre_compress is True
+        assert m.every_n_compressions == 3
+        assert m.pre_compress_min_interval_seconds == 21600
+        assert m.pre_compress_context == "full"
+        assert "最多新建 **1 个**" in m.body
+
+    def test_seed_audit_pre_compress_and_tool_fallback(self, real_loader):
+        m = real_loader.get("audit")
+        assert m is not None
+        assert m.pre_compress is True
+        assert m.every_n_compressions == 1
+        assert m.pre_compress_context == "full"
+        assert m.every_n_cycles == 0
+        assert m.every_seconds == 0
+        assert m.every_n_tool_calls == 100
+
+    def test_seed_explore_uses_six_hour_cadence(self, real_loader):
+        m = real_loader.get("explore")
+        assert m is not None
+        assert m.every_n_cycles == 0
+        assert m.every_seconds == 21600
+        assert m.every_n_tool_calls == 0
 
     def test_meta_flags(self, real_loader):
         m = real_loader.get("meta")
@@ -254,6 +278,17 @@ class TestSubconsciousModeLoader:
         m = loader.get("bt")
         assert m is not None
         assert m.trigger == "periodic"
+
+    def test_invalid_pre_compress_context_falls_back_to_full(self, tmp_path):
+        md = tmp_path / "bad_pre_context" / "MODE.md"
+        md.parent.mkdir(parents=True)
+        md.write_text(
+            "---\nname: bad_pre_context\npre_compress_context: invalid\n---\nbody",
+            encoding="utf-8",
+        )
+        loader = SubconsciousModeLoader(str(tmp_path))
+        loader.load_all()
+        assert loader.get("bad_pre_context").pre_compress_context == "full"
 
     def test_archived_directory_skipped(self, tmp_path):
         # A mode inside archived/ should NOT be loaded.
@@ -333,6 +368,17 @@ class TestSubconsciousModeLoader:
         m = real_loader.get("summarize")
         assert m is not None
         assert m.trigger == "manual"
+        assert m.pre_compress is True
+        assert m.every_n_compressions == 1
+        assert m.pre_compress_context == "slice"
+
+    def test_seed_english_companions_include_optimized_output_rules(self):
+        with locale_context("en"):
+            loader = SubconsciousModeLoader(".coworker/subconscious")
+            loader.load_all()
+        assert "at most once per run" in loader.get("explore").body
+        assert "create at most **one** new task" in loader.get("introspect").body
+        assert "For long-running tasks" not in loader.get("audit").body
 
 
 # ---------------------------------------------------------------------------

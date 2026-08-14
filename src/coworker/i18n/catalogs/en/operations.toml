@@ -8,6 +8,7 @@ backfill_reducing = "[backfill] {{count}} leaves complete; building the spine wi
 shutdown_tasks_stuck = "Background tasks did not stop within 10s; force-cancelling to continue shutdown/restart. Stuck tasks: {{tasks}}"
 mode_invalid_trigger = "MODE file {{path}} has invalid trigger='{{value}}'; falling back to 'periodic'."
 mode_invalid_context_builder = "MODE file {{path}} has invalid context_builder='{{value}}'; falling back to 'short_term'."
+mode_invalid_pre_compress_context = "MODE file {{path}} has invalid pre_compress_context='{{value}}'; falling back to 'full'."
 
 [cli]
 first_run_token = '''Coworker setup is not complete. Open {{admin_url}} with this administrator token:

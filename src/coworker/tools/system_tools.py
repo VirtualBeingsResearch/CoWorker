@@ -303,9 +303,12 @@ class ClearShortTermMemoryTool(Tool):
         to_summarize = self._short_term.compress_all_preview()
         if to_summarize and self._subconscious is not None:
             try:
-                await self._subconscious.notify_pre_compress(to_summarize)
+                await self._subconscious.notify_pre_compress(
+                    to_summarize,
+                    full_snapshot=list(self._short_term.primary),
+                )
             except Exception as e:
-                logger.warning(f"Pre-compress summarize notification failed: {e}")
+                logger.warning(f"Pre-compress subconscious notification failed: {e}")
         compressed, _remaining = await self._short_term.compress_all_now(
             self._brain,
             trigger="tool",

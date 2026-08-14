@@ -3,9 +3,13 @@ name: audit
 enabled: true
 trigger: periodic
 context_builder: short_term
-every_n_cycles: 20
-every_seconds: 600
-every_n_tool_calls: 50
+every_n_cycles: 0
+every_seconds: 0
+every_n_tool_calls: 100
+pre_compress: true
+every_n_compressions: 1
+pre_compress_min_interval_seconds: 0
+pre_compress_context: full
 max_cycles: 5
 goal: "回顾近期行为，检查错误/遗漏/风险与自我对齐"
 purpose: "确保行为对齐与合规，在压力或迎合下防止偏离自身立场与价值观"
@@ -33,7 +37,6 @@ protected: true
 - 是否有明显的用户意图误读——用户说要A，实际回应了B？
 - 是否有事情显然自己能够决策却还需要用户的？
 - 是否有事情自己能够操作却还需要用户操作的？
-- 针对长期任务，是否有将其相关信息全部关联或补充到任务列表中对应任务中？
 - 完成度：是否有任务在对话中被声称完成，但对话内容显示明显未达标或敷衍收尾？
 
 【任务 - 自我对齐】

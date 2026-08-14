@@ -60,6 +60,12 @@ memory_tags: [reliability, incident]
 并用周期、时间、工具调用数或冷却时间限制频率。正文可使用 `{bubble_id}`、`{goal}`、
 `{max_cycles}`。
 
+模式还可独立设置压缩前触发：`pre_compress: true` 启用，`every_n_compressions` 指定
+每隔多少次短期记忆压缩运行，`pre_compress_min_interval_seconds` 设置最短墙钟间隔，
+两项条件必须同时满足。`pre_compress_context: slice` 只传入即将被压缩的消息切片；
+`full` 传入压缩前的完整主线上下文。它可以与 `periodic` 同时使用，例如把压缩边界作为
+主触发、把工具调用阈值作为长时间不压缩时的兜底。
+
 从现有 `.coworker/subconscious/*/MODE.md` 复制最接近的模式开始。至少定义：
 
 - `name`、`enabled`、`trigger`、`max_cycles`；
