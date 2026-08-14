@@ -305,7 +305,12 @@ class ClearShortTermMemoryTool(Tool):
             try:
                 await self._subconscious.notify_pre_compress(
                     to_summarize,
-                    full_snapshot=list(self._short_term.primary),
+                    # execute() runs before this tool's result is appended, so primary
+                    # ends with an assistant tool_calls message whose chain is still
+                    # open.  Fork only the stable prefix; otherwise full-context modes
+                    # such as audit send an invalid transcript to OpenAI-compatible
+                    # providers on their first request.
+                    full_snapshot=to_summarize,
                 )
             except Exception as e:
                 logger.warning(f"Pre-compress subconscious notification failed: {e}")
