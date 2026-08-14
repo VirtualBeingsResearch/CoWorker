@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,8 +50,7 @@ class MemoryWriteResult:
     """显式写记忆的结果。
 
     - written: 已写入一条新记忆，memory_id 为新 id。
-    - empty: 抽取未产出可写内容（抽取失败、无事实，或 mem0 原生 hash 去重已存在），未写入。
-      去重由 mem0 自身完成，其 add() 不返回被去重的条目，故重复与「无内容」都归为 empty。
+    - empty: 内容为空或与现有记忆正文完全相同，未写入。
     """
 
     status: Literal["written", "empty"]
@@ -391,26 +391,37 @@ class LongTermMemory:
     ) -> MemoryWriteResult:
         if self._mem is None:
             raise RuntimeError("LongTermMemory not initialized")
+        if not content.strip():
+            return MemoryWriteResult(status="empty")
         metadata: dict = {
             "category": category,
             "tags": json.dumps(tags or []),
             "source_timestamp": (source_timestamp or datetime.now()).isoformat(),
         }
-        # 去重交给 mem0 原生 hash 去重（基于抽取文本 md5），add() 不返回被去重的条目；
-        # 全部去重/未产出时 results 为空，统一按 empty 上报，避免假报成功。
+        # write() 接收调用方已经提炼好的最终记忆。infer=False 可避免 mem0 再调用一次
+        # LLM 重写同一内容；语义抽取仍由 add_conversation() 的 infer=True 默认路径负责。
+        # infer=False 不包含 mem0 的 LLM 去重，因此按 mem0 自己持久化的正文 hash 精确
+        # 过滤，再比较原文规避碰撞；放在同一写锁内可避免并发重复写入。
+        content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
         async with self._write_lock:
+            existing = await self._mem.get_all(
+                filters={"user_id": _AGENT_USER_ID, "hash": content_hash}
+            )
+            if any(item.get("memory") == content for item in existing.get("results", [])):
+                logger.debug(f"Memory already exists [{category}]: {content[:60]}...")
+                return MemoryWriteResult(status="empty")
             result = await self._mem.add(
                 messages=[{"role": "user", "content": content}],
                 user_id=_AGENT_USER_ID,
                 metadata=metadata,
+                infer=False,
             )
         ids = [r["id"] for r in result.get("results", []) if "id" in r]
         memory_id = ids[0] if ids else ""
         if memory_id:
             logger.debug(f"Memory written [{category}]: {content[:60]}...")
             return MemoryWriteResult(status="written", memory_id=memory_id)
-        # add 返回空：抽取未产出内容（抽取失败、无事实），或 mem0 去重已存在。
-        logger.debug(f"Memory not stored (empty extraction) [{category}]: {content[:60]}...")
+        logger.debug(f"Memory not stored [{category}]: {content[:60]}...")
         return MemoryWriteResult(status="empty")
 
     async def add_conversation(self, messages: list) -> None:
