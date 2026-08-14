@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,8 +50,7 @@ class MemoryWriteResult:
     """显式写记忆的结果。
 
     - written: 已写入一条新记忆，memory_id 为新 id。
-    - empty: 抽取未产出可写内容（抽取失败、无事实，或 mem0 原生 hash 去重已存在），未写入。
-      去重由 mem0 自身完成，其 add() 不返回被去重的条目，故重复与「无内容」都归为 empty。
+    - empty: 内容为空或与现有记忆正文完全相同，未写入。
     """
 
     status: Literal["written", "empty"]
@@ -80,9 +80,12 @@ def build_memory_llm_config(
     """按「跟随主线」语义解析 mem0 的 LLM 配置。
 
     - mem0_llm_provider 为空 → active_provider（运行态主线），无则 llm.default_provider。
-    - mem0_llm_model 为空 → 该 provider 的 default_model，无则 active_model，再无则 llm.default_model。
-    与 Brain._resolve_summary_model 一致：跟随运行态 active provider/model，
-    而不是启动默认值（运行时 switch_model 后主线会变）。
+    - provider/model 都为空 → 跟随运行态 active provider/model。
+    - 显式配置 provider 但 model 为空 → 该 provider 的 default_model，
+      无则 llm.default_model。
+
+    两项都留空时与 Brain 的 summary 跟随语义一致：使用当前主线模型，
+    而不是 provider 的启动默认值。
     """
     provider_name = (
         config.memory.mem0_llm_provider
@@ -94,11 +97,16 @@ def build_memory_llm_config(
     configured_base_url = provider.base_url if provider is not None else ""
     model = config.memory.mem0_llm_model
     if not model:
-        model = (
-            (provider.default_model if provider is not None else None)
-            or active_model
-            or config.llm.default_model
+        follows_active_model = not config.memory.mem0_llm_provider and bool(
+            active_provider and active_model
         )
+        if follows_active_model:
+            model = active_model
+        else:
+            model = (
+                (provider.default_model if provider is not None else None)
+                or config.llm.default_model
+            )
     return LongTermLLMConfig(
         provider=provider_type,
         api_dialect=api_dialect(provider_type),
@@ -173,8 +181,8 @@ class LongTermMemory:
         仅替换 ``self._mem.llm`` 与 ``self._mem.config.llm``，避免重建 Chroma 连接。
         未初始化（setup 模式）时只记录配置，待 :meth:`initialize` 时生效。
         """
-        self._llm = llm
         if self._mem is None:
+            self._llm = llm
             logger.info("Long-term memory not initialized; deferred LLM reconfiguration")
             return
         from mem0.utils.factory import LlmFactory
@@ -184,12 +192,17 @@ class LongTermMemory:
         register_mem0_adapters()
         provider, config_dict = llm.as_mem0_config()
         new_llm = LlmFactory.create(provider, config_dict)
-        self._mem.llm = new_llm
-        self._mem.config.llm.provider = provider
-        self._mem.config.llm.config = config_dict
-        # 换 LLM 后旧 hook 已挂在新实例上，需要重装到新实例。
-        self._usage_hook_installed = False
-        self._install_usage_hook()
+        # Wait for any in-flight write to finish, then atomically swap the LLM
+        # reference used by mem0's next extraction. Factory failures leave both
+        # the runtime instance and Coworker's effective config unchanged.
+        async with self._write_lock:
+            self._mem.llm = new_llm
+            self._mem.config.llm.provider = provider
+            self._mem.config.llm.config = config_dict
+            self._llm = llm
+            # 换 LLM 后旧 hook 仍挂在旧实例上，需要重装到新实例。
+            self._usage_hook_installed = False
+            self._install_usage_hook()
         logger.info(f"Long-term memory LLM reconfigured: provider={llm.provider} model={llm.model}")
 
     def add_usage_listener(self, fn: _UsageListener) -> None:
@@ -391,26 +404,37 @@ class LongTermMemory:
     ) -> MemoryWriteResult:
         if self._mem is None:
             raise RuntimeError("LongTermMemory not initialized")
+        if not content.strip():
+            return MemoryWriteResult(status="empty")
         metadata: dict = {
             "category": category,
             "tags": json.dumps(tags or []),
             "source_timestamp": (source_timestamp or datetime.now()).isoformat(),
         }
-        # 去重交给 mem0 原生 hash 去重（基于抽取文本 md5），add() 不返回被去重的条目；
-        # 全部去重/未产出时 results 为空，统一按 empty 上报，避免假报成功。
+        # write() 接收调用方已经提炼好的最终记忆。infer=False 可避免 mem0 再调用一次
+        # LLM 重写同一内容；语义抽取仍由 add_conversation() 的 infer=True 默认路径负责。
+        # infer=False 不包含 mem0 的 LLM 去重，因此按 mem0 自己持久化的正文 hash 精确
+        # 过滤，再比较原文规避碰撞；放在同一写锁内可避免并发重复写入。
+        content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
         async with self._write_lock:
+            existing = await self._mem.get_all(
+                filters={"user_id": _AGENT_USER_ID, "hash": content_hash}
+            )
+            if any(item.get("memory") == content for item in existing.get("results", [])):
+                logger.debug(f"Memory already exists [{category}]: {content[:60]}...")
+                return MemoryWriteResult(status="empty")
             result = await self._mem.add(
                 messages=[{"role": "user", "content": content}],
                 user_id=_AGENT_USER_ID,
                 metadata=metadata,
+                infer=False,
             )
         ids = [r["id"] for r in result.get("results", []) if "id" in r]
         memory_id = ids[0] if ids else ""
         if memory_id:
             logger.debug(f"Memory written [{category}]: {content[:60]}...")
             return MemoryWriteResult(status="written", memory_id=memory_id)
-        # add 返回空：抽取未产出内容（抽取失败、无事实），或 mem0 去重已存在。
-        logger.debug(f"Memory not stored (empty extraction) [{category}]: {content[:60]}...")
+        logger.debug(f"Memory not stored [{category}]: {content[:60]}...")
         return MemoryWriteResult(status="empty")
 
     async def add_conversation(self, messages: list) -> None:

@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
@@ -623,6 +624,12 @@ def _interaction_sequence_summary(store: LogStore) -> JsonObject:
     return {"first": first, "latest": latest, "total": latest + 1}
 
 
+def _runtime_local_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone().replace(tzinfo=None)
+
+
 def _encode_interaction_cursor(cursor: LogPageCursor | None) -> str | None:
     if cursor is None:
         return None
@@ -963,17 +970,31 @@ def _bootstrap_managed_config_path(
     return None
 
 
-def _server_timezone_description() -> str:
-    """Describe the operating system timezone without creating app-level state."""
-
+def _server_utc_offset() -> str:
     is_dst = bool(time.daylight and time.localtime().tm_isdst)
     offset_seconds = -(time.altzone if is_dst else time.timezone)
     hours, remainder = divmod(abs(offset_seconds), 3600)
     minutes = remainder // 60
     sign = "+" if offset_seconds >= 0 else "-"
-    offset = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
-    name = os.environ.get("TZ", "").strip() or time.tzname[1 if is_dst else 0]
-    return f"{name} ({offset})"
+    return f"{sign}{hours:02d}:{minutes:02d}"
+
+
+def _server_timezone() -> str:
+    """Return the browser-parseable timezone that owns naive runtime timestamps."""
+
+    configured = os.environ.get("TZ", "").strip().removeprefix(":")
+    if configured and not configured.startswith("/"):
+        try:
+            ZoneInfo(configured)
+        except ZoneInfoNotFoundError:
+            pass
+        else:
+            return configured
+    local_timezone = datetime.now().astimezone().tzinfo
+    key = getattr(local_timezone, "key", None)
+    if isinstance(key, str) and key:
+        return key
+    return _server_utc_offset()
 
 
 @router.get("/bootstrap")
@@ -991,7 +1012,7 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
-        "server_timezone": _server_timezone_description(),
+        "server_timezone": _server_timezone(),
         "providers": providers,
         "defaults": {
             "configuration": snapshot.config,
@@ -1591,7 +1612,9 @@ async def switch_model(
     agent.state.current_provider = brain.current_provider_name
     agent.state.current_model = brain.current_model
     _audit(request, "model.switch", f"{brain.current_provider_name}/{brain.current_model}")
-    return cast(ApiResponse, brain.model_config_snapshot())
+    snapshot = brain.model_config_snapshot()
+    snapshot["mem0"] = _mem0_model_view(_require_config())
+    return cast(ApiResponse, snapshot)
 
 
 @router.post("/restart", status_code=202)
@@ -2144,17 +2167,25 @@ async def get_interaction_history(
     needle = q.strip().casefold()
     selected_type = (event_type or "").strip()
 
+    # Interaction logs historically store runtime-local naive timestamps.  A
+    # browser sends absolute instants, so convert them back to that legacy
+    # storage clock before using LogStore's ISO string range index.
+    log_start_time: datetime | None = None
+    log_end_time: datetime | None = None
+
     store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
     sequence = _interaction_sequence_summary(store)
     effective_seq_start = seq_start
     effective_seq_end = seq_end
     time_range: JsonObject | None = None
     if start_time is not None and end_time is not None:
+        log_start_time = _runtime_local_naive(start_time)
+        log_end_time = _runtime_local_naive(end_time)
         time_range = {
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
         }
-        ranged_entries, _complete = store.read_time_range(start_time, end_time)
+        ranged_entries, _complete = store.read_time_range(log_start_time, log_end_time)
         ranged_sequences: list[int] = []
         for entry in ranged_entries:
             try:
@@ -2189,8 +2220,8 @@ async def get_interaction_history(
                 "time_range": time_range,
             }
 
-    start_time_iso = start_time.isoformat() if start_time is not None else None
-    end_time_iso = end_time.isoformat() if end_time is not None else None
+    start_time_iso = log_start_time.isoformat() if log_start_time is not None else None
+    end_time_iso = log_end_time.isoformat() if log_end_time is not None else None
 
     def matches(entry: dict[str, Any]) -> bool:
         if effective_seq_start is not None or effective_seq_end is not None:

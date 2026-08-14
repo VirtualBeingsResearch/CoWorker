@@ -7,7 +7,7 @@
 ## 当前能力
 
 - **多 LLM Provider**：支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax，可通过 API 或工具热切换模型；可经 `providers.json` 配置同一类型的多个命名实例（如多个智谱 Key），每个实例可带各自的默认模型。
-- **分层记忆**：短期上下文自动压缩，长期记忆由 **mem0** 管理（底层 ChromaDB + 本地 SentenceTransformer），具备自动去重与语义合并；收到新消息时系统自动检索相关记忆以 `[自动回忆]` 形式注入上下文，已回忆/已写入的记忆在同一会话内不重复注入（持久化去重，重启后同样有效）；短期记忆在重启后自动恢复。
+- **分层记忆**：短期上下文自动压缩，长期记忆由 **mem0** 管理（底层 ChromaDB + 本地 SentenceTransformer）；原始对话入库时由 mem0 提炼并语义合并，显式写入的已提炼记忆直接保存并精确去重，避免再次调用 LLM；收到新消息时系统自动检索相关记忆以 `[自动回忆]` 形式注入上下文，已回忆/已写入的记忆在同一会话内不重复注入（持久化去重，重启后同样有效）；短期记忆在重启后自动恢复。
 - **多人对话隔离**：每个 `participant_id` 拥有独立对话线程，避免不同用户的上下文互相污染。
 - **三类交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信。
 - **工具系统**：文件读写、代码执行、网页搜索、浏览器自动化、记忆读写、技能读取、任务板、模型切换等。
@@ -120,7 +120,7 @@ coworker/
 
 **Pin 消息**：通过 `manage_pinned_context` 工具，模型可以将重要文本或文件内容"pin"住。Pin 的消息以真实消息形式存在于对话流中；当短期记忆压缩将其压掉后，下一个 cycle 会自动检测到缺失，把它重新 append 到 primary 末尾作为最新输入，起到保留缓存命中和定期强调的作用。文件 pin 在每次重注入时重新读取文件，始终保持最新内容。Pin 状态随快照持久化，重启后自动恢复。
 
-长期记忆由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。mem0 在写入时自动对语义相近的记忆进行合并/去重，避免重复积累。
+长期记忆由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。原始对话通过批量入口交给 mem0 调用 LLM 提炼并语义合并；`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接建立向量并保存。显式写入会先检索并跳过正文完全相同的已有记忆；语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
 
 **自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `write_memory` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
 

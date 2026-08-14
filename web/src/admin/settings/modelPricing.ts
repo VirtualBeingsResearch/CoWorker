@@ -7,6 +7,53 @@ export type ModelPriceValidationError =
 
 type ModelPriceDraft = Record<string, unknown>;
 
+export const COMMON_MODEL_PRICE_CURRENCIES = [
+  'CNY',
+  'USD',
+  'EUR',
+  'JPY',
+  'HKD',
+  'GBP',
+  'TWD',
+  'KRW',
+  'SGD',
+  'AUD',
+  'CAD',
+  'CHF',
+  'INR',
+] as const;
+
+export function modelPriceCurrencyLabel(
+  currency: string,
+  language: 'zh' | 'en' = 'zh',
+): string {
+  const { code, displayName, symbol } = modelPriceCurrencyDetails(currency, language);
+  return [code, displayName, symbol]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join(' · ');
+}
+
+export function modelPriceCurrencyDetails(
+  currency: string,
+  language: 'zh' | 'en' = 'zh',
+): { code: string; displayName: string; symbol: string } {
+  const code = currency.trim().toUpperCase();
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  let displayName = code;
+  let symbol = code;
+  try {
+    displayName = new Intl.DisplayNames([locale], { type: 'currency' }).of(code) || code;
+  } catch { /* Fall back to the currency code. */ }
+  try {
+    symbol = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: code,
+      currencyDisplay: 'symbol',
+    }).formatToParts(0).find(part => part.type === 'currency')?.value || code;
+  } catch { /* Fall back to the currency code. */ }
+  return { code, displayName, symbol };
+}
+
 export function validateModelPrices(value: unknown): ModelPriceValidationError | null {
   const prices = Array.isArray(value) ? value : [];
   const keys: string[] = [];

@@ -92,7 +92,9 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 定价与连接来源相互独立，因此也能为 `.env` 或 `providers.json` 提供的只读连接补充价格。
 管理后台保存定价不重建 Provider、无需重启；历史 Token 始终按当前价格实时重算。不同币种
-分别汇总，不做汇率换算。
+分别汇总，不做汇率换算。管理后台会建议常用的 ISO 4217 三字母币种代码，同时保留其他
+三字母代码的手动输入；金额符号由浏览器根据币种代码和界面语言生成，没有专用符号时显示
+币种代码。
 
 ### 记忆
 
@@ -109,8 +111,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__AUTO_RECALL_ENABLED` | `true` | 是否在收到消息时自动检索长期记忆 |
 | `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | 自动回忆的相关度阈值（0-1） |
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | 每次自动回忆最多注入条数 |
-| `MEMORY__MEM0_LLM_PROVIDER` | `""`（跟随主线） | mem0 记忆提取的独立 provider；留空跟随 `LLM__DEFAULT_PROVIDER`，也可显式指定 Brain provider 名称或类型，复用匹配实例的凭据和有效 `base_url`。修改后热生效，无需重启 |
-| `MEMORY__MEM0_LLM_MODEL` | `""`（跟随主线） | mem0 记忆提取的独立模型 ID；留空跟随该 provider 的 `default_model`（无则 `LLM__DEFAULT_MODEL`），原样传给对应 API 方言。修改后热生效，无需重启 |
+| `MEMORY__MEM0_LLM_PROVIDER` | `""`（跟随主线） | mem0 记忆提取的独立 provider；留空跟随运行态主线 provider（包括手动切换与失败降级），也可显式指定 Brain provider 名称或类型，复用匹配实例的凭据和有效 `base_url`。修改后热生效，无需重启 |
+| `MEMORY__MEM0_LLM_MODEL` | `""`（跟随主线） | mem0 记忆提取的独立模型 ID；provider 也留空时跟随运行态主线模型。显式指定 provider 但留空模型时，使用该 provider 的 `default_model`（无则 `LLM__DEFAULT_MODEL`）。模型 ID 原样传给对应 API 方言；修改后热生效，无需重启 |
 | `MEMORY__MEM0_LLM_THINKING` | `false` | mem0 抽取 LLM 的 thinking 开关；对已知思考模型注入对应参数（抽取是结构化 JSON 任务，默认关闭避免思考吞 token）。修改后热生效，无需重启 |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 使用的嵌入模型；已有数据不应直接切换模型 |
 

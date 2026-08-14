@@ -1,4 +1,4 @@
-import { createContext, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -7,7 +7,12 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
-import { validateModelPrices } from './settings/modelPricing';
+import {
+  COMMON_MODEL_PRICE_CURRENCIES,
+  modelPriceCurrencyDetails,
+  validateModelPrices,
+} from './settings/modelPricing';
+import { EditableCombobox } from './EditableCombobox';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { configFieldPresentation } from './settings/configFieldPresentation';
@@ -19,6 +24,17 @@ import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import { LineNumberTextarea } from './LineNumberTextarea';
 import type { UsageStats } from '../api/types';
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  localDateKey,
+  localDateTimeInputToIso,
+  setServerTimezone,
+  timestampMillis,
+  toAbsoluteIso,
+  toLocalDateTimeInput,
+} from '../lib/dateTime';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -101,6 +117,16 @@ function sectionHref(next: Section) {
     url.searchParams.delete('log_end');
     url.searchParams.delete('log_type');
   }
+  url.hash = '';
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function modelPricingHref() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('section', 'settings');
+  url.searchParams.set('group', 'llm');
+  url.searchParams.delete('source');
+  url.hash = 'model-pricing';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -113,7 +139,7 @@ function runtimeTabFromLocation(): RuntimeTab {
 
 function logTimeFromLocation(key: 'log_start' | 'log_end'): string {
   const value = new URLSearchParams(window.location.search).get(key) || '';
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ? value.slice(0, 26) : '';
+  return toAbsoluteIso(value);
 }
 
 function logTypeFromLocation(): string {
@@ -122,8 +148,7 @@ function logTypeFromLocation(): string {
 }
 
 function logTimeInputValue(value: string): string {
-  const fraction = value.indexOf('.');
-  return fraction < 0 ? value : value.slice(0, fraction + 4);
+  return toLocalDateTimeInput(value);
 }
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
@@ -365,11 +390,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
   const [customModelCapabilities, setCustomModelCapabilities] = useState({ tools: false, vision: false, video: false });
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [highlightedModelIndex, setHighlightedModelIndex] = useState(-1);
-  const modelComboboxRef = useRef<HTMLDivElement | null>(null);
-  const modelOptionRefs = useRef<Array<HTMLLIElement | null>>([]);
   const submitInFlight = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -391,13 +411,6 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const timezoneAdviceText = t('检测到浏览器使用 {{browserTimezone}}。Coworker 不会修改系统时区；若时间显示不一致，建议在容器或启动环境中使用：', {
     browserTimezone: timezoneAdvice.detectedTimezone,
   });
-  const modelListboxId = `bootstrap-model-listbox-${providerType}`;
-  const highlightedModelId = highlightedModelIndex >= 0 ? `bootstrap-model-option-${providerType}-${highlightedModelIndex}` : undefined;
-  const filteredModels = useMemo(() => {
-    if (modelFilter === null) return models;
-    const filter = modelFilter.toLowerCase();
-    return models.filter(item => item.toLowerCase().includes(filter));
-  }, [modelFilter, models]);
   const changeConfiguration = (group: string, key: string, next: unknown) => setConfiguration(current => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
   const replaceConfigurationGroup = (group: string, next: Json) => setConfiguration(current => ({ ...current, [group]: next }));
   const setConfigurationJsonValidity = useCallback((path: string, valid: boolean) => setInvalidConfigurationPaths(current => {
@@ -417,50 +430,12 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     window.requestAnimationFrame(() => advancedReturnFocus.current?.focus());
   };
 
-  const closeModelMenu = () => { setModelMenuOpen(false); setModelFilter(null); setHighlightedModelIndex(-1); };
-  const openAllModels = () => {
-    const selectedIndex = models.findIndex(item => item === normalizedModel);
-    setModelFilter(null);
-    setHighlightedModelIndex(selectedIndex);
-    setModelMenuOpen(true);
-  };
-  const chooseRecommendedModel = (value: string) => {
-    setModel(value);
-    setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
-  };
   const changeProvider = (nextProvider: string) => {
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
-    closeModelMenu();
   };
-  const moveHighlight = (direction: 1 | -1) => {
-    if (!filteredModels.length) { setHighlightedModelIndex(-1); return; }
-    setHighlightedModelIndex(index => index < 0 ? (direction > 0 ? 0 : filteredModels.length - 1) : (index + direction + filteredModels.length) % filteredModels.length);
-  };
-  const handleModelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') { event.preventDefault(); if (!modelMenuOpen) openAllModels(); else moveHighlight(1); }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); if (!modelMenuOpen) { openAllModels(); setHighlightedModelIndex(Math.max(models.length - 1, -1)); } else moveHighlight(-1); }
-    else if (event.key === 'Enter' && modelMenuOpen && highlightedModelIndex >= 0 && filteredModels[highlightedModelIndex]) { event.preventDefault(); chooseRecommendedModel(filteredModels[highlightedModelIndex]); }
-    else if (event.key === 'Escape' && modelMenuOpen) { event.preventDefault(); closeModelMenu(); }
-    else if (event.key === 'Tab') closeModelMenu();
-  };
-
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !modelComboboxRef.current?.contains(target)) closeModelMenu();
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [modelMenuOpen]);
-
-  useEffect(() => {
-    if (highlightedModelIndex >= 0) modelOptionRefs.current[highlightedModelIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [highlightedModelIndex, filteredModels]);
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -551,14 +526,9 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
           <form className="bootstrap-form" onSubmit={submit}>
             <div className="bootstrap-grid">
               <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className={`bootstrap-model-field${modelMenuOpen ? ' open' : ''}`}>
+              <div className="bootstrap-model-field">
                 <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <div className="bootstrap-model-combobox" ref={modelComboboxRef}>
-                  <input id="bootstrap-model-input" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={modelMenuOpen} aria-controls={modelListboxId} aria-activedescendant={highlightedModelId} autoComplete="off" spellCheck={false} value={model} onFocus={() => { if (!modelMenuOpen) openAllModels(); }} onClick={() => { if (!modelMenuOpen) openAllModels(); }} onKeyDown={handleModelKeyDown} onChange={e => { setModel(e.target.value); setModelFilter(e.target.value); setModelMenuOpen(true); setHighlightedModelIndex(-1); }} placeholder={t('选择推荐模型或输入模型 ID')} />
-                  {modelMenuOpen && <ul className="bootstrap-model-listbox" id={modelListboxId} role="listbox" aria-labelledby="bootstrap-model-label">
-                    {filteredModels.length ? filteredModels.map((item: string, index: number) => <li id={`bootstrap-model-option-${providerType}-${index}`} ref={node => { modelOptionRefs.current[index] = node; }} className={`${index === highlightedModelIndex ? 'active' : ''}${item === normalizedModel ? ' selected' : ''}`} role="option" aria-selected={item === normalizedModel} key={item} onMouseEnter={() => setHighlightedModelIndex(index)} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => chooseRecommendedModel(item)}><span>{item}</span>{item === normalizedModel && <Check size={13} />}</li>) : <li className="bootstrap-model-empty" role="status">{t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')}</li>}
-                  </ul>}
-                </div>
+                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
               </div>
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
@@ -673,7 +643,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
-  const sampledAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const sampledAt = formatTime(new Date(), [], { hour: '2-digit', minute: '2-digit' });
   const operations: Array<{ label: string; value: number; note: string; icon: typeof Activity; section: Section }> = [
     { label: t('活跃任务'), value: counts.active_tasks, note: t('{{count}} 项总计', { count: counts.tasks }), icon: ListTodo, section: 'runtime' },
     { label: t('运行 Bubble'), value: counts.active_bubbles, note: t('并行思考分支'), icon: Orbit, section: 'memory' },
@@ -708,6 +678,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         loading={usage.loading}
         error={usage.error}
         analyticsHref={sectionHref('usage')}
+        pricingHref={modelPricingHref()}
         onOpenAnalytics={event => onNavigate(event, 'usage')}
       />
       <Panel title="运行快照" note="当前任务、记忆和后台守候" className="overview-operations-panel">
@@ -716,15 +687,16 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         </div>
         <footer className="overview-runtime-footer">
           <span><b>{t('回溯状态')}</b>{data.memory.backfill?.running ? `${data.memory.backfill.done}/${data.memory.backfill.total}` : t('空闲')}</span>
-          <span><b>{t('本轮启动')}</b>{new Date(status.started_at).toLocaleString()}</span>
+          <span><b>{t('本轮启动')}</b>{formatDateTime(status.started_at)}</span>
         </footer>
       </Panel>
     </div>
   </div>;
 }
 
-function UsageAnalyticsPage({ onOpenLogs }: {
+function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
   onOpenLogs: (startTime?: string, endTime?: string, eventType?: string) => void;
+  pricingHref: string;
 }) {
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   return <AdminUsageAnalytics
@@ -737,6 +709,7 @@ function UsageAnalyticsPage({ onOpenLogs }: {
       return api<UsageStats>(`/api/admin/usage?${query.toString()}`);
     }}
     onOpenLogs={onOpenLogs}
+    pricingHref={pricingHref}
   />;
 }
 
@@ -795,6 +768,10 @@ function Models() {
 
 function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
+function ComboboxField({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }) {
+  return <div className="field"><label className="field-label" htmlFor={id}>{t(label)}</label>{children}{hint && <small>{t(hint)}</small>}</div>;
+}
+
 function StringListEditor({ label, hint, value, onChange, placeholder }: {
   label: string;
   hint: string;
@@ -851,6 +828,7 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
   onChange: (value: Json[]) => void;
   providerNames: string[];
 }) {
+  const { language } = useAdminI18n();
   const changePrice = (index: number, key: string, nextValue: unknown) => {
     onChange(value.map((item, itemIndex) => itemIndex === index
       ? { ...item, [key]: nextValue }
@@ -871,7 +849,16 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
           : validationError === 'duplicate'
             ? t('同一个 Provider 中不能重复配置模型价格。')
             : '';
-  return <section className="provider-model-prices">
+  const providerOptions = providerNames.map(name => ({ value: name }));
+  const currencyOptions = COMMON_MODEL_PRICE_CURRENCIES.map(currency => {
+    const details = modelPriceCurrencyDetails(currency, language);
+    return {
+      value: currency,
+      label: details.displayName,
+      detail: details.symbol === currency ? undefined : details.symbol,
+    };
+  });
+  return <section className="provider-model-prices" id="model-pricing">
     <header><div><b>{t('模型定价')}</b><small>{t('按 Provider 与模型 ID 精确匹配；价格单位为每百万 Token，修改后立即重算历史消费估算。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, {
       provider: providerNames[0] || '',
       model: '',
@@ -880,15 +867,22 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
       output_per_million: 0,
       cached_input_per_million: null,
     }])}><Plus size={13} />{t('添加价格')}</button></header>
-    <datalist id="model-price-provider-options">{providerNames.map(name => <option value={name} key={name} />)}</datalist>
     {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
-      <Field label="Provider" hint="连接注册名，支持已停用的历史 Provider"><input list="model-price-provider-options" value={price.provider || ''} onChange={event => changePrice(index, 'provider', event.target.value)} placeholder="openai" /></Field>
-      <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
-      <Field label="币种" hint="三个字母，如 CNY 或 USD"><input maxLength={3} value={price.currency || ''} onChange={event => changePrice(index, 'currency', event.target.value.toUpperCase())} placeholder="USD" /></Field>
-      <Field label="输入 / 百万 Token"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
-      <Field label="输出 / 百万 Token"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
-      <Field label="缓存输入 / 百万 Token" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
-      <button type="button" className="danger-icon" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+      <div className="provider-price-object-grid">
+        <ComboboxField id={`model-price-provider-${index}`} label="Provider" hint="可选择有效连接，也可输入历史 Provider">
+          <EditableCombobox id={`model-price-provider-${index}`} value={String(price.provider || '')} options={providerOptions} onChange={next => changePrice(index, 'provider', next)} placeholder="openai" emptyMessage={t('没有匹配的 Provider；可继续使用当前输入。')} toggleLabel={t('展开 Provider 选项')} />
+        </ComboboxField>
+        <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
+        <ComboboxField id={`model-price-currency-${index}`} label="币种" hint="可选择常用币种，也可输入其他三字母代码">
+          <EditableCombobox id={`model-price-currency-${index}`} value={String(price.currency || '')} options={currencyOptions} onChange={next => changePrice(index, 'currency', next)} placeholder="USD" emptyMessage={t('没有匹配的常用币种；可继续使用三字母代码。')} toggleLabel={t('展开币种选项')} maxLength={3} normalize={next => next.toUpperCase()} />
+        </ComboboxField>
+      </div>
+      <button type="button" className="danger-icon provider-price-remove" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+      <div className="provider-price-rate-block"><div className="provider-price-rate-heading"><span>{t('Token 单价')}</span><small>{t('以下金额均按每百万 Token 计算')}</small></div><div className="provider-price-rate-grid">
+        <Field label="输入"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="输出"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
+        <Field label="缓存输入" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
+      </div></div>
     </article>)}</div> : <p>{t('尚未配置模型价格；用量仍会统计 Token，但消费估算会标记为未定价。')}</p>}
     {validationMessage && <p className="field-error" role="alert">{validationMessage}</p>}
     <div className="provider-price-note"><TriangleAlert size={15} /><span>{t('消费为本地估算，不含请求费、图片或视频独立计费、缓存写入、阶梯价、折扣与税费；最终以 Provider 账单为准。')}</span></div>
@@ -1316,6 +1310,13 @@ function Settings() {
     toggleClearOverride,
   } = settings;
   useNavigationGuard('settings', dirtyGroups.size > 0);
+  useEffect(() => {
+    if (!data || !draft || group !== 'llm' || window.location.hash !== '#model-pricing') return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('model-pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, draft, group]);
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
@@ -1387,7 +1388,9 @@ function humanize(text: string) { return text.replace(/_/g, ' ').replace(/\b\w/g
 const TASK_STATUS: Record<string, string> = { pending: '待处理', in_progress: '进行中', completed: '已完成' };
 
 function timeFromNow(value: string) {
-  const delta = new Date(value).getTime() - Date.now();
+  const parsed = timestampMillis(value);
+  if (parsed == null) return t('时间未知');
+  const delta = parsed - Date.now();
   const abs = Math.abs(delta);
   const units: Array<[number, string]> = [[86_400_000, '天'], [3_600_000, '小时'], [60_000, '分钟']];
   const [size, label] = units.find(([unitSize]) => abs >= unitSize) || [1000, '秒'];
@@ -1493,7 +1496,7 @@ function MemoryMessage({ message, index, defaultOpen = false, coworkerName = '' 
       ? t('{{count}} 个工具调用', { count: message.tool_calls.length })
       : message.stop_reason || '';
   return <details className={'short-message role-' + message.role} open={defaultOpen}>
-    <summary><span className="message-index">{String(index + 1).padStart(2, '0')}</span><span className="message-summary-copy"><b>{role}</b><small>{new Date(message.timestamp).toLocaleString()}{' · '}{sourceName}{usage}</small><em className="message-preview">{memoryPreview(message)}</em></span><i>{summaryState}</i></summary>
+    <summary><span className="message-index">{String(index + 1).padStart(2, '0')}</span><span className="message-summary-copy"><b>{role}</b><small>{formatDateTime(message.timestamp)}{' · '}{sourceName}{usage}</small><em className="message-preview">{memoryPreview(message)}</em></span><i>{summaryState}</i></summary>
     <div className="short-message-body"><pre>{memoryContentText(message.content)}</pre>{message.reasoning_content && <section className="message-reasoning"><b><Brain size={12} />{t('思考')}</b><pre>{message.reasoning_content}</pre></section>}{message.tool_calls?.length > 0 && <section className="message-tool-section"><b><Wrench size={12} />{t('工具调用')}</b><div className="message-tools">{message.tool_calls.map((call: Json) => <details className="tool-exchange" key={call.id || call.name} open><summary><span><Wrench size={11} />{call.name}</span><small>{'result' in call ? t('已返回') : t('等待结果')}</small></summary><div><label>{t('参数')}</label><pre>{memoryDetailText(call.arguments)}</pre><label>{t('结果')}</label><pre>{'result' in call ? memoryDetailText(call.result) : t('尚未返回结果')}</pre></div></details>)}</div></section>}{message.recalled_memory_ids?.length > 0 && <p>{t('召回长期记忆：')} {message.recalled_memory_ids.join(' · ')}</p>}{message.tool_call_id && <p>{t('工具调用 ID：')} {message.tool_call_id}</p>}</div>
   </details>;
 }
@@ -1503,7 +1506,7 @@ function MemoryTreeNode({ node, depth = 0 }: { node: Json; depth?: number }) {
   return <details className="short-tree-node" open={depth === 0} style={{ '--indent': Math.min(depth, 3) * 7 + 'px' } as React.CSSProperties}>
     <summary>
       <span className="tree-level">L{node.level}</span>
-      <span className="tree-node-copy"><b>{new Date(node.t_start).toLocaleString()} → {new Date(node.t_end).toLocaleString()}</b><small>{t('{{count}} 条消息', { count: node.msg_count })}{' · '}{Number(node.token_estimate).toLocaleString()} token{' · '}{node.token_count_source === 'exact' ? t('精确摘要计数') : t('估算摘要计数')}</small></span>
+      <span className="tree-node-copy"><b>{formatDateTime(node.t_start)} → {formatDateTime(node.t_end)}</b><small>{t('{{count}} 条消息', { count: node.msg_count })}{' · '}{Number(node.token_estimate).toLocaleString()} token{' · '}{node.token_count_source === 'exact' ? t('精确摘要计数') : t('估算摘要计数')}</small></span>
       <span className={node.raw_available ? 'raw-state' : 'raw-state summary-only'}>{node.raw_available ? t('原文可达') : t('仅摘要')}</span>
     </summary>
     <div className="tree-node-detail"><p>{node.summary}</p>{children.length > 0 && <div className="tree-children">{children.map((child: Json, childIndex: number) => <MemoryTreeNode node={child} depth={depth + 1} key={child.t_start + '-' + child.level + '-' + childIndex} />)}</div>}</div>
@@ -1542,7 +1545,7 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
   const water = data.token_watermark;
   const ratio = Math.max(0, Number(water.ratio || 0));
   const percent = Math.round(ratio * 100);
-  const measured = water.measured_at ? new Date(water.measured_at).toLocaleString() : t('当前读取');
+  const measured = water.measured_at ? formatDateTime(water.measured_at) : t('当前读取');
   const startBackfill = async () => {
     setActionError(''); setActionMessage('');
     try {
@@ -1591,7 +1594,7 @@ function ShortTermMemoryView({ coworkerName, confirmationName }: { coworkerName:
     <Panel title="固定上下文" note="固定项会在缺失时重新注入主线，避免关键资料被压缩带走。">
       {(pinError || pinMessage) && <div className={'notice ' + (pinError ? 'error' : 'success')}>{pinError || pinMessage}</div>}
       <form className="pin-compose" onSubmit={addPin}><input required maxLength={80} value={pinDraft.label} onChange={event => setPinDraft({ ...pinDraft, label: event.target.value })} placeholder={t('标题，例如：项目约定')} /><textarea required value={pinDraft.content} onChange={event => setPinDraft({ ...pinDraft, content: event.target.value })} placeholder={t('需要始终保留在上下文里的内容')} /><button className="primary" disabled={pinSaving}><Plus size={14} />{pinSaving ? t('添加中…') : t('添加固定项')}</button></form>
-      <div className="pinned-context-list">{data.pinned_items.length ? data.pinned_items.map((item: Json) => <details key={item.pin_id}><summary><Fingerprint size={15} /><span><b>{item.label}</b><small>{item.pin_id}{' · '}{new Date(item.created_at).toLocaleString()}</small></span><button type="button" className="icon-btn pin-delete" title={t('删除固定上下文')} aria-label={t('删除固定上下文 {{label}}', { label: item.label })} onClick={event => { event.preventDefault(); void removePin(item); }}><Trash2 size={14} /></button></summary><pre>{item.content}</pre>{item.file_path && <p><FileText size={12} />{t('跟随文件：')} {item.file_path}</p>}</details>) : <Empty text="当前没有固定上下文；可以从上方添加。" />}</div>
+      <div className="pinned-context-list">{data.pinned_items.length ? data.pinned_items.map((item: Json) => <details key={item.pin_id}><summary><Fingerprint size={15} /><span><b>{item.label}</b><small>{item.pin_id}{' · '}{formatDateTime(item.created_at)}</small></span><button type="button" className="icon-btn pin-delete" title={t('删除固定上下文')} aria-label={t('删除固定上下文 {{label}}', { label: item.label })} onClick={event => { event.preventDefault(); void removePin(item); }}><Trash2 size={14} /></button></summary><pre>{item.content}</pre>{item.file_path && <p><FileText size={12} />{t('跟随文件：')} {item.file_path}</p>}</details>) : <Empty text="当前没有固定上下文；可以从上方添加。" />}</div>
     </Panel>
 
     <Panel title="记忆维护" note="压缩会调用模型；回溯在后台从持久日志重建时间脊柱。">
@@ -1631,7 +1634,7 @@ function Tasks() {
   return <Panel title="任务板" note="任务说明与执行细节会和 Coworker 的 task 工具实时共享。">
     <div className="task-compose"><input value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.description.trim()) void create(); }} placeholder={t('要完成什么？')} /><textarea value={draft.details} onChange={event => setDraft({ ...draft, details: event.target.value })} placeholder={t('补充执行细节（可选）')} /><button className="primary" disabled={!draft.description.trim()} onClick={() => void create()}><Plus size={15} />{t('添加任务')}</button></div>
     <div className="list-toolbar"><div className="task-filters">{filters.map(([id, label]) => <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>{label}</button>)}</div><button className="icon-btn" onClick={() => void reload()} title={t('刷新任务')} aria-label={t('刷新任务')}><RefreshCw size={15} /></button></div>
-    <div className="record-list">{visible.length ? visible.map((task: Json) => <article className={'record task-record ' + task.status} key={task.id}><div className="record-main"><span className={'status-pill ' + task.status}>{t(TASK_STATUS[task.status] || task.status)}</span><b>{task.description}</b>{task.details && <p className="record-details">{task.details}</p>}<small>{t('更新于 {{time}}', { time: new Date(task.updated_at).toLocaleString() })}{' · '}{task.id}</small></div><div className="row-actions"><select aria-label={t('更新任务“{{description}}”的状态', { description: task.description })} value={task.status} onChange={async event => { await api('/api/admin/tasks/' + task.id, { method: 'PATCH', body: JSON.stringify({ description: task.description, details: task.details || '', status: event.target.value }) }); await reload(); }}>{Object.entries(TASK_STATUS).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select><button className="icon-btn" title={t('编辑任务')} aria-label={t('编辑任务')} onClick={() => setEditing({ ...task })}><Pencil size={15} /></button><button className="danger-icon" title={t('删除任务')} aria-label={t('删除任务“{{description}}”', { description: task.description })} onClick={async () => { if (confirm(t('删除任务“{{description}}”？', { description: task.description }))) { await api('/api/admin/tasks/' + task.id, { method: 'DELETE' }); await reload(); } }}><Trash2 size={15} /></button></div></article>) : <Empty text={data.tasks.length ? '这个分类里没有任务。' : '还没有任务，先写下第一件要推进的事。'} />}</div>
+    <div className="record-list">{visible.length ? visible.map((task: Json) => <article className={'record task-record ' + task.status} key={task.id}><div className="record-main"><span className={'status-pill ' + task.status}>{t(TASK_STATUS[task.status] || task.status)}</span><b>{task.description}</b>{task.details && <p className="record-details">{task.details}</p>}<small>{t('更新于 {{time}}', { time: formatDateTime(task.updated_at) })}{' · '}{task.id}</small></div><div className="row-actions"><select aria-label={t('更新任务“{{description}}”的状态', { description: task.description })} value={task.status} onChange={async event => { await api('/api/admin/tasks/' + task.id, { method: 'PATCH', body: JSON.stringify({ description: task.description, details: task.details || '', status: event.target.value }) }); await reload(); }}>{Object.entries(TASK_STATUS).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select><button className="icon-btn" title={t('编辑任务')} aria-label={t('编辑任务')} onClick={() => setEditing({ ...task })}><Pencil size={15} /></button><button className="danger-icon" title={t('删除任务')} aria-label={t('删除任务“{{description}}”', { description: task.description })} onClick={async () => { if (confirm(t('删除任务“{{description}}”？', { description: task.description }))) { await api('/api/admin/tasks/' + task.id, { method: 'DELETE' }); await reload(); } }}><Trash2 size={15} /></button></div></article>) : <Empty text={data.tasks.length ? '这个分类里没有任务。' : '还没有任务，先写下第一件要推进的事。'} />}</div>
     {editing && <div className="modal-layer"><div className="confirm-modal task-modal"><ListTodo size={24} /><h3>{t('编辑任务')}</h3><Field label="任务描述"><input autoFocus value={editing.description} onChange={event => setEditing({ ...editing, description: event.target.value })} /></Field><Field label="执行细节"><textarea value={editing.details || ''} onChange={event => setEditing({ ...editing, details: event.target.value })} placeholder={t('记录计划、进度或下一步')} /></Field><Field label="状态"><select value={editing.status} onChange={event => setEditing({ ...editing, status: event.target.value })}>{Object.entries(TASK_STATUS).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select></Field><div className="panel-actions"><button className="ghost" onClick={() => setEditing(null)}>{t('取消')}</button><button className="primary" disabled={!editing.description.trim()} onClick={() => void saveEdit()}><Check size={15} />{t('保存任务')}</button></div></div></div>}
   </Panel>;
 }
@@ -1700,7 +1703,7 @@ function BubbleRecord({ bubble, reload, scope, coworkerName }: { bubble: Json; r
     catch (error) { setHistoryError(error instanceof Error ? error.message : t('历史记录加载失败')); }
   };
   const model = [bubble.provider, bubble.model].filter(Boolean).join('/') || t('模型未记录');
-  const createdAt = bubble.created_at ? t(' · {{time}}', { time: new Date(bubble.created_at).toLocaleString() }) : '';
+  const createdAt = bubble.created_at ? t(' · {{time}}', { time: formatDateTime(bubble.created_at) }) : '';
   return <article className={'bubble-record ' + (open ? 'open' : '')}>
     <div className="bubble-record-head">
       <div className="record-main">
@@ -1797,18 +1800,18 @@ function Alarms() {
   const [draft, setDraft] = useState({ trigger_at: '', message: '', repeat_seconds: '' });
   if (loading || !data) return <Loading error={error} />;
   const create = async () => {
-    await api('/api/admin/alarms', { method: 'POST', body: JSON.stringify({ message: draft.message, trigger_at: new Date(draft.trigger_at).toISOString(), repeat_seconds: draft.repeat_seconds ? Number(draft.repeat_seconds) : null }) });
+    await api('/api/admin/alarms', { method: 'POST', body: JSON.stringify({ message: draft.message, trigger_at: localDateTimeInputToIso(draft.trigger_at), repeat_seconds: draft.repeat_seconds ? Number(draft.repeat_seconds) : null }) });
     setDraft({ trigger_at: '', message: '', repeat_seconds: '' });
     await reload();
   };
-  const alarms = [...data.alarms].sort((a: Json, b: Json) => new Date(a.trigger_at).getTime() - new Date(b.trigger_at).getTime());
+  const alarms = [...data.alarms].sort((a: Json, b: Json) => (timestampMillis(a.trigger_at) ?? 0) - (timestampMillis(b.trigger_at) ?? 0));
   const summary = alarms.length
     ? t('正在守候 {{count}} 个提醒，最近一个 {{time}}', { count: alarms.length, time: timeFromNow(alarms[0].trigger_at) })
     : t('当前没有待触发提醒');
   return <Panel title="闹钟与守候" note="时间按本地时区输入；到点后提醒会进入 Coworker 的 inbox。">
-    <div className="alarm-compose"><Field label="提醒时间"><input type="datetime-local" value={draft.trigger_at} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={event => setDraft({ ...draft, trigger_at: event.target.value })} /></Field><Field label="重复"><select value={draft.repeat_seconds} onChange={event => setDraft({ ...draft, repeat_seconds: event.target.value })}><option value="">{t('仅一次')}</option><option value="3600">{t('每小时')}</option><option value="86400">{t('每天')}</option><option value="604800">{t('每周')}</option></select></Field><Field label="提醒内容"><input value={draft.message} onChange={event => setDraft({ ...draft, message: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.trigger_at && draft.message.trim()) void create(); }} placeholder={t('到点要提醒什么？')} /></Field><button className="primary" disabled={!draft.trigger_at || !draft.message.trim()} onClick={() => void create()}><AlarmClock size={15} />{t('设定闹钟')}</button></div>
+    <div className="alarm-compose"><Field label="提醒时间"><input type="datetime-local" value={draft.trigger_at} min={toLocalDateTimeInput(new Date(), 'minute')} onChange={event => setDraft({ ...draft, trigger_at: event.target.value })} /></Field><Field label="重复"><select value={draft.repeat_seconds} onChange={event => setDraft({ ...draft, repeat_seconds: event.target.value })}><option value="">{t('仅一次')}</option><option value="3600">{t('每小时')}</option><option value="86400">{t('每天')}</option><option value="604800">{t('每周')}</option></select></Field><Field label="提醒内容"><input value={draft.message} onChange={event => setDraft({ ...draft, message: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.trigger_at && draft.message.trim()) void create(); }} placeholder={t('到点要提醒什么？')} /></Field><button className="primary" disabled={!draft.trigger_at || !draft.message.trim()} onClick={() => void create()}><AlarmClock size={15} />{t('设定闹钟')}</button></div>
     <div className="alarm-summary"><Clock3 size={16} /><span>{summary}</span><button className="icon-btn" onClick={() => void reload()} title={t('刷新闹钟')} aria-label={t('刷新闹钟')}><RefreshCw size={14} /></button></div>
-    <div className="record-list alarm-list">{alarms.length ? alarms.map((alarm: Json) => <article className="record alarm-record" key={alarm.id}><div className="alarm-time"><strong>{new Date(alarm.trigger_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</strong><b>{new Date(alarm.trigger_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></div><div className="record-main"><span className="alarm-due">{timeFromNow(alarm.trigger_at)}</span><b>{alarm.message}</b><small>{repeatLabel(alarm.repeat_seconds)}{' · '}{alarm.id}</small></div><button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: alarm.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: alarm.message }))) { await api('/api/admin/alarms/' + alarm.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有闹钟，设定一个需要按时记起的提醒。" />}</div>
+    <div className="record-list alarm-list">{alarms.length ? alarms.map((alarm: Json) => <article className="record alarm-record" key={alarm.id}><div className="alarm-time"><strong>{formatDate(alarm.trigger_at, [], { month: 'short', day: 'numeric' })}</strong><b>{formatTime(alarm.trigger_at, [], { hour: '2-digit', minute: '2-digit' })}</b></div><div className="record-main"><span className="alarm-due">{timeFromNow(alarm.trigger_at)}</span><b>{alarm.message}</b><small>{repeatLabel(alarm.repeat_seconds)}{' · '}{alarm.id}</small></div><button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: alarm.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: alarm.message }))) { await api('/api/admin/alarms/' + alarm.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有闹钟，设定一个需要按时记起的提醒。" />}</div>
   </Panel>;
 }
 
@@ -1856,20 +1859,16 @@ function Logs() {
     }
     const draftedTimeStart = timeStartDraft.trim();
     const draftedTimeEnd = timeEndDraft.trim();
-    const selectedTimeStart = draftedTimeStart === logTimeInputValue(timeStart)
-      ? timeStart
-      : draftedTimeStart;
-    const selectedTimeEnd = draftedTimeEnd === logTimeInputValue(timeEnd)
-      ? timeEnd
-      : draftedTimeEnd;
+    const selectedTimeStart = draftedTimeStart ? localDateTimeInputToIso(draftedTimeStart) : '';
+    const selectedTimeEnd = draftedTimeEnd ? localDateTimeInputToIso(draftedTimeEnd) : '';
     if (Boolean(selectedTimeStart) !== Boolean(selectedTimeEnd)) {
       setTimeError(t('日志起止时间必须同时提供'));
       return;
     }
     if (selectedTimeStart && selectedTimeEnd) {
-      const startTimestamp = new Date(selectedTimeStart).getTime();
-      const endTimestamp = new Date(selectedTimeEnd).getTime();
-      if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp) || startTimestamp > endTimestamp) {
+      const startTimestamp = timestampMillis(selectedTimeStart);
+      const endTimestamp = timestampMillis(selectedTimeEnd);
+      if (startTimestamp == null || endTimestamp == null || startTimestamp > endTimestamp) {
         setTimeError(t('日志起始时间不能晚于结束时间'));
         return;
       }
@@ -1993,8 +1992,8 @@ function Logs() {
         : '';
   const timeScope = timeStart && timeEnd
     ? t('{{start}} 至 {{end}}', {
-      start: timeStart.replace('T', ' '),
-      end: timeEnd.replace('T', ' '),
+      start: formatDateTime(timeStart),
+      end: formatDateTime(timeEnd),
     })
     : '';
   const activeScope = [timeScope, sequenceScope].filter(Boolean).join(' · ');
@@ -2055,7 +2054,7 @@ function Logs() {
       const isOpen = openSeq === seq;
       const detail = Number.isInteger(seq) ? details[seq] : null;
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-      return <article key={String(event.seq) + '-' + event.type} className={isOpen ? 'open' : ''}><time>{event.ts ? new Date(event.ts).toLocaleString() : '—'}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}</div>{Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" aria-expanded={isOpen} onClick={() => void toggleDetail(event)}>{isOpen ? t('收起') : t('详情')}</button>}{isOpen && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : detail ? <><pre>{JSON.stringify(detail.entry, null, 2)}</pre>{detail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
+      return <article key={String(event.seq) + '-' + event.type} className={isOpen ? 'open' : ''}><time>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}</div>{Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" aria-expanded={isOpen} onClick={() => void toggleDetail(event)}>{isOpen ? t('收起') : t('详情')}</button>}{isOpen && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : detail ? <><pre>{JSON.stringify(detail.entry, null, 2)}</pre>{detail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
     }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
   </Panel>;
 }
@@ -2101,7 +2100,7 @@ function DangerAction({ title, description, button, confirmationName, onConfirm 
 
 function Maintenance({ confirmationName }: { confirmationName: string }) {
   const backups = useLoad(() => api<Json>('/api/admin/backups'), []);
-  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? new Date(backup.timestamp).toLocaleString() : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} confirmationName={confirmationName} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel></div>;
+  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? formatDateTime(backup.timestamp) : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} confirmationName={confirmationName} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel></div>;
 }
 
 function BackupFullRestore({ filename, confirmationName }: { filename: string; confirmationName: string }) {
@@ -2855,7 +2854,7 @@ function ReleaseAssetLane({ version, title, note, assets }: { version: string; t
     const path = '/api/desktop-updates/assets/' + encodeURIComponent(version) + '/' + encodeURIComponent(asset.file);
     void downloadApiFile(path, asset.file).catch(error => window.alert(error instanceof Error ? error.message : t('下载失败')));
   };
-  return <section className="release-asset-lane"><header><div><b>{t(title)}</b><small>{t(note)}</small></div><span>{entries.length}</span></header>{entries.length ? <div>{entries.map(([platform, asset]) => <article key={platform}><div className="asset-platform"><i /> <span>{platform}</span></div><div className="asset-file"><b title={asset.file}>{asset.file}</b><small>{formatBytes(asset.size)}{' · '}{asset.uploaded_at ? new Date(asset.uploaded_at).toLocaleString() : t('时间未知')}</small></div><button type="button" onClick={() => download(asset)} title={t('下载 {{file}}', { file: asset.file })}><Download size={14} /></button></article>)}</div> : <p className="release-lane-empty">{t('还没有这类产物')}</p>}</section>;
+  return <section className="release-asset-lane"><header><div><b>{t(title)}</b><small>{t(note)}</small></div><span>{entries.length}</span></header>{entries.length ? <div>{entries.map(([platform, asset]) => <article key={platform}><div className="asset-platform"><i /> <span>{platform}</span></div><div className="asset-file"><b title={asset.file}>{asset.file}</b><small>{formatBytes(asset.size)}{' · '}{asset.uploaded_at ? formatDateTime(asset.uploaded_at) : t('时间未知')}</small></div><button type="button" onClick={() => download(asset)} title={t('下载 {{file}}', { file: asset.file })}><Download size={14} /></button></article>)}</div> : <p className="release-lane-empty">{t('还没有这类产物')}</p>}</section>;
 }
 
 function DesktopVersionOverview({
@@ -3087,14 +3086,14 @@ function DesktopReleases() {
     <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
       <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2>{!latest && <p>{t('创建版本并上传签名产物后，从这里开启第一次投放。')}</p>}</div>
-      <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{new Date(latestSummary.updated_at).toLocaleString()}</time>}</div>
+      <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{formatDateTime(latestSummary.updated_at)}</time>}</div>
     </section>
     <DesktopVersionOverview statistics={versionStatistics.data} loading={versionStatistics.loading} error={versionStatistics.error} onRefresh={() => { void versionStatistics.reload(); }} />
     <section className={'release-sync-card ' + (syncRunning ? 'running' : syncStatus?.outcome || 'idle')}>
       <div className="release-sync-main"><div className="release-sync-icon"><RefreshCw size={20} /></div><div><p className="eyebrow">{t('上游同步')}</p><h3>{syncReady ? syncOutcome : t(syncStatus?.readiness === 'unconfigured' ? '当前上游未配置完整' : '上游同步已关闭')}</h3><p>{syncReady && syncStatus?.source ? <><code>{syncStatus.source.name}</code><span>{' · '}{syncStatus.source.provider}{syncStatus.source.target ? ` · ${syncStatus.source.target}` : ''}</span></> : t('配置一个 GitHub 或 Coworker 上游后，发布页才显示完整同步控制。')} <a href={settingsHref}>{t('配置上游')}</a></p></div></div>
       {syncReady && <div className="release-sync-facts">
         <span><b>{syncStatus?.version ? 'v' + syncStatus.version : '—'}</b>{t('当前候选')}</span>
-        <span><b>{syncStatus?.next_run_at ? new Date(syncStatus.next_run_at).toLocaleString() : '—'}</b>{t('下次检测')}</span>
+        <span><b>{syncStatus?.next_run_at ? formatDateTime(syncStatus.next_run_at) : '—'}</b>{t('下次检测')}</span>
         {syncStatus?.rate_limit?.remaining != null && <span><b>{syncStatus.rate_limit.remaining}</b>{t('剩余请求额度')}</span>}
       </div>}
       {syncReady && syncRunning && <div className="release-sync-progress"><div><span>{syncStatus?.asset || t('正在读取 Release…')}</span><b>{syncStatus?.bytes_total ? `${formatBytes(syncStatus.bytes_downloaded || 0)} / ${formatBytes(syncStatus.bytes_total)}` : t(syncStatus?.phase || '正在检测')}</b></div><i><em style={{ width: `${syncProgress}%` }} /></i></div>}
@@ -3106,13 +3105,13 @@ function DesktopReleases() {
       <aside className="release-index">
         <header><div><span>{t('版本记录')}</span><b>{t('{{count}} 个版本', { count: releaseItems.length })}</b></div><button className="icon-btn" title={t('刷新版本')} aria-label={t('刷新版本')} onClick={() => { void releases.reload(); void versionStatistics.reload(); }}><RefreshCw size={14} /></button></header>
         <button className={'release-new ' + (creating ? 'active' : '')} onClick={() => { setCreating(true); setSelectedVersion(''); setDetail(null); setQueued([]); setActionError(''); setMessage(''); }}><Plus size={15} /><span><b>{t('新建版本')}</b><small>{t('准备下一次桌面更新')}</small></span></button>
-        {releases.loading ? <Loading /> : releases.error ? <Loading error={releases.error} /> : <div className="release-trace">{releaseItems.length ? releaseItems.map(item => { const state = item.version === latest ? 'latest' : item.published ? 'published' : 'draft'; return <button key={item.version} className={(selectedVersion === item.version ? 'active ' : '') + state} onClick={() => void openRelease(item.version)}><span className="trace-node"><i /></span><span className="trace-copy"><span><b>v{item.version}</b><em>{stateLabel(item.version, item.published)}</em></span><small>{item.notes || t('没有发布说明')}</small><span className="trace-platforms">{t('{{updater}} 个自动更新包 · {{installer}} 个安装包', { updater: item.platforms.length, installer: item.installers.length })}</span><time>{item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '—'}</time></span></button>; }) : <div className="release-index-empty">{t('创建第一个桌面版本')}</div>}</div>}
+        {releases.loading ? <Loading /> : releases.error ? <Loading error={releases.error} /> : <div className="release-trace">{releaseItems.length ? releaseItems.map(item => { const state = item.version === latest ? 'latest' : item.published ? 'published' : 'draft'; return <button key={item.version} className={(selectedVersion === item.version ? 'active ' : '') + state} onClick={() => void openRelease(item.version)}><span className="trace-node"><i /></span><span className="trace-copy"><span><b>v{item.version}</b><em>{stateLabel(item.version, item.published)}</em></span><small>{item.notes || t('没有发布说明')}</small><span className="trace-platforms">{t('{{updater}} 个自动更新包 · {{installer}} 个安装包', { updater: item.platforms.length, installer: item.installers.length })}</span><time>{item.updated_at ? formatDate(item.updated_at) : '—'}</time></span></button>; }) : <div className="release-index-empty">{t('创建第一个桌面版本')}</div>}</div>}
       </aside>
       <main className="release-workspace">
         {creating ? <Panel title="创建桌面版本" note="只建立版本草稿；创建后在同一工作台上传 updater、installer 与签名。" className="release-create"><form onSubmit={createRelease}><Field label="版本号" hint="遵循 SemVer，例如 0.3.0"><input autoFocus value={newVersion} onChange={event => setNewVersion(event.target.value)} placeholder="0.3.0" /></Field><Field label="发布说明" hint="会显示给检查到更新的桌面客户端"><textarea value={newNotes} onChange={event => setNewNotes(event.target.value)} placeholder={t('这次更新解决了什么？')} /></Field><div className="panel-actions"><button className="primary" disabled={!newVersion.trim() || creatingBusy}>{creatingBusy ? t('正在创建…') : t('创建版本草稿')}<ChevronRight size={15} /></button></div></form>{actionError && <div className="notice error"><TriangleAlert size={16} /><span>{actionError}</span></div>}{message && <div className="notice success"><Check size={16} /><span>{message}</span></div>}</Panel>
         : detailLoading ? <Loading /> : detailError ? <Loading error={detailError} /> : detail ? <>
           <Panel title={'v' + detail.version} note={detail.notes ? <ReleaseNotes text={detail.notes} /> : t('这个版本没有发布说明。')} action={<span className={'release-state ' + (detail.version === latest ? 'latest' : detail.published ? 'published' : 'draft')}>{stateLabel(detail.version, detail.published)}</span>} className="release-detail">
-            <div className="release-meta"><span><b>{detail.created_at ? new Date(detail.created_at).toLocaleString() : '—'}</b>{t('创建时间')}</span><span><b>{detail.updated_at ? new Date(detail.updated_at).toLocaleString() : '—'}</b>{t('最近更新')}</span><span><b>{Object.keys(detail.platforms || {}).length + Object.keys(detail.installers || {}).length}</b>{t('已存产物')}</span></div>
+            <div className="release-meta"><span><b>{detail.created_at ? formatDateTime(detail.created_at) : '—'}</b>{t('创建时间')}</span><span><b>{detail.updated_at ? formatDateTime(detail.updated_at) : '—'}</b>{t('最近更新')}</span><span><b>{Object.keys(detail.platforms || {}).length + Object.keys(detail.installers || {}).length}</b>{t('已存产物')}</span></div>
             {detail.source && <div className="release-provenance"><span>{t('同步来源')}</span><strong>{t(releaseSourceLabel(detail.source))}</strong><code>{detail.source.repository || detail.source.base_url || detail.source.revision || t('上游来源')}{detail.source.tag ? ` · ${detail.source.tag}` : ''}</code></div>}
             <div className="release-asset-grid"><ReleaseAssetLane version={detail.version} title="自动更新包" note="带签名，进入 latest.json" assets={detail.platforms} /><ReleaseAssetLane version={detail.version} title="安装包" note="供首次安装或手动重装" assets={detail.installers} /></div>
           </Panel>
@@ -3178,7 +3177,7 @@ function ChannelTrafficPanel({ data, error }: { data: Json | null; error: string
   });
   return <Panel title="消息流量" note="记录所有信道的收发结果与策略拒绝；只保存元数据，不保存消息正文、附件内容或凭据。" className="channel-traffic-panel">
     <div className="traffic-filters"><label><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索信道、participant 或来源')} /></label><select value={direction} onChange={event => setDirection(event.target.value)}><option value="">{t('全部方向')}</option><option value="inbound">{t('入站')}</option><option value="outbound">{t('出站')}</option></select><select value={status} onChange={event => setStatus(event.target.value)}><option value="">{t('全部状态')}</option>{Object.entries(TRAFFIC_STATUSES).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select><span>{t('{{count}} 条记录', { count: filtered.length })}</span></div>
-    {!data ? <Loading error={error} /> : filtered.length ? <div className="traffic-table"><div className="traffic-row traffic-head"><span>{t('时间')}</span><span>{t('方向')}</span><span>{t('信道')}</span><span>participant_id</span><span>{t('结果')}</span><span>{t('来源 / 原因')}</span></div>{filtered.map((entry: Json, index: number) => <article className={`traffic-row ${entry.status || 'unknown'}`} key={`${entry.ts}-${index}`}><time title={new Date(entry.ts).toLocaleString()}><b>{new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</b><small>{new Date(entry.ts).toLocaleDateString()}</small></time><span className={`traffic-direction ${entry.direction || ''}`}>{t(TRAFFIC_DIRECTIONS[entry.direction] || entry.direction || '未知')}</span><code>{entry.channel || '—'}</code><code title={entry.participant_id}>{entry.participant_id || '—'}</code><b className="traffic-result">{t(TRAFFIC_STATUSES[entry.status] || entry.status || '未知')}</b><small className="traffic-source">{t(TRAFFIC_SOURCES[entry.source] || entry.source || '未知')}{entry.reason ? ` · ${t(TRAFFIC_REASONS[entry.reason] || entry.reason)}` : ''}</small></article>)}</div> : <Empty text="没有符合当前筛选条件的消息流量记录。" />}
+    {!data ? <Loading error={error} /> : filtered.length ? <div className="traffic-table"><div className="traffic-row traffic-head"><span>{t('时间')}</span><span>{t('方向')}</span><span>{t('信道')}</span><span>participant_id</span><span>{t('结果')}</span><span>{t('来源 / 原因')}</span></div>{filtered.map((entry: Json, index: number) => <article className={`traffic-row ${entry.status || 'unknown'}`} key={`${entry.ts}-${index}`}><time title={formatDateTime(entry.ts)}><b>{formatTime(entry.ts, [], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</b><small>{formatDate(entry.ts)}</small></time><span className={`traffic-direction ${entry.direction || ''}`}>{t(TRAFFIC_DIRECTIONS[entry.direction] || entry.direction || '未知')}</span><code>{entry.channel || '—'}</code><code title={entry.participant_id}>{entry.participant_id || '—'}</code><b className="traffic-result">{t(TRAFFIC_STATUSES[entry.status] || entry.status || '未知')}</b><small className="traffic-source">{t(TRAFFIC_SOURCES[entry.source] || entry.source || '未知')}{entry.reason ? ` · ${t(TRAFFIC_REASONS[entry.reason] || entry.reason)}` : ''}</small></article>)}</div> : <Empty text="没有符合当前筛选条件的消息流量记录。" />}
   </Panel>;
 }
 
@@ -3195,8 +3194,8 @@ function Audit() {
     return () => window.clearInterval(timer);
   }, [tab, traffic.reload]);
   const entries = audit.data?.entries || [];
-  const today = new Date().toDateString();
-  const todayCount = entries.filter((entry: Json) => new Date(entry.ts).toDateString() === today).length;
+  const today = localDateKey();
+  const todayCount = entries.filter((entry: Json) => localDateKey(entry.ts) === today).length;
   const failed = entries.filter((entry: Json) => entry.result !== 'ok').length;
   const sources = new Set(entries.map((entry: Json) => entry.source).filter(Boolean)).size;
   const filtered = entries.filter((entry: Json) => {
@@ -3218,7 +3217,7 @@ function Audit() {
         const actionParts = String(entry.action || 'unknown').split('.');
         const area = actionParts.shift() || 'system';
         const action = actionParts.join(' · ') || entry.action;
-        return <article key={entry.ts + '-' + index} className={entry.result === 'ok' ? 'ok' : 'failed'}><div className="audit-rail"><i /></div><time><b>{new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b><span>{new Date(entry.ts).toLocaleDateString()}</span></time><div className="audit-event"><header><span>{area}</span><b>{action}</b><i>{entry.result === 'ok' ? t('成功') : entry.result}</i></header><code>{entry.target || '—'}</code>{entry.detail && <p>{entry.detail}</p>}<footer>{t('来源')} {entry.source || 'unknown'}</footer></div></article>;
+        return <article key={entry.ts + '-' + index} className={entry.result === 'ok' ? 'ok' : 'failed'}><div className="audit-rail"><i /></div><time><b>{formatTime(entry.ts, [], { hour: '2-digit', minute: '2-digit' })}</b><span>{formatDate(entry.ts)}</span></time><div className="audit-event"><header><span>{area}</span><b>{action}</b><i>{entry.result === 'ok' ? t('成功') : entry.result}</i></header><code>{entry.target || '—'}</code>{entry.detail && <p>{entry.detail}</p>}<footer>{t('来源')} {entry.source || 'unknown'}</footer></div></article>;
       })}</div> : <Empty text="没有符合当前筛选条件的审计记录。" />}
     </Panel> : tab === 'runtime' ? <Panel title="事件循环诊断" note="pending 通常表示任务正在等待消息或定时器，并不等同于故障。" className="runtime-diagnostics">
       {!diagnostics.data ? <Loading error={diagnostics.error} /> : <><div className="runtime-callout"><Activity size={20} /><div><b>{t('{{count}} 个任务正在等待', { count: diagnostics.data.pending })}</b><span>{t('共采样 {{count}} 个 asyncio task；展开条目查看完整快照。', { count: diagnostics.data.total })}</span></div></div><div className="runtime-task-grid">{diagnostics.data.tasks.map((task: Json, index: number) => <details key={(task.name || 'task') + '-' + index} className={task.current ? 'current' : task.done ? 'done' : ''}><summary><span className="task-signal"><i /></span><div><b>{task.name || 'task-' + index}</b><code>{task.coro || 'unknown coroutine'}</code></div><span className="task-state">{task.current ? t('当前请求') : task.done ? t('已完成') : t('等待中')}</span></summary><div className="task-waiting"><span>{t('等待位置')}</span><code>{task.waiting_at || t('没有 Python 栈，可能尚未开始或正在等待底层 I/O')}</code><pre>{JSON.stringify(task, null, 2)}</pre></div></details>)}</div></>}
@@ -3366,7 +3365,7 @@ function RelayAccess() {
         <article><span>{t('实例 ID')}</span><code>{String(data.instance_id || '')}</code></article>
         <article><span>{t('端到端协议')}</span><b>{data.e2ee ? `E2EE v${String(data.protocol_version || 1)}` : t('未启用')}</b><small>{t('认证 epoch {{epoch}}', { epoch: Number(data.auth_epoch || 0) })}</small></article>
         <article><span>{t('活动 Desktop 会话')}</span><b>{Number(data.active_sessions || 0)}</b></article>
-        <article><span>{t('最后心跳')}</span><b>{data.last_heartbeat ? new Date(String(data.last_heartbeat)).toLocaleString() : t('尚无')}</b></article>
+        <article><span>{t('最后心跳')}</span><b>{data.last_heartbeat ? formatDateTime(String(data.last_heartbeat)) : t('尚无')}</b></article>
         <article><span>{t('隧道延迟')}</span><b>{data.latency_ms == null ? '—' : `${Math.round(Number(data.latency_ms))} ms`}</b></article>
       </div>
       <div className="relay-maintenance-actions">
@@ -3420,7 +3419,10 @@ export default function AdminApp() {
   }, []);
   useEffect(() => {
     if (!ready) return;
-    api<Json>('/api/admin/bootstrap').then(setBootstrap).catch(() => setBootstrap({ required: false }));
+    api<Json>('/api/admin/bootstrap').then(result => {
+      setServerTimezone(result.server_timezone);
+      setBootstrap(result);
+    }).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {
     const syncSection = () => {
@@ -3481,8 +3483,8 @@ export default function AdminApp() {
     url.searchParams.set('section', 'runtime');
     url.searchParams.set('runtime_tab', 'logs');
     if (startTime && endTime) {
-      url.searchParams.set('log_start', startTime.slice(0, 26));
-      url.searchParams.set('log_end', endTime.slice(0, 26));
+      url.searchParams.set('log_start', toAbsoluteIso(startTime));
+      url.searchParams.set('log_end', toAbsoluteIso(endTime));
     } else {
       url.searchParams.delete('log_start');
       url.searchParams.delete('log_end');
@@ -3567,7 +3569,7 @@ export default function AdminApp() {
       </header>
       <div className="admin-content">
         {section === 'overview' && <Overview name={name} onNavigate={onSectionLinkClick} />}
-        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} />}
+        {section === 'usage' && <UsageAnalyticsPage onOpenLogs={openRuntimeLogs} pricingHref={modelPricingHref()} />}
         {section === 'models' && <Models />}
         {section === 'settings' && <Settings />}
         {section === 'memory' && <MemoryCenter coworkerName={name} confirmationName={confirmationName} />}

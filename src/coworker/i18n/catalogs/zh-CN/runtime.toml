@@ -45,6 +45,9 @@ objective_prompt = '''你是一个记忆压缩助手。请将以下对话历史�
 objective_hint = '''
 背景提示: {{hint}}'''
 
+[brain.listeners]
+model_switch_failed = "主模型切换监听失败（{{provider}}/{{model}}）：{{error}}"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support active model '{{model}}'"
 max_tokens_positive = "max_tokens 必须大于 0"
