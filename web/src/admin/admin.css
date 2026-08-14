@@ -1697,19 +1697,11 @@ html:has(.admin-login),
 .provider-model-prices > header small,
 .provider-model-prices > p { margin: 4px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
 .provider-price-list { display: grid; gap: 9px; }
-.provider-price-list article { position: relative; display: grid; gap: 14px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-paper); box-shadow: 0 1px 0 color-mix(in oklch, white 70%, transparent); }
-.provider-price-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; padding: 13px 14px; border-bottom: 1px solid var(--admin-line); border-radius: 12px 12px 0 0; background: linear-gradient(110deg, color-mix(in oklch, var(--admin-vital) 7%, white), color-mix(in oklch, var(--admin-sky) 5%, white)); }
-.provider-price-card-heading > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.provider-price-card-heading > div:first-child { display: grid; gap: 4px; }
-.provider-price-card-heading span { color: var(--admin-muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.provider-price-card-heading strong { display: flex; align-items: center; min-width: 0; gap: 6px; font-size: 11px; }
-.provider-price-card-heading code { overflow: hidden; max-width: 220px; color: var(--admin-ink); font: 650 11px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
-.provider-price-card-heading i { color: var(--admin-muted); font-style: normal; }
-.provider-price-card-heading em { display: inline-grid; place-items: center; min-width: 40px; min-height: 25px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--admin-vital) 18%, var(--admin-line)); border-radius: 99px; color: var(--admin-vital); background: color-mix(in oklch, var(--admin-vital) 7%, white); font: 700 9px var(--admin-data); font-style: normal; }
-.provider-price-card-heading .danger-icon { position: static; flex: 0 0 auto; }
+.provider-price-list article { position: relative; display: grid; gap: 14px; padding-top: 14px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-paper); box-shadow: 0 1px 0 color-mix(in oklch, white 70%, transparent); }
 .provider-price-object-grid,
 .provider-price-rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px 14px; min-width: 0; }
-.provider-price-object-grid { padding: 0 14px; }
+.provider-price-object-grid { padding: 0 58px 0 14px; }
+.provider-price-remove { position: absolute; top: 34px; right: 14px; }
 .provider-price-rate-block { display: grid; gap: 9px; padding: 11px 14px 14px; border-top: 1px solid color-mix(in oklch, var(--admin-line) 72%, transparent); border-radius: 0 0 12px 12px; background: color-mix(in oklch, var(--admin-surface) 62%, white); }
 .provider-price-rate-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .provider-price-rate-heading span { color: var(--admin-ink); font-size: 10px; font-weight: 700; }
@@ -1717,7 +1709,7 @@ html:has(.admin-login),
 .provider-price-list .field > :is(span, .field-label) { min-height: 15px; color: var(--admin-muted); font-size: 9px; font-weight: 700; }
 .provider-price-list .field small { font-size: 9px; }
 .editable-combobox { position: relative; width: 100%; min-width: 0; }
-.editable-combobox > input { padding-right: 40px; font-family: var(--admin-data); }
+.editable-combobox > input { box-sizing: border-box; width: 100%; padding-right: 42px; font-family: var(--admin-data); }
 .editable-combobox.open > input { border-color: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
 .editable-combobox-toggle { position: absolute; z-index: 2; top: 5px; right: 5px; display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 7px; color: var(--admin-muted); background: transparent; cursor: pointer; }
 .editable-combobox-toggle:hover { color: var(--admin-vital); background: var(--admin-soft); }
@@ -3320,10 +3312,10 @@ html:has(.admin-login),
   .provider-model-prices { grid-column: auto; padding: 13px; }
   .provider-model-prices > header { align-items: stretch; flex-direction: column; }
   .provider-model-prices > header button { width: 100%; }
-  .provider-price-card-heading { align-items: flex-start; }
-  .provider-price-card-heading code { max-width: 105px; }
   .provider-price-object-grid,
   .provider-price-rate-grid { grid-template-columns: 1fr; }
+  .provider-price-object-grid { padding-right: 14px; }
+  .provider-price-object-grid > .field:first-child { padding-right: 44px; }
   .provider-price-rate-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .model-capability-toggles { grid-template-columns: 1fr; }
   .llm-config-facts { grid-template-columns: 1fr; }

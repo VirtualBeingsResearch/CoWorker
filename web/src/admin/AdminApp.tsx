@@ -858,7 +858,6 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
       cached_input_per_million: null,
     }])}><Plus size={13} />{t('添加价格')}</button></header>
     {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
-      <header className="provider-price-card-heading"><div><span>{t('计价对象')}</span><strong><code>{price.provider || t('未选择 Provider')}</code><i>/</i><code>{price.model || t('未填写模型 ID')}</code></strong></div><div><em>{String(price.currency || '—')}</em><button type="button" className="danger-icon" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button></div></header>
       <div className="provider-price-object-grid">
         <ComboboxField id={`model-price-provider-${index}`} label="Provider" hint="可选择有效连接，也可输入历史 Provider">
           <EditableCombobox id={`model-price-provider-${index}`} value={String(price.provider || '')} options={providerOptions} onChange={next => changePrice(index, 'provider', next)} placeholder="openai" emptyMessage={t('没有匹配的 Provider；可继续使用当前输入。')} toggleLabel={t('展开 Provider 选项')} />
@@ -868,6 +867,7 @@ function ProviderModelPriceEditor({ value, onChange, providerNames }: {
           <EditableCombobox id={`model-price-currency-${index}`} value={String(price.currency || '')} options={currencyOptions} onChange={next => changePrice(index, 'currency', next)} placeholder="USD" emptyMessage={t('没有匹配的常用币种；可继续使用三字母代码。')} toggleLabel={t('展开币种选项')} maxLength={3} normalize={next => next.toUpperCase()} />
         </ComboboxField>
       </div>
+      <button type="button" className="danger-icon provider-price-remove" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
       <div className="provider-price-rate-block"><div className="provider-price-rate-heading"><span>{t('Token 单价')}</span><small>{t('以下金额均按每百万 Token 计算')}</small></div><div className="provider-price-rate-grid">
         <Field label="输入"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
         <Field label="输出"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
