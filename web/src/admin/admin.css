@@ -435,16 +435,7 @@ html:has(.admin-login),
 .bootstrap-name-warning { display: flex; align-items: center; gap: 6px; margin-top: 9px; color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); font-size: 10px; line-height: 1.45; }
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
 .bootstrap-model-field { position: relative; min-width: 0; }
-.bootstrap-model-field.open { z-index: 20; }
 .bootstrap-model-field > label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
-.bootstrap-model-combobox { position: relative; }
-.bootstrap-model-listbox { position: absolute; z-index: 20; top: calc(100% + 7px); left: 0; right: 0; display: grid; gap: 4px; max-height: min(240px, 35dvh); margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; list-style: none; border: 1px solid color-mix(in oklch, var(--admin-vital) 24%, var(--admin-line)); border-radius: 12px; background: color-mix(in oklch, white 92%, var(--admin-surface)); box-shadow: 0 18px 42px color-mix(in oklch, var(--admin-ink) 16%, transparent); }
-.bootstrap-model-listbox li { min-height: 44px; padding: 10px 11px; border-radius: 9px; color: var(--admin-ink); font: 600 11px/1.35 var(--admin-data); overflow-wrap: anywhere; cursor: pointer; }
-.bootstrap-model-listbox li[role="option"] { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.bootstrap-model-listbox li.active { background: color-mix(in oklch, var(--admin-vital) 12%, white); color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-ink)); }
-.bootstrap-model-listbox li.selected { font-weight: 760; }
-.bootstrap-model-listbox li.selected svg { flex: 0 0 auto; color: var(--admin-vital); }
-.bootstrap-model-empty { display: flex; align-items: center; color: var(--admin-muted); cursor: default; }
 .bootstrap-submit-row { display: grid; grid-template-columns: minmax(150px, .42fr) minmax(0, 1fr); gap: 10px; }
 .bootstrap-submit-row > .primary { min-height: 48px; }
 .bootstrap-advanced-trigger { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 12px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-muted); background: var(--admin-surface); text-align: left; cursor: pointer; }
@@ -1465,7 +1456,7 @@ html:has(.admin-login),
 
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }
 .field { display: grid; align-self: start; align-content: start; gap: var(--admin-field-gap); min-width: 0; }
-.field > span { display: flex; align-items: center; gap: 7px; min-height: var(--admin-field-label-height); color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 12px; font-weight: 650; line-height: 1.5; }
+.field > :is(span, .field-label) { display: flex; align-items: center; gap: 7px; min-height: var(--admin-field-label-height); color: color-mix(in oklch, var(--admin-ink) 84%, var(--admin-muted)); font-size: 12px; font-weight: 650; line-height: 1.5; }
 .field > :where(input, select, textarea) { box-sizing: border-box; width: 100%; }
 .field small { color: var(--admin-muted); font-size: 11px; line-height: 1.45; }
 .effect-badge { display: inline-flex; align-items: center; min-height: 19px; padding: 0 6px; border-radius: 5px; font: 8px var(--admin-data); font-style: normal; white-space: nowrap; }
@@ -1706,10 +1697,45 @@ html:has(.admin-login),
 .provider-model-prices > header small,
 .provider-model-prices > p { margin: 4px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
 .provider-price-list { display: grid; gap: 9px; }
-.provider-price-list article { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px 14px; padding: 14px 52px 14px 14px; border: 1px solid var(--admin-line); border-radius: 10px; background: var(--admin-paper); }
-.provider-price-list .field > span { font-size: 10px; }
+.provider-price-list article { position: relative; display: grid; gap: 14px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-paper); box-shadow: 0 1px 0 color-mix(in oklch, white 70%, transparent); }
+.provider-price-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; padding: 13px 14px; border-bottom: 1px solid var(--admin-line); border-radius: 12px 12px 0 0; background: linear-gradient(110deg, color-mix(in oklch, var(--admin-vital) 7%, white), color-mix(in oklch, var(--admin-sky) 5%, white)); }
+.provider-price-card-heading > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.provider-price-card-heading > div:first-child { display: grid; gap: 4px; }
+.provider-price-card-heading span { color: var(--admin-muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.provider-price-card-heading strong { display: flex; align-items: center; min-width: 0; gap: 6px; font-size: 11px; }
+.provider-price-card-heading code { overflow: hidden; max-width: 220px; color: var(--admin-ink); font: 650 11px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
+.provider-price-card-heading i { color: var(--admin-muted); font-style: normal; }
+.provider-price-card-heading em { display: inline-grid; place-items: center; min-width: 40px; min-height: 25px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--admin-vital) 18%, var(--admin-line)); border-radius: 99px; color: var(--admin-vital); background: color-mix(in oklch, var(--admin-vital) 7%, white); font: 700 9px var(--admin-data); font-style: normal; }
+.provider-price-card-heading .danger-icon { position: static; flex: 0 0 auto; }
+.provider-price-object-grid,
+.provider-price-rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px 14px; min-width: 0; }
+.provider-price-object-grid { padding: 0 14px; }
+.provider-price-rate-block { display: grid; gap: 9px; padding: 11px 14px 14px; border-top: 1px solid color-mix(in oklch, var(--admin-line) 72%, transparent); border-radius: 0 0 12px 12px; background: color-mix(in oklch, var(--admin-surface) 62%, white); }
+.provider-price-rate-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.provider-price-rate-heading span { color: var(--admin-ink); font-size: 10px; font-weight: 700; }
+.provider-price-rate-heading small { color: var(--admin-muted); font-size: 9px; }
+.provider-price-list .field > :is(span, .field-label) { min-height: 15px; color: var(--admin-muted); font-size: 9px; font-weight: 700; }
 .provider-price-list .field small { font-size: 9px; }
-.provider-price-list .danger-icon { position: absolute; top: 13px; right: 13px; }
+.editable-combobox { position: relative; width: 100%; min-width: 0; }
+.editable-combobox > input { padding-right: 40px; font-family: var(--admin-data); }
+.editable-combobox.open > input { border-color: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
+.editable-combobox-toggle { position: absolute; z-index: 2; top: 5px; right: 5px; display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 7px; color: var(--admin-muted); background: transparent; cursor: pointer; }
+.editable-combobox-toggle:hover { color: var(--admin-vital); background: var(--admin-soft); }
+.editable-combobox-toggle:focus-visible { outline: 2px solid var(--admin-vital); outline-offset: 1px; }
+.editable-combobox-toggle svg { transition: transform .16s ease; }
+.editable-combobox.open .editable-combobox-toggle svg { transform: rotate(180deg); }
+.bootstrap-model-field .editable-combobox-toggle { top: 7px; }
+.editable-combobox-listbox { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0; display: grid; gap: 3px; max-height: min(280px, 40dvh); margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; list-style: none; border: 1px solid color-mix(in oklch, var(--admin-vital) 24%, var(--admin-line)); border-radius: 11px; background: color-mix(in oklch, white 96%, var(--admin-surface)); box-shadow: 0 18px 42px color-mix(in oklch, var(--admin-ink) 17%, transparent); }
+.editable-combobox-listbox li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 7px 9px; border-radius: 8px; color: var(--admin-ink); cursor: pointer; }
+.editable-combobox-listbox li.active { color: color-mix(in oklch, var(--admin-vital) 62%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-vital) 10%, white); }
+.editable-combobox-listbox li.selected { font-weight: 750; }
+.editable-combobox-listbox li > span:first-child { display: grid; min-width: 0; gap: 2px; }
+.editable-combobox-listbox b { font: 700 11px var(--admin-data); }
+.editable-combobox-listbox small { overflow: hidden; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.editable-combobox-option-end { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.editable-combobox-option-end em { color: var(--admin-muted); font: 650 10px var(--admin-data); font-style: normal; }
+.editable-combobox-option-end svg { color: var(--admin-vital); }
+.editable-combobox-listbox .editable-combobox-empty { color: var(--admin-muted); font-size: 10px; line-height: 1.4; cursor: default; }
 .provider-price-note { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border-radius: 8px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-amber) 7%, var(--admin-paper)); font-size: 9px; line-height: 1.5; }
 .provider-price-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--admin-amber); }
 .provider-model-list { display: grid; gap: 7px; }
@@ -3138,7 +3164,8 @@ html:has(.admin-login),
   .file-tree button { flex: 0 0 220px; }
   .content-files > footer { display: none; }
   .provider-row { grid-template-columns: 1fr 1fr; }
-  .provider-price-list article { grid-template-columns: 1fr 1fr; }
+  .provider-price-object-grid,
+  .provider-price-rate-grid { grid-template-columns: 1fr 1fr; }
   .desktop-sync-overview,
   .desktop-source-workbench,
   .desktop-form-row.two,
@@ -3293,7 +3320,11 @@ html:has(.admin-login),
   .provider-model-prices { grid-column: auto; padding: 13px; }
   .provider-model-prices > header { align-items: stretch; flex-direction: column; }
   .provider-model-prices > header button { width: 100%; }
-  .provider-price-list article { grid-template-columns: 1fr; padding-top: 52px; }
+  .provider-price-card-heading { align-items: flex-start; }
+  .provider-price-card-heading code { max-width: 105px; }
+  .provider-price-object-grid,
+  .provider-price-rate-grid { grid-template-columns: 1fr; }
+  .provider-price-rate-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .model-capability-toggles { grid-template-columns: 1fr; }
   .llm-config-facts { grid-template-columns: 1fr; }
   .llm-config-facts span { border-right: 0; border-bottom: 1px solid var(--admin-line); }

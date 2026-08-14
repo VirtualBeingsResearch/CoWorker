@@ -27,6 +27,16 @@ export function modelPriceCurrencyLabel(
   currency: string,
   language: 'zh' | 'en' = 'zh',
 ): string {
+  const { code, displayName, symbol } = modelPriceCurrencyDetails(currency, language);
+  return [code, displayName, symbol]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join(' · ');
+}
+
+export function modelPriceCurrencyDetails(
+  currency: string,
+  language: 'zh' | 'en' = 'zh',
+): { code: string; displayName: string; symbol: string } {
   const code = currency.trim().toUpperCase();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   let displayName = code;
@@ -41,9 +51,7 @@ export function modelPriceCurrencyLabel(
       currencyDisplay: 'symbol',
     }).formatToParts(0).find(part => part.type === 'currency')?.value || code;
   } catch { /* Fall back to the currency code. */ }
-  return [code, displayName, symbol]
-    .filter((value, index, values) => value && values.indexOf(value) === index)
-    .join(' · ');
+  return { code, displayName, symbol };
 }
 
 export function validateModelPrices(value: unknown): ModelPriceValidationError | null {
