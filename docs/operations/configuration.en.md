@@ -66,6 +66,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__SUMMARY_MODEL` | Empty | Model dedicated to summarization/compression; setting only this field reuses the current provider, while leaving it empty with `SUMMARY_PROVIDER` configured uses that provider's `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
 | `LLM__FALLBACKS` | `[]` | Ordered fallback chain used after a main-model failure; a JSON array of `providerName` or `providerName/modelId` entries |
+| `LLM__MODEL_PRICES` | `[]` | Model-price JSON array, exact-matched by Provider registry name and model ID; hot-applied and used to reprice historical estimates at current prices |
 | `LLM__ANTHROPIC_API_KEY` | Empty | Anthropic API key |
 | `LLM__ANTHROPIC_BASE_URL` | Empty | Custom Anthropic base URL |
 | `LLM__OPENAI_API_KEY` | Empty | OpenAI API key |
@@ -83,6 +84,29 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
 | `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |
+
+Each `LLM__MODEL_PRICES` item contains `provider`, `model`, a three-letter uppercase `currency`,
+`input_per_million`, `output_per_million`, and optional `cached_input_per_million`. Prices must be
+finite and non-negative, and each Provider/model pair may appear only once. A missing cached-input
+price falls back to the regular input price. For example:
+
+```json
+[
+  {
+    "provider": "openai",
+    "model": "gpt-5.2",
+    "currency": "USD",
+    "input_per_million": 1.75,
+    "output_per_million": 14,
+    "cached_input_per_million": 0.175
+  }
+]
+```
+
+Pricing is independent of connection sources, so it can supplement read-only connections from
+`.env` or `providers.json`. Saving prices in the management console neither rebuilds Providers nor
+requires a restart; historical tokens are recalculated against current prices. Currencies remain
+separate and are never converted.
 
 ### Memory
 

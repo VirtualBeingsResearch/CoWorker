@@ -1245,8 +1245,9 @@ async def usage(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
 ) -> ApiResponse:
+    model_prices = _require_config().llm.model_prices
     if start_date is None and end_date is None:
-        return _require_usage_stats().report()
+        return _require_usage_stats().report(model_prices=model_prices)
     selected_start = start_date or end_date
     selected_end = end_date or start_date
     if (
@@ -1261,6 +1262,7 @@ async def usage(
     return _require_usage_stats().report(
         start_date=selected_start,
         end_date=selected_end,
+        model_prices=model_prices,
     )
 
 

@@ -38,7 +38,20 @@ paths. A health probe should never call endpoints that incur model cost or mutat
 ## Usage and cost
 
 `/status.usage_stats` exposes today, last_7_days, and lifetime windows, split by model,
-Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0.
+Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0. This
+ordinary status interface returns usage only, never monetary amounts.
+
+The authenticated `GET /api/admin/usage` endpoint and Runtime analytics calculate local spend
+estimates from current `llm.model_prices` for today, 7/30 days, lifetime, previous periods, custom
+ranges, dates, hours, and scopes. The formula is “uncached input × input price + cached input ×
+cached-input price + output × output price,” with every price quoted per million tokens. Anomalous
+cached tokens are clamped to input tokens. Currencies are displayed and exported independently,
+without conversion.
+
+Unpriced tokens are not treated as free: amount subtotals include only priced usage, while
+`priced_tokens`, `unpriced_tokens`, and `pricing_coverage` expose the gap. An explicit zero price is
+still priced. Existing token data may carry the current exact/estimated markers; untracked calls
+have no tokens available for pricing.
 
 Watch for:
 
@@ -48,7 +61,9 @@ Watch for:
 - steadily rising thinking time;
 - `unknown/<model>`, usually from older logs without Provider data.
 
-Local usage is not a Provider invoice. Use the external service as the billing authority.
+Amounts are always local estimates, not Provider invoices. They exclude request fees, separate
+image/video charges, cache writes, tiers, batch discounts, taxes, and account-level concessions.
+Use the external service as the billing authority.
 
 ## Logs and sensitive information
 

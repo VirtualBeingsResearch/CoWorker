@@ -5,8 +5,11 @@ from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from coworker.agent.log_store import LogStore
 from coworker.agent.usage_stats import UsageStatsCollector
+from coworker.core.config import ModelPriceSpec
 
 
 def _collector() -> UsageStatsCollector:
@@ -161,6 +164,178 @@ def test_provider_model_breakdown_separates_same_model_across_providers():
     assert today["by_provider_model"]["openai/shared-model"]["cache_rate"] == 0.2
     assert today["by_provider_model"]["azure-openai/shared-model"]["total_tokens"] == 55
     assert today["by_provider_model"]["azure-openai/shared-model"]["cache_rate"] == 0.1
+
+
+def test_admin_report_prices_provider_models_caches_currencies_and_scopes():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "ts": "2026-06-29T08:00:00",
+            "provider": "openai",
+            "model": "shared-model",
+            "usage": {"input_tokens": 100, "output_tokens": 10, "cached_tokens": 20},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-29T08:01:00",
+            "provider": "azure-openai",
+            "model": "shared-model",
+            "usage": {"input_tokens": 50, "output_tokens": 5, "cached_tokens": 5},
+        },
+    ])
+    collector.on_entry(
+        {
+            "type": "llm_response",
+            "ts": "2026-06-29T08:02:00",
+            "provider": "qwen",
+            "model": "unpriced-model",
+            "usage": {"input_tokens": 25, "output_tokens": 5},
+        },
+        stream_id="bubble:bubbles/bbl_price.jsonl",
+    )
+    prices = [
+        ModelPriceSpec(
+            provider="openai",
+            model="shared-model",
+            currency="USD",
+            input_per_million=2,
+            output_per_million=10,
+            cached_input_per_million=0.5,
+        ),
+        ModelPriceSpec(
+            provider="azure-openai",
+            model="shared-model",
+            currency="CNY",
+            input_per_million=1,
+            output_per_million=2,
+        ),
+    ]
+
+    report = collector.report(model_prices=prices)
+    today = report["today"]
+
+    assert today["estimated_costs"] == pytest.approx({"CNY": 0.00006, "USD": 0.00027})
+    assert today["priced_tokens"] == 165
+    assert today["unpriced_tokens"] == 30
+    assert today["pricing_coverage"] == pytest.approx(165 / 195)
+    assert today["by_provider_model"]["openai/shared-model"]["currency"] == "USD"
+    assert today["by_provider_model"]["openai/shared-model"][
+        "estimated_cost"
+    ] == pytest.approx(0.00027)
+    assert today["by_provider_model"]["qwen/unpriced-model"]["currency"] is None
+    assert today["by_provider_model"]["qwen/unpriced-model"]["estimated_cost"] is None
+    assert today["by_scope"]["main"]["pricing_coverage"] == 1
+    assert today["by_scope"]["bubble"]["pricing_coverage"] == 0
+    assert report["daily"][-1]["estimated_costs"] == pytest.approx(
+        {"CNY": 0.00006, "USD": 0.00027}
+    )
+    assert report["today_intraday"][8]["unpriced_tokens"] == 30
+    assert "estimated_costs" not in collector.snapshot()["today"]
+
+
+def test_admin_report_empty_pricing_marks_all_tracked_tokens_unpriced():
+    collector = _collector()
+    collector.on_entry({
+        "type": "llm_response",
+        "ts": "2026-06-29T08:00:00",
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    })
+
+    today = collector.report(model_prices=[])["today"]
+
+    assert today["estimated_costs"] == {}
+    assert today["priced_tokens"] == 0
+    assert today["unpriced_tokens"] == 12
+    assert today["pricing_coverage"] == 0
+
+
+def test_admin_report_reprices_history_clamps_cache_and_accepts_zero_price(tmp_path):
+    state_path = tmp_path / "usage_stats.json"
+    collector = UsageStatsCollector(
+        now_fn=lambda: datetime(2026, 6, 29, 12, 0, 0),
+        state_path=state_path,
+    )
+    collector.on_entry({
+        "type": "mem0_llm_response",
+        "ts": "2026-06-29T09:00:00",
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "usage": {"input_tokens": 10, "output_tokens": 2, "cached_tokens": 20},
+        "usage_source": "estimated",
+    })
+    persisted = state_path.read_text(encoding="utf-8")
+
+    first = collector.report(model_prices=[ModelPriceSpec(
+        provider="openai",
+        model="gpt-5.2",
+        currency="USD",
+        input_per_million=1,
+        output_per_million=2,
+        cached_input_per_million=0.5,
+    )])
+    second = collector.report(model_prices=[ModelPriceSpec(
+        provider="openai",
+        model="gpt-5.2",
+        currency="USD",
+        input_per_million=3,
+        output_per_million=4,
+    )])
+    free = collector.report(model_prices=[ModelPriceSpec(
+        provider="openai",
+        model="gpt-5.2",
+        currency="USD",
+        input_per_million=0,
+        output_per_million=0,
+        cached_input_per_million=0,
+    )])
+
+    assert first["today"]["estimated_costs"]["USD"] == pytest.approx(0.000009)
+    assert second["today"]["estimated_costs"]["USD"] == pytest.approx(0.000038)
+    assert second["today"]["estimated_calls"] == 1
+    assert free["today"]["estimated_costs"] == {"USD": 0.0}
+    assert free["today"]["pricing_coverage"] == 1
+    assert state_path.read_text(encoding="utf-8") == persisted
+
+
+def test_admin_custom_range_includes_current_price_and_previous_cost():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "ts": "2026-06-23T08:00:00",
+            "provider": "openai",
+            "model": "gpt-5.2",
+            "usage": {"input_tokens": 20, "output_tokens": 2},
+        },
+        {
+            "type": "llm_response",
+            "ts": "2026-06-24T08:00:00",
+            "provider": "openai",
+            "model": "gpt-5.2",
+            "usage": {"input_tokens": 30, "output_tokens": 3},
+        },
+    ])
+    price = ModelPriceSpec(
+        provider="openai",
+        model="gpt-5.2",
+        currency="USD",
+        input_per_million=1,
+        output_per_million=10,
+    )
+
+    selected = collector.report(
+        start_date=date(2026, 6, 24),
+        end_date=date(2026, 6, 24),
+        model_prices=[price],
+    )["selected_range"]
+
+    assert selected["stats"]["estimated_costs"]["USD"] == pytest.approx(0.00006)
+    assert selected["previous"]["estimated_costs"]["USD"] == pytest.approx(0.00004)
+    assert selected["daily"][0]["estimated_costs"]["USD"] == pytest.approx(0.00006)
+    assert selected["intraday"][8]["estimated_costs"]["USD"] == pytest.approx(0.00006)
 
 
 def test_missing_provider_is_bucketed_as_unknown_provider_model():

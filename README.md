@@ -76,7 +76,7 @@
 <details>
 <summary><strong>查看 Web 用量与运行明细</strong></summary>
 
-![Coworker Web 用量页，展示模型、来源、缓存与工具调用分解](docs/assets/screenshots/web-usage-zh.png)
+![Coworker Web 用量页，展示消费估算、定价覆盖率、模型、来源与工具调用分解](docs/assets/screenshots/web-usage-zh.png)
 
 <p align="center"><sub>Web 用量页 · 从总量下钻到模型、来源、缓存与工具调用。</sub></p>
 

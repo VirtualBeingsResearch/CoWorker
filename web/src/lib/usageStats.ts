@@ -59,6 +59,56 @@ export function formatCacheRate(value?: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+export function formatCurrencyAmount(
+  currency: string,
+  value?: number | null,
+  language: 'zh' | 'en' = 'zh',
+): string {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return '—';
+  const normalizedCurrency = String(currency || '').toUpperCase();
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const maximumFractionDigits = Math.abs(amount) > 0 && Math.abs(amount) < 0.01 ? 6 : 2;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: normalizedCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits,
+    }).format(amount);
+  } catch {
+    return `${normalizedCurrency} ${amount.toFixed(maximumFractionDigits)}`.trim();
+  }
+}
+
+export function costEntries(
+  costs?: Record<string, number> | null,
+): Array<[string, number]> {
+  return Object.entries(costs || {})
+    .map(([currency, value]) => [currency, Number(value)] as [string, number])
+    .filter(([, value]) => Number.isFinite(value))
+    .sort(([left], [right]) => left.localeCompare(right));
+}
+
+export function formatCostSummary(
+  costs?: Record<string, number> | null,
+  language: 'zh' | 'en' = 'zh',
+): string {
+  const entries = costEntries(costs);
+  if (!entries.length) return '—';
+  return entries
+    .map(([currency, value]) => formatCurrencyAmount(currency, value, language))
+    .join(' · ');
+}
+
+export function usageCost(
+  stats: UsageWindowStats | undefined,
+  currency: string,
+): number {
+  const value = Number(stats?.estimated_costs?.[currency] ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
 export function clampPercent(value: number): string {
   if (!Number.isFinite(value)) return '0%';
   return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import './admin.css';
 import { settingsPanelLabels, settingsPanelRegistration } from './settings/registry';
+import { validateModelPrices } from './settings/modelPricing';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
 import { configFieldPresentation } from './settings/configFieldPresentation';
@@ -845,6 +846,55 @@ function ProviderModelCapabilityEditor({ value, onChange }: {
   </section>;
 }
 
+function ProviderModelPriceEditor({ value, onChange, providerNames }: {
+  value: Json[];
+  onChange: (value: Json[]) => void;
+  providerNames: string[];
+}) {
+  const changePrice = (index: number, key: string, nextValue: unknown) => {
+    onChange(value.map((item, itemIndex) => itemIndex === index
+      ? { ...item, [key]: nextValue }
+      : item));
+  };
+  const numberValue = (raw: string, optional = false) => raw === ''
+    ? (optional ? null : '')
+    : Number(raw);
+  const validationError = validateModelPrices(value);
+  const validationMessage = validationError === 'identity'
+    ? t('模型定价必须填写 Provider 和模型 ID。')
+    : validationError === 'currency'
+      ? t('模型定价币种必须是三个英文字母。')
+      : validationError === 'rates'
+        ? t('输入价和输出价必须是非负数。')
+        : validationError === 'cached_rate'
+          ? t('缓存输入价必须留空或填写非负数。')
+          : validationError === 'duplicate'
+            ? t('同一个 Provider 中不能重复配置模型价格。')
+            : '';
+  return <section className="provider-model-prices">
+    <header><div><b>{t('模型定价')}</b><small>{t('按 Provider 与模型 ID 精确匹配；价格单位为每百万 Token，修改后立即重算历史消费估算。')}</small></div><button type="button" className="ghost mini" onClick={() => onChange([...value, {
+      provider: providerNames[0] || '',
+      model: '',
+      currency: 'USD',
+      input_per_million: 0,
+      output_per_million: 0,
+      cached_input_per_million: null,
+    }])}><Plus size={13} />{t('添加价格')}</button></header>
+    <datalist id="model-price-provider-options">{providerNames.map(name => <option value={name} key={name} />)}</datalist>
+    {value.length ? <div className="provider-price-list">{value.map((price, index) => <article key={index}>
+      <Field label="Provider" hint="连接注册名，支持已停用的历史 Provider"><input list="model-price-provider-options" value={price.provider || ''} onChange={event => changePrice(index, 'provider', event.target.value)} placeholder="openai" /></Field>
+      <Field label="模型 ID" hint="区分大小写并精确匹配"><input value={price.model || ''} onChange={event => changePrice(index, 'model', event.target.value)} placeholder="gpt-5.2" /></Field>
+      <Field label="币种" hint="三个字母，如 CNY 或 USD"><input maxLength={3} value={price.currency || ''} onChange={event => changePrice(index, 'currency', event.target.value.toUpperCase())} placeholder="USD" /></Field>
+      <Field label="输入 / 百万 Token"><input type="number" min="0" step="any" value={price.input_per_million ?? ''} onChange={event => changePrice(index, 'input_per_million', numberValue(event.target.value))} /></Field>
+      <Field label="输出 / 百万 Token"><input type="number" min="0" step="any" value={price.output_per_million ?? ''} onChange={event => changePrice(index, 'output_per_million', numberValue(event.target.value))} /></Field>
+      <Field label="缓存输入 / 百万 Token" hint="留空时使用普通输入价"><input type="number" min="0" step="any" value={price.cached_input_per_million ?? ''} onChange={event => changePrice(index, 'cached_input_per_million', numberValue(event.target.value, true))} placeholder={t('同输入价')} /></Field>
+      <button type="button" className="danger-icon" title={t('移除模型价格')} aria-label={t('移除模型价格')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
+    </article>)}</div> : <p>{t('尚未配置模型价格；用量仍会统计 Token，但消费估算会标记为未定价。')}</p>}
+    {validationMessage && <p className="field-error" role="alert">{validationMessage}</p>}
+    <div className="provider-price-note"><TriangleAlert size={15} /><span>{t('消费为本地估算，不含请求费、图片或视频独立计费、缓存写入、阶梯价、折扣与税费；最终以 Provider 账单为准。')}</span></div>
+  </section>;
+}
+
 function TransportListEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
   const options = [
     { value: 'websocket', label: 'WebSocket', hint: '桌面与网页聊天的实时连接' },
@@ -1269,6 +1319,10 @@ function Settings() {
   if (!data || !draft) return <Loading error={error} />;
   const effectiveProviders = data.effective_providers || [];
   const externalProviders = effectiveProviders.filter((provider: Json) => !provider.managed);
+  const providerNames = Array.from(new Set([
+    ...effectiveProviders,
+    ...(draft.llm?.managed_providers || []),
+  ].map((provider: Json) => String(provider.name || '')).filter(Boolean)));
   const groups = Object.keys(draft).filter(k => GROUP_LABELS[k]);
   const adminToken = data.secret_status['admin.token'];
   const fallbackToken = data.secret_status['desktop_updates.admin_token'];
@@ -1296,10 +1350,11 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
+        if (key === 'model_prices' && Array.isArray(value)) return <ProviderModelPriceEditor key={key} value={value} providerNames={providerNames} onChange={next => change('model_prices', next)} />;
         if (key === 'managed_providers' && Array.isArray(value)) return <div className="provider-editor" key={key}>
           <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
           <div className="provider-source-note"><Database size={16} /><p><b>{t('配置来源彼此独立')}</b><span><code>.env</code> {t('和')} <code>providers.json</code>{t('中的连接只读展示；下方只编辑管理端覆盖，不会复制或接管外部密钥。')}</span></p></div>
@@ -1318,7 +1373,7 @@ function Settings() {
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
-        if (path === 'llm.default_provider') { const providerNames = Array.from(new Set([...effectiveProviders, ...(draft.llm.managed_providers || [])].map((provider: Json) => provider.name).filter(Boolean))); return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(value) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>; }
+        if (path === 'llm.default_provider') return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(String(value)) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>;
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}

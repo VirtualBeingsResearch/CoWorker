@@ -1012,7 +1012,7 @@ html:has(.admin-login),
 .admin-usage-state { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 184px; color: var(--admin-muted); font-size: 11px; }
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.admin-usage-metrics.compact { grid-template-columns: 1.18fr repeat(3, minmax(0, 1fr)); }
+.admin-usage-metrics.compact { grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article > svg { position: absolute; top: 11px; right: 11px; color: var(--admin-vital); }
@@ -1101,7 +1101,7 @@ html:has(.admin-login),
 .usage-attention article small { overflow: hidden; margin-top: 3px; color: var(--admin-muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .usage-attention.clear { display: flex; align-items: center; min-height: 37px; border-color: color-mix(in oklch, var(--admin-vital) 22%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 4%, var(--admin-surface)); }
 .usage-attention.clear > header { width: auto; color: var(--admin-vital); }
-.usage-analytics-metrics { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
+.usage-analytics-metrics { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
 .usage-analytics-metric { position: relative; display: grid; align-content: start; min-width: 0; min-height: 98px; padding: 12px; background: var(--admin-surface); }
 .usage-analytics-metric[type="button"] { border: 0; border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .usage-analytics-metric[type="button"]:hover { z-index: 1; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
@@ -1121,6 +1121,7 @@ html:has(.admin-login),
 .usage-analytics-metric > small { display: block; min-width: 0; }
 .usage-analytics-metric > span { overflow: hidden; padding-right: 15px; color: var(--admin-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .usage-analytics-metric > strong { overflow: hidden; margin-top: 10px; font: 690 21px/1 var(--admin-data); letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
+.usage-analytics-metric.compact-value > strong { font-size: 14px; line-height: 1.22; white-space: normal; }
 .usage-analytics-metric > small { display: -webkit-box; overflow: hidden; margin-top: 8px; color: var(--admin-muted); font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .usage-quality { display: grid; grid-template-columns: minmax(170px, auto) minmax(180px, 1fr) auto; align-items: center; gap: 12px; margin-top: 9px; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 8px; background: var(--admin-paper); }
 .usage-quality-copy span,
@@ -1140,6 +1141,10 @@ html:has(.admin-login),
 .usage-trend-panel > header { align-items: center; margin-bottom: 7px; }
 .usage-trend-head-meta { display: flex; align-items: center; gap: 14px; color: var(--admin-muted); font: 10px var(--admin-data); }
 .usage-trend-head-meta > span b { color: var(--admin-ink); font-size: 11px; }
+.usage-trend-metric-toggle { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--admin-line); border-radius: 6px; background: var(--admin-paper); }
+.usage-trend-metric-toggle button { min-height: 22px; padding: 0 7px; border: 0; border-radius: 4px; color: var(--admin-muted); background: transparent; font: 650 9px var(--admin-data); }
+.usage-trend-metric-toggle button:hover { color: var(--admin-ink); }
+.usage-trend-metric-toggle button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 1px 4px color-mix(in oklch, var(--admin-ink) 9%, transparent); }
 .usage-trend-legend { display: flex; gap: 12px; color: var(--admin-muted); font-size: 10px; }
 .usage-trend-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .usage-trend-legend i { width: 7px; height: 7px; border-radius: 2px; }
@@ -1147,6 +1152,8 @@ html:has(.admin-login),
 .usage-trend-stack i.input { background: var(--admin-vital); }
 .usage-trend-legend i.output,
 .usage-trend-stack i.output { background: var(--admin-sky); }
+.usage-trend-legend i.cost,
+.usage-trend-stack i.cost { background: #8c7ed0; }
 .usage-trend-legend i.cumulative { width: 11px; height: 2px; border-radius: 99px; background: var(--admin-amber); }
 .usage-trend-chart { display: grid; grid-template-columns: repeat(var(--usage-days, 30), minmax(5px, 1fr)); align-items: end; gap: clamp(2px, .45vw, 7px); min-height: 145px; overflow-x: auto; padding: 4px 2px 0; scrollbar-width: thin; }
 .usage-trend-chart:has(article:nth-child(7):last-child) { --usage-days: 7; }
@@ -1527,7 +1534,7 @@ html:has(.admin-login),
 .llm-config-copy span { color: var(--admin-vital); font: 680 9px var(--admin-data); letter-spacing: .11em; }
 .llm-config-copy h3 { margin: 5px 0 5px; font: 20px var(--admin-display); }
 .llm-config-copy p { max-width: 610px; margin: 0; color: var(--admin-muted); font-size: 11px; line-height: 1.65; }
-.llm-config-facts { display: grid; grid-template-columns: repeat(3, minmax(100px, auto)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-surface); }
+.llm-config-facts { display: grid; grid-template-columns: repeat(4, minmax(90px, auto)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-surface); }
 .llm-config-facts span { min-width: 0; padding: 11px 12px; border-right: 1px solid var(--admin-line); color: var(--admin-muted); font-size: 9px; }
 .llm-config-facts span:last-child { border-right: 0; }
 .llm-config-facts b { display: block; overflow: hidden; margin-bottom: 5px; color: var(--admin-ink); font: 650 11px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
@@ -1665,6 +1672,21 @@ html:has(.admin-login),
 .provider-model-capabilities > header b { font-size: 12px; }
 .provider-model-capabilities > header small,
 .provider-model-capabilities > p { margin: 3px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
+.provider-model-prices { grid-column: 1 / -1; display: grid; gap: 10px; padding: 16px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }
+.provider-model-prices > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.provider-model-prices > header > div { min-width: 0; }
+.provider-model-prices > header b,
+.provider-model-prices > header small { display: block; }
+.provider-model-prices > header b { font-size: 15px; }
+.provider-model-prices > header small,
+.provider-model-prices > p { margin: 4px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
+.provider-price-list { display: grid; gap: 9px; }
+.provider-price-list article { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px 14px; padding: 14px 52px 14px 14px; border: 1px solid var(--admin-line); border-radius: 10px; background: var(--admin-paper); }
+.provider-price-list .field > span { font-size: 10px; }
+.provider-price-list .field small { font-size: 9px; }
+.provider-price-list .danger-icon { position: absolute; top: 13px; right: 13px; }
+.provider-price-note { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border-radius: 8px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-amber) 7%, var(--admin-paper)); font-size: 9px; line-height: 1.5; }
+.provider-price-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--admin-amber); }
 .provider-model-list { display: grid; gap: 7px; }
 .provider-model-list > article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-surface); }
 .provider-model-id span { display: block; margin-bottom: 5px; color: var(--admin-muted); font-size: 9px; font-weight: 650; }
@@ -3091,6 +3113,7 @@ html:has(.admin-login),
   .file-tree button { flex: 0 0 220px; }
   .content-files > footer { display: none; }
   .provider-row { grid-template-columns: 1fr 1fr; }
+  .provider-price-list article { grid-template-columns: 1fr 1fr; }
   .desktop-sync-overview,
   .desktop-source-workbench,
   .desktop-form-row.two,
@@ -3242,6 +3265,10 @@ html:has(.admin-login),
   .provider-row { grid-template-columns: 1fr; padding-top: 52px; }
   .provider-row .field:nth-of-type(n) { grid-column: auto; }
   .provider-model-capabilities { grid-column: auto; }
+  .provider-model-prices { grid-column: auto; padding: 13px; }
+  .provider-model-prices > header { align-items: stretch; flex-direction: column; }
+  .provider-model-prices > header button { width: 100%; }
+  .provider-price-list article { grid-template-columns: 1fr; padding-top: 52px; }
   .model-capability-toggles { grid-template-columns: 1fr; }
   .llm-config-facts { grid-template-columns: 1fr; }
   .llm-config-facts span { border-right: 0; border-bottom: 1px solid var(--admin-line); }
@@ -3568,7 +3595,7 @@ html:has(.admin-login),
   .overview-status-facts > div:nth-child(2) { border-right: 0; }
   .overview-status-facts > div:nth-child(3) { padding-left: 0; }
   .admin-usage-metrics { grid-template-columns: 1fr 1fr; }
-  .admin-usage-metrics.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-usage-metrics.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-usage-metrics article.total { grid-column: 1 / -1; }
   .admin-usage-quality { grid-template-columns: 1fr auto; }
   .admin-usage-quality > div:first-child { grid-column: 1 / -1; }

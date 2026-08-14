@@ -37,7 +37,17 @@ docker compose ps
 ## 用量与成本
 
 `/status.usage_stats` 提供 today、last_7_days 和 lifetime 窗口，并按模型、
-Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 scope 拆分。
+Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 scope 拆分；这个普通
+状态接口只返回用量，不返回金额。
+
+管理员 `GET /api/admin/usage` 和“运行分析”会使用当前 `llm.model_prices` 实时计算本地消费
+估算，覆盖 today、7/30 日、lifetime、上一周期、自定义范围、日期、小时和职责桶。输入金额
+按“未缓存输入 × 输入价 + 缓存输入 × 缓存输入价 + 输出 × 输出价”计算，所有价格均按每百万
+Token 折算；异常的缓存 Token 会钳制到输入 Token。不同币种独立显示和导出，不做换汇。
+
+未定价 Token 不按零价处理：金额小计只包含已定价部分，同时返回 `priced_tokens`、
+`unpriced_tokens` 和 `pricing_coverage`。零价配置仍视为已定价。已有 Token 可能包含现有
+“精确/估算”标记的本地估算值，未追踪调用则没有可用于定价的 Token。
 
 日常关注：
 
@@ -47,7 +57,8 @@ Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 sc
 - thinking 时间持续升高；
 - `unknown/<model>`，通常来自缺少 Provider 信息的旧日志。
 
-用量是本地运行统计，不等同于 Provider 账单；最终费用以外部服务为准。
+金额始终是本地估算，不是 Provider 账单。它不覆盖请求费、图片/视频独立计费、缓存写入、
+阶梯价、批处理折扣、税费或账户级优惠；最终费用以外部服务为准。
 
 ## 日志与敏感信息
 

@@ -76,7 +76,7 @@ Identity, memory, tasks, and tools all live in the same local-first runtime. Web
 <details>
 <summary><strong>See Web usage and runtime details</strong></summary>
 
-![Coworker Web usage page showing breakdowns by model, source, cache, and tool calls](docs/assets/screenshots/web-usage-en.png)
+![Coworker Web usage page showing spend estimates, pricing coverage, models, sources, and tool calls](docs/assets/screenshots/web-usage-en.png)
 
 <p align="center"><sub>Web usage · Drill down from totals to models, sources, cache behavior, and tool calls.</sub></p>
 
