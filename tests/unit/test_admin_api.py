@@ -1773,17 +1773,13 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     admin._brain.active_provider = None
     admin._agent._identity._dir = tmp_path / "identity"
     admin._agent._identity.load = lambda: None
-    monkeypatch.setattr(
-        admin,
-        "_server_timezone_description",
-        lambda: "Asia/Shanghai (UTC+8)",
-    )
+    monkeypatch.setattr(admin, "_server_timezone", lambda: "Asia/Shanghai")
     headers = {"Authorization": "Bearer secret"}
 
     status = client.get("/api/admin/bootstrap", headers=headers)
     assert status.status_code == 200
     assert status.json()["required"] is True
-    assert status.json()["server_timezone"] == "Asia/Shanghai (UTC+8)"
+    assert status.json()["server_timezone"] == "Asia/Shanghai"
     defaults = status.json()["defaults"]
     assert defaults["configuration"]["llm"]["max_tokens"] == 8192
     assert defaults["configuration"]["memory"]["short_term_max_tokens"] == 120_000
@@ -2828,6 +2824,19 @@ def test_admin_interaction_history_can_page_within_a_time_range(tmp_path):
     assert second.status_code == 200
     assert [item["seq"] for item in second.json()["events"]] == [1]
     assert second.json()["has_more"] is False
+
+    local_start = datetime(2026, 7, 1, 9, 0).astimezone()
+    local_end = datetime(2026, 7, 1, 9, 59, 59, 999999).astimezone()
+    absolute = client.get(
+        "/api/admin/interactions",
+        params={
+            "start_time": local_start.astimezone(UTC).isoformat(),
+            "end_time": local_end.astimezone(UTC).isoformat(),
+        },
+        headers=headers,
+    )
+    assert absolute.status_code == 200
+    assert [item["seq"] for item in absolute.json()["events"]] == [2, 1]
 
 
 def test_admin_interaction_history_validates_time_ranges(tmp_path):
