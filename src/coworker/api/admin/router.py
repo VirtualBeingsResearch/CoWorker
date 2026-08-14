@@ -1373,7 +1373,7 @@ def _usage_report_payload(report: Mapping[str, object]) -> ApiResponse:
                 selected.get("intraday")
             )
         payload["selected_range"] = selected_payload
-    return cast(ApiResponse, payload)
+    return payload
 
 
 @router.get("/usage")
@@ -2225,7 +2225,7 @@ async def backups(_: None = Depends(require_admin)) -> ApiResponse:
                 item["timestamp"] = _admin_timestamp(timestamp)
             backup_records.append(item)
         serialized["backups"] = backup_records
-    return cast(ApiResponse, serialized)
+    return serialized
 
 
 @router.post("/backups/restore")
