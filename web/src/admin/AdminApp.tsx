@@ -789,7 +789,7 @@ function Models() {
     }
   };
   if (loading || !draft) return <Loading error={error} />;
-  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); n[a][b] = value; return n; });
+  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; });
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
