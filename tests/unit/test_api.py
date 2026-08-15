@@ -213,7 +213,15 @@ def test_admin_ui_is_bundled(client):
 class TestSetupRedirect:
     @pytest.mark.parametrize(
         "path",
-        ["/", "/status", "/profile", "/unknown", "/api/admin/config", "/assets-secret"],
+        [
+            "/",
+            "/status",
+            "/profile",
+            "/unknown",
+            "/api/admin/config",
+            "/api/admin/provider-models",
+            "/assets-secret",
+        ],
     )
     def test_redirects_non_setup_http_paths(self, client, path):
         api_app.set_setup_required(True)
@@ -274,6 +282,9 @@ class TestSetupRedirect:
         assert client.get("/api/admin/bootstrap", follow_redirects=False).status_code != 303
         assert client.post(
             "/api/admin/bootstrap", json={}, follow_redirects=False
+        ).status_code != 303
+        assert client.post(
+            "/api/admin/provider-models", json={}, follow_redirects=False
         ).status_code != 303
 
     def test_guard_can_be_disabled_on_same_app(self, client):

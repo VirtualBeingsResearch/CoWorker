@@ -99,6 +99,9 @@ test('suggests common localized currencies while retaining custom codes', () => 
   assert.match(editableCombobox, /role="combobox"/);
   assert.match(editableCombobox, /role="listbox"/);
   assert.match(adminCss, /\.editable-combobox > input \{[^}]*width: 100%/);
+  assert.match(adminCss, /\.provider-model-field \{[^}]*position: relative/);
+  assert.match(adminCss, /\.provider-model-heading \{[^}]*display: block/);
+  assert.match(adminCss, /\.provider-model-discover \{[^}]*position: absolute;[^}]*top: 0;[^}]*right: 0/);
   assert.doesNotMatch(adminApp, /provider-price-card-heading/);
   assert.match(adminApp, /provider-price-remove/);
   assert.match(adminApp, /可选择常用币种，也可输入其他三字母代码/);

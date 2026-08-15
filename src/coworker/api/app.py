@@ -115,6 +115,8 @@ def _setup_request_allowed(method: str, path: str) -> bool:
         return method == "POST"
     if path == "/api/admin/bootstrap":
         return method in {"GET", "POST"}
+    if path == "/api/admin/provider-models":
+        return method == "POST"
     if path == "/api/bootstrap/reconnect":
         return method in {"GET", "HEAD"}
     return False

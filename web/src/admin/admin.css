@@ -434,11 +434,12 @@ html:has(.admin-login),
 .bootstrap-name-examples > span { padding: 5px 9px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-paper) 55%, var(--admin-surface)); font-size: 10px; }
 .bootstrap-name-warning { display: flex; align-items: center; gap: 6px; margin-top: 9px; color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); font-size: 10px; line-height: 1.45; }
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
-.bootstrap-model-field { position: relative; min-width: 0; }
-.provider-model-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; margin-bottom: 8px; }
-.provider-model-heading > label { min-width: 0; font-size: 12px; font-weight: 650; }
+.bootstrap-model-field { min-width: 0; }
+.provider-model-field { position: relative; min-width: 0; }
+.provider-model-heading { display: block; min-width: 0; margin-bottom: 8px; padding-right: 112px; }
+.provider-model-heading > label { display: block; min-width: 0; font-size: 12px; font-weight: 650; }
 .provider-model-control { min-width: 0; }
-.provider-model-discover { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 4px; padding: 2px 0; border: 0; color: var(--admin-muted); background: transparent; font-size: 10px; font-weight: 650; line-height: 1.2; white-space: nowrap; cursor: pointer; }
+.provider-model-discover { position: absolute; top: 0; right: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 0; border: 0; color: var(--admin-muted); background: transparent; font-size: 10px; font-weight: 650; line-height: 1.2; white-space: nowrap; cursor: pointer; }
 .provider-model-discover:hover:not(:disabled) { color: var(--admin-vital); }
 .provider-model-discover:focus-visible { outline: 2px solid var(--admin-vital); outline-offset: 3px; border-radius: 3px; }
 .provider-model-discover:disabled { color: color-mix(in oklch, var(--admin-muted) 52%, transparent); cursor: not-allowed; }
