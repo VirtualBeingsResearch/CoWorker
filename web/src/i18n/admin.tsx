@@ -244,6 +244,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。': 'All loop settings for directories, polling, batching, Bubbles, subconscious work, and active operation.',
   '控制系统 Prompt、工具说明和运行时通知所使用的语言。': 'Controls the language used by system prompts, tool descriptions, and runtime notices.',
   '运行语言': 'Runtime language',
+  '控制系统 Prompt、工具说明和运行时通知；界面语言用右上角切换': 'Controls system prompts, tool descriptions, and runtime notices; switch the console language in the top-right corner.',
   '运行时区': 'Runtime timezone',
   '由系统环境决定': 'System-managed',
   '服务器': 'Server',
