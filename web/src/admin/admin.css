@@ -1038,6 +1038,9 @@ html:has(.admin-login),
 .admin-usage-metrics span { overflow: hidden; padding-right: 14px; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-usage-metrics strong { margin-top: 10px; font: 680 20px/1 var(--admin-data); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .admin-usage-metrics small { overflow: hidden; margin-top: 7px; color: var(--admin-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-usage-metrics .cost-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 14px; min-width: 0; }
+.admin-usage-metrics .cost-title > span { padding-right: 0; }
+.admin-usage-metrics .cost-title .usage-pricing-shortcut { flex: 0 0 auto; margin: 0; }
 .admin-usage-metrics .currency-cost-summary { display: flex; flex-wrap: nowrap; overflow: hidden; margin-top: 10px; padding-right: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); text-overflow: clip; white-space: nowrap; }
 .admin-usage-metrics .currency-cost-summary > span { flex: 0 1 auto; font: inherit; }
 .admin-usage-metrics .currency-cost-summary > button { flex: 0 0 auto; }
