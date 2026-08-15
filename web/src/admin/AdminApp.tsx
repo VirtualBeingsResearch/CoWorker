@@ -555,42 +555,55 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? '管理员访问地址已变更。服务恢复后会自动前往新地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
-            <div className="bootstrap-grid">
-              <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className="bootstrap-model-field">
-                <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
-              </div>
-              <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
-              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><div className="bootstrap-base-url-row"><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /><button type="button" className="ghost mini" disabled={!apiKey.trim() || discovering} onClick={() => void discoverModels()}>{t(discovering ? '正在拉取模型目录…' : '拉取模型目录')}</button></div>{discoveryError && <small className="field-error" role="alert">{discoveryError}</small>}</label>
-              <label><span>{t('主线思考强度')} <em>{t('可选')}</em></span><select value={configuration.llm?.thinking_effort || ''} onChange={e => changeConfiguration('llm', 'thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></label>
-              <label><span>{t('运行语言')}</span><select value={configuration.i18n?.locale || 'zh-CN'} onChange={e => changeConfiguration('i18n', 'locale', e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select><small>{t('控制系统 Prompt、工具说明和运行时通知；界面语言用右上角切换')}</small></label>
-              <div className="bootstrap-name-field wide">
-                <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
-                <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
-                <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
-                {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
-              </div>
-              <div className="bootstrap-runtime-defaults wide">
-                <div className="bootstrap-runtime-default">
-                  <Clock3 size={17} />
-                  <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
-                </div>
-                <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
-                  <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
-                  <div>
-                    <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
-                    <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+            <div className="bootstrap-sections">
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">01</span><div><h3>{t('模型连接')}</h3><p>{t('选择一个 Provider，填写 API Key；模型目录可以实时拉取。')}</p></div></header>
+                <div className="bootstrap-grid">
+                  <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
+                  <div className="bootstrap-model-field">
+                    <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
+                    <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
                   </div>
+                  <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+                  <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><div className="bootstrap-base-url-row"><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /><button type="button" className="ghost mini" disabled={!apiKey.trim() || discovering} onClick={() => void discoverModels()}>{t(discovering ? '正在拉取模型目录…' : '拉取模型目录')}</button></div>{discoveryError && <small className="field-error" role="alert">{discoveryError}</small>}</label>
                 </div>
-                {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
-              </div>
+                {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
+                  <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
+                  <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
+                  <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
+                </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
+              </section>
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">02</span><div><h3>{t('伙伴身份')}</h3><p>{t('名字可留空，她之后可以自己决定。')}</p></div></header>
+                <div className="bootstrap-name-field">
+                  <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
+                  <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
+                  <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
+                  {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
+                </div>
+              </section>
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">03</span><div><h3>{t('运行偏好')}</h3><p>{t('思考强度、运行语言和启动模式会随本次初始化写入。')}</p></div></header>
+                <div className="bootstrap-grid">
+                  <label><span>{t('主线思考强度')} <em>{t('可选')}</em></span><select value={configuration.llm?.thinking_effort || ''} onChange={e => changeConfiguration('llm', 'thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></label>
+                  <label><span>{t('运行语言')}</span><select value={configuration.i18n?.locale || 'zh-CN'} onChange={e => changeConfiguration('i18n', 'locale', e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select><small>{t('控制系统 Prompt、工具说明和运行时通知；界面语言用右上角切换')}</small></label>
+                </div>
+                <div className="bootstrap-runtime-defaults">
+                  <div className="bootstrap-runtime-default">
+                    <Clock3 size={17} />
+                    <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
+                  </div>
+                  <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
+                    <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
+                    <div>
+                      <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
+                      <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+                    </div>
+                  </div>
+                  {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
+                </div>
+              </section>
             </div>
-            {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
-              <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
-              <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
-              <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
-            </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
             <div className="bootstrap-submit-row">
               <button type="button" className="bootstrap-advanced-trigger" onClick={event => openAdvanced('llm', event.currentTarget)}><SlidersHorizontal size={16} /><span><b>{t('高级初始化')}</b><small>{t('全部参数')}</small></span></button>

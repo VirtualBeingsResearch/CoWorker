@@ -390,6 +390,16 @@ html:has(.admin-login),
 .bootstrap-footnote code { font-family: var(--admin-data); font-size: .92em; }
 
 .bootstrap-form { display: grid; gap: 16px; margin-top: 22px; }
+.bootstrap-sections { display: grid; gap: 14px; min-width: 0; }
+.bootstrap-section { min-width: 0; padding: 16px; border: 1px solid var(--admin-line); border-radius: 14px; background: color-mix(in oklch, var(--admin-paper) 42%, var(--admin-surface)); }
+.bootstrap-section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.bootstrap-section-index { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 99px; color: var(--admin-vital); background: var(--admin-soft); font: 700 10px var(--admin-data); }
+.bootstrap-section-head h3 { margin: 1px 0 0; font-size: 14px; font-weight: 680; }
+.bootstrap-section-head p { margin: 3px 0 0; color: var(--admin-muted); font-size: 11px; line-height: 1.5; }
+.bootstrap-section .bootstrap-grid { gap: 14px; }
+.bootstrap-section .bootstrap-model-warning { margin-top: 14px; }
+.bootstrap-section .bootstrap-runtime-defaults { margin-top: 14px; }
+.bootstrap-section .bootstrap-name-field { padding: 0; }
 .bootstrap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .bootstrap-grid label { min-width: 0; }
 .bootstrap-grid > .wide { grid-column: 1 / -1; }
@@ -429,6 +439,10 @@ html:has(.admin-login),
 .bootstrap-passive-guidance span { margin-top: 4px; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
 .bootstrap-name-field label { display: block; }
 .bootstrap-name-field > p { margin: 7px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
+.bootstrap-section .bootstrap-name-field label > span { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.bootstrap-section .bootstrap-name-field label > span em { margin-left: 5px; color: var(--admin-muted); font-size: 10px; font-style: normal; font-weight: 500; }
+.bootstrap-section .bootstrap-name-field input { width: 100%; height: 46px; padding: 0 13px; border: 1px solid var(--admin-line); border-radius: 10px; outline: 0; color: var(--admin-ink); background: white; }
+.bootstrap-section .bootstrap-grid label > small { display: block; margin-top: 6px; color: var(--admin-muted); font-size: 10px; line-height: 1.45; }
 .bootstrap-name-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
 .bootstrap-name-examples small { color: var(--admin-muted); font-size: 9px; }
 .bootstrap-name-examples > span { padding: 5px 9px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-paper) 55%, var(--admin-surface)); font-size: 10px; }
