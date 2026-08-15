@@ -69,7 +69,9 @@ LLM__VISION_THINKING_EFFORT=medium
 
 Canonical levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; an empty
 value keeps the Provider's historical default request shape. `thinking=false` is equivalent to
-`none` (models that always think ignore the disable request). Each Provider maps the canonical
+`none` (models that always think ignore the disable request). The first-run setup form,
+Runtime Settings → LLM, and Model Orchestration all provide effort dropdowns; changes in Model
+Orchestration apply at runtime, while Runtime Settings stores the startup default. Each Provider maps the canonical
 levels to its native scale:
 
 - `openai`: passed through to the Responses API `reasoning.effort`; unset keeps the historical

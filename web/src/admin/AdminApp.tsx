@@ -563,6 +563,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               </div>
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+              <label><span>{t('主线思考强度')} <em>{t('可选')}</em></span><select value={configuration.llm?.thinking_effort || ''} onChange={e => changeConfiguration('llm', 'thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></label>
               <div className="bootstrap-model-refresh"><button type="button" className="ghost mini" disabled={!apiKey.trim() || discovering} onClick={() => void discoverModels()}>{t(discovering ? '正在拉取模型目录…' : '拉取模型目录')}</button>{discoveryError && <small className="field-error" role="alert">{discoveryError}</small>}</div>
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
@@ -1048,7 +1049,7 @@ const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   SKILLS: '已加载 Skill 的可选注册表',
   PALACES: '已加载 Palace 的可选注册表',
 };
-const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['thinking_effort', 'summary_provider', 'summary_model', 'summary_thinking', 'summary_thinking_effort', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking', 'vision_thinking_effort']);
+const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
 type DesktopUpdateSourceConfig = {
   id: string;
   name: string;
@@ -1251,13 +1252,16 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
+  'llm.thinking_effort': '主线思考强度',
   'llm.summary_provider': '摘要 Provider',
   'llm.summary_model': '摘要模型',
   'llm.summary_thinking': '摘要 Thinking',
+  'llm.summary_thinking_effort': '摘要思考强度',
   'llm.fallbacks': '主模型降级链',
   'llm.vision_provider': '视觉 Provider',
   'llm.vision_model': '视觉模型',
   'llm.vision_thinking': '视觉 Thinking',
+  'llm.vision_thinking_effort': '视觉思考强度',
   'i18n.locale': '模型与运行时语言',
   'memory.db_path': '记忆数据目录',
   'memory.short_term_max_tokens': '短期上下文容量',
@@ -1422,6 +1426,7 @@ function Settings() {
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
+        if (group === 'llm' && key.endsWith('thinking_effort')) return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射"><select value={String(value || '')} onChange={e => change(key, e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>;
         if (path === 'llm.default_provider') return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(String(value)) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>;
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}

@@ -64,7 +64,8 @@ LLM__VISION_THINKING_EFFORT=medium
 
 统一档位为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；空字符串表示
 沿用 Provider 默认请求形状（历史行为）。`thinking=false` 等价于 `none`（个别始终思考的
-模型会忽略禁用请求）。各 Provider 按自己的原生档位映射：
+模型会忽略禁用请求）。首次初始化基础表单、“运行设置 → LLM”和“模型编排”都提供
+档位下拉选择；模型编排中的修改热生效，运行设置中的修改作为启动默认。各 Provider 按自己的原生档位映射：
 
 - `openai`：档位原样透传到 Responses API 的 `reasoning.effort`；未配置时保持历史默认 `high`；
 - `anthropic`：新模型透传 `output_config.effort`，旧模型仅做 adaptive/disabled 切换；
