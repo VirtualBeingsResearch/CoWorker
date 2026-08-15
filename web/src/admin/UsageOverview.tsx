@@ -50,14 +50,17 @@ export function AdminUsageOverview({
   return <section className="admin-panel admin-usage-panel" aria-label={t('运行数据概览')}>
     <header>
       <div><h2>{t('运行数据概览')}</h2><p>{t('资源消耗、执行结果与数据可信度')}</p></div>
-      <div className="admin-usage-windows" aria-label={t('统计窗口')}>
-        {USAGE_WINDOWS.map(item => <button
-          type="button"
-          className={windowKey === item.key ? 'active' : ''}
-          aria-pressed={windowKey === item.key}
-          onClick={() => setWindowKey(item.key)}
-          key={item.key}
-        >{t(item.label)}</button>)}
+      <div className="admin-usage-header-actions">
+        <div className="admin-usage-windows" aria-label={t('统计窗口')}>
+          {USAGE_WINDOWS.map(item => <button
+            type="button"
+            className={windowKey === item.key ? 'active' : ''}
+            aria-pressed={windowKey === item.key}
+            onClick={() => setWindowKey(item.key)}
+            key={item.key}
+          >{t(item.label)}</button>)}
+        </div>
+        <a className="usage-pricing-shortcut" href={pricingHref}>{t('管理定价')}<ArrowUpRight size={12} /></a>
       </div>
     </header>
     {loading && !stats ? <div className="admin-usage-state" role="status"><Activity size={18} />{t('正在读取运行分析…')}</div>
@@ -66,7 +69,7 @@ export function AdminUsageOverview({
           : <>
             <div className="admin-usage-metrics compact">
               <article className="total"><Database size={17} /><span>{t('总 Token')}</span><strong>{formatTokenUnits(windowStats.total_tokens)}</strong><small>{t('{{count}} 次模型响应', { count: formatCount(windowStats.llm_calls) })}</small></article>
-              <article className="cost"><CircleDollarSign size={17} /><div className="cost-title"><span>{t('预估消费')}</span><a className="usage-pricing-shortcut" href={pricingHref}>{t('管理定价')}<ArrowUpRight size={12} /></a></div><CurrencyCostSummary costs={windowStats.estimated_costs} language={language} limit={1} /><small>{t('定价覆盖 {{rate}} · {{count}} 未定价 Token', { rate: formatCacheRate(windowStats.pricing_coverage), count: formatTokenUnits(windowStats.unpriced_tokens) })}</small></article>
+              <article className="cost"><CircleDollarSign size={17} /><span>{t('预估消费')}</span><CurrencyCostSummary costs={windowStats.estimated_costs} language={language} limit={1} /><small>{t('定价覆盖 {{rate}} · {{count}} 未定价 Token', { rate: formatCacheRate(windowStats.pricing_coverage), count: formatTokenUnits(windowStats.unpriced_tokens) })}</small></article>
               <article><span>{t('输入 Token')}</span><strong>{formatTokenUnits(windowStats.input_tokens)}</strong><small>{t('已记录输入')}</small></article>
               <article><span>{t('输出 Token')}</span><strong>{formatTokenUnits(windowStats.output_tokens)}</strong><small>{t('已记录输出')}</small></article>
               <article><Bot size={16} /><span>{t('缓存 Token 占比')}</span><strong>{formatCacheRate(windowStats.cache_rate)}</strong><small>{t('{{count}} 缓存 Token', { count: formatTokenUnits(windowStats.cached_tokens) })}</small></article>
