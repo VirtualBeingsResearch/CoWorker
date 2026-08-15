@@ -24,6 +24,9 @@ _WEEKDAY_KEYS = [
     "calendar.sunday",
 ]
 
+# 单个 Provider 远端模型目录拉取的最长等待时间；超时按失败缓存，不阻塞管理页面。
+_MODEL_CATALOG_FETCH_TIMEOUT = 30.0
+
 
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
     """Return copies of user messages with their own timestamp prepended.
@@ -339,6 +342,39 @@ class Brain:
                 "enabled": bool(self._vision_provider_name and self._vision_model),
             },
         }
+
+    def _catalog_providers(self, provider_name: str | None = None) -> list[BaseLLMProvider]:
+        if provider_name is None:
+            return list(self._providers.values())
+        provider = self._providers.get(provider_name)
+        if provider is None:
+            raise ProviderNotFoundError(provider_name)
+        return [provider]
+
+    def model_catalog_snapshot(self, provider_name: str | None = None) -> dict[str, Any]:
+        """Static + cached-remote model catalogs for registered providers."""
+        return {
+            "providers": [
+                provider.model_catalog()
+                for provider in self._catalog_providers(provider_name)
+            ]
+        }
+
+    async def refresh_model_catalog(self, provider_name: str | None = None) -> dict[str, Any]:
+        """Fetch remote model lists for one or all registered providers."""
+        providers = self._catalog_providers(provider_name)
+
+        async def refresh_one(provider: BaseLLMProvider) -> None:
+            try:
+                await asyncio.wait_for(
+                    provider.fetch_models(),
+                    timeout=_MODEL_CATALOG_FETCH_TIMEOUT,
+                )
+            except Exception as e:
+                provider.mark_remote_models_error(e)
+
+        await asyncio.gather(*(refresh_one(provider) for provider in providers))
+        return self.model_catalog_snapshot(provider_name)
 
     async def update_model_config(
         self,

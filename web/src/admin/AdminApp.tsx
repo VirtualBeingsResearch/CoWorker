@@ -382,12 +382,16 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationBaseline] = useState<Json>(() => structuredClone(configurationDefaults));
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
-  const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const [remoteModels, setRemoteModels] = useState<Record<string, string[]>>({});
+  const staticModels: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const models: string[] = remoteModels[providerType] || staticModels;
   const preferredModel = preferredModelFor(providerType, models);
   const [model, setModel] = useState(preferredModel);
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [name, setName] = useState('');
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
   const [configuration, setConfiguration] = useState<Json>(() => structuredClone(configurationBaseline));
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
@@ -404,7 +408,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const normalizedName = name.trim();
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
-  const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
+  const customModel = normalizedModel !== '' && !staticModels.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
   const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
     ? data.server_timezone.trim()
@@ -433,10 +437,35 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   };
 
   const changeProvider = (nextProvider: string) => {
-    const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
+    const nextModels: string[] = remoteModels[nextProvider] || catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
+    setDiscoveryError('');
+  };
+
+  const discoverModels = async () => {
+    if (!apiKey.trim() || discovering) return;
+    setDiscovering(true);
+    setDiscoveryError('');
+    try {
+      const result = await api<Json>('/api/admin/model/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider_type: providerType,
+          api_key: apiKey.trim(),
+          base_url: baseUrl.trim(),
+        }),
+      });
+      const nextModels: string[] = Array.isArray(result.models) ? result.models.map(String) : [];
+      setRemoteModels(current => ({ ...current, [providerType]: nextModels }));
+      if (nextModels.length) setModel(preferredModelFor(providerType, nextModels));
+      if (result.error) setDiscoveryError(String(result.error));
+    } catch (discoverError) {
+      setDiscoveryError(discoverError instanceof Error ? discoverError.message : t('模型目录拉取失败'));
+    } finally {
+      setDiscovering(false);
+    }
   };
 
   useEffect(() => {
@@ -534,6 +563,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               </div>
               <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
               <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+              <div className="bootstrap-model-refresh"><button type="button" className="ghost mini" disabled={!apiKey.trim() || discovering} onClick={() => void discoverModels()}>{t(discovering ? '正在拉取模型目录…' : '拉取模型目录')}</button>{discoveryError && <small className="field-error" role="alert">{discoveryError}</small>}</div>
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
                 <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
@@ -717,12 +747,27 @@ function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
 
 function Models() {
   const { data, error, loading, reload, setData } = useLoad(() => api<Json>('/api/admin/model'), []);
+  const catalog = useLoad(() => api<Json>('/api/admin/model/catalog'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
   const [switchError, setSwitchError] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
+  const selectedCatalog = (catalog.data?.providers || []).find((item: Json) => item.name === switchTo.provider);
+  const switchModels: string[] = selectedCatalog?.models || [];
+  const refreshCatalog = async () => {
+    setRefreshingCatalog(true);
+    try {
+      const next = await api<Json>('/api/admin/model/catalog/refresh', { method: 'POST', body: JSON.stringify({}) });
+      catalog.setData(next);
+    } catch (catalogError) {
+      setSwitchError(catalogError instanceof Error ? catalogError.message : t('模型目录刷新失败'));
+    } finally {
+      setRefreshingCatalog(false);
+    }
+  };
   const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
@@ -747,9 +792,9 @@ function Models() {
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button></div>
+      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} list="switch-model-options" onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><datalist id="switch-model-options">{switchModels.map((modelId: string) => <option key={modelId} value={modelId} />)}</datalist><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
-      {switchError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError}</span></div>}
+      {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">

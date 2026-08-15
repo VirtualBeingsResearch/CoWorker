@@ -210,6 +210,22 @@ class ModelPatch(BaseModel):
     mem0: Mem0ModelPatch | None = None
 
 
+class RefreshModelCatalogPayload(BaseModel):
+    """已注册 Provider 的远端模型目录刷新请求；省略 provider 时刷新全部。"""
+
+    provider: str | None = None
+
+
+class DiscoverModelsPayload(BaseModel):
+    """首次初始化前，用临时凭据探测 Provider 模型目录（不持久化）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_type: str = Field(min_length=1, max_length=64)
+    api_key: str = Field(min_length=1, max_length=4096)
+    base_url: str = Field(default="", max_length=2048)
+
+
 class SwitchModelPayload(BaseModel):
     provider: str
     model_id: str = ""
@@ -1610,6 +1626,53 @@ async def patch_model(
     response = snapshot
     response["mem0"] = _mem0_model_view(config)
     return cast(ApiResponse, response)
+
+
+@router.get("/model/catalog")
+async def get_model_catalog(_: None = Depends(require_admin)) -> ApiResponse:
+    """Return static + cached-remote model catalogs for registered providers."""
+    return cast(ApiResponse, _require_brain().model_catalog_snapshot())
+
+
+@router.post("/model/catalog/refresh", status_code=202)
+async def refresh_model_catalog(
+    payload: RefreshModelCatalogPayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    brain = _require_brain()
+    try:
+        snapshot = await brain.refresh_model_catalog(
+            payload.provider.strip() if payload.provider else None
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    _audit(request, "model.catalog.refresh", payload.provider or "*")
+    return cast(ApiResponse, snapshot)
+
+
+@router.post("/model/discover")
+async def discover_models(
+    payload: DiscoverModelsPayload,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Discover a provider model list with temporary credentials."""
+    from coworker.brain.factory import build_provider
+
+    try:
+        provider = build_provider(
+            payload.provider_type.strip(),
+            payload.api_key.strip(),
+            base_url=payload.base_url.strip() or None,
+            name="__model_discovery__",
+        )
+        try:
+            await asyncio.wait_for(provider.fetch_models(), timeout=30)
+        except Exception as e:
+            provider.mark_remote_models_error(e)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return cast(ApiResponse, provider.model_catalog())
 
 
 @router.post("/model/switch")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -61,6 +62,9 @@ class BaseLLMProvider(ABC):
         self.provider_name = name or type(self).provider_type
         self._tool_use_models: set[str] = set()
         self._model_capabilities: dict[str, dict[str, bool]] = {}
+        self._remote_models: list[str] = []
+        self._remote_models_error: str | None = None
+        self._remote_models_fetched_at: float | None = None
 
     @classmethod
     def resolve_base_url(cls, configured_base_url: str | None) -> str | None:
@@ -140,6 +144,54 @@ class BaseLLMProvider(ABC):
     @staticmethod
     def normalize_thinking_effort(value: str | None) -> ThinkingEffort | None:
         return normalize_thinking_effort(value)
+
+    # -- remote model catalog -------------------------------------------------
+
+    def mark_remote_models(self, model_ids: list[str]) -> list[str]:
+        """Replace the cached remote model catalog after a successful fetch."""
+        self._remote_models = sorted({str(model_id) for model_id in model_ids if str(model_id)})
+        self._remote_models_error = None
+        self._remote_models_fetched_at = time.time()
+        return list(self._remote_models)
+
+    def mark_remote_models_error(self, error: Exception | str) -> None:
+        if not hasattr(self, "_remote_models"):
+            self._remote_models = []
+        self._remote_models_error = str(error)
+        self._remote_models_fetched_at = time.time()
+
+    def remote_models(self) -> list[str]:
+        return list(self._remote_models)
+
+    def remote_models_error(self) -> str | None:
+        return self._remote_models_error
+
+    def remote_models_fetched_at(self) -> float | None:
+        return self._remote_models_fetched_at
+
+    def known_models(self) -> list[str]:
+        """Static catalog merged with the last successful remote fetch."""
+        return sorted(set(self.list_models()) | set(self._remote_models))
+
+    def model_catalog(self) -> dict[str, Any]:
+        return {
+            "name": self.provider_name,
+            "type": self.provider_type,
+            "static_models": sorted(self.list_models()),
+            "remote_models": list(self._remote_models),
+            "models": self.known_models(),
+            "error": self._remote_models_error,
+            "fetched_at": self._remote_models_fetched_at,
+        }
+
+    async def fetch_models(self) -> list[str]:
+        """Refresh the remote model catalog for this provider.
+
+        Subclasses with a ``models`` API override this. Providers without a
+        discovery endpoint keep their static catalog and record no remote
+        fetch state.
+        """
+        return self.list_models()
 
     def set_model(self, model_id: str) -> None:
         """Select the model used by the next provider request."""

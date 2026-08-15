@@ -6,6 +6,7 @@ from typing import cast
 import anthropic
 
 from coworker.brain.base import BaseLLMProvider
+from coworker.brain.model_fetch import fetch_anthropic_model_ids
 from coworker.brain.thinking import resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
@@ -170,6 +171,13 @@ class AnthropicProvider(BaseLLMProvider):
 
     def set_model(self, model_id: str) -> None:
         self._current_model = model_id
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            return self.mark_remote_models(await fetch_anthropic_model_ids(self._client))
+        except Exception as e:
+            self.mark_remote_models_error(e)
+            return list(self._remote_models)
 
     def list_models(self) -> list[str]:
         return sorted(_TOOL_USE_MODELS)

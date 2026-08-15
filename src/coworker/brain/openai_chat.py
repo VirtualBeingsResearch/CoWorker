@@ -12,6 +12,7 @@ from coworker.brain.base import (
     unsupported_image_fallback,
     unsupported_video_fallback,
 )
+from coworker.brain.model_fetch import fetch_openai_model_ids
 from coworker.brain.thinking import ThinkingEffort, resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
@@ -216,3 +217,10 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
 
     def set_model(self, model_id: str) -> None:
         self._current_model = model_id
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            return self.mark_remote_models(await fetch_openai_model_ids(self._client))
+        except Exception as e:
+            self.mark_remote_models_error(e)
+            return list(self._remote_models)

@@ -436,6 +436,8 @@ html:has(.admin-login),
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
 .bootstrap-model-field { position: relative; min-width: 0; }
 .bootstrap-model-field > label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.bootstrap-model-refresh { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bootstrap-model-refresh .field-error { flex: 1; min-width: 0; font-size: 11px; line-height: 1.45; color: var(--admin-red); overflow-wrap: anywhere; }
 .bootstrap-submit-row { display: grid; grid-template-columns: minmax(150px, .42fr) minmax(0, 1fr); gap: 10px; }
 .bootstrap-submit-row > .primary { min-height: 48px; }
 .bootstrap-advanced-trigger { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 12px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-muted); background: var(--admin-surface); text-align: left; cursor: pointer; }

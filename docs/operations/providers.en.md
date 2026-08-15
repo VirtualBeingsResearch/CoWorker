@@ -22,6 +22,22 @@ The recommended catalog lists models statically declared to support tools. For a
 catalog, declare whether it supports tools, images, and video during first-time setup or on its
 Provider connection. Coworker does not run an online capability probe.
 
+## Fetch models dynamically
+
+In the admin Model Orchestration page, **Refresh model catalog** pulls live model IDs from each
+registered Provider's models endpoint. During first-time setup you can enter an API key and Base
+URL and press **Fetch model catalog** to preview before saving. Fetched IDs are merged with the
+built-in catalog:
+
+- `openai`, `deepseek`, `qwen`, `zhipu`, `minimax`, `opencode-go`, and
+  `openai_compatible` use the OpenAI-compatible `GET /models`;
+- `anthropic` uses `GET /v1/models`.
+
+Remote lists return model IDs only, not tool/vision capability metadata. A dynamically discovered
+model that is not in the built-in catalog still needs declared `tools`/`vision`/`video`
+capabilities on its Provider connection. A failed fetch keeps the built-in catalog and shows the
+error in the page; existing connections are unaffected.
+
 ## Configure
 
 Prefer first-time setup or the management console. Use `.env` for unattended deployment:
