@@ -850,7 +850,7 @@ export function AdminUsageAnalytics({
       </form>}
       <div className="usage-analytics-metrics">
         <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
-        <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
+        <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} limit={1} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
           coverage: formatCacheRate(windowStats.pricing_coverage),
           count: formatTokenUnits(windowStats.unpriced_tokens),
         })} icon={CircleDollarSign} compactValue featured actionHref={pricingHref} actionLabel={t('管理定价')} />
