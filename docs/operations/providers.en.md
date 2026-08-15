@@ -5,8 +5,9 @@
 [← Back to Configuration and Operations](README.en.md)
 
 Coworker dynamically reads completion-capable Providers from the installed Any-LLM runtime.
-`anthropic`, `openai`, `deepseek`, `qwen` (Any-LLM's `dashscope`), `zhipu` (`zai`), and `minimax`
-retain Coworker-specific adapters; other available Providers use a conservative generic adapter.
+`anthropic`, `openai`, `deepseek`, `qwen` (Any-LLM's `dashscope`), `zhipu` (`zai`), `minimax`,
+and `opencode-go` retain Coworker-specific adapters; other available Providers use a conservative
+generic adapter.
 Adding an Any-LLM Provider therefore does not require another Coworker frontend and backend enum.
 
 To keep the default installation lightweight, Coworker pins only Any-LLM's `anthropic` and
@@ -15,7 +16,7 @@ available immediately. A Provider that needs its own SDK appears only when that 
 imported. Install a targeted extra from the Any-LLM documentation, such as
 `any-llm-sdk[ollama]`, and restart to refresh the catalog. The first call may incur cost; setup does
 not run an online capability probe. Coworker still preserves the necessary message, attachment,
-tool, thinking, and token-usage differences for its six specialized adapters instead of treating
+tool, thinking, and token-usage differences for its specialized adapters instead of treating
 “OpenAI-compatible” as behaviorally identical.
 
 ## Choose a model
@@ -52,7 +53,7 @@ rules permit it. For an OpenAI-compatible gateway, prefer its specific catalog P
 `openai` with a Base URL when no specific type exists. “Compatible” does not guarantee identical
 tools, thinking, video, or error behavior.
 
-“Read from API” in first-time setup and Provider connections requests only the connection's model
+“Sync model list” in first-time setup and Provider connections requests only the connection's model
 list metadata; it does not start a chat, completion, or other model inference. Returned IDs are
 merged into the selector, but an administrator must still declare `tools`, `vision`, and `video`
 capabilities for models outside the catalog. A model list is not treated as capability evidence.
@@ -64,6 +65,20 @@ Provider-level metadata. Administrators must declare capabilities for newly ente
 Reasoning effort is passed only when Any-LLM marks the Provider as supporting reasoning. Project,
 region, or environment credentials required by a specialized SDK still follow that SDK and
 Any-LLM's environment-variable conventions.
+
+### OpenCode Go
+
+For `opencode-go`, an empty Base URL resolves to `https://opencode.ai/zen/go/v1`. The management
+console syncs models visible to the subscription through `/models`; this is a metadata-only
+request. Configure an API model ID such as `kimi-k3`, without the `opencode-go/` namespace prefix
+used in OpenCode configuration files. The adapter also strips that prefix when one is entered.
+
+OpenCode Go shares one Base URL across its catalog, but its current official models are served
+through OpenAI-compatible `/chat/completions`, OpenAI `/responses`, or Anthropic `/messages`.
+The specialized adapter routes known models according to the official catalog and retains dynamic
+thinking effort. A future model that Coworker does not recognize falls back conservatively to Chat
+Completions. Confirm that model's documented endpoint and update the adapter when necessary rather
+than probing capabilities with a potentially billable inference call.
 
 ## Multiple instances of one type
 

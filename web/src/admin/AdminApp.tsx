@@ -261,11 +261,11 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic', openai: 'OpenAI / 兼容服务', deepseek: 'DeepSeek',
-  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax',
+  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax', 'opencode-go': 'OpenCode Go',
 };
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-8', openai: 'gpt-5.5', deepseek: 'deepseek-v4-pro',
-  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3',
+  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3', 'opencode-go': 'deepseek-v4-pro',
 };
 
 function preferredModelFor(providerType: string, models: string[]) {
@@ -310,20 +310,22 @@ function ProviderModelField({ id, label, value, onChange, providerType, provider
       setMessage({
         kind: 'ok',
         text: result.source === 'provider'
-          ? t('已从接口读取 {{count}} 个模型', { count: discovered.length })
-          : t('该接口未提供模型列表，继续使用推荐模型'),
+          ? t('已同步 {{count}} 个模型', { count: discovered.length })
+          : t('该服务未返回模型列表，保留推荐模型'),
       });
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : t('读取模型列表失败') });
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : t('同步模型列表失败') });
     } finally {
       setLoading(false);
     }
   };
   return <div className={`provider-model-field ${className}`}>
-    <label id={`${id}-label`} htmlFor={id}>{t(label)}</label>
+    <div className="provider-model-heading">
+      <label id={`${id}-label`} htmlFor={id}>{t(label)}</label>
+      <button type="button" className="provider-model-discover" title={t('只读取模型列表，不会调用模型')} disabled={loading || (requiresApiKey && !apiKey.trim() && !providerName.trim())} onClick={() => void discover()}><RefreshCw size={13} />{t(loading ? '正在同步…' : '同步模型列表')}</button>
+    </div>
     <div className="provider-model-control">
       <EditableCombobox id={id} value={value} options={models.map((item: string) => ({ value: item }))} onChange={onChange} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
-      <button type="button" className="ghost provider-model-discover" disabled={loading || (requiresApiKey && !apiKey.trim() && !providerName.trim())} onClick={() => void discover()}><RefreshCw size={14} />{t(loading ? '正在读取模型…' : '从接口读取')}</button>
     </div>
     {message && <small className={`provider-model-message ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</small>}
   </div>;
@@ -492,6 +494,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
     const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
+    setBaseUrl('');
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
   };
 
@@ -586,7 +589,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
               <ProviderModelField id="bootstrap-model-input" label="启动模型" value={model} providerType={providerType} apiKey={apiKey} baseUrl={baseUrl} catalogModels={catalogModels} requiresApiKey={apiKeyRequired} className="bootstrap-model-field" onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} />
               <label><span>API Key {!apiKeyRequired && <em>{t('可选')}</em>}</span><input autoFocus required={apiKeyRequired} type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t(apiKeyRequired ? '只会保存到本机配置' : '本地或环境认证可留空')} autoComplete="new-password" /></label>
-              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="text" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
+              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="text" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={selectedCatalog.default_base_url || t('使用官方地址时留空')} /></label>
               <div className="bootstrap-name-field wide">
                 <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
                 <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>

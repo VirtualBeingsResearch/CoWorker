@@ -86,7 +86,9 @@ test('suggests common localized currencies while retaining custom codes', () => 
   assert.match(adminApp, /<ProviderModelField id="bootstrap-model-input"/);
   assert.match(adminApp, /'\/api\/admin\/provider-models'/);
   assert.match(adminApp, /provider_name: providerName/);
-  assert.match(adminApp, /className="ghost provider-model-discover"/);
+  assert.match(adminApp, /className="provider-model-heading"/);
+  assert.match(adminApp, /className="provider-model-discover"/);
+  assert.match(adminApp, /只读取模型列表，不会调用模型/);
   assert.match(adminApp, /const THINKING_EFFORT_OPTIONS = \[/);
   assert.match(adminApp, /thinking: draft\.thinking/);
   assert.match(adminApp, /<ThinkingEffortField value=\{draft\.thinking\}/);

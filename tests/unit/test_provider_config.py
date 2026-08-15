@@ -53,11 +53,30 @@ def stub_zhipu_sdk_client(monkeypatch):
 
 def test_type_registry_contains_all_builtins():
     types = available_types()
-    for t in ("anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"):
+    for t in (
+        "anthropic",
+        "openai",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "minimax",
+        "opencode-go",
+    ):
         assert t in types
     assert "openrouter" in types
     assert "dashscope" not in types
     assert BaseLLMProvider._TYPE_REGISTRY["zhipu"] is ZhipuProvider
+
+
+def test_opencode_go_catalog_keeps_openai_and_uses_go_metadata():
+    catalog = {entry.type: entry for entry in provider_catalog()}
+
+    assert "openai" in catalog
+    assert catalog["opencode-go"].any_llm_provider == "openai"
+    assert catalog["opencode-go"].default_base_url == "https://opencode.ai/zen/go/v1"
+    assert catalog["opencode-go"].doc_url == "https://opencode.ai/docs/go/"
+    assert catalog["opencode-go"].reasoning is True
+    assert catalog["opencode-go"].image is False
 
 
 def test_catalog_represents_every_any_llm_provider_key():

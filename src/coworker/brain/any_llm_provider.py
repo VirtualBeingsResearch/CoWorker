@@ -173,8 +173,29 @@ class AnyLLMProvider(BaseLLMProvider):
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: ThinkingMode = True,
     ) -> LLMResponse:
+        return await self._complete_with_llm(
+            self._llm,
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            thinking=thinking,
+        )
+
+    async def _complete_with_llm(
+        self,
+        llm: Any,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+        *,
+        max_tokens: int,
+        thinking: ThinkingMode,
+    ) -> LLMResponse:
+        """Run a normalized completion with an explicitly selected Any-LLM client."""
+
         try:
-            response = await self._llm.acompletion(
+            response = await llm.acompletion(
                 model=self._current_model,
                 messages=cast(Any, self._build_messages(messages, system_prompt)),
                 tools=self._to_tools(tools) if tools else None,

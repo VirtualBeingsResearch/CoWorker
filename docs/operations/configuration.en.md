@@ -278,10 +278,12 @@ image build arguments.
 
 ## Supported models
 
-The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
-`minimax`. The recommended catalog contains models that the corresponding provider statically marks
-as tool-capable. The exact list changes with the source; use the first-run wizard and the provider
-implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth.
+Provider types are generated dynamically from the installed Any-LLM runtime. `anthropic`,
+`openai`, `deepseek`, `qwen`, `zhipu`, `minimax`, and `opencode-go` additionally have specialized
+Coworker adapters. The recommended catalog contains models that the corresponding provider
+statically marks as tool-capable. The exact list changes with the source; use the first-run wizard
+and the provider implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the
+source of truth.
 First-run setup can accept a model outside the catalog after the administrator declares whether it
 supports tools, images, and video on this connection. No potentially billable online probe is
 performed, and a primary model must be declared tool-capable. These declarations remain editable
@@ -301,8 +303,8 @@ The flat fields above, such as `LLM__ZHIPU_API_KEY`, allow only one instance of 
 ]
 ```
 
-Fields: `name` (required, unique registration name), `type` (required; one of the built-in provider
-types above), `api_key`, optional `base_url`, optional `default_model` (used when `switch_model`
+Fields: `name` (required, unique registration name), `type` (required; one of the available types
+in the management Provider catalog), `api_key`, optional `base_url`, optional `default_model` (used when `switch_model`
 selects the instance without specifying a model), and optional `model_capabilities`. Each capability
 entry contains an exact `model` ID plus `tools`, `vision`, and `video` booleans. Explicit declarations
 override the Provider type's built-in detection; unlisted models keep using the built-in catalog.

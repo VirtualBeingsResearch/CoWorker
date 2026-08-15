@@ -244,10 +244,11 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 
 ## 支持的模型
 
-内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和
-`minimax`。推荐模型目录只包含对应 Provider 静态标记为支持工具调用的模型；精确列表
-会随代码更新，以首次初始化向导和 [`src/coworker/brain/`](../../src/coworker/brain/)
-中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，并声明该连接上的模型是否
+Provider 类型从已安装的 Any-LLM 运行时动态生成；`anthropic`、`openai`、`deepseek`、
+`qwen`、`zhipu`、`minimax` 和 `opencode-go` 另有 Coworker 专用适配。推荐模型目录只包含
+对应 Provider 静态标记为支持工具调用的模型；精确列表会随代码更新，以首次初始化向导和
+[`src/coworker/brain/`](../../src/coworker/brain/) 中的 Provider 实现为准。首次初始化也
+可以手动输入目录外模型，并声明该连接上的模型是否
 支持工具调用、图片和视频。向导不会发起可能计费的在线能力探测；主模型必须声明支持工具
 调用。初始化后可在“运行设置 → 模型与 Provider”继续维护这些能力。
 
@@ -265,8 +266,8 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 ]
 ```
 
-字段：`name`（必填，注册名，需唯一）、`type`（必填，取上面的内置 Provider
-类型之一）、`api_key`、`base_url`（可选）、`default_model`（可选，`switch_model`
+字段：`name`（必填，注册名，需唯一）、`type`（必填，取管理端 Provider 目录中的
+可用类型）、`api_key`、`base_url`（可选）、`default_model`（可选，`switch_model`
 切到该实例但不指定模型时使用），以及 `model_capabilities`（可选的模型能力声明列表）。
 每条能力声明包含精确 `model` ID 和 `tools`、`vision`、`video` 布尔值；显式声明覆盖
 Provider 类型的内置判断，未声明模型继续使用内置目录。视频能力要求同时启用视觉能力。

@@ -19,3 +19,11 @@ test('allows model discovery and setup without a key for keyless providers', () 
   assert.match(adminApp, /\(apiKeyRequired && !apiKey\.trim\(\)\)/);
   assert.match(adminApp, /requiresApiKey && !apiKey\.trim\(\) && !providerName\.trim\(\)/);
 });
+
+test('presents OpenCode Go explicitly and keeps model discovery out of the input row', () => {
+  assert.match(adminApp, /'opencode-go': 'OpenCode Go'/);
+  assert.match(adminApp, /'opencode-go': 'deepseek-v4-pro'/);
+  assert.match(adminApp, /className="provider-model-heading"/);
+  assert.match(adminApp, /同步模型列表/);
+  assert.doesNotMatch(adminApp, /className="ghost provider-model-discover"/);
+});

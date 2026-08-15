@@ -115,6 +115,9 @@ class OpenAIProvider(AnyLLMProvider):
     any_llm_provider = "openai"
     initial_model = "gpt-4o"
 
+    def _supports_reasoning_effort(self, model_id: str) -> bool:
+        return model_id in _REASONING_MODELS
+
     def supports_vision(self, model_id: str) -> bool:
         return model_id in _VISION_MODELS
 
@@ -276,7 +279,7 @@ class OpenAIProvider(AnyLLMProvider):
             effort = reasoning_effort(thinking)
             if effort == "none":
                 kwargs["reasoning"] = {"effort": "none"}
-            elif self._current_model in _REASONING_MODELS and effort != "auto":
+            elif self._supports_reasoning_effort(self._current_model) and effort != "auto":
                 kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
             response = await self._llm.aresponses(**kwargs)
         except AnyLLMError as error:

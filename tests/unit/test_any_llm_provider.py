@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 
 from coworker.brain import factory
@@ -12,8 +14,10 @@ from coworker.brain.base import BaseLLMProvider
 from coworker.brain.deepseek_provider import DeepSeekProvider
 from coworker.brain.factory import ProviderCatalogEntry, build_provider
 from coworker.brain.minimax_provider import MiniMaxProvider
+from coworker.brain.opencode_go_provider import OpenCodeGoProvider
 from coworker.brain.qwen_provider import QwenProvider
 from coworker.brain.zhipu_provider import ZhipuProvider
+from coworker.core.exceptions import ProviderError
 from coworker.core.types import Message
 
 
@@ -292,6 +296,146 @@ async def test_builtin_provider_constructs_real_any_llm_client_without_request(
     provider = build_provider(provider_type, "offline-construction-only")
     try:
         assert provider._llm.PROVIDER_NAME == any_llm_name
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_factory_constructs_opencode_go_without_model_request(monkeypatch):
+    close = AsyncMock()
+    llm = SimpleNamespace(
+        PROVIDER_NAME="opencode-go",
+        SUPPORTS_LIST_MODELS=True,
+        client=SimpleNamespace(close=close),
+    )
+    create = Mock(return_value=llm)
+    monkeypatch.setattr(
+        "coworker.brain.opencode_go_provider.AnyLLM.create_openai_compatible",
+        create,
+    )
+
+    provider = build_provider("opencode-go", "offline-test-key")
+    try:
+        assert isinstance(provider, OpenCodeGoProvider)
+        assert provider.list_models()
+        assert create.call_args.args == ("opencode-go",)
+        assert create.call_args.kwargs["api_base"] == "https://opencode.ai/zen/go/v1"
+        assert create.call_args.kwargs["api_key"] == "offline-test-key"
+    finally:
+        await provider.close()
+
+    close.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("model_id", "dialect"),
+    [
+        ("deepseek-v4-pro", "chat"),
+        ("opencode-go/kimi-k3", "chat"),
+        ("glm-5.3", "chat"),
+        ("grok-4.5", "responses"),
+        ("gpt-5.6-luna", "responses"),
+        ("minimax-m3", "anthropic"),
+        ("qwen3.7-plus", "anthropic"),
+        ("qwen3.8-max", "anthropic"),
+        ("future-model", "chat"),
+    ],
+)
+def test_opencode_go_routes_official_model_dialects(model_id, dialect):
+    assert OpenCodeGoProvider.endpoint_dialect(model_id) == dialect
+
+
+@pytest.mark.asyncio
+async def test_opencode_go_model_discovery_normalizes_provider_prefix():
+    provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
+    BaseLLMProvider.__init__(provider, "opencode-go")
+    provider._llm = SimpleNamespace(
+        SUPPORTS_LIST_MODELS=True,
+        alist_models=AsyncMock(
+            return_value=[
+                SimpleNamespace(id="opencode-go/kimi-k3"),
+                SimpleNamespace(id="deepseek-v4-pro"),
+            ]
+        ),
+    )
+
+    assert await provider.fetch_models() == ["deepseek-v4-pro", "kimi-k3"]
+
+
+@pytest.mark.asyncio
+async def test_opencode_go_uses_expected_metadata_and_inference_paths_with_mock_transport(
+    monkeypatch,
+):
+    paths: list[str] = []
+    payloads: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {
+                            "id": "opencode-go/kimi-k3",
+                            "object": "model",
+                            "created": 0,
+                            "owned_by": "opencode-go",
+                        }
+                    ],
+                },
+            )
+        payloads.append(json.loads(request.content))
+        return httpx.Response(
+            400,
+            json={
+                "type": "error",
+                "error": {"type": "invalid_request_error", "message": "offline mock"},
+            },
+        )
+
+    transport = httpx.MockTransport(handle)
+    monkeypatch.setattr(
+        OpenCodeGoProvider,
+        "_http_client",
+        staticmethod(lambda: httpx.AsyncClient(transport=transport)),
+    )
+    provider = OpenCodeGoProvider(
+        "offline-test-key",
+        base_url="https://mock-provider.example/v1",
+    )
+    try:
+        assert await provider.fetch_models() == ["kimi-k3"]
+        assert paths == ["/v1/models"]
+
+        for model_id, expected_path, expected_effort in (
+            ("deepseek-v4-pro", "/v1/chat/completions", "low"),
+            ("grok-4.5", "/v1/responses", "low"),
+            ("qwen3.8-max", "/v1/messages", "low"),
+        ):
+            paths.clear()
+            payloads.clear()
+            provider.set_model(model_id)
+            with pytest.raises(ProviderError, match="offline mock"):
+                await provider.complete(
+                    [Message(role="user", content="offline")],
+                    "",
+                    [],
+                    thinking="low",
+                )
+            assert paths == [expected_path]
+            assert len(payloads) == 1
+            if expected_path == "/v1/chat/completions":
+                assert payloads[0]["reasoning_effort"] == expected_effort
+            elif expected_path == "/v1/responses":
+                assert payloads[0]["reasoning"] == {
+                    "effort": expected_effort,
+                    "summary": "auto",
+                }
+            else:
+                assert payloads[0]["thinking"] == {"type": "adaptive"}
+                assert payloads[0]["output_config"]["effort"] == expected_effort
     finally:
         await provider.close()
 

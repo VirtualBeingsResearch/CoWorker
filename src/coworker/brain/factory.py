@@ -16,6 +16,7 @@ from coworker.brain.base import BaseLLMProvider
 from coworker.brain.deepseek_provider import DeepSeekProvider  # noqa: F401
 from coworker.brain.minimax_provider import MiniMaxProvider  # noqa: F401
 from coworker.brain.openai_provider import OpenAIProvider  # noqa: F401
+from coworker.brain.opencode_go_provider import OpenCodeGoProvider  # noqa: F401
 from coworker.brain.qwen_provider import QwenProvider  # noqa: F401
 from coworker.brain.zhipu_provider import ZhipuProvider  # noqa: F401
 from coworker.i18n import tr
@@ -136,7 +137,10 @@ def provider_catalog(*, include_unavailable: bool = False) -> list[ProviderCatal
             by_type[provider_key] = catalog_entry
 
     for provider_type, provider_class in BaseLLMProvider._TYPE_REGISTRY.items():
-        provider_key = _ANY_LLM_ALIASES.get(provider_type, provider_type)
+        provider_key = (
+            getattr(provider_class, "any_llm_provider", "")
+            or _ANY_LLM_ALIASES.get(provider_type, provider_type)
+        )
         entry = any_llm_catalog.get(provider_key)
         if entry is None:
             continue
@@ -150,6 +154,12 @@ def provider_catalog(*, include_unavailable: bool = False) -> list[ProviderCatal
                 "api_dialect": provider_class.api_dialect,
                 "client_dialect": provider_class.api_dialect,
                 "default_base_url": str(provider_class.default_base_url or entry.default_base_url),
+                "doc_url": str(
+                    getattr(provider_class, "documentation_url", "") or entry.doc_url
+                ),
+                "reasoning": getattr(provider_class, "catalog_reasoning", entry.reasoning),
+                "image": getattr(provider_class, "catalog_image", entry.image),
+                "pdf": getattr(provider_class, "catalog_pdf", entry.pdf),
                 "unavailable_reason": "",
             }
         )
