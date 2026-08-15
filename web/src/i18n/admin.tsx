@@ -1459,6 +1459,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '视觉思考强度': 'Vision thinking effort',
   '思考强度': 'Thinking effort',
   'Provider 默认': 'Provider default',
+  '留空时关闭视觉分析': 'Leave empty to disable vision analysis',
+  '视觉分析使用该模型': 'Model used for vision analysis',
   '空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射': 'Empty uses the provider default; none disables thinking, and other levels map to each provider’s native scale.',
   '模型': 'Model',
   '已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。': 'Saved: {{hot}} changes apply now; {{restart}} are waiting for restart.',
