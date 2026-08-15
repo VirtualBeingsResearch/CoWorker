@@ -12,6 +12,7 @@ from mem0.utils.factory import LlmFactory
 
 from coworker.brain.deepseek_provider import _THINKING_MODELS as _DEEPSEEK_THINKING_MODELS
 from coworker.brain.minimax_provider import _THINKING_MODELS as _MINIMAX_THINKING_MODELS
+from coworker.brain.opencode_go_provider import _DEEPSEEK_MODELS as _OPENCODE_GO_DEEPSEEK_MODELS
 from coworker.brain.qwen_provider import _THINKING_MODELS as _QWEN_THINKING_MODELS
 from coworker.brain.tls import shared_ssl_context
 from coworker.brain.zhipu_provider import _THINKING_MODELS as _ZHIPU_THINKING_MODELS
@@ -66,6 +67,10 @@ def _thinking_extra_body(provider: str, model: str, thinking: bool) -> dict[str,
             "reasoning_split": True,
             "thinking": "adaptive" if thinking else "disabled",
         }
+    if provider == "opencode-go":
+        if model not in _OPENCODE_GO_DEEPSEEK_MODELS:
+            return None
+        return {"thinking": {"type": "enabled" if thinking else "disabled"}}
     return None
 
 

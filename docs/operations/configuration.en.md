@@ -62,9 +62,11 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | Default LLM provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | Default model |
 | `LLM__MAX_TOKENS` | `8192` | Maximum output tokens for one LLM response |
+| `LLM__THINKING_EFFORT` | Empty (provider default) | Main thinking effort: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`, mapped by each provider to its native levels |
 | `LLM__SUMMARY_PROVIDER` | Empty | Provider dedicated to summarization/compression; when empty, use the current main provider |
 | `LLM__SUMMARY_MODEL` | Empty | Model dedicated to summarization/compression; setting only this field reuses the current provider, while leaving it empty with `SUMMARY_PROVIDER` configured uses that provider's `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
+| `LLM__SUMMARY_THINKING_EFFORT` | Empty (provider default) | Summary thinking effort, same levels as `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | Ordered fallback chain used after a main-model failure; a JSON array of `providerName` or `providerName/modelId` entries |
 | `LLM__MODEL_PRICES` | `[]` | Model-price JSON array, exact-matched by Provider registry name and model ID; hot-applied and used to reprice historical estimates at current prices |
 | `LLM__ANTHROPIC_API_KEY` | Empty | Anthropic API key |
@@ -79,11 +81,14 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__ZHIPU_BASE_URL` | Empty (uses the Zhipu OpenAI-compatible endpoint when unset) | Custom Zhipu base URL |
 | `LLM__MINIMAX_API_KEY` | Empty | MiniMax API key |
 | `LLM__MINIMAX_BASE_URL` | Empty (uses the MiniMax OpenAI-compatible endpoint when unset) | Custom MiniMax base URL |
+| `LLM__OPENCODE_GO_API_KEY` | Empty (falls back to official `OPENCODE_API_KEY`) | OpenCode Go subscription API key |
+| `LLM__OPENCODE_GO_BASE_URL` | Empty (uses `https://opencode.ai/zen/go/v1` when unset) | Custom OpenCode Go base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | Named provider list file (see “Multiple provider instances” below); ignored if the file does not exist |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to summary / fallbacks / vision; these override matching model settings from `.env` at startup |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to thinking / summary / fallbacks / vision; these override matching model settings from `.env` at startup |
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
 | `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |
+| `LLM__VISION_THINKING_EFFORT` | Empty (provider default) | Vision analysis thinking effort, same levels as `LLM__THINKING_EFFORT` |
 
 Each `LLM__MODEL_PRICES` item contains `provider`, `model`, a three-letter uppercase `currency`,
 `input_per_million`, `output_per_million`, and optional `cached_input_per_million`. Prices must be
@@ -271,10 +276,12 @@ image build arguments.
 
 ## Supported models
 
-The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and
-`minimax`. The recommended catalog contains models that the corresponding provider statically marks
-as tool-capable. The exact list changes with the source; use the first-run wizard and the provider
-implementations under [`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth.
+The built-in provider types are `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, `minimax`,
+and `opencode-go`. `openai_compatible` is a generic OpenAI-compatible type with no built-in
+catalog; declare its models through `model_capabilities`. The recommended catalog contains models
+that the corresponding provider statically marks as tool-capable. The exact list changes with the
+source; use the first-run wizard and the provider implementations under
+[`src/coworker/brain/`](../../src/coworker/brain/) as the source of truth.
 First-run setup can accept a model outside the catalog after the administrator declares whether it
 supports tools, images, and video on this connection. No potentially billable online probe is
 performed, and a primary model must be declared tool-capable. These declarations remain editable
@@ -294,12 +301,13 @@ The flat fields above, such as `LLM__ZHIPU_API_KEY`, allow only one instance of 
 ]
 ```
 
-Fields: `name` (required, unique registration name), `type` (required; one of the built-in provider
-types above), `api_key`, optional `base_url`, optional `default_model` (used when `switch_model`
-selects the instance without specifying a model), and optional `model_capabilities`. Each capability
-entry contains an exact `model` ID plus `tools`, `vision`, and `video` booleans. Explicit declarations
-override the Provider type's built-in detection; unlisted models keep using the built-in catalog.
-Video capability also requires vision capability.
+Fields: `name` (required, unique registration name), `type` (required; a built-in provider type or
+the generic `openai_compatible`), `api_key`, optional `base_url`, optional `default_model` (used when
+`switch_model` selects the instance without specifying a model), and optional `model_capabilities`.
+Each capability entry contains an exact `model` ID plus `tools`, `vision`, and `video` booleans.
+Explicit declarations override the Provider type's built-in detection; unlisted models keep using
+the built-in catalog. Video capability also requires vision capability. `openai_compatible` has no
+built-in catalog, so configure `default_model` and declare at least its `tools` capability.
 
 - Flat fields still work and are merged automatically as the default instance where `name == type`; an entry with the same `name` in the file overrides it.
 - A missing file is ignored, so existing configurations continue to work unchanged.

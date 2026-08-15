@@ -282,13 +282,16 @@ def _load_config() -> Config:
 
 async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
     await brain.update_model_config(
+        thinking_effort=config.llm.thinking_effort,
         summary_provider=config.llm.summary_provider,
         summary_model=config.llm.summary_model,
         summary_thinking=config.llm.summary_thinking,
+        summary_thinking_effort=config.llm.summary_thinking_effort,
         fallbacks=config.llm.fallbacks,
         vision_provider=config.llm.vision_provider,
         vision_model=config.llm.vision_model,
         vision_thinking=config.llm.vision_thinking,
+        vision_thinking_effort=config.llm.vision_thinking_effort,
     )
 
 
@@ -324,12 +327,15 @@ async def _run_check() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            thinking_effort=config.llm.thinking_effort,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
             summary_thinking=config.llm.summary_thinking,
+            summary_thinking_effort=config.llm.summary_thinking_effort,
             vision_provider=config.llm.vision_provider,
             vision_model=config.llm.vision_model,
             vision_thinking=config.llm.vision_thinking,
+            vision_thinking_effort=config.llm.vision_thinking_effort,
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
@@ -375,12 +381,15 @@ async def _run_backfill() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            thinking_effort=config.llm.thinking_effort,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
             summary_thinking=config.llm.summary_thinking,
+            summary_thinking_effort=config.llm.summary_thinking_effort,
             vision_provider=config.llm.vision_provider,
             vision_model=config.llm.vision_model,
             vision_thinking=config.llm.vision_thinking,
+            vision_thinking_effort=config.llm.vision_thinking_effort,
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
@@ -394,6 +403,12 @@ async def _run_backfill() -> int:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                thinking=(
+                    bool(meta.get("thinking"))
+                    if meta.get("thinking") is not None
+                    else None
+                ),
+                thinking_effort=str(meta.get("thinking_effort") or "") or None,
             )
         )
         if short_term.active_provider and short_term.active_model:
@@ -457,12 +472,15 @@ async def _main() -> bool:
         message_time_prefix=config.agent.message_time_prefix,
         max_tokens=config.llm.max_tokens,
         fallbacks=config.llm.fallbacks,
+        thinking_effort=config.llm.thinking_effort,
         summary_provider=config.llm.summary_provider,
         summary_model=config.llm.summary_model,
         summary_thinking=config.llm.summary_thinking,
+        summary_thinking_effort=config.llm.summary_thinking_effort,
         vision_provider=config.llm.vision_provider,
         vision_model=config.llm.vision_model,
         vision_thinking=config.llm.vision_thinking,
+        vision_thinking_effort=config.llm.vision_thinking_effort,
     )
     _register_providers(brain, config)
     await _validate_model_runtime_config(brain, config)
@@ -661,6 +679,12 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             context_hint=str(meta.get("context_hint") or ""),
+            thinking=(
+                bool(meta.get("thinking"))
+                if meta.get("thinking") is not None
+                else None
+            ),
+            thinking_effort=str(meta.get("thinking_effort") or "") or None,
         )
     )
     brain.add_vision_usage_listener(
@@ -669,6 +693,12 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             label=str(meta.get("label") or ""),
+            thinking=(
+                bool(meta.get("thinking"))
+                if meta.get("thinking") is not None
+                else None
+            ),
+            thinking_effort=str(meta.get("thinking_effort") or "") or None,
         )
     )
 

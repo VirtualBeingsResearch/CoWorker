@@ -116,6 +116,8 @@ def _client(
         switch_model=AsyncMock(),
         model_config_snapshot=lambda: _brain_snapshot,
         update_model_config=AsyncMock(return_value=_brain_snapshot),
+        model_catalog_snapshot=lambda: {"providers": []},
+        refresh_model_catalog=AsyncMock(return_value={"providers": []}),
     )
     person_store = PersonStore(tmp_path / "persons.json") if persona else None
     persona_cards = PersonaCard() if persona else None
@@ -1391,6 +1393,100 @@ def test_model_switch_response_preserves_mem0_view(tmp_path):
         "model": "",
         "thinking": False,
     }
+
+
+def test_model_catalog_lists_registered_providers(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.model_catalog_snapshot = lambda: {
+        "providers": [
+            {
+                "name": "openai",
+                "type": "openai",
+                "static_models": ["gpt-5.2"],
+                "remote_models": [],
+                "models": ["gpt-5.2"],
+                "error": None,
+                "fetched_at": None,
+            }
+        ]
+    }
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.get("/api/admin/model/catalog", headers=headers)
+
+    assert response.status_code == 200
+    provider = response.json()["providers"][0]
+    assert provider["name"] == "openai"
+    assert "gpt-5.2" in provider["static_models"]
+
+
+def test_model_catalog_refresh_calls_provider_and_returns_catalog(tmp_path):
+    client, _ = _client(tmp_path)
+    admin._brain.refresh_model_catalog = AsyncMock(
+        return_value={
+            "providers": [
+                {
+                    "name": "openai",
+                    "type": "openai",
+                    "static_models": ["gpt-5.2"],
+                    "remote_models": ["gpt-remote"],
+                    "models": ["gpt-5.2", "gpt-remote"],
+                    "error": None,
+                    "fetched_at": 1.0,
+                }
+            ]
+        }
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/admin/model/catalog/refresh",
+        headers=headers,
+        json={"provider": "openai"},
+    )
+
+    assert response.status_code == 202
+    admin._brain.refresh_model_catalog.assert_awaited_once_with("openai")
+    provider = response.json()["providers"][0]
+    assert provider["remote_models"] == ["gpt-remote"]
+    assert "gpt-remote" in provider["models"]
+
+
+def test_model_discover_uses_temporary_credentials(tmp_path, monkeypatch):
+    from coworker.brain.openai_provider import OpenAIProvider
+
+    async def fake_fetch(self):
+        return self.mark_remote_models(["discovered-model"])
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fake_fetch)
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/admin/model/discover",
+        headers=headers,
+        json={"provider_type": "openai", "api_key": "sk-temp", "base_url": ""},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "openai"
+    assert body["remote_models"] == ["discovered-model"]
+    assert "discovered-model" in body["models"]
+
+
+def test_model_discover_rejects_unknown_provider(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/admin/model/discover",
+        headers=headers,
+        json={"provider_type": "nope", "api_key": "sk-temp"},
+    )
+
+    assert response.status_code == 400
+    assert "nope" in response.json()["detail"]
 
 
 def test_channel_access_config_hot_applies_with_direct_channel_shape(tmp_path):

@@ -1,29 +1,12 @@
 from __future__ import annotations
 
-import json
+from typing import Any
 
-import openai
 from loguru import logger
 
-from coworker.brain.base import (
-    BaseLLMProvider,
-    pdf_attachment_fallback,
-    unsupported_image_fallback,
-)
-from coworker.brain.tls import shared_ssl_context
-from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
-from coworker.core.exceptions import ProviderError
-from coworker.core.types import LLMResponse, Message, ToolCall
-from coworker.i18n import tr
-
-
-def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse tool call arguments for '{tool_name}': {raw!r}")
-        return {"__parse_error__": str(e), "__raw_arguments__": raw}
-
+from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
+from coworker.brain.openai_chat import parse_tool_arguments as _parse_tool_arguments  # noqa: F401
+from coworker.brain.thinking import ThinkingEffort
 
 _ZHIPU_MODELS = {
     "glm-4.5-air",
@@ -31,6 +14,8 @@ _ZHIPU_MODELS = {
     "glm-5",
     "glm-5v-turbo",
     "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
 }
 
 _VISION_MODELS = {
@@ -40,100 +25,63 @@ _VISION_MODELS = {
     "glm-5v-turbo",
 }
 
-# GLM-Z1 series supports extended thinking.
-_THINKING_MODELS = {"glm-5.1", "glm-5", "glm-5v-turbo"}
+# GLM-Z1/5 系列支持 extended thinking。GLM-5.3 不允许关闭思考。
+_THINKING_MODELS = _ZHIPU_MODELS
+_ALWAYS_THINKING_MODELS = {"glm-5.3"}
 
-class ZhipuProvider(BaseLLMProvider):
+# reasoning_effort 仅 GLM-5.2+ 支持。GLM-5.3 只接受 low/high/max；
+# GLM-5.2 的 medium/low 会被服务端映射为 high，xhigh 映射为 max。
+_EFFORT_MODELS = {"glm-5.2", "glm-5.3"}
+
+
+def _thinking_body(enabled: bool) -> dict[str, Any]:
+    return {
+        "thinking": {
+            "type": "enabled" if enabled else "disabled",
+            "clear_thinking": False,
+        }
+    }
+
+
+def _mapped_effort(model_id: str, effort: ThinkingEffort) -> str:
+    if model_id == "glm-5.3":
+        return {"none": "low", "minimal": "low", "low": "low", "medium": "high",
+                "high": "high", "xhigh": "max", "max": "max"}[effort]
+    return {"minimal": "disabled", "low": "high", "medium": "high",
+            "xhigh": "max"}.get(effort, effort)
+
+
+class ZhipuProvider(OpenAIChatCompletionsProvider):
     provider_type = "zhipu"
-    api_dialect = "openai"
     default_base_url = "https://open.bigmodel.cn/api/paas/v4/"
+    _DEFAULT_MODEL = "glm-5.1"
 
-    def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
-        super().__init__(name)
-        self._client = openai.AsyncOpenAI(
-            api_key=api_key,
-            base_url=self.resolve_base_url(base_url),
-            http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
-        )
-        self._current_model = "glm-5.1"
-
-    @staticmethod
-    def _extract_usage(response) -> dict[str, int]:
-        usage = getattr(response, "usage", None)
-        return {
-            "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-            "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-            "cached_tokens": (
-                getattr(
-                    getattr(usage, "prompt_tokens_details", None),
-                    "cached_tokens",
-                    0,
-                )
-                if usage
-                else 0
-            ),
-        }
-
-    async def complete(
+    def _apply_thinking(
         self,
-        messages: list[Message],
-        system_prompt: str,
-        tools: list[dict],
-        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
-        thinking: bool = True,
-    ) -> LLMResponse:
-        api_messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        for m in messages:
-            d = m.to_dict()
-            if m.role == "user":
-                d["content"] = self._adapt_content(m.content, self._current_model)
-            api_messages.append(d)
-
-        kwargs: dict = {
-            "model": self._current_model,
-            "max_tokens": max_tokens,
-            "messages": api_messages,
-            "stream": False,
-        }
-        if self._current_model in _THINKING_MODELS and thinking:
-            kwargs["extra_body"] = {"thinking": {"type": "enabled", "clear_thinking": False}}
-        elif not thinking:
-            kwargs["extra_body"] = {"thinking": {"type": "disabled", "clear_thinking": False}}
-        if tools:
-            kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
-
-        try:
-            response = await self._client.chat.completions.create(**kwargs)
-        except openai.APIError as e:
-            raise ProviderError(str(e)) from e
-
-        choice = response.choices[0]
-        msg = choice.message
-
-        tool_calls: list[ToolCall] = []
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                tool_calls.append(
-                    ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=_parse_tool_arguments(tc.function.arguments, tc.function.name),
-                    )
+        kwargs: dict[str, Any],
+        effort: ThinkingEffort | None,
+        model_id: str,
+    ) -> None:
+        if model_id not in _THINKING_MODELS:
+            return
+        if model_id in _EFFORT_MODELS and effort is not None:
+            mapped = _mapped_effort(model_id, effort)
+            if mapped == "disabled":
+                kwargs["extra_body"] = _thinking_body(False)
+                return
+            kwargs["extra_body"] = _thinking_body(True)
+            kwargs["reasoning_effort"] = mapped
+            return
+        if effort == "none":
+            if model_id in _ALWAYS_THINKING_MODELS:
+                logger.warning(
+                    f"Model {model_id} always thinks; ignoring disabled thinking request"
                 )
-
-        reasoning_content: str | None = getattr(msg, "reasoning_content", None) or None
-
-        return LLMResponse(
-            content=msg.content or "",
-            tool_calls=tool_calls,
-            stop_reason="tool_use" if tool_calls else "end_turn",
-            model=response.model,
-            usage=self._extract_usage(response),
-            reasoning_content=reasoning_content,
-        )
-
-    def set_model(self, model_id: str) -> None:
-        self._current_model = model_id
+                kwargs["extra_body"] = _thinking_body(True)
+                return
+            kwargs["extra_body"] = _thinking_body(False)
+            return
+        kwargs["extra_body"] = _thinking_body(True)
 
     def list_models(self) -> list[str]:
         return sorted(_ZHIPU_MODELS)
@@ -143,26 +91,3 @@ class ZhipuProvider(BaseLLMProvider):
 
     def supports_vision(self, model_id: str) -> bool:
         return model_id in _VISION_MODELS
-
-    def _adapt_content(self, content, model_id):
-        if isinstance(content, str):
-            return content
-        if not self.can_use_vision(model_id):
-            return super()._adapt_content(content, model_id)
-        result = []
-        for block in content:
-            btype = block.get("type")
-            if btype == "image":
-                src = block.get("source", {})
-                if src.get("type") == "base64":
-                    data_url = f"data:{src['media_type']};base64,{src['data']}"
-                    result.append({"type": "image_url", "image_url": {"url": data_url}})
-                else:
-                    result.append({"type": "text", "text": unsupported_image_fallback()})
-            elif btype == "document":
-                fname = block.get("_filename", tr("attachment_fallback.document_name"))
-                text = pdf_attachment_fallback(fname, block.get("_saved_path", ""))
-                result.append({"type": "text", "text": text})
-            else:
-                result.append({k: v for k, v in block.items() if not k.startswith("_")})
-        return result

@@ -143,15 +143,18 @@ class SummaryModelConfigPayload(BaseModel):
     provider: str | None = None
     model: str | None = None
     thinking: bool | None = None
+    thinking_effort: str | None = None
 
 
 class VisionModelConfigPayload(BaseModel):
     provider: str | None = None
     model: str | None = None
     thinking: bool | None = None
+    thinking_effort: str | None = None
 
 
 class ModelConfigPatchPayload(BaseModel):
+    thinking_effort: str | None = None
     summary: SummaryModelConfigPayload | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelConfigPayload | None = None
@@ -325,13 +328,16 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
 
     try:
         snapshot = await _brain.update_model_config(
+            thinking_effort=payload.thinking_effort,
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,
+            summary_thinking_effort=payload.summary.thinking_effort if payload.summary else None,
             fallbacks=payload.fallbacks,
             vision_provider=payload.vision.provider if payload.vision else None,
             vision_model=payload.vision.model if payload.vision else None,
             vision_thinking=payload.vision.thinking if payload.vision else None,
+            vision_thinking_effort=payload.vision.thinking_effort if payload.vision else None,
         )
         runtime = RuntimeModelConfig.from_brain_snapshot(snapshot)
         write_runtime_model_config(_model_config_path, runtime)

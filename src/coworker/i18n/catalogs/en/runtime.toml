@@ -219,6 +219,9 @@ model_required = "A model capability declaration requires a model ID"
 video_requires_vision = "A video-capable model must also be marked as vision-capable"
 duplicate_model_capability = "Duplicate model capability declaration: {{model}}"
 
+[config.thinking]
+effort_invalid = "Invalid thinking effort: {{value}}; available levels: {{levels}}"
+
 [config.model_price]
 provider_and_model_required = "Model pricing requires both a Provider and model ID"
 currency_invalid = "A model pricing currency must contain three letters"

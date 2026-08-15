@@ -6,6 +6,8 @@ from typing import cast
 import anthropic
 
 from coworker.brain.base import BaseLLMProvider
+from coworker.brain.model_fetch import fetch_anthropic_model_ids
+from coworker.brain.thinking import resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
@@ -22,6 +24,19 @@ _TOOL_USE_MODELS = {
     "claude-sonnet-4-5",
     "claude-haiku-4-5",
 }
+
+# output_config.effort 支持的模型；minimal 在 Claude 侧没有对应档位，
+# 按最低档 low 处理。Opus 4.5 只支持 low/medium/high，更强的档位收敛到 high。
+_EFFORT_MODELS = {
+    "claude-fable-5",
+    "claude-mythos-preview",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-opus-4-5",
+}
+_ALWAYS_THINKING_MODELS = {"claude-fable-5", "claude-mythos-preview"}
+_LOW_CEILING_MODELS = {"claude-opus-4-5"}
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -93,6 +108,20 @@ class AnthropicProvider(BaseLLMProvider):
 
         return api_messages
 
+    def _apply_thinking(self, kwargs: dict, effort) -> None:
+        if effort == "none":
+            # Fable 5 系列始终思考，显式 disabled 会被拒绝；其余模型保留
+            # 历史禁用行为。
+            if self._current_model not in _ALWAYS_THINKING_MODELS:
+                kwargs["thinking"] = {"type": "disabled"}
+            return
+        kwargs["thinking"] = {"type": "adaptive"}
+        if effort is not None and self._current_model in _EFFORT_MODELS:
+            mapped = "low" if effort == "minimal" else effort
+            if self._current_model in _LOW_CEILING_MODELS and mapped in {"xhigh", "max"}:
+                mapped = "high"
+            kwargs["output_config"] = {"effort": mapped}
+
     async def complete(
         self,
         messages: list[Message],
@@ -100,7 +129,9 @@ class AnthropicProvider(BaseLLMProvider):
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
+        thinking_effort: str | None = None,
     ) -> LLMResponse:
+        effort = resolve_effort(thinking, thinking_effort)
         api_messages = self._build_api_messages(messages)
         try:
             kwargs: dict = {
@@ -111,10 +142,7 @@ class AnthropicProvider(BaseLLMProvider):
             }
             if tools:
                 kwargs["tools"] = tools
-            if thinking:
-                kwargs["thinking"] = {"type": "adaptive"}
-            else:
-                kwargs["thinking"] = {"type": "disabled"}
+            self._apply_thinking(kwargs, effort)
             response = await self._client.messages.create(**kwargs)
         except anthropic.APIError as e:
             raise ProviderError(str(e)) from e
@@ -143,6 +171,13 @@ class AnthropicProvider(BaseLLMProvider):
 
     def set_model(self, model_id: str) -> None:
         self._current_model = model_id
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            return self.mark_remote_models(await fetch_anthropic_model_ids(self._client))
+        except Exception as e:
+            self.mark_remote_models_error(e)
+            return list(self._remote_models)
 
     def list_models(self) -> list[str]:
         return sorted(_TOOL_USE_MODELS)

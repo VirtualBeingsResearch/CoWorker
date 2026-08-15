@@ -289,7 +289,8 @@ function concludeSleep(row: FeedRow, wakeContent?: string): void {
 
 function thinkingActiveRow(e: RuntimeLogEvent): FeedRow {
   const cycle = e.cycle != null ? t('第 {{cycle}} 轮 · ', { cycle: e.cycle }) : '';
-  return { key: seqKey(e), kind: 'thinking', status: 'active', ts: e.ts, icon: '🧠', tag: t('思考中'), text: `${cycle}${t('揉合线索、权衡下一步')}`, dots: true };
+  const effort = e.thinking_effort ? ` · ${e.thinking_effort}` : '';
+  return { key: seqKey(e), kind: 'thinking', status: 'active', ts: e.ts, icon: '🧠', tag: `${t('思考中')}${effort}`, text: `${cycle}${t('揉合线索、权衡下一步')}`, dots: true };
 }
 
 function rawRow(e: RuntimeLogEvent): FeedRow {
@@ -298,10 +299,10 @@ function rawRow(e: RuntimeLogEvent): FeedRow {
 }
 
 /** 收口思考行：可选地用模型这一轮的输出（llm_response.content）作为「思考完成」文案。 */
-function concludeThinking(row: FeedRow, conclusion?: string, completedAt?: string): void {
+function concludeThinking(row: FeedRow, conclusion?: string, completedAt?: string, effort?: string): void {
   row.status = 'done';
   row.icon = '💡';
-  row.tag = t('思考完成');
+  row.tag = `${t('思考完成')}${effort ? ` · ${effort}` : ''}`;
   row.text = cut(clean(conclusion) || t('已得出判断'));
   row.dots = false;
   recordDuration(row, completedAt);
@@ -379,7 +380,7 @@ export function deriveFeedRows(events: RuntimeLogEvent[]): FeedRow[] {
     // —— 长态终点：llm_response 收口当前思考行（以其内容为完成文案）——
     if (type === 'llm_response') {
       const active = lastActiveThinking(rows);
-      if (active) concludeThinking(active, e.content, e.ts);
+      if (active) concludeThinking(active, e.content, e.ts, e.thinking_effort);
       else rows.push({ ...thinkingActiveRow(e), status: 'done', icon: '💡', tag: t('思考完成'), text: cut(clean(e.content) || t('已得出判断')), dots: false });
       continue;
     }

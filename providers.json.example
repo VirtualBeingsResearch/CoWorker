@@ -26,5 +26,27 @@
     "type": "anthropic",
     "api_key": "也可在此覆盖扁平字段的同名默认实例",
     "base_url": ""
+  },
+  {
+    "name": "opencode-go",
+    "type": "opencode-go",
+    "api_key": "OpenCode Go 订阅 key（也可用 LLM__OPENCODE_GO_API_KEY）",
+    "base_url": "",
+    "default_model": "deepseek-v4-flash"
+  },
+  {
+    "name": "self-hosted-vllm",
+    "type": "openai_compatible",
+    "api_key": "EMPTY",
+    "base_url": "http://127.0.0.1:8000/v1",
+    "default_model": "Qwen3-32B",
+    "model_capabilities": [
+      {
+        "model": "Qwen3-32B",
+        "tools": true,
+        "vision": false,
+        "video": false
+      }
+    ]
   }
 ]

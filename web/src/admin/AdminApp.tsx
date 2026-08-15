@@ -260,12 +260,14 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Anthropic', openai: 'OpenAI / 兼容服务', deepseek: 'DeepSeek',
-  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax',
+  anthropic: 'Anthropic', openai: 'OpenAI', deepseek: 'DeepSeek',
+  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax', 'opencode-go': 'OpenCode Go',
+  openai_compatible: '通用 OpenAI 兼容',
 };
+const THINKING_EFFORT_OPTIONS = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-8', openai: 'gpt-5.5', deepseek: 'deepseek-v4-pro',
-  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3',
+  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3', 'opencode-go': 'deepseek-v4-flash',
 };
 
 function preferredModelFor(providerType: string, models: string[]) {
@@ -380,12 +382,16 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const [configurationBaseline] = useState<Json>(() => structuredClone(configurationDefaults));
   const initialType = catalogs.some((item: Json) => item.type === 'deepseek') ? 'deepseek' : catalogs[0]?.type || 'openai';
   const [providerType, setProviderType] = useState(initialType);
-  const models: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const [remoteModels, setRemoteModels] = useState<Record<string, string[]>>({});
+  const staticModels: string[] = catalogs.find((item: Json) => item.type === providerType)?.models || [];
+  const models: string[] = remoteModels[providerType] || staticModels;
   const preferredModel = preferredModelFor(providerType, models);
   const [model, setModel] = useState(preferredModel);
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [name, setName] = useState('');
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
   const [configuration, setConfiguration] = useState<Json>(() => structuredClone(configurationBaseline));
   const [configurationSecrets, setConfigurationSecrets] = useState<Record<string, string>>({});
   const [invalidConfigurationPaths, setInvalidConfigurationPaths] = useState<Set<string>>(new Set());
@@ -402,7 +408,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   const normalizedName = name.trim();
   const nameExamples = language === 'en' ? ['Mira', 'Rowan', 'Nova', 'Sol'] : ['阿澈', '星野', 'Nova', 'Mira'];
   const productStyleName = /(?:coworker|co-worker|assistant|bot|助手|助理|机器人)$/i.test(normalizedName);
-  const customModel = normalizedModel !== '' && !models.includes(normalizedModel);
+  const customModel = normalizedModel !== '' && !staticModels.includes(normalizedModel);
   const passiveMode = Boolean(configuration.agent?.passive_mode);
   const serverTimezone = typeof data.server_timezone === 'string' && data.server_timezone.trim()
     ? data.server_timezone.trim()
@@ -431,10 +437,35 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
   };
 
   const changeProvider = (nextProvider: string) => {
-    const nextModels: string[] = catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
+    const nextModels: string[] = remoteModels[nextProvider] || catalogs.find((item: Json) => item.type === nextProvider)?.models || [];
     setProviderType(nextProvider);
     setModel(preferredModelFor(nextProvider, nextModels));
     setCustomModelCapabilities({ tools: false, vision: false, video: false });
+    setDiscoveryError('');
+  };
+
+  const discoverModels = async () => {
+    if (!apiKey.trim() || discovering) return;
+    setDiscovering(true);
+    setDiscoveryError('');
+    try {
+      const result = await api<Json>('/api/admin/model/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider_type: providerType,
+          api_key: apiKey.trim(),
+          base_url: baseUrl.trim(),
+        }),
+      });
+      const nextModels: string[] = Array.isArray(result.models) ? result.models.map(String) : [];
+      setRemoteModels(current => ({ ...current, [providerType]: nextModels }));
+      if (nextModels.length) setModel(preferredModelFor(providerType, nextModels));
+      if (result.error) setDiscoveryError(String(result.error));
+    } catch (discoverError) {
+      setDiscoveryError(discoverError instanceof Error ? discoverError.message : t('模型目录拉取失败'));
+    } finally {
+      setDiscovering(false);
+    }
   };
 
   useEffect(() => {
@@ -524,40 +555,55 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
         {phase === 'restarting' ? <div className="bootstrap-restarting" role="status"><div className="restart-orbit"><Orbit size={34} /><i /><i /></div><p className="access-step">{t('设置步骤 03')}</p><h2>{t('正在带着新配置醒来')}</h2><p>{t(restartTarget?.originChanged ? '管理员访问地址已变更。服务恢复后会自动前往新地址；浏览器会要求你在新地址重新输入管理员令牌。' : '页面会在服务恢复后自动进入照看室，不需要重复填写。')}</p>{restartTarget?.originChanged && <div className="bootstrap-reconnect-target"><span>{t('新的管理员地址')}</span><code>{restartTarget.adminUrl}</code><a className="primary" href={restartTarget.adminUrl}>{t('立即前往新地址')}<ChevronRight size={15} /></a></div>}{error && <p className="form-error" role="alert">{error}</p>}</div> : <>
           <div className="bootstrap-heading"><p className="access-step">{t('设置步骤 02')}</p><h2>{t('配置第一个模型连接')}</h2><p>{t('这些值会写入本地管理配置，不需要创建')} <code>.env</code>{t('。')}</p></div>
           <form className="bootstrap-form" onSubmit={submit}>
-            <div className="bootstrap-grid">
-              <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
-              <div className="bootstrap-model-field">
-                <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
-                <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
-              </div>
-              <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
-              <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /></label>
-              <div className="bootstrap-name-field wide">
-                <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
-                <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
-                <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
-                {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
-              </div>
-              <div className="bootstrap-runtime-defaults wide">
-                <div className="bootstrap-runtime-default">
-                  <Clock3 size={17} />
-                  <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
-                </div>
-                <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
-                  <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
-                  <div>
-                    <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
-                    <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+            <div className="bootstrap-sections">
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">01</span><div><h3>{t('模型连接')}</h3><p>{t('选择一个 Provider，填写 API Key；模型目录可以实时拉取。')}</p></div></header>
+                <div className="bootstrap-grid">
+                  <label><span>{t('供应商类型')}</span><select value={providerType} onChange={e => changeProvider(e.target.value)}>{catalogs.map((item: Json) => <option value={item.type} key={item.type}>{t(PROVIDER_LABELS[item.type] || item.type)}</option>)}</select></label>
+                  <div className="bootstrap-model-field">
+                    <label id="bootstrap-model-label" htmlFor="bootstrap-model-input">{t('启动模型')}</label>
+                    <EditableCombobox id="bootstrap-model-input" value={model} options={models.map((item: string) => ({ value: item }))} onChange={next => { setModel(next); setCustomModelCapabilities({ tools: false, vision: false, video: false }); }} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
                   </div>
+                  <label><span>API Key</span><input autoFocus required type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('只会保存到本机配置')} autoComplete="new-password" /></label>
+                  <label><span>{t('自定义 Base URL')} <em>{t('可选')}</em></span><div className="bootstrap-base-url-row"><input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={t('使用官方地址时留空')} /><button type="button" className="ghost mini" disabled={!apiKey.trim() || discovering} onClick={() => void discoverModels()}>{t(discovering ? '正在拉取模型目录…' : '拉取模型目录')}</button></div>{discoveryError && <small className="field-error" role="alert">{discoveryError}</small>}</label>
                 </div>
-                {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
-              </div>
+                {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
+                  <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
+                  <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
+                  <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
+                </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
+              </section>
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">02</span><div><h3>{t('伙伴身份')}</h3><p>{t('名字可留空，她之后可以自己决定。')}</p></div></header>
+                <div className="bootstrap-name-field">
+                  <label><span>{t('给新伙伴取个名字')} <em>{t('可选')}</em></span><input value={name} onChange={e => setName(e.target.value)} placeholder={t('例如：阿澈、星野、Nova、Mira')} /></label>
+                  <p>{t('像给孩子取名一样，选择一个自然的称呼，不需要添加 Coworker、助手或 Bot 等产品后缀。留空时，她以后也可以自己取名。')}</p>
+                  <div className="bootstrap-name-examples" aria-label={t('名字举例，仅作说明')}><small>{t('仅作举例，不是推荐')}</small>{nameExamples.map(example => <span key={example}>{example}</span>)}</div>
+                  {productStyleName && <div className="bootstrap-name-warning"><TriangleAlert size={14} />{t('这个名字更像产品标识。可以试试更自然、能直接呼唤的名字。')}</div>}
+                </div>
+              </section>
+              <section className="bootstrap-section">
+                <header className="bootstrap-section-head"><span className="bootstrap-section-index">03</span><div><h3>{t('运行偏好')}</h3><p>{t('思考强度、运行语言和启动模式会随本次初始化写入。')}</p></div></header>
+                <div className="bootstrap-grid">
+                  <label><span>{t('主线思考强度')} <em>{t('可选')}</em></span><select value={configuration.llm?.thinking_effort || ''} onChange={e => changeConfiguration('llm', 'thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></label>
+                  <label><span>{t('运行语言')}</span><select value={configuration.i18n?.locale || 'zh-CN'} onChange={e => changeConfiguration('i18n', 'locale', e.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select><small>{t('控制系统 Prompt、工具说明和运行时通知；界面语言用右上角切换')}</small></label>
+                </div>
+                <div className="bootstrap-runtime-defaults">
+                  <div className="bootstrap-runtime-default">
+                    <Clock3 size={17} />
+                    <span><small className="bootstrap-runtime-label">{t('运行时区')}<em> · {t('由系统环境决定')}</em></small><b><code>{t('服务器')} · {serverTimezone}</code></b>{timezoneAdvice.available && <small className="bootstrap-timezone-guidance" role="note" aria-label={timezoneAdviceText} title={timezoneAdviceText}><TriangleAlert size={10} /><span><span>{t('仅提醒 · 建议')}</span><code>{timezoneAdvice.recommendation}</code></span></small>}</span>
+                  </div>
+                  <div className="bootstrap-mode-inline" role="radiogroup" aria-label={t('启动模式')}>
+                    <span><small>{t('启动模式')}</small><b>{t(passiveMode ? '只响应外部事件 · 面向开发者' : '会自主继续推进 · 推荐给大多数用户')}</b></span>
+                    <div>
+                      <button type="button" className={!passiveMode ? 'active' : ''} role="radio" aria-checked={!passiveMode} onClick={() => setPassiveMode(false)}>{t('主动模式')}</button>
+                      <button type="button" className={passiveMode ? 'active' : ''} role="radio" aria-checked={passiveMode} onClick={() => setPassiveMode(true)}>{t('Passive 模式')}</button>
+                    </div>
+                  </div>
+                  {passiveMode && <div className="bootstrap-passive-guidance"><TriangleAlert size={16} /><p><b>{t('第一次运行需要由你开始')}</b><span>{t('初始化完成后，请在管理员总览点击“继续运行”。第一次唤醒会参与形成她对这个世界最初的记忆。')}</span></p></div>}
+                </div>
+              </section>
             </div>
-            {customModel && <div className="bootstrap-model-warning bootstrap-model-capabilities"><TriangleAlert size={17} /><div><b>{t('声明这个自定义模型的能力')}</b><p>{t('初始化不会发起可能计费的在线探测。请按当前 API 服务的实际能力选择；主模型必须支持工具调用。')}</p><div className="model-capability-toggles">
-              <label><input type="checkbox" checked={customModelCapabilities.tools} onChange={e => setCustomModelCapabilities(current => ({ ...current, tools: e.target.checked }))} /><span>{t('工具调用')}<small>{t('主模型必需')}</small></span></label>
-              <label><input type="checkbox" checked={customModelCapabilities.vision} onChange={e => setCustomModelCapabilities(current => ({ ...current, vision: e.target.checked, video: e.target.checked ? current.video : false }))} /><span>{t('图片理解')}<small>{t('接受图片输入')}</small></span></label>
-              <label><input type="checkbox" checked={customModelCapabilities.video} onChange={e => setCustomModelCapabilities(current => ({ ...current, video: e.target.checked, vision: e.target.checked ? true : current.vision }))} /><span>{t('视频理解')}<small>{t('接受原生视频输入')}</small></span></label>
-            </div>{!customModelCapabilities.tools && <p className="field-error" role="alert">{t('当前模型不能作为主模型：请确认它支持工具调用，或选择其他模型。')}</p>}</div></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
             <div className="bootstrap-submit-row">
               <button type="button" className="bootstrap-advanced-trigger" onClick={event => openAdvanced('llm', event.currentTarget)}><SlidersHorizontal size={16} /><span><b>{t('高级初始化')}</b><small>{t('全部参数')}</small></span></button>
@@ -715,17 +761,32 @@ function UsageAnalyticsPage({ onOpenLogs, pricingHref }: {
 
 function Models() {
   const { data, error, loading, reload, setData } = useLoad(() => api<Json>('/api/admin/model'), []);
+  const catalog = useLoad(() => api<Json>('/api/admin/model/catalog'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
   const [switchError, setSwitchError] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
-  const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const selectedCatalog = (catalog.data?.providers || []).find((item: Json) => item.name === switchTo.provider);
+  const switchModels: string[] = selectedCatalog?.models || [];
+  const refreshCatalog = async () => {
+    setRefreshingCatalog(true);
+    try {
+      const next = await api<Json>('/api/admin/model/catalog/refresh', { method: 'POST', body: JSON.stringify({}) });
+      catalog.setData(next);
+    } catch (catalogError) {
+      setSwitchError(catalogError instanceof Error ? catalogError.message : t('模型目录刷新失败'));
+    } finally {
+      setRefreshingCatalog(false);
+    }
+  };
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
-    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
     setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
   };
   const switchModel = async () => {
@@ -741,19 +802,20 @@ function Models() {
     }
   };
   if (loading || !draft) return <Loading error={error} />;
-  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); n[a][b] = value; return n; });
+  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; });
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button></div>
-      {switchError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError}</span></div>}
+      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => setSwitchTo({ ...switchTo, model_id: next })} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
+      <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
+      {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">
-        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.summary.model} onChange={e => set('summary.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
+        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.summary.model} onChange={e => set('summary.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.summary.thinking_effort || ''} onChange={e => set('summary.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
       <Panel title="视觉理解" note="为纯文本主模型提供图片分析能力。">
-        <div className="field-grid"><Field label="Provider"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型"><input value={draft.vision.model} onChange={e => set('vision.model', e.target.value)} /></Field><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
+        <div className="field-grid"><Field label="Provider" hint="留空时关闭视觉分析"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="视觉分析使用该模型"><input value={draft.vision.model} onChange={e => set('vision.model', e.target.value)} /></Field><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.vision.thinking_effort || ''} onChange={e => set('vision.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
     </div>
     <Panel title="记忆 LLM（mem0 抽取）" note="控制记忆提取/去重推断使用的模型；留空跟随主线，修改后立即生效。">
@@ -1001,6 +1063,36 @@ const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   PALACES: '已加载 Palace 的可选注册表',
 };
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
+
+const LLM_CONFIG_FIELD_ORDER = [
+  'default_provider',
+  'default_model',
+  'max_tokens',
+  'thinking_effort',
+  'summary_provider',
+  'summary_model',
+  'summary_thinking',
+  'summary_thinking_effort',
+  'fallbacks',
+  'vision_provider',
+  'vision_model',
+  'vision_thinking',
+  'vision_thinking_effort',
+  'managed_providers',
+  'model_prices',
+];
+
+function orderedConfigEntries(group: string, value: Json): [string, unknown][] {
+  if (group !== 'llm' || !value || Array.isArray(value) || typeof value !== 'object') {
+    return Object.entries(value || {});
+  }
+  const rank = new Map(LLM_CONFIG_FIELD_ORDER.map((key, index) => [key, index]));
+  return Object.entries(value).sort(([left], [right]) => {
+    const leftRank = rank.get(left) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = rank.get(right) ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank || left.localeCompare(right);
+  });
+}
 type DesktopUpdateSourceConfig = {
   id: string;
   name: string;
@@ -1203,13 +1295,16 @@ const CONFIG_LABELS: Record<string, string> = {
   'llm.default_provider': '启动时使用的 Provider',
   'llm.default_model': '启动时使用的模型',
   'llm.max_tokens': '单次输出上限',
+  'llm.thinking_effort': '主线思考强度',
   'llm.summary_provider': '摘要 Provider',
   'llm.summary_model': '摘要模型',
   'llm.summary_thinking': '摘要 Thinking',
+  'llm.summary_thinking_effort': '摘要思考强度',
   'llm.fallbacks': '主模型降级链',
   'llm.vision_provider': '视觉 Provider',
   'llm.vision_model': '视觉模型',
   'llm.vision_thinking': '视觉 Thinking',
+  'llm.vision_thinking_effort': '视觉思考强度',
   'i18n.locale': '模型与运行时语言',
   'memory.db_path': '记忆数据目录',
   'memory.short_term_max_tokens': '短期上下文容量',
@@ -1351,7 +1446,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('令牌保存在 sessionStorage，关闭标签页后不会长期留存。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{Object.entries(draft[group] || {}).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
@@ -1365,7 +1460,7 @@ function Settings() {
             const status = data.secret_status[secretPath];
             return <article className="provider-row" key={index}>
               <Field label="连接名称" hint="在模型编排中引用的名称"><input value={provider.name || ''} onChange={e => changeProvider(index, 'name', e.target.value)} placeholder={t('例如 openai-work')} /></Field>
-              <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax'].map(type => <option key={type}>{type}</option>)}</select></Field>
+              <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax', 'opencode-go', 'openai_compatible'].map(type => <option key={type} value={type}>{t(PROVIDER_LABELS[type] || type)}</option>)}</select></Field>
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>
@@ -1374,6 +1469,7 @@ function Settings() {
             </article>;
           }) : <div className="provider-empty">{t('还没有可用的 Provider 连接。点击“添加连接”配置模型服务。')}</div>}
         </div>;
+        if (group === 'llm' && key.endsWith('thinking_effort')) return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射"><select value={String(value || '')} onChange={e => change(key, e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>;
         if (path === 'llm.default_provider') return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(String(value)) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>;
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}</div></>}
@@ -1668,7 +1764,7 @@ function bubbleHistoryMessages(events: Json[]) {
     const common = { timestamp: event.ts, index, source: '并行思考' };
     if (event.type === 'tool_call' || event.type === 'tool_result') return [];
     if (event.type === 'message_in') return [{ ...common, role: event.participant_id === 'system' ? 'system' : 'user', source: event.source || '并行思考', content: event.content }];
-    if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : '' }) }];
+    if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : event.thinking_effort ? `（${event.thinking_effort}）` : '' }) }];
     if (event.type === 'llm_response') return [{
       ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage,
       stop_reason: event.stop_reason,

@@ -35,9 +35,9 @@ def _llm(**kwargs) -> LLMConfig:
 
 @pytest.fixture(autouse=True)
 def stub_zhipu_sdk_client(monkeypatch):
-    monkeypatch.setattr("coworker.brain.zhipu_provider.openai.AsyncOpenAI", lambda **_: object())
+    monkeypatch.setattr("coworker.brain.openai_chat.openai.AsyncOpenAI", lambda **_: object())
     monkeypatch.setattr(
-        "coworker.brain.zhipu_provider.openai.DefaultAsyncHttpxClient",
+        "coworker.brain.openai_chat.openai.DefaultAsyncHttpxClient",
         lambda **_: object(),
     )
 
@@ -46,7 +46,16 @@ def stub_zhipu_sdk_client(monkeypatch):
 
 def test_type_registry_contains_all_builtins():
     types = available_types()
-    for t in ("anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"):
+    for t in (
+        "anthropic",
+        "openai",
+        "openai_compatible",
+        "opencode-go",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "minimax",
+    ):
         assert t in types
     assert BaseLLMProvider._TYPE_REGISTRY["zhipu"] is ZhipuProvider
 
@@ -71,6 +80,23 @@ def test_build_provider_uses_name_as_registry_key():
 def test_build_provider_defaults_name_to_type():
     p = build_provider("zhipu", "k")
     assert p.provider_name == "zhipu"
+
+
+def test_build_provider_supports_opencode_go_and_generic_openai_compatible():
+    opencode = build_provider("opencode-go", "k")
+    assert opencode.provider_type == "opencode-go"
+    assert "deepseek-v4-flash" in available_models("opencode-go")
+
+    generic = build_provider(
+        "openai_compatible",
+        "k",
+        base_url="http://127.0.0.1:8000/v1",
+        name="vllm",
+        default_model="Qwen3-32B",
+    )
+    assert generic.provider_type == "openai_compatible"
+    assert generic.default_model == "Qwen3-32B"
+    assert generic.default_base_url is None
 
 
 def test_build_provider_unknown_type_lists_available():
@@ -265,6 +291,19 @@ def test_resolved_flat_only():
     assert specs["zhipu"].api_key == "zk"
 
 
+def test_resolved_flat_supports_opencode_go_hyphenated_type():
+    cfg = _llm(opencode_go_api_key="ok", opencode_go_base_url="https://proxy.test/v1")
+    specs = {s.name: s for s in cfg.resolved_providers()}
+    assert specs["opencode-go"].type == "opencode-go"
+    assert specs["opencode-go"].api_key == "ok"
+    assert specs["opencode-go"].base_url == "https://proxy.test/v1"
+
+
+def test_opencode_go_key_falls_back_to_official_env(monkeypatch):
+    monkeypatch.setenv("OPENCODE_API_KEY", "official-key")
+    assert _llm().opencode_go_api_key == "official-key"
+
+
 def test_resolved_empty_when_nothing_configured():
     assert _llm().resolved_providers() == []
 
@@ -274,6 +313,30 @@ def test_summary_model_config_fields_are_loaded():
     assert cfg.summary_provider == "zhipu-b"
     assert cfg.summary_model == "glm-4.7"
     assert cfg.summary_thinking is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("thinking_effort", "HIGH"),
+        ("summary_thinking_effort", "xhigh"),
+        ("vision_thinking_effort", "max"),
+    ],
+)
+def test_thinking_effort_fields_normalize_and_accept_canonical_levels(field, value):
+    cfg = _llm(**{field: value})
+    assert getattr(cfg, field) == value.lower()
+
+
+def test_thinking_effort_rejects_unknown_level():
+    with pytest.raises(ValueError, match="思考强度"):
+        _llm(thinking_effort="ultra")
+
+
+def test_thinking_effort_empty_means_provider_default():
+    assert _llm().thinking_effort == ""
+    assert _llm().summary_thinking_effort == ""
+    assert _llm().vision_thinking_effort == ""
 
 
 def test_vision_thinking_defaults_to_enabled_and_can_be_disabled():
@@ -294,12 +357,19 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     write_runtime_model_config(
         path,
         RuntimeModelConfig.model_validate({
-            "summary": {"provider": "zhipu-b", "model": "glm-4.7", "thinking": True},
+            "thinking_effort": "medium",
+            "summary": {
+                "provider": "zhipu-b",
+                "model": "glm-4.7",
+                "thinking": True,
+                "thinking_effort": "low",
+            },
             "fallbacks": ["zhipu-b", "deepseek/deepseek-chat"],
             "vision": {
                 "provider": "anthropic",
                 "model": "claude-sonnet-4-6",
                 "thinking": False,
+                "thinking_effort": "minimal",
             },
         }),
     )
@@ -308,13 +378,16 @@ def test_runtime_model_config_file_applies_to_llm_config(tmp_path):
     runtime = apply_runtime_model_config_file(cfg)
 
     assert runtime is not None
+    assert cfg.thinking_effort == "medium"
     assert cfg.summary_provider == "zhipu-b"
     assert cfg.summary_model == "glm-4.7"
     assert cfg.summary_thinking is True
+    assert cfg.summary_thinking_effort == "low"
     assert cfg.fallbacks == ["zhipu-b", "deepseek/deepseek-chat"]
     assert cfg.vision_provider == "anthropic"
     assert cfg.vision_model == "claude-sonnet-4-6"
     assert cfg.vision_thinking is False
+    assert cfg.vision_thinking_effort == "minimal"
 
 
 def test_runtime_model_config_missing_file_is_ignored(tmp_path):
@@ -604,6 +677,8 @@ async def test_memory_model_binding_reconfigures_after_active_switch():
         ("qwen", "openai"),
         ("zhipu", "openai"),
         ("minimax", "openai"),
+        ("opencode-go", "openai"),
+        ("openai_compatible", "openai"),
     ],
 )
 def test_provider_declares_mem0_compatible_api_dialect(

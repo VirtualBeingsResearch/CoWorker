@@ -98,6 +98,31 @@ def test_on_entry_keeps_thinking_flag():
     }
 
 
+def test_on_entry_keeps_thinking_effort():
+    store = _FakeLogStore()
+    collector = RuntimeEventCollector(store, redact=lambda s: s)  # type: ignore[arg-type]
+
+    q = collector.register()
+    collector.on_entry({
+        "type": "thinking_start",
+        "seq": 7,
+        "ts": "2026-06-16T12:00:00",
+        "cycle": 3,
+        "thinking": True,
+        "thinking_effort": "high",
+    })
+    event = q.get_nowait()
+
+    assert event == {
+        "seq": 7,
+        "ts": "2026-06-16T12:00:00",
+        "type": "thinking_start",
+        "cycle": 3,
+        "thinking": True,
+        "thinking_effort": "high",
+    }
+
+
 def test_query_memory_tool_call_exposes_query_summary_args():
     store = _FakeLogStore()
     collector = RuntimeEventCollector(store, redact=lambda s: s.replace("alice", "Alice"))  # type: ignore[arg-type]

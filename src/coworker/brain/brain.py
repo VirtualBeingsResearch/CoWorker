@@ -8,6 +8,7 @@ from typing import Any
 from loguru import logger
 
 from coworker.brain.base import BaseLLMProvider
+from coworker.brain.thinking import normalize_thinking_effort
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
@@ -22,6 +23,9 @@ _WEEKDAY_KEYS = [
     "calendar.saturday",
     "calendar.sunday",
 ]
+
+# 单个 Provider 远端模型目录拉取的最长等待时间；超时按失败缓存，不阻塞管理页面。
+_MODEL_CATALOG_FETCH_TIMEOUT = 30.0
 
 
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
@@ -54,12 +58,15 @@ class Brain:
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         fallbacks: list[str] | None = None,
         thinking: bool = True,
+        thinking_effort: str = "",
         summary_provider: str = "",
         summary_model: str = "",
         summary_thinking: bool = False,
+        summary_thinking_effort: str = "",
         vision_provider: str = "",
         vision_model: str = "",
         vision_thinking: bool = True,
+        vision_thinking_effort: str = "",
     ) -> None:
         self._providers: dict[str, BaseLLMProvider] = {}
         self._active_provider_name = default_provider
@@ -67,12 +74,15 @@ class Brain:
         self._summary_provider_name = summary_provider
         self._summary_model = summary_model
         self._summary_thinking = summary_thinking
+        self._summary_thinking_effort = normalize_thinking_effort(summary_thinking_effort) or ""
         self._vision_provider_name = vision_provider
         self._vision_model = vision_model
         self._vision_thinking = vision_thinking
+        self._vision_thinking_effort = normalize_thinking_effort(vision_thinking_effort) or ""
         self._message_time_prefix = message_time_prefix
         self._max_tokens = max_tokens
         self._thinking = thinking
+        self._thinking_effort = normalize_thinking_effort(thinking_effort) or ""
         self._lock = asyncio.Lock()
         self._model_switch_listener_lock = asyncio.Lock()
         # 降级链原始配置（"name" 或 "name/model"）；运行时按当前注册表解析，构造时不解析。
@@ -94,6 +104,10 @@ class Brain:
     @property
     def thinking(self) -> bool:
         return self._thinking
+
+    @property
+    def thinking_effort(self) -> str:
+        return self._thinking_effort
 
     def register_provider(self, provider: BaseLLMProvider) -> None:
         self._providers[provider.provider_name] = provider
@@ -204,6 +218,10 @@ class Brain:
         return self._summary_thinking
 
     @property
+    def summary_thinking_effort(self) -> str:
+        return self._summary_thinking_effort
+
+    @property
     def fallbacks(self) -> list[str]:
         return list(self._fallbacks)
 
@@ -218,6 +236,10 @@ class Brain:
     @property
     def vision_thinking(self) -> bool:
         return self._vision_thinking
+
+    @property
+    def vision_thinking_effort(self) -> str:
+        return self._vision_thinking_effort
 
     @property
     def active_provider(self) -> BaseLLMProvider | None:
@@ -301,38 +323,89 @@ class Brain:
             "active": {
                 "provider": self._active_provider_name,
                 "model": self._active_model,
+                "thinking": self._thinking,
+                "thinking_effort": self._thinking_effort,
             },
+            "thinking_effort": self._thinking_effort,
             "summary": {
                 "provider": self._summary_provider_name,
                 "model": self._summary_model,
                 "thinking": self._summary_thinking,
+                "thinking_effort": self._summary_thinking_effort,
             },
             "fallbacks": list(self._fallbacks),
             "vision": {
                 "provider": self._vision_provider_name,
                 "model": self._vision_model,
                 "thinking": self._vision_thinking,
+                "thinking_effort": self._vision_thinking_effort,
                 "enabled": bool(self._vision_provider_name and self._vision_model),
             },
         }
 
+    def _catalog_providers(self, provider_name: str | None = None) -> list[BaseLLMProvider]:
+        if provider_name is None:
+            return list(self._providers.values())
+        provider = self._providers.get(provider_name)
+        if provider is None:
+            raise ProviderNotFoundError(provider_name)
+        return [provider]
+
+    def model_catalog_snapshot(self, provider_name: str | None = None) -> dict[str, Any]:
+        """Static + cached-remote model catalogs for registered providers."""
+        return {
+            "providers": [
+                provider.model_catalog()
+                for provider in self._catalog_providers(provider_name)
+            ]
+        }
+
+    async def refresh_model_catalog(self, provider_name: str | None = None) -> dict[str, Any]:
+        """Fetch remote model lists for one or all registered providers."""
+        providers = self._catalog_providers(provider_name)
+
+        async def refresh_one(provider: BaseLLMProvider) -> None:
+            try:
+                await asyncio.wait_for(
+                    provider.fetch_models(),
+                    timeout=_MODEL_CATALOG_FETCH_TIMEOUT,
+                )
+            except Exception as e:
+                provider.mark_remote_models_error(e)
+
+        await asyncio.gather(*(refresh_one(provider) for provider in providers))
+        return self.model_catalog_snapshot(provider_name)
+
     async def update_model_config(
         self,
         *,
+        thinking_effort: str | None = None,
         summary_provider: str | None = None,
         summary_model: str | None = None,
         summary_thinking: bool | None = None,
+        summary_thinking_effort: str | None = None,
         fallbacks: list[str] | None = None,
         vision_provider: str | None = None,
         vision_model: str | None = None,
         vision_thinking: bool | None = None,
+        vision_thinking_effort: str | None = None,
     ) -> dict[str, Any]:
+        next_thinking_effort = (
+            self._thinking_effort
+            if thinking_effort is None
+            else normalize_thinking_effort(thinking_effort) or ""
+        )
         next_summary_provider = (
             self._summary_provider_name if summary_provider is None else summary_provider.strip()
         )
         next_summary_model = self._summary_model if summary_model is None else summary_model.strip()
         next_summary_thinking = (
             self._summary_thinking if summary_thinking is None else bool(summary_thinking)
+        )
+        next_summary_thinking_effort = (
+            self._summary_thinking_effort
+            if summary_thinking_effort is None
+            else normalize_thinking_effort(summary_thinking_effort) or ""
         )
         next_fallbacks = (
             self._fallbacks if fallbacks is None else self._validate_fallbacks(fallbacks)
@@ -344,18 +417,26 @@ class Brain:
         next_vision_thinking = (
             self._vision_thinking if vision_thinking is None else bool(vision_thinking)
         )
+        next_vision_thinking_effort = (
+            self._vision_thinking_effort
+            if vision_thinking_effort is None
+            else normalize_thinking_effort(vision_thinking_effort) or ""
+        )
 
         self._validate_summary_config(next_summary_provider, next_summary_model)
         self._validate_vision_config(next_vision_provider, next_vision_model)
 
         async with self._lock:
+            self._thinking_effort = next_thinking_effort
             self._summary_provider_name = next_summary_provider
             self._summary_model = next_summary_model
             self._summary_thinking = next_summary_thinking
+            self._summary_thinking_effort = next_summary_thinking_effort
             self._fallbacks = list(next_fallbacks)
             self._vision_provider_name = next_vision_provider
             self._vision_model = next_vision_model
             self._vision_thinking = next_vision_thinking
+            self._vision_thinking_effort = next_vision_thinking_effort
         return self.model_config_snapshot()
 
     async def count_tokens(self, messages: list[Message]) -> int:
@@ -400,6 +481,7 @@ class Brain:
         max_tokens: int,
         tries: int,
         thinking: bool = True,
+        thinking_effort: str | None = None,
     ) -> LLMResponse:
         """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
         last_err: Exception | None = None
@@ -410,7 +492,12 @@ class Brain:
                     raise ProviderNotFoundError(provider_name)
                 provider.set_model(model)
                 return await provider.complete(
-                    messages, system_prompt, tools, max_tokens, thinking=thinking
+                    messages,
+                    system_prompt,
+                    tools,
+                    max_tokens,
+                    thinking=thinking,
+                    thinking_effort=thinking_effort,
                 )
             except (ProviderNotFoundError, ModelNotSupportedError):
                 raise
@@ -433,6 +520,7 @@ class Brain:
         max_tokens: int | None = None,
         _persist_switch: bool = True,
         _thinking_override: bool | None = None,
+        _thinking_effort_override: str | None = None,
     ) -> LLMResponse:
 
         if self._message_time_prefix:
@@ -452,6 +540,11 @@ class Brain:
                     tokens,
                     tries,
                     thinking=self._thinking if _thinking_override is None else _thinking_override,
+                    thinking_effort=(
+                        self._thinking_effort
+                        if _thinking_effort_override is None
+                        else _thinking_effort_override
+                    ),
                 )
             except Exception as e:
                 last_err = e
@@ -506,6 +599,7 @@ class Brain:
                 max_tokens=max_tokens,
                 _persist_switch=False,
                 _thinking_override=self._summary_thinking,
+                _thinking_effort_override=self._summary_thinking_effort,
             )
 
         provider_name, model = summary_target
@@ -520,6 +614,7 @@ class Brain:
             max_tokens if max_tokens is not None else self._max_tokens,
             tries=3,
             thinking=self._summary_thinking,
+            thinking_effort=self._summary_thinking_effort,
         )
         response.provider = provider_name
         return response
@@ -566,12 +661,17 @@ class Brain:
             [],
             max_tokens if max_tokens is not None else self._max_tokens,
             thinking=self._vision_thinking,
+            thinking_effort=self._vision_thinking_effort,
         )
         resp.provider = vision_provider
         self._notify_usage_listeners(
             self._vision_usage_listeners,
             resp,
-            usage_context or {},
+            {
+                "thinking": self._vision_thinking,
+                "thinking_effort": self._vision_thinking_effort,
+                **(usage_context or {}),
+            },
         )
         return resp.content
 
@@ -710,7 +810,11 @@ class Brain:
         self._notify_usage_listeners(
             self._summary_usage_listeners,
             response,
-            {"context_hint": context_hint},
+            {
+                "context_hint": context_hint,
+                "thinking": self._summary_thinking,
+                "thinking_effort": self._summary_thinking_effort,
+            },
         )
         if response.content and response.content.startswith("```json"):
             # 兼容部分模型喜欢加 markdown 代码块的输出

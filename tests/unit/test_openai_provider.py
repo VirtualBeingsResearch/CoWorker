@@ -67,6 +67,36 @@ class TestOpenAIProvider:
         assert kwargs["max_output_tokens"] == DEFAULT_LLM_MAX_TOKENS
         assert kwargs["instructions"] == "You are helpful."
         assert kwargs["tools"] == [{"type": "function", **tools[0]}]
+        assert kwargs["reasoning"] == {"effort": "high", "summary": "auto"}
+
+    @pytest.mark.asyncio
+    async def test_complete_passes_configured_thinking_effort(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking_effort="xhigh",
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {"effort": "xhigh", "summary": "auto"}
+
+    @pytest.mark.asyncio
+    async def test_complete_disables_thinking_for_false_flag(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking=False,
+            thinking_effort="high",
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {"effort": "none"}
 
     @pytest.mark.asyncio
     async def test_complete_reports_cached_tokens(self):

@@ -390,6 +390,16 @@ html:has(.admin-login),
 .bootstrap-footnote code { font-family: var(--admin-data); font-size: .92em; }
 
 .bootstrap-form { display: grid; gap: 16px; margin-top: 22px; }
+.bootstrap-sections { display: grid; gap: 14px; min-width: 0; }
+.bootstrap-section { min-width: 0; padding: 16px; border: 1px solid var(--admin-line); border-radius: 14px; background: color-mix(in oklch, var(--admin-paper) 42%, var(--admin-surface)); }
+.bootstrap-section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.bootstrap-section-index { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 99px; color: var(--admin-vital); background: var(--admin-soft); font: 700 10px var(--admin-data); }
+.bootstrap-section-head h3 { margin: 1px 0 0; font-size: 14px; font-weight: 680; }
+.bootstrap-section-head p { margin: 3px 0 0; color: var(--admin-muted); font-size: 11px; line-height: 1.5; }
+.bootstrap-section .bootstrap-grid { gap: 14px; }
+.bootstrap-section .bootstrap-model-warning { margin-top: 14px; }
+.bootstrap-section .bootstrap-runtime-defaults { margin-top: 14px; }
+.bootstrap-section .bootstrap-name-field { padding: 0; }
 .bootstrap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .bootstrap-grid label { min-width: 0; }
 .bootstrap-grid > .wide { grid-column: 1 / -1; }
@@ -429,6 +439,10 @@ html:has(.admin-login),
 .bootstrap-passive-guidance span { margin-top: 4px; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
 .bootstrap-name-field label { display: block; }
 .bootstrap-name-field > p { margin: 7px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
+.bootstrap-section .bootstrap-name-field label > span { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.bootstrap-section .bootstrap-name-field label > span em { margin-left: 5px; color: var(--admin-muted); font-size: 10px; font-style: normal; font-weight: 500; }
+.bootstrap-section .bootstrap-name-field input { width: 100%; height: 46px; padding: 0 13px; border: 1px solid var(--admin-line); border-radius: 10px; outline: 0; color: var(--admin-ink); background: white; }
+.bootstrap-section .bootstrap-grid label > small { display: block; margin-top: 6px; color: var(--admin-muted); font-size: 10px; line-height: 1.45; }
 .bootstrap-name-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
 .bootstrap-name-examples small { color: var(--admin-muted); font-size: 9px; }
 .bootstrap-name-examples > span { padding: 5px 9px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-paper) 55%, var(--admin-surface)); font-size: 10px; }
@@ -436,6 +450,12 @@ html:has(.admin-login),
 .bootstrap-grid :is(input, select):focus { border-color: color-mix(in oklch, var(--admin-vital) 58%, var(--admin-line)); }
 .bootstrap-model-field { position: relative; min-width: 0; }
 .bootstrap-model-field > label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.bootstrap-model-refresh { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bootstrap-model-refresh .field-error { flex: 1; min-width: 0; font-size: 11px; line-height: 1.45; color: var(--admin-red); overflow-wrap: anywhere; }
+.bootstrap-base-url-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bootstrap-base-url-row input { flex: 1; min-width: 0; }
+.bootstrap-base-url-row .ghost.mini { flex: 0 0 auto; height: 46px; padding: 0 12px; border-radius: 10px; }
+.bootstrap-grid label > .field-error { display: block; margin-top: 6px; font-size: 11px; line-height: 1.45; color: var(--admin-red); }
 .bootstrap-submit-row { display: grid; grid-template-columns: minmax(150px, .42fr) minmax(0, 1fr); gap: 10px; }
 .bootstrap-submit-row > .primary { min-height: 48px; }
 .bootstrap-advanced-trigger { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 12px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-muted); background: var(--admin-surface); text-align: left; cursor: pointer; }
@@ -1003,10 +1023,11 @@ html:has(.admin-login),
 .admin-usage-state { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 184px; color: var(--admin-muted); font-size: 11px; }
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.admin-usage-metrics.compact { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.admin-usage-metrics.compact article { grid-column: span 2; }
+.admin-usage-metrics.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: 1fr; align-items: stretch; }
+.admin-usage-metrics.compact article { grid-column: span 1; min-height: 90px; }
 .admin-usage-metrics.compact article.total,
-.admin-usage-metrics.compact article.cost { grid-column: span 3; min-height: 112px; }
+.admin-usage-metrics.compact article.cost { grid-column: span 1; min-height: 90px; }
+.admin-usage-metrics .currency-cost-summary.empty { align-self: start; display: inline-flex; align-items: center; height: 18px; min-height: 0; margin-top: 10px; padding: 0; color: var(--admin-muted); font: 680 14px/18px var(--admin-data); }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article.cost { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-sky) 8%, var(--admin-surface)), var(--admin-surface)); }
@@ -1017,8 +1038,9 @@ html:has(.admin-login),
 .admin-usage-metrics span { overflow: hidden; padding-right: 14px; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-usage-metrics strong { margin-top: 10px; font: 680 20px/1 var(--admin-data); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .admin-usage-metrics small { overflow: hidden; margin-top: 7px; color: var(--admin-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.admin-usage-metrics .currency-cost-summary { display: flex; overflow: visible; margin-top: 10px; padding-right: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); text-overflow: clip; white-space: normal; }
-.admin-usage-metrics .currency-cost-summary > span { font: inherit; }
+.admin-usage-metrics .currency-cost-summary { display: flex; flex-wrap: nowrap; overflow: hidden; margin-top: 10px; padding-right: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); text-overflow: clip; white-space: nowrap; }
+.admin-usage-metrics .currency-cost-summary > span { flex: 0 1 auto; font: inherit; }
+.admin-usage-metrics .currency-cost-summary > button { flex: 0 0 auto; }
 .admin-usage-notice { display: flex; align-items: center; gap: 8px; margin-top: 9px; padding: 8px 10px; border-radius: 8px; color: var(--admin-muted); background: var(--admin-paper); font-size: 10px; }
 .admin-usage-notice.amber { color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
 .admin-usage-quality { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(110px, .65fr) auto; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--admin-line); }
@@ -1098,9 +1120,9 @@ html:has(.admin-login),
 .usage-attention article small { overflow: hidden; margin-top: 3px; color: var(--admin-muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .usage-attention.clear { display: flex; align-items: center; min-height: 37px; border-color: color-mix(in oklch, var(--admin-vital) 22%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 4%, var(--admin-surface)); }
 .usage-attention.clear > header { width: auto; color: var(--admin-vital); }
-.usage-analytics-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.usage-analytics-metric { position: relative; display: grid; grid-column: span 2; align-content: start; min-width: 0; min-height: 104px; padding: 12px; background: var(--admin-surface); }
-.usage-analytics-metric.featured { grid-column: span 3; min-height: 122px; }
+.usage-analytics-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
+.usage-analytics-metric { position: relative; display: grid; grid-column: span 1; align-content: start; min-width: 0; height: 116px; min-height: 116px; padding: 12px; background: var(--admin-surface); }
+.usage-analytics-metric.featured { grid-column: span 1; height: 116px; min-height: 116px; }
 .usage-analytics-metric[type="button"] { border: 0; border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .usage-analytics-metric[type="button"]:hover { z-index: 1; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
 .usage-analytics-metric[type="button"]:focus-visible { z-index: 2; outline: 2px solid var(--admin-vital); outline-offset: -2px; }
@@ -1128,7 +1150,7 @@ html:has(.admin-login),
 .currency-cost-summary > button { display: inline-grid; place-items: center; min-width: 25px; min-height: 25px; padding: 0 6px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: var(--admin-paper); font: 650 9px var(--admin-data); letter-spacing: 0; cursor: pointer; }
 .currency-cost-summary > button:hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
 .currency-cost-summary > button:focus-visible { outline: 2px solid var(--admin-vital); outline-offset: 2px; }
-.currency-cost-summary.empty { color: var(--admin-muted); font-size: 18px; }
+.currency-cost-summary.empty { align-self: start; height: 18px; min-height: 0; color: var(--admin-muted); font-size: 18px; line-height: 18px; }
 .usage-pricing-shortcut { display: inline-flex; align-items: center; gap: 3px; width: max-content; max-width: 100%; margin-top: 8px; color: var(--admin-vital); font-size: 9px; font-weight: 680; line-height: 1.35; text-decoration: none; }
 .usage-pricing-shortcut:hover { text-decoration: underline; }
 .usage-pricing-shortcut:focus-visible { border-radius: 3px; outline: 2px solid var(--admin-vital); outline-offset: 2px; }
@@ -1284,7 +1306,7 @@ html:has(.admin-login),
 @media (max-width: 1250px) {
   .usage-analytics-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .usage-analytics-metric,
-  .usage-analytics-metric.featured { grid-column: span 2; }
+  .usage-analytics-metric.featured { grid-column: span 1; }
   .usage-execution-list { grid-template-columns: 1fr; }
 }
 
@@ -1406,6 +1428,10 @@ html:has(.admin-login),
 .active-model strong { margin-top: 5px; font: 650 15px var(--admin-data); }
 
 .inline-form { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 10px; margin-top: 15px; }
+.inline-form-actions { display: flex; gap: 8px; align-items: stretch; }
+.inline-form-actions .ghost.mini { flex: 0 0 auto; min-height: 42px; padding: 0 12px; border-radius: 9px; }
+.inline-form .editable-combobox { min-width: 0; }
+.inline-form .editable-combobox > input { min-height: 42px; }
 .inline-form input,
 .inline-form select,
 .admin-input,
@@ -3651,4 +3677,17 @@ html:has(.admin-login),
   .admin-usage-quality { grid-template-columns: 1fr auto; }
   .admin-usage-quality > div:first-child { grid-column: 1 / -1; }
   .overview-operation-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Native select arrows sit flush against the right edge; use a custom chevron
+   with comfortable padding across admin surfaces. */
+.admin-shell select,
+.admin-login select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23878a94' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px auto;
 }

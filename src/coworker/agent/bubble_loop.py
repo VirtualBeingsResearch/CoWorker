@@ -201,6 +201,12 @@ class BubbleMiniLoop:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                thinking=(
+                    bool(meta.get("thinking"))
+                    if meta.get("thinking") is not None
+                    else None
+                ),
+                thinking_effort=str(meta.get("thinking_effort") or "") or None,
             )
         )
         self._brain.add_vision_usage_listener(
@@ -209,6 +215,12 @@ class BubbleMiniLoop:
                 model=response.model,
                 usage=response.usage,
                 label=str(meta.get("label") or ""),
+                thinking=(
+                    bool(meta.get("thinking"))
+                    if meta.get("thinking") is not None
+                    else None
+                ),
+                thinking_effort=str(meta.get("thinking_effort") or "") or None,
             )
         )
         usage_stats = self._usage_stats
@@ -272,7 +284,11 @@ class BubbleMiniLoop:
             )
 
             if self._ilog:
-                self._ilog.log_thinking_start(cycle, thinking=bool(self._brain.thinking))
+                self._ilog.log_thinking_start(
+                    cycle,
+                    thinking=bool(self._brain.thinking),
+                    thinking_effort=self._brain.thinking_effort or None,
+                )
             response = await self._brain.think(
                 messages=self._stm.build_context(),
                 system_prompt=self._system_prompt,
@@ -289,6 +305,7 @@ class BubbleMiniLoop:
                     usage=response.usage,
                     provider=self._brain.current_provider_name,
                     thinking=bool(self._brain.thinking),
+                    thinking_effort=self._brain.thinking_effort or None,
                 )
 
             self._stm.primary.append(

@@ -50,9 +50,11 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | 默认 LLM Provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | 默认模型 |
 | `LLM__MAX_TOKENS` | `8192` | 单次 LLM 响应的最大输出 token 数 |
+| `LLM__THINKING_EFFORT` | 空（Provider 默认） | 主线思考强度，取值 `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`；由各 Provider 映射到原生档位 |
 | `LLM__SUMMARY_PROVIDER` | 空 | 摘要/压缩专用 provider；留空则沿用当前主线 provider |
 | `LLM__SUMMARY_MODEL` | 空 | 摘要/压缩专用模型；只填它会复用当前 provider，留空且已配置 `SUMMARY_PROVIDER` 时使用该 provider 的 `default_model` |
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
+| `LLM__SUMMARY_THINKING_EFFORT` | 空（Provider 默认） | 摘要/压缩思考强度，档位同 `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
 | `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
@@ -67,11 +69,14 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__ZHIPU_BASE_URL` | 空（未配置时使用智谱 OpenAI 兼容地址） | 智谱自定义 Base URL |
 | `LLM__MINIMAX_API_KEY` | 空 | MiniMax API Key |
 | `LLM__MINIMAX_BASE_URL` | 空（未配置时使用 MiniMax OpenAI 兼容地址） | MiniMax 自定义 Base URL |
+| `LLM__OPENCODE_GO_API_KEY` | 空（未设置时兜底读取官方 `OPENCODE_API_KEY`） | OpenCode Go 订阅 API Key |
+| `LLM__OPENCODE_GO_BASE_URL` | 空（未配置时使用 `https://opencode.ai/zen/go/v1`） | OpenCode Go 自定义 Base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | 命名 Provider 列表文件（见下方「多实例 Provider」）；文件不存在则忽略 |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改 summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改 thinking / summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
 | `LLM__VISION_PROVIDER` | 空 | 视觉分析工具使用的 provider；留空时 `visual_analyze` 会提示先配置 |
 | `LLM__VISION_MODEL` | 空 | 视觉分析工具使用的模型；分析视频时还需 Provider 声明原生视频能力 |
 | `LLM__VISION_THINKING` | `true` | 视觉分析调用是否启用 thinking；设为 `false` 可使用支持的 Provider 的非思考模式，降低延迟和成本 |
+| `LLM__VISION_THINKING_EFFORT` | 空（Provider 默认） | 视觉分析思考强度，档位同 `LLM__THINKING_EFFORT` |
 
 `LLM__MODEL_PRICES` 的每项包含 `provider`、`model`、三个大写字母的 `currency`，以及
 `input_per_million`、`output_per_million` 和可选的 `cached_input_per_million`。价格必须是
@@ -238,9 +243,10 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 
 ## 支持的模型
 
-内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和
-`minimax`。推荐模型目录只包含对应 Provider 静态标记为支持工具调用的模型；精确列表
-会随代码更新，以首次初始化向导和 [`src/coworker/brain/`](../../src/coworker/brain/)
+内置 Provider 类型为 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu`、`minimax`
+和 `opencode-go`；`openai_compatible` 是无内置目录的通用 OpenAI 兼容类型，模型需通过
+`model_capabilities` 声明。推荐模型目录只包含对应 Provider 静态标记为支持工具调用的模型；
+精确列表会随代码更新，以首次初始化向导和 [`src/coworker/brain/`](../../src/coworker/brain/)
 中的 Provider 实现为准。首次初始化也可以手动输入目录外模型，并声明该连接上的模型是否
 支持工具调用、图片和视频。向导不会发起可能计费的在线能力探测；主模型必须声明支持工具
 调用。初始化后可在“运行设置 → 模型与 Provider”继续维护这些能力。
@@ -259,11 +265,15 @@ Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受�
 ]
 ```
 
-字段：`name`（必填，注册名，需唯一）、`type`（必填，取上面的内置 Provider
-类型之一）、`api_key`、`base_url`（可选）、`default_model`（可选，`switch_model`
-切到该实例但不指定模型时使用），以及 `model_capabilities`（可选的模型能力声明列表）。
+字段：`name`（必填，注册名，需唯一）、`type`（必填，取内置 Provider 类型
+`anthropic` / `openai` / `deepseek` / `qwen` / `zhipu` / `minimax` /
+`opencode-go`，或通用 `openai_compatible`）、`api_key`、`base_url`（可选）、
+`default_model`（可选，`switch_model` 切到该实例但不指定模型时使用），以及
+`model_capabilities`（可选的模型能力声明列表）。
 每条能力声明包含精确 `model` ID 和 `tools`、`vision`、`video` 布尔值；显式声明覆盖
 Provider 类型的内置判断，未声明模型继续使用内置目录。视频能力要求同时启用视觉能力。
+`openai_compatible` 没有内置目录，因此必须配置 `default_model`，并至少为它声明
+`tools` 能力。
 
 - 扁平字段仍然有效，会自动并入为 `name == type` 的默认实例；文件中的同名条目按 `name` 覆盖它。
 - 文件不存在则忽略，老配置零改动照常运行。
