@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.8 - Unreleased
+## 0.3.8 - 2026-08-15
 
 - docs(release): finalize v0.3.7 changelog (#149)
 - feat(container): simplify Docker startup (#150)
