@@ -3654,3 +3654,16 @@ html:has(.admin-login),
   .admin-usage-quality > div:first-child { grid-column: 1 / -1; }
   .overview-operation-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Native select arrows sit flush against the right edge; use a custom chevron
+   with comfortable padding across admin surfaces. */
+.admin-shell select,
+.admin-login select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23878a94' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px auto;
+}
