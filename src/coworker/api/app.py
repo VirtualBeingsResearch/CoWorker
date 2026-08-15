@@ -113,6 +113,8 @@ def _setup_request_allowed(method: str, path: str) -> bool:
         return True
     if path == "/api/admin/session/verify":
         return method == "POST"
+    if path == "/api/admin/model/discover":
+        return method == "POST"
     if path == "/api/admin/bootstrap":
         return method in {"GET", "POST"}
     if path == "/api/bootstrap/reconnect":

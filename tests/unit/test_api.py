@@ -275,6 +275,11 @@ class TestSetupRedirect:
         assert client.post(
             "/api/admin/bootstrap", json={}, follow_redirects=False
         ).status_code != 303
+        assert client.post(
+            "/api/admin/model/discover",
+            json={"provider_type": "openai", "api_key": "sk-test"},
+            follow_redirects=False,
+        ).status_code != 303
 
     def test_guard_can_be_disabled_on_same_app(self, client):
         api_app.set_setup_required(True)
