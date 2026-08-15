@@ -1023,10 +1023,10 @@ html:has(.admin-login),
 .admin-usage-state { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 184px; color: var(--admin-muted); font-size: 11px; }
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
-.admin-usage-metrics.compact { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.admin-usage-metrics.compact article { grid-column: span 2; }
+.admin-usage-metrics.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.admin-usage-metrics.compact article { grid-column: span 1; }
 .admin-usage-metrics.compact article.total,
-.admin-usage-metrics.compact article.cost { grid-column: span 3; min-height: 112px; }
+.admin-usage-metrics.compact article.cost { grid-column: span 1; min-height: 90px; }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article.cost { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-sky) 8%, var(--admin-surface)), var(--admin-surface)); }
