@@ -1185,8 +1185,14 @@ class TestModelConfigAPI:
         assert resp.status_code == 200
         body = resp.json()
         assert body["providers"] == ["mock"]
-        assert body["active"] == {"provider": "mock", "model": "mock-model"}
+        assert body["active"] == {
+            "provider": "mock",
+            "model": "mock-model",
+            "thinking": True,
+            "thinking_effort": "",
+        }
         assert body["vision"]["thinking"] is True
+        assert body["vision"]["thinking_effort"] == ""
         assert body["persisted"] is False
         assert body["override_path"] == str(path)
 
@@ -1200,24 +1206,44 @@ class TestModelConfigAPI:
         resp = client.patch(
             "/model_config",
             json={
-                "summary": {"provider": "mock", "model": "summary-model", "thinking": True},
+                "thinking_effort": "medium",
+                "summary": {
+                    "provider": "mock",
+                    "model": "summary-model",
+                    "thinking": True,
+                    "thinking_effort": "low",
+                },
                 "fallbacks": ["mock/mock-model"],
-                "vision": {"provider": "mock", "model": "vision-model", "thinking": False},
+                "vision": {
+                    "provider": "mock",
+                    "model": "vision-model",
+                    "thinking": False,
+                    "thinking_effort": "minimal",
+                },
             },
         )
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["summary"] == {"provider": "mock", "model": "summary-model", "thinking": True}
+        assert body["thinking_effort"] == "medium"
+        assert body["summary"] == {
+            "provider": "mock",
+            "model": "summary-model",
+            "thinking": True,
+            "thinking_effort": "low",
+        }
         assert body["fallbacks"] == ["mock/mock-model"]
         assert body["vision"]["provider"] == "mock"
         assert body["vision"]["model"] == "vision-model"
         assert body["vision"]["thinking"] is False
+        assert body["vision"]["thinking_effort"] == "minimal"
         assert body["persisted"] is True
         persisted = json.loads(path.read_text(encoding="utf-8"))
+        assert persisted["thinking_effort"] == "medium"
         assert persisted["summary"]["model"] == "summary-model"
         assert persisted["vision"]["model"] == "vision-model"
         assert persisted["vision"]["thinking"] is False
+        assert brain.thinking_effort == "medium"
         assert brain.summary_model == "summary-model"
         assert brain.vision_model == "vision-model"
         assert brain.vision_thinking is False

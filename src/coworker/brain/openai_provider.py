@@ -11,6 +11,7 @@ from coworker.brain.base import (
     pdf_attachment_fallback,
     unsupported_image_fallback,
 )
+from coworker.brain.thinking import resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
@@ -274,7 +275,9 @@ class OpenAIProvider(BaseLLMProvider):
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
+        thinking_effort: str | None = None,
     ) -> LLMResponse:
+        effort = resolve_effort(thinking, thinking_effort)
         try:
             input_items, _ = self._to_responses_input(messages, self._current_model)
             kwargs: dict = {
@@ -286,10 +289,15 @@ class OpenAIProvider(BaseLLMProvider):
             }
             if tools:
                 kwargs["tools"] = self._to_responses_tools(tools)
-            if self._current_model in _REASONING_MODELS and thinking:
-                kwargs["reasoning"] = {"effort": "high", "summary": "auto"}
-            elif not thinking:
+            if effort == "none":
                 kwargs["reasoning"] = {"effort": "none"}
+            elif self._current_model in _REASONING_MODELS:
+                # 未显式配置档位时保持历史默认 high；显式档位原样透传
+                # （none/minimal/low/medium/high/xhigh/max 均为官方档位）。
+                kwargs["reasoning"] = {
+                    "effort": effort if effort is not None else "high",
+                    "summary": "auto",
+                }
             response = await self._client.responses.create(**kwargs)
         except openai.APIError as e:
             raise ProviderError(str(e)) from e

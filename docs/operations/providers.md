@@ -4,7 +4,8 @@
 
 [← 返回配置与运维](README.md)
 
-Coworker 内置 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和 `minimax`
+Coworker 内置 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu`、`minimax`、
+`opencode-go` Provider，并提供一个可自行声明能力的通用 `openai_compatible`
 Provider。首次调用可能计费；项目不会在向导中主动探测模型能力。
 
 ## 选择模型
@@ -32,7 +33,42 @@ LLM__DEEPSEEK_BASE_URL=
 
 Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网关时仍应选择与其
 实际请求/响应方言匹配的 Provider 类型；“兼容”不保证工具调用、thinking、视频或错误结构
-完全一致。
+完全一致。完全未知的 OpenAI-compatible 网关使用 `openai_compatible` 类型：它没有内置
+模型目录，必须在 `providers.json` 中声明 `default_model` 和 `model_capabilities`。
+
+## 思考强度（thinking effort）
+
+主线、summary 和 vision 分别支持独立的思考开关与思考强度：
+
+```env
+LLM__THINKING_EFFORT=high
+LLM__SUMMARY_THINKING=false
+LLM__SUMMARY_THINKING_EFFORT=low
+LLM__VISION_THINKING=true
+LLM__VISION_THINKING_EFFORT=medium
+```
+
+统一档位为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；空字符串表示
+沿用 Provider 默认请求形状（历史行为）。`thinking=false` 等价于 `none`（个别始终思考的
+模型会忽略禁用请求）。各 Provider 按自己的原生档位映射：
+
+- `openai`：档位原样透传到 Responses API 的 `reasoning.effort`；未配置时保持历史默认 `high`；
+- `anthropic`：新模型透传 `output_config.effort`，旧模型仅做 adaptive/disabled 切换；
+- `deepseek`：`low`/`high`/`max`，`medium`/`xhigh` 按官方映射到 `high`；
+- `qwen`：`enable_thinking` + `reasoning_effort`，`high`/`max` 映射到 `xhigh`；
+- `zhipu`：GLM-5.2+ 透传 `reasoning_effort`，其余模型仅开/关；
+- `minimax`：仅 adaptive/disabled 两态；
+- `opencode-go`：按 DeepSeek/Kimi 模型各自的档位透传 `reasoning_effort`；
+- `openai_compatible`：只有显式配置档位时才发送标准 `reasoning_effort`，未配置不注入。
+
+## OpenCode Go
+
+`opencode-go` 使用 OpenCode Go 订阅的 OpenAI 兼容端点
+（`https://opencode.ai/zen/go/v1`），密钥来自 `LLM__OPENCODE_GO_API_KEY`
+（未设置时兜底读取官方 `OPENCODE_API_KEY`）或 `providers.json`。内置目录包含
+DeepSeek V4、Kimi K2.5+、GLM-5 系列、MiMo 和 HY 等 OpenAI 兼容模型；
+MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，请用
+`type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
 
 ## 同类型多实例
 
@@ -54,7 +90,20 @@ Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网
 ```
 
 `name` 是 `switch_model` 和 fallback 使用的注册名，必须唯一；`type` 决定 API 方言。
-文件同名实例覆盖扁平环境配置。
+文件同名实例覆盖扁平环境配置。通用 OpenAI-compatible 网关示例：
+
+```json
+{
+  "name": "self-hosted-vllm",
+  "type": "openai_compatible",
+  "api_key": "EMPTY",
+  "base_url": "http://127.0.0.1:8000/v1",
+  "default_model": "Qwen3-32B",
+  "model_capabilities": [
+    { "model": "Qwen3-32B", "tools": true, "vision": false, "video": false }
+  ]
+}
+```
 
 `model_capabilities` 按精确模型 ID 声明 `tools`、`vision` 和 `video`。声明项会覆盖接口
 协议的内置模型判断；未列出的模型继续使用内置目录。`video: true` 时也必须设置
@@ -86,7 +135,8 @@ Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网
 - **401/403**：检查密钥、Base URL、账户权限和代理是否修改 Header。
 - **404/模型不存在**：模型 ID 会原样传给 Provider；使用服务端实际 ID。
 - **工具调用失败**：确认模型和网关同时支持 tool/function calling。
-- **thinking 参数失败**：关闭该专用模型的 thinking，或换用明确支持的模型。
+- **thinking 参数失败**：关闭该专用模型的 thinking，或改用与模型档位匹配的
+  `thinking_effort`；不支持的档位会导致 Provider 返回 400。
 - **高延迟/高成本**：在管理端“运行分析”按 main、summary、vision、bubble、subconscious
   和 mem0 区分职责，结合定价覆盖率和 Provider 账单再调整模型分工。
 

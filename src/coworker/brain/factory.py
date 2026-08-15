@@ -8,7 +8,9 @@ from coworker.brain.anthropic_provider import AnthropicProvider  # noqa: F401
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.deepseek_provider import DeepSeekProvider  # noqa: F401
 from coworker.brain.minimax_provider import MiniMaxProvider  # noqa: F401
+from coworker.brain.openai_compatible_provider import OpenAICompatibleProvider  # noqa: F401
 from coworker.brain.openai_provider import OpenAIProvider  # noqa: F401
+from coworker.brain.opencode_go_provider import OpenCodeGoProvider  # noqa: F401
 from coworker.brain.qwen_provider import QwenProvider  # noqa: F401
 from coworker.brain.zhipu_provider import ZhipuProvider  # noqa: F401
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
+from coworker.brain.thinking import normalize_thinking_effort, resolve_effort
+from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS, ThinkingEffort
 from coworker.core.token_utils import estimate_content_tokens
 from coworker.core.types import LLMResponse, Message
 from coworker.i18n import tr
@@ -120,7 +121,25 @@ class BaseLLMProvider(ABC):
         tools: list[dict],
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
+        thinking_effort: str | None = None,
     ) -> LLMResponse: ...
+
+    @staticmethod
+    def resolve_thinking_effort(
+        thinking: bool,
+        thinking_effort: str | None,
+    ) -> ThinkingEffort | None:
+        """Return the canonical effort for a call.
+
+        Kept on the base class so provider implementations and callers share
+        one normalization path. ``None`` means "leave the provider default
+        request shape unchanged".
+        """
+        return resolve_effort(thinking, thinking_effort)
+
+    @staticmethod
+    def normalize_thinking_effort(value: str | None) -> ThinkingEffort | None:
+        return normalize_thinking_effort(value)
 
     def set_model(self, model_id: str) -> None:
         """Select the model used by the next provider request."""

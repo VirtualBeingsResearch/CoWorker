@@ -35,6 +35,8 @@ def _create_bubble_brain(
 ) -> Brain:
     from coworker.brain.brain import Brain as _Brain
 
+    # 父 Brain 的思考强度随主线继承；测试/嵌入方若使用替身对象则不继承。
+    inherits_effort = isinstance(parent_brain, _Brain)
     bubble_brain = _Brain(
         default_provider=provider,
         default_model=model,
@@ -42,12 +44,19 @@ def _create_bubble_brain(
         max_tokens=parent_brain.max_tokens,
         fallbacks=parent_brain._fallbacks,
         thinking=thinking,
+        thinking_effort=parent_brain.thinking_effort if inherits_effort else "",
         summary_provider=parent_brain.summary_provider_name,
         summary_model=parent_brain.summary_model,
         summary_thinking=parent_brain.summary_thinking,
+        summary_thinking_effort=(
+            parent_brain.summary_thinking_effort if inherits_effort else ""
+        ),
         vision_provider=parent_brain.vision_provider_name,
         vision_model=parent_brain.vision_model,
         vision_thinking=parent_brain.vision_thinking,
+        vision_thinking_effort=(
+            parent_brain.vision_thinking_effort if inherits_effort else ""
+        ),
     )
     for provider_obj in parent_brain._providers.values():
         bubble_brain.register_provider(provider_obj)

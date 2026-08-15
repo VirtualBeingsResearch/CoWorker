@@ -799,17 +799,26 @@ class SubconsciousScheduler:
     def _create_brain(self) -> Brain:
         from coworker.brain.brain import Brain as _Brain
 
+        # 思考强度随父 Brain 继承；测试/嵌入方若使用替身对象则不继承。
+        inherits_effort = isinstance(self._brain, _Brain)
         new_brain = _Brain(
             default_provider=self._brain.current_provider_name,
             default_model=self._brain.current_model,
             message_time_prefix=self._brain.message_time_prefix,
             max_tokens=self._brain.max_tokens,
+            thinking_effort=self._brain.thinking_effort if inherits_effort else "",
             summary_provider=self._brain.summary_provider_name,
             summary_model=self._brain.summary_model,
             summary_thinking=self._brain.summary_thinking,
+            summary_thinking_effort=(
+                self._brain.summary_thinking_effort if inherits_effort else ""
+            ),
             vision_provider=self._brain.vision_provider_name,
             vision_model=self._brain.vision_model,
             vision_thinking=self._brain.vision_thinking,
+            vision_thinking_effort=(
+                self._brain.vision_thinking_effort if inherits_effort else ""
+            ),
         )
         for provider in self._brain._providers.values():
             new_brain.register_provider(provider)

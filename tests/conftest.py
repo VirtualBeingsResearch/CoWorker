@@ -21,7 +21,15 @@ class MockProvider(BaseLLMProvider):
             usage={"input_tokens": 10, "output_tokens": 5},
         )
 
-    async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True):
+    async def complete(
+        self,
+        messages,
+        system_prompt,
+        tools,
+        max_tokens=4096,
+        thinking=True,
+        thinking_effort=None,
+    ):
         return self._response
 
     def set_model(self, model_id: str) -> None:

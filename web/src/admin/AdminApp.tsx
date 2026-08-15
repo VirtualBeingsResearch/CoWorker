@@ -261,11 +261,13 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic', openai: 'OpenAI / 兼容服务', deepseek: 'DeepSeek',
-  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax',
+  qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax', 'opencode-go': 'OpenCode Go',
+  openai_compatible: 'OpenAI 兼容端点',
 };
+const THINKING_EFFORT_OPTIONS = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-8', openai: 'gpt-5.5', deepseek: 'deepseek-v4-pro',
-  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3',
+  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3', 'opencode-go': 'deepseek-v4-flash',
 };
 
 function preferredModelFor(providerType: string, models: string[]) {
@@ -721,11 +723,11 @@ function Models() {
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
   useEffect(() => { if (data) { setDraft(JSON.parse(JSON.stringify(data))); setFallbackText((data.fallbacks || []).join('\n')); setSwitchTo({ provider: data.active.provider || '', model_id: data.active.model || '' }); } }, [data]);
-  const modelsDirty = Boolean(data && draft && JSON.stringify({ summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
-    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
     setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
   };
   const switchModel = async () => {
@@ -746,14 +748,15 @@ function Models() {
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
       <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><input value={switchTo.model_id} onChange={e => setSwitchTo({ ...switchTo, model_id: e.target.value })} placeholder={t('模型 ID（留空使用默认）')} /><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button></div>
+      <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {switchError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">
-        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.summary.model} onChange={e => set('summary.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
+        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.summary.model} onChange={e => set('summary.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.summary.thinking_effort || ''} onChange={e => set('summary.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
       <Panel title="视觉理解" note="为纯文本主模型提供图片分析能力。">
-        <div className="field-grid"><Field label="Provider"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型"><input value={draft.vision.model} onChange={e => set('vision.model', e.target.value)} /></Field><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
+        <div className="field-grid"><Field label="Provider"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型"><input value={draft.vision.model} onChange={e => set('vision.model', e.target.value)} /></Field><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.vision.thinking_effort || ''} onChange={e => set('vision.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
     </div>
     <Panel title="记忆 LLM（mem0 抽取）" note="控制记忆提取/去重推断使用的模型；留空跟随主线，修改后立即生效。">
@@ -1000,7 +1003,7 @@ const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   SKILLS: '已加载 Skill 的可选注册表',
   PALACES: '已加载 Palace 的可选注册表',
 };
-const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
+const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['thinking_effort', 'summary_provider', 'summary_model', 'summary_thinking', 'summary_thinking_effort', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking', 'vision_thinking_effort']);
 type DesktopUpdateSourceConfig = {
   id: string;
   name: string;
@@ -1365,7 +1368,7 @@ function Settings() {
             const status = data.secret_status[secretPath];
             return <article className="provider-row" key={index}>
               <Field label="连接名称" hint="在模型编排中引用的名称"><input value={provider.name || ''} onChange={e => changeProvider(index, 'name', e.target.value)} placeholder={t('例如 openai-work')} /></Field>
-              <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax'].map(type => <option key={type}>{type}</option>)}</select></Field>
+              <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'minimax', 'opencode-go', 'openai_compatible'].map(type => <option key={type}>{type}</option>)}</select></Field>
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
               <Field label="默认模型" hint="调用未指定模型时使用"><input value={provider.default_model || ''} onChange={e => changeProvider(index, 'default_model', e.target.value)} placeholder={t('可留空')} /></Field>
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('输入 API Key')} /></Field>

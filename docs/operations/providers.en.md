@@ -4,8 +4,10 @@
 
 [← Back to Configuration and Operations](README.en.md)
 
-Coworker includes `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and `minimax` Providers.
-The first call may incur cost; the setup wizard does not run an online capability probe.
+Coworker includes `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, `minimax`, and
+`opencode-go` Providers, plus a generic `openai_compatible` Provider whose capabilities you
+declare yourself. The first call may incur cost; the setup wizard does not run an online
+capability probe.
 
 ## Choose a model
 
@@ -33,7 +35,45 @@ LLM__DEEPSEEK_BASE_URL=
 
 An empty Base URL uses the Provider default. For an OpenAI-compatible gateway, still choose the
 Provider type matching its actual request and response dialect. “Compatible” does not guarantee
-identical tools, thinking, video, or error behavior.
+identical tools, thinking, video, or error behavior. Use `openai_compatible` for a completely
+unknown OpenAI-compatible gateway: it has no built-in catalog, so declare `default_model` and
+`model_capabilities` in `providers.json`.
+
+## Thinking effort
+
+Main, summary, and vision each have an independent thinking switch and effort:
+
+```env
+LLM__THINKING_EFFORT=high
+LLM__SUMMARY_THINKING=false
+LLM__SUMMARY_THINKING_EFFORT=low
+LLM__VISION_THINKING=true
+LLM__VISION_THINKING_EFFORT=medium
+```
+
+Canonical levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; an empty
+value keeps the Provider's historical default request shape. `thinking=false` is equivalent to
+`none` (models that always think ignore the disable request). Each Provider maps the canonical
+levels to its native scale:
+
+- `openai`: passed through to the Responses API `reasoning.effort`; unset keeps the historical
+  `high` default;
+- `anthropic`: `output_config.effort` on newer models, adaptive/disabled only on older ones;
+- `deepseek`: `low`/`high`/`max`, with `medium`/`xhigh` mapped to `high` per official docs;
+- `qwen`: `enable_thinking` plus `reasoning_effort`, with `high`/`max` mapped to `xhigh`;
+- `zhipu`: `reasoning_effort` on GLM-5.2+, on/off only for other models;
+- `minimax`: adaptive/disabled only;
+- `opencode-go`: `reasoning_effort` passthrough for the supported DeepSeek/Kimi models;
+- `openai_compatible`: sends standard `reasoning_effort` only when an effort is configured.
+
+## OpenCode Go
+
+`opencode-go` targets the OpenAI-compatible endpoint of the OpenCode Go subscription
+(`https://opencode.ai/zen/go/v1`) with `LLM__OPENCODE_GO_API_KEY` (falling back to the
+official `OPENCODE_API_KEY` environment variable) or a `providers.json` key.
+The built-in catalog covers the OpenAI-compatible DeepSeek V4, Kimi K2.5+, GLM-5, MiMo, and HY
+models. OpenCode Go serves MiniMax/Qwen through its Anthropic-compatible endpoint; configure
+those with `type: anthropic` and `base_url: https://opencode.ai/zen/go`.
 
 ## Multiple instances of one type
 
@@ -55,7 +95,21 @@ Copy `providers.json.example` to an untracked `providers.json`:
 ```
 
 `name` is the unique registry name used by `switch_model` and fallback. `type` selects the API
-dialect. A file entry overrides a flat environment Provider with the same name.
+dialect. A file entry overrides a flat environment Provider with the same name. A generic
+OpenAI-compatible gateway looks like:
+
+```json
+{
+  "name": "self-hosted-vllm",
+  "type": "openai_compatible",
+  "api_key": "EMPTY",
+  "base_url": "http://127.0.0.1:8000/v1",
+  "default_model": "Qwen3-32B",
+  "model_capabilities": [
+    { "model": "Qwen3-32B", "tools": true, "vision": false, "video": false }
+  ]
+}
+```
 
 `model_capabilities` declares `tools`, `vision`, and `video` for an exact model ID. A declaration
 overrides the protocol's built-in model detection; unlisted models continue to use the built-in
@@ -90,7 +144,8 @@ Validate each specialist before adding fallback. Do not leave a dead Provider fi
 - **401/403**: check key, Base URL, account scope, and proxies that alter headers.
 - **404/model missing**: model IDs pass through unchanged; use the service's actual ID.
 - **Tool call fails**: both model and gateway must support tool/function calling.
-- **Thinking parameter fails**: disable thinking for that role or select a known supporting model.
+- **Thinking parameter fails**: disable thinking for that role, or set a `thinking_effort` the
+  model supports; unsupported levels are rejected with a 400 by the Provider.
 - **High latency/cost**: in Runtime analytics, split main, summary, vision, bubble, subconscious,
   and mem0, then consider pricing coverage and the Provider bill before changing role assignments.
 

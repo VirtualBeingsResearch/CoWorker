@@ -6,7 +6,7 @@
 
 ## Current capabilities
 
-- **Multiple LLM providers**: Supports Anthropic, OpenAI, DeepSeek, Qwen, Zhipu, and MiniMax, with hot model switching through the API or tools. `providers.json` can define multiple named instances of the same provider type—for example, several Zhipu keys—each with its own default model.
+- **Multiple LLM providers**: Supports Anthropic, OpenAI, DeepSeek, Qwen, Zhipu, MiniMax, OpenCode Go, and a generic OpenAI-compatible provider with declared capabilities, with hot model switching through the API or tools. `providers.json` can define multiple named instances of the same provider type—for example, several Zhipu keys—each with its own default model. Main, summary, and vision calls each support an independent thinking effort.
 - **Layered memory**: Short-term context is compressed automatically. **mem0** manages long-term memory on top of ChromaDB and a local SentenceTransformer. mem0 extracts and semantically merges raw conversations, while explicit writes of already-distilled memories are stored directly with exact deduplication to avoid a second LLM call. When a new message arrives, the system retrieves relevant memories and injects them under the `[自动回忆]` (automatic recall) marker; memories already recalled or written are not injected twice in the same session, even after a restart. Short-term memory is also restored automatically after a restart.
 - **Participant isolation**: Each `participant_id` has an independent conversation thread, preventing context from different users from bleeding together.
 - **Three interaction channels**: File inbox/outbox, REST API, and real-time SSE/WebSocket communication.

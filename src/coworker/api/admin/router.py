@@ -160,7 +160,16 @@ class PersonMergePayload(BaseModel):
 class BootstrapPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
+    provider_type: Literal[
+        "anthropic",
+        "openai",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "minimax",
+        "opencode-go",
+        "openai_compatible",
+    ]
     model: str = Field(min_length=1, max_length=120)
     api_key: str = Field(min_length=1, max_length=4096)
     base_url: str = Field(default="", max_length=2048)
@@ -175,12 +184,14 @@ class SummaryModelPatch(BaseModel):
     provider: str | None = None
     model: str | None = None
     thinking: bool | None = None
+    thinking_effort: str | None = None
 
 
 class VisionModelPatch(BaseModel):
     provider: str | None = None
     model: str | None = None
     thinking: bool | None = None
+    thinking_effort: str | None = None
 
 
 class Mem0ModelPatch(BaseModel):
@@ -192,6 +203,7 @@ class Mem0ModelPatch(BaseModel):
 
 
 class ModelPatch(BaseModel):
+    thinking_effort: str | None = None
     summary: SummaryModelPatch | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelPatch | None = None
@@ -1558,13 +1570,16 @@ async def patch_model(
     config = _require_config()
     try:
         snapshot = await brain.update_model_config(
+            thinking_effort=payload.thinking_effort,
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,
+            summary_thinking_effort=payload.summary.thinking_effort if payload.summary else None,
             fallbacks=payload.fallbacks,
             vision_provider=payload.vision.provider if payload.vision else None,
             vision_model=payload.vision.model if payload.vision else None,
             vision_thinking=payload.vision.thinking if payload.vision else None,
+            vision_thinking_effort=payload.vision.thinking_effort if payload.vision else None,
         )
         from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 

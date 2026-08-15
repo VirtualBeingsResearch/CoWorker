@@ -6,7 +6,7 @@
 
 ## 当前能力
 
-- **多 LLM Provider**：支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax，可通过 API 或工具热切换模型；可经 `providers.json` 配置同一类型的多个命名实例（如多个智谱 Key），每个实例可带各自的默认模型。
+- **多 LLM Provider**：支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax、OpenCode Go，以及可声明能力的通用 OpenAI 兼容 Provider，可通过 API 或工具热切换模型；可经 `providers.json` 配置同一类型的多个命名实例（如多个智谱 Key），每个实例可带各自的默认模型。主线/摘要/视觉调用均可独立设置思考强度。
 - **分层记忆**：短期上下文自动压缩，长期记忆由 **mem0** 管理（底层 ChromaDB + 本地 SentenceTransformer）；原始对话入库时由 mem0 提炼并语义合并，显式写入的已提炼记忆直接保存并精确去重，避免再次调用 LLM；收到新消息时系统自动检索相关记忆以 `[自动回忆]` 形式注入上下文，已回忆/已写入的记忆在同一会话内不重复注入（持久化去重，重启后同样有效）；短期记忆在重启后自动恢复。
 - **多人对话隔离**：每个 `participant_id` 拥有独立对话线程，避免不同用户的上下文互相污染。
 - **三类交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信。

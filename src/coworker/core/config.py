@@ -28,6 +28,7 @@ from coworker.core.constants import (
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES,
     DEFAULT_BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS,
     DEFAULT_LLM_MAX_TOKENS,
+    THINKING_EFFORT_LEVELS,
 )
 from coworker.i18n import SupportedLocale, normalize_locale, tr
 from coworker.prompts.template import (
@@ -38,7 +39,16 @@ from coworker.prompts.template import (
 
 # 扁平字段（LLM__<TYPE>_API_KEY / _BASE_URL）支持的内置 provider 类型，
 # 用于把老式扁平配置自动展开成 name==type 的默认命名实例。
-_FLAT_PROVIDER_TYPES = ("anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax")
+# key 为 provider type，value 为 pydantic 字段前缀（type 含连字符时不同）。
+_FLAT_PROVIDER_TYPES = {
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "deepseek": "deepseek",
+    "qwen": "qwen",
+    "zhipu": "zhipu",
+    "minimax": "minimax",
+    "opencode-go": "opencode_go",
+}
 _GITHUB_REPOSITORY_RE = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})/"
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$"
@@ -55,6 +65,20 @@ _LEGACY_HANDOFF_DEFAULTS = (
         "coworker-desktop:*:local:*",
     ),
 )
+
+
+def normalize_thinking_effort(value: object) -> str:
+    """Validate a canonical thinking-effort setting; empty string means unset."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(tr("config.thinking.effort_invalid", value=value, levels=", ".join(THINKING_EFFORT_LEVELS)))
+    text = value.strip().lower()
+    if not text:
+        return ""
+    if text not in THINKING_EFFORT_LEVELS:
+        raise ValueError(tr("config.thinking.effort_invalid", value=value, levels=", ".join(THINKING_EFFORT_LEVELS)))
+    return text
 
 
 class ModelCapabilities(BaseModel):
@@ -188,9 +212,29 @@ class LLMConfig(_EnvSettings):
     default_provider: str = "deepseek"
     default_model: str = "deepseek-v4-pro"
     max_tokens: int = Field(DEFAULT_LLM_MAX_TOKENS, gt=0)
+    # 主线思考强度。空字符串沿用 provider 默认请求形状（历史行为），
+    # 否则取值 none/minimal/low/medium/high/xhigh/max，由各 provider 映射。
+    thinking_effort: str = ""
     summary_provider: str = ""
     summary_model: str = ""
     summary_thinking: bool = False
+    summary_thinking_effort: str = ""
+
+    @field_validator("thinking_effort", "summary_thinking_effort", "vision_thinking_effort", mode="before")
+    @classmethod
+    def _normalize_thinking_effort(cls, value: object) -> str:
+        return normalize_thinking_effort(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _opencode_go_key_fallback(cls, data: Any) -> Any:
+        """接受官方 OPENCODE_API_KEY 作为 OpenCode Go 密钥的兜底来源。"""
+        if isinstance(data, dict) and not data.get("opencode_go_api_key"):
+            official = os.environ.get("OPENCODE_API_KEY", "").strip()
+            if official:
+                data = dict(data)
+                data["opencode_go_api_key"] = official
+        return data
 
     # 主模型调用失败后的降级链（有序）。每项为 "providerName" 或 "providerName/modelId"；
     # 省略 modelId 时用该 provider 实例的 default_model。环境变量 LLM__FALLBACKS 传 JSON 数组，
@@ -209,6 +253,8 @@ class LLMConfig(_EnvSettings):
     zhipu_base_url: str = ""
     minimax_api_key: str = ""
     minimax_base_url: str = ""
+    opencode_go_api_key: str = ""
+    opencode_go_base_url: str = ""
 
     # 独立的命名 provider 列表文件（JSON 数组，每项 {name,type,api_key,base_url,default_model?}）。
     # 文件不存在则忽略；其条目按 name 覆盖/扩展上面的扁平默认实例，支持同类型多实例。
@@ -223,6 +269,7 @@ class LLMConfig(_EnvSettings):
     vision_model: str = ""
     # 保持历史视觉分析默认启用 thinking；可设为 false 以降低延迟和成本。
     vision_thinking: bool = True
+    vision_thinking_effort: str = ""
 
     @model_validator(mode="after")
     def _unique_model_prices(self) -> LLMConfig:
@@ -248,14 +295,14 @@ class LLMConfig(_EnvSettings):
         返回按插入顺序去重后的规格列表。type 是否受支持留给工厂校验。
         """
         specs: dict[str, ProviderSpec] = {}
-        for type_ in _FLAT_PROVIDER_TYPES:
-            api_key = getattr(self, f"{type_}_api_key", "")
+        for type_, field_prefix in _FLAT_PROVIDER_TYPES.items():
+            api_key = getattr(self, f"{field_prefix}_api_key", "")
             if api_key:
                 specs[type_] = ProviderSpec(
                     name=type_,
                     type=type_,
                     api_key=api_key,
-                    base_url=getattr(self, f"{type_}_base_url", ""),
+                    base_url=getattr(self, f"{field_prefix}_base_url", ""),
                 )
 
         for spec in self._load_provider_file():

@@ -223,7 +223,7 @@ class TestBrain:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True):
+            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
                 self.seen_thinking = thinking
                 return await super().complete(messages, system_prompt, tools, max_tokens, thinking)
 
@@ -242,7 +242,7 @@ class TestBrain:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True):
+            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
                 self.seen_thinking = thinking
                 return await super().complete(messages, system_prompt, tools, max_tokens, thinking)
 
@@ -698,7 +698,7 @@ class TestBrainModelConfig:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True):
+            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
                 self.seen_thinking = thinking
                 return LLMResponse(
                     content=f"summary via {self._current_model}",
@@ -723,6 +723,36 @@ class TestBrainModelConfig:
 
         assert result == "summary via summary-fast"
         assert provider.seen_thinking is True
+
+    @pytest.mark.asyncio
+    async def test_update_summary_effort_flows_to_fallback_main_path(self):
+        class EffortProvider(MockProvider):
+            def __init__(self) -> None:
+                super().__init__()
+                self.seen_effort: str | None = None
+
+            async def complete(
+                self,
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=4096,
+                thinking=True,
+                thinking_effort=None,
+            ):
+                self.seen_effort = thinking_effort
+                return await super().complete(
+                    messages, system_prompt, tools, max_tokens, thinking
+                )
+
+        provider = EffortProvider()
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(provider)
+
+        await brain.update_model_config(summary_thinking_effort="low")
+        await brain.summarize([Message(role="user", content="history")])
+
+        assert provider.seen_effort == "low"
 
     @pytest.mark.asyncio
     async def test_update_fallbacks_changes_candidate_chain(self):
