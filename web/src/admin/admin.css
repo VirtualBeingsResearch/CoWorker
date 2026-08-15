@@ -1024,10 +1024,10 @@ html:has(.admin-login),
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); align-items: start; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
 .admin-usage-metrics.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.admin-usage-metrics.compact article { grid-column: span 1; height: 90px; overflow: hidden; }
+.admin-usage-metrics.compact article { grid-column: span 1; min-height: 90px; }
 .admin-usage-metrics.compact article.total,
 .admin-usage-metrics.compact article.cost { grid-column: span 1; min-height: 90px; }
-.admin-usage-metrics .currency-cost-summary.empty { display: inline-block; margin-top: 10px; padding: 0; font: 680 14px/1 var(--admin-data); }
+.admin-usage-metrics .currency-cost-summary.empty { align-self: start; display: inline-flex; align-items: center; height: 18px; min-height: 0; margin-top: 10px; padding: 0; color: var(--admin-muted); font: 680 14px/18px var(--admin-data); }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article.cost { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-sky) 8%, var(--admin-surface)), var(--admin-surface)); }
@@ -1150,7 +1150,7 @@ html:has(.admin-login),
 .currency-cost-summary > button { display: inline-grid; place-items: center; min-width: 25px; min-height: 25px; padding: 0 6px; border: 1px solid var(--admin-line); border-radius: 99px; color: var(--admin-muted); background: var(--admin-paper); font: 650 9px var(--admin-data); letter-spacing: 0; cursor: pointer; }
 .currency-cost-summary > button:hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
 .currency-cost-summary > button:focus-visible { outline: 2px solid var(--admin-vital); outline-offset: 2px; }
-.currency-cost-summary.empty { color: var(--admin-muted); font-size: 18px; }
+.currency-cost-summary.empty { align-self: start; height: 18px; min-height: 0; color: var(--admin-muted); font-size: 18px; line-height: 18px; }
 .usage-pricing-shortcut { display: inline-flex; align-items: center; gap: 3px; width: max-content; max-width: 100%; margin-top: 8px; color: var(--admin-vital); font-size: 9px; font-weight: 680; line-height: 1.35; text-decoration: none; }
 .usage-pricing-shortcut:hover { text-decoration: underline; }
 .usage-pricing-shortcut:focus-visible { border-radius: 3px; outline: 2px solid var(--admin-vital); outline-offset: 2px; }
