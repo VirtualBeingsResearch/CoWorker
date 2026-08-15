@@ -1692,6 +1692,9 @@ html:has(.admin-login),
 .provider-row .field:nth-of-type(3) { grid-column: 1 / -1; }
 .provider-row .field > span { font-size: 11px; }
 .provider-row .field small { font-size: 10px; }
+.provider-type-select { position: relative; min-width: 0; }
+.provider-type-select select { box-sizing: border-box; width: 100%; padding-right: 46px; appearance: none; cursor: pointer; }
+.provider-type-select > svg { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); color: var(--admin-muted); pointer-events: none; }
 .provider-model-capabilities { grid-column: 1 / -1; display: grid; min-width: 0; gap: 9px; padding-top: 13px; border-top: 1px solid var(--admin-line); }
 .provider-model-capabilities > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .provider-model-capabilities > header > div { flex: 1; min-width: 0; }

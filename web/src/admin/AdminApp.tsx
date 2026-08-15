@@ -1,6 +1,6 @@
 import { createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
+  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronDown, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
@@ -899,7 +899,7 @@ function ProviderModelCapabilityEditor({ value, onChange }: {
         <label><input type="checkbox" checked={Boolean(capability.video)} onChange={event => changeCapability(index, 'video', event.target.checked)} /><span>{t('视频理解')}</span></label>
       </div>
       <button type="button" className="danger-icon" title={t('移除模型能力')} aria-label={t('移除模型能力')} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
-    </article>)}</div> : <p>{t('尚未声明自定义模型；未列出的模型继续使用接口协议的内置能力目录。')}</p>}
+    </article>)}</div> : <p>{t('尚未声明自定义模型；未列出的模型继续使用该供应商的内置能力目录。')}</p>}
   </section>;
 }
 
@@ -1440,9 +1440,9 @@ function Settings() {
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;
         if (key === 'model_prices' && Array.isArray(value)) return <ProviderModelPriceEditor key={key} value={value} providerNames={providerNames} onChange={next => change('model_prices', next)} />;
         if (key === 'managed_providers' && Array.isArray(value)) return <div className="provider-editor" key={key}>
-          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接代表一套模型服务地址、接口协议、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
+          <div className="provider-editor-head"><div><b>{t('Provider 连接')} <em className="effect-badge hot">{t('修改后立即生效')}</em></b><small>{t('一个连接包含供应商类型、模型服务地址、访问密钥和模型能力。正在执行的单次调用不受影响，下一次调用使用新连接。')}</small></div><button className="ghost mini" onClick={() => change('managed_providers', [...value, { name: '', type: 'openai', api_key: '', base_url: '', default_model: '', model_capabilities: [] }])}><Plus size={14} />{t('添加连接')}</button></div>
           <div className="provider-source-note"><Database size={16} /><p><b>{t('配置来源彼此独立')}</b><span><code>.env</code> {t('和')} <code>providers.json</code>{t('中的连接只读展示；下方只编辑管理端覆盖，不会复制或接管外部密钥。')}</span></p></div>
-          {externalProviders.length > 0 && <div className="provider-effective"><b>{t('外部有效连接（只读）')}</b>{externalProviders.map((provider: Json) => <span key={provider.name}><strong>{provider.name}</strong><code>{provider.type}</code><small>{provider.base_url || t('协议默认地址')}</small></span>)}</div>}
+          {externalProviders.length > 0 && <div className="provider-effective"><b>{t('外部有效连接（只读）')}</b>{externalProviders.map((provider: Json) => <span key={provider.name}><strong>{provider.name}</strong><code>{provider.type}</code><small>{provider.base_url || t('供应商默认地址')}</small></span>)}</div>}
           {value.length ? value.map((provider: Json, index: number) => {
             const secretPath = `llm.managed_providers.${index}.api_key`;
             const status = data.secret_status[secretPath];
@@ -1450,8 +1450,8 @@ function Settings() {
             const availableProviderTypes = Array.from(new Set([...providerTypes, provider.type || 'openai']));
             return <article className="provider-row" key={index}>
               <Field label="连接名称" hint="在模型编排中引用的名称"><input value={provider.name || ''} onChange={e => changeProvider(index, 'name', e.target.value)} placeholder={t('例如 openai-work')} /></Field>
-              <Field label="接口协议"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{availableProviderTypes.map(type => <option key={type}>{type}</option>)}</select></Field>
-              <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用协议默认地址')} /></Field>
+              <Field label="供应商类型"><div className="provider-type-select"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{availableProviderTypes.map(type => <option value={type} key={type}>{t(PROVIDER_LABELS[type] || type)}</option>)}</select><ChevronDown size={15} aria-hidden="true" /></div></Field>
+              <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用供应商默认地址')} /></Field>
               <ProviderModelField id={`provider-default-model-${index}`} label="默认模型" value={provider.default_model || ''} onChange={next => changeProvider(index, 'default_model', next)} providerType={provider.type || 'openai'} providerName={provider.name || ''} apiKey={secretInputs[secretPath] || ''} baseUrl={provider.base_url || ''} catalogModels={catalogEntry.models || []} requiresApiKey={catalogEntry.requires_api_key !== false} />
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : catalogEntry.requires_api_key === false ? t('当前 Provider 可使用本地或环境认证') : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : catalogEntry.requires_api_key === false ? t('可选') : t('输入 API Key')} /></Field>
               <ProviderModelCapabilityEditor value={Array.isArray(provider.model_capabilities) ? provider.model_capabilities : []} onChange={next => changeProvider(index, 'model_capabilities', next)} />

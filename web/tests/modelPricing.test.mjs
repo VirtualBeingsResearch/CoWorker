@@ -102,6 +102,11 @@ test('suggests common localized currencies while retaining custom codes', () => 
   assert.match(adminCss, /\.provider-model-field \{[^}]*position: relative/);
   assert.match(adminCss, /\.provider-model-heading \{[^}]*display: block/);
   assert.match(adminCss, /\.provider-model-discover \{[^}]*position: absolute;[^}]*top: 0;[^}]*right: 0/);
+  assert.match(adminApp, /<Field label="供应商类型"><div className="provider-type-select">/);
+  assert.match(adminApp, /<option value=\{type\} key=\{type\}>\{t\(PROVIDER_LABELS\[type\] \|\| type\)\}<\/option>/);
+  assert.doesNotMatch(adminApp, /接口协议/);
+  assert.match(adminCss, /\.provider-type-select select \{[^}]*padding-right: 46px;[^}]*appearance: none/);
+  assert.match(adminCss, /\.provider-type-select > svg \{[^}]*right: 14px;[^}]*transform: translateY\(-50%\)/);
   assert.doesNotMatch(adminApp, /provider-price-card-heading/);
   assert.match(adminApp, /provider-price-remove/);
   assert.match(adminApp, /可选择常用币种，也可输入其他三字母代码/);
