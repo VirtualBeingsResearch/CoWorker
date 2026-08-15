@@ -260,9 +260,9 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Anthropic', openai: 'OpenAI / 兼容服务', deepseek: 'DeepSeek',
+  anthropic: 'Anthropic', openai: 'OpenAI', deepseek: 'DeepSeek',
   qwen: '通义千问', zhipu: '智谱 GLM', minimax: 'MiniMax', 'opencode-go': 'OpenCode Go',
-  openai_compatible: 'OpenAI 兼容端点',
+  openai_compatible: '通用 OpenAI 兼容',
 };
 const THINKING_EFFORT_OPTIONS = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
