@@ -33,8 +33,9 @@ catalog, declare whether it supports tools, images, and video during first-time 
 Provider connection. Coworker does not run an online capability probe.
 
 Model orchestration can hot-adjust the primary reasoning effort. Providers with native effort
-controls use the selected level, while toggle-only thinking APIs safely collapse enabled levels
-to “on”.
+controls normalize the selection to levels supported by the active model (for example, GPT-5.6
+maps unsupported `minimal` to `low`), while toggle-only thinking APIs safely collapse enabled
+levels to “on”.
 
 ## Configure
 

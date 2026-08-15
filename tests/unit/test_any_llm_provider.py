@@ -123,6 +123,61 @@ async def test_completion_preserves_malformed_tool_arguments_for_diagnostics():
 
 
 @pytest.mark.asyncio
+async def test_completion_replays_opaque_message_and_tool_state_on_next_turn():
+    first_wire_response = _response()
+    first_wire_message = first_wire_response.choices[0].message
+    first_wire_message.reasoning = SimpleNamespace(content="")
+    first_wire_message.extra_content = {
+        "anthropic": {"signature": "signed-thinking-block"}
+    }
+    first_wire_message.tool_calls[0].extra_content = {
+        "google": {"thought_signature": "signed-tool-call"}
+    }
+    provider, complete = _provider()
+    complete.side_effect = [first_wire_response, _response()]
+
+    first = await provider.complete(
+        [Message(role="user", content="first")],
+        "system",
+        [],
+    )
+    call = first.tool_calls[0]
+    assistant = Message(
+        role="assistant",
+        content=first.content,
+        provider_state=first.provider_state,
+        tool_calls=[
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": json.dumps(call.arguments),
+                },
+                "extra_content": call.extra_content,
+            }
+        ],
+    )
+    await provider.complete(
+        [
+            Message(role="user", content="first"),
+            assistant,
+            Message(role="tool", content="result", tool_call_id=call.id),
+        ],
+        "system",
+        [],
+    )
+
+    replayed = complete.await_args_list[1].kwargs["messages"]
+    assert replayed[2]["extra_content"] == {
+        "anthropic": {"signature": "signed-thinking-block"}
+    }
+    assert replayed[2]["tool_calls"][0]["extra_content"] == {
+        "google": {"thought_signature": "signed-tool-call"}
+    }
+
+
+@pytest.mark.asyncio
 async def test_fetch_models_uses_metadata_endpoint_only():
     provider, complete = _provider()
     provider._llm.alist_models.return_value = [
@@ -412,6 +467,7 @@ async def test_opencode_go_uses_expected_metadata_and_inference_paths_with_mock_
         for model_id, expected_path, expected_effort in (
             ("deepseek-v4-pro", "/v1/chat/completions", "low"),
             ("grok-4.5", "/v1/responses", "low"),
+            ("gpt-5.6-luna", "/v1/responses", "low"),
             ("qwen3.8-max", "/v1/messages", "low"),
         ):
             paths.clear()

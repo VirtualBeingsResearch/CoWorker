@@ -56,6 +56,7 @@ class Message:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_id: str | None = None
     reasoning_content: str | None = None
+    provider_state: dict[str, Any] = field(default_factory=dict)
     stop_reason: str | None = None
     recalled_memory_ids: list[str] = field(default_factory=list)
     pin_id: str | None = None
@@ -71,6 +72,8 @@ class Message:
             d["tool_call_id"] = self.tool_call_id
         if self.reasoning_content:
             d["reasoning_content"] = self.reasoning_content
+        if self.provider_state:
+            d["provider_state"] = self.provider_state
         if self.recalled_memory_ids:
             d["recalled_memory_ids"] = self.recalled_memory_ids
         if self.pin_id:
@@ -124,6 +127,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    extra_content: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -207,6 +211,7 @@ class LLMResponse:
     usage: dict[str, int]
     reasoning_content: str | None = None
     provider: str = ""
+    provider_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -277,6 +282,7 @@ class ConversationThread:
                     tool_calls=m.get("tool_calls", []),
                     tool_call_id=m.get("tool_call_id"),
                     reasoning_content=m.get("reasoning_content"),
+                    provider_state=m.get("provider_state", {}),
                     recalled_memory_ids=m.get("recalled_memory_ids", []),
                     source=m.get("source"),
                 )

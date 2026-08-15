@@ -1126,6 +1126,8 @@ class ShortTermMemory:
                 content=m["content"],
                 tool_calls=m.get("tool_calls", []),
                 tool_call_id=m.get("tool_call_id"),
+                reasoning_content=m.get("reasoning_content"),
+                provider_state=m.get("provider_state", {}),
                 recalled_memory_ids=m.get("recalled_memory_ids", []),
                 pin_id=m.get("pin_id"),
                 source=m.get("source"),

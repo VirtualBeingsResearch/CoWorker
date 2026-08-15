@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { t } from '../../i18n/admin';
 import { validateModelPrices } from './modelPricing';
@@ -32,10 +32,19 @@ export function useSettingsDraft({
   const [desktopValidationError, setDesktopValidationError] = useState('');
   const [invalidJsonPaths, setInvalidJsonPaths] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const savedProviderNames = useRef(new WeakMap<object, string>());
+
+  const clonePersistedConfig = useCallback((config: Json) => {
+    const clone = structuredClone(config);
+    for (const provider of clone.llm?.managed_providers || []) {
+      savedProviderNames.current.set(provider, String(provider.name || ''));
+    }
+    return clone;
+  }, []);
 
   useEffect(() => {
-    if (serverData) setDraft(current => current || structuredClone(serverData.config));
-  }, [serverData]);
+    if (serverData) setDraft(current => current || clonePersistedConfig(serverData.config));
+  }, [clonePersistedConfig, serverData]);
 
   const dirtyGroups = useMemo(
     () => collectDirtyGroups(serverData, draft, secretInputs, clearOverridePaths),
@@ -93,9 +102,20 @@ export function useSettingsDraft({
   const changeProvider = useCallback((index: number, key: string, value: unknown) => {
     if (!draft) return;
     const providers = [...(draft.llm?.managed_providers || [])];
-    providers[index] = { ...providers[index], [key]: value };
+    const current = providers[index];
+    const next = { ...current, [key]: value };
+    savedProviderNames.current.set(
+      next,
+      savedProviderNames.current.get(current) || '',
+    );
+    providers[index] = next;
     change('managed_providers', providers);
   }, [change, draft]);
+
+  const savedProviderName = useCallback(
+    (provider: Json) => savedProviderNames.current.get(provider) || '',
+    [],
+  );
 
   const toggleClearOverride = useCallback((path: string) => {
     setClearOverridePaths(current => {
@@ -108,11 +128,16 @@ export function useSettingsDraft({
 
   const resetGroup = useCallback(() => {
     if (!serverData) return;
-    setDraft(current => (
-      current
-        ? { ...current, [group]: structuredClone(serverData.config[group] || {}) }
-        : current
-    ));
+    setDraft(current => {
+      if (!current) return current;
+      const nextGroup = structuredClone(serverData.config[group] || {});
+      if (group === 'llm') {
+        for (const provider of nextGroup.managed_providers || []) {
+          savedProviderNames.current.set(provider, String(provider.name || ''));
+        }
+      }
+      return { ...current, [group]: nextGroup };
+    });
     setSecretInputs(current => omitGroupEntries(current, group));
     setClearOverridePaths(current => omitGroupPaths(current, group));
     setInvalidJsonPaths(new Set());
@@ -161,7 +186,7 @@ export function useSettingsDraft({
       updateServerData(refreshed);
       setDraft(current => (
         current
-          ? { ...current, [group]: structuredClone(refreshed.config[group] || {}) }
+          ? { ...current, [group]: clonePersistedConfig(refreshed.config)[group] || {} }
           : current
       ));
       return true;
@@ -176,6 +201,7 @@ export function useSettingsDraft({
     }
   }, [
     clearOverridePaths,
+    clonePersistedConfig,
     desktopValidationError,
     describeDesktopSave,
     dirtyGroups,
@@ -208,6 +234,7 @@ export function useSettingsDraft({
     message,
     resetGroup,
     save,
+    savedProviderName,
     saving,
     secretInputs,
     selectGroup,

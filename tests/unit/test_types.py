@@ -161,6 +161,12 @@ class TestMessage:
         d = msg.to_dict()
         assert "reasoning_content" not in d
 
+    def test_to_dict_with_provider_state(self):
+        state = {"kind": "openai_responses", "output_items": [{"id": "rs_1"}]}
+        msg = Message(role="assistant", content="", provider_state=state)
+
+        assert msg.to_dict()["provider_state"] == state
+
     def test_to_dict_omits_empty_tool_calls(self):
         msg = Message(role="assistant", content="hi")
         assert "tool_calls" not in msg.to_dict()
@@ -218,7 +224,14 @@ class TestConversationThread:
     def test_serialization_round_trip(self):
         thread = ConversationThread(participant_id="bob")
         thread.add(Message(role="user", content="hi"))
-        thread.add(Message(role="assistant", content="hello", reasoning_content="thinking..."))
+        thread.add(
+            Message(
+                role="assistant",
+                content="hello",
+                reasoning_content="thinking...",
+                provider_state={"kind": "any_llm_message", "signature": "opaque"},
+            )
+        )
         thread.add(Message(role="tool", content="result", tool_call_id="x1"))
 
         data = thread.to_dict()
@@ -227,6 +240,10 @@ class TestConversationThread:
         assert restored.participant_id == "bob"
         assert len(restored.messages) == 3
         assert restored.messages[1].reasoning_content == "thinking..."
+        assert restored.messages[1].provider_state == {
+            "kind": "any_llm_message",
+            "signature": "opaque",
+        }
         assert restored.messages[2].tool_call_id == "x1"
 
     def test_from_dict_missing_optional_fields(self):

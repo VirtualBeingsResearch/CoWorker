@@ -178,6 +178,8 @@ class ProviderModelsPayload(BaseModel):
 
     provider_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     provider_name: str = Field(default="", max_length=128)
+    saved_provider_name: str = Field(default="", max_length=128)
+    reuse_saved_api_key: bool = False
     api_key: str = Field(default="", max_length=4096)
     base_url: str = Field(default="", max_length=2048)
 
@@ -1060,18 +1062,18 @@ async def discover_provider_models(
             status_code=422,
             detail=tr("api.admin.provider_unavailable", provider=payload.provider_type),
         )
-    if provider_name and (not api_key or not base_url):
+    saved_provider_name = payload.saved_provider_name.strip()
+    if payload.reuse_saved_api_key and not api_key and saved_provider_name:
         configured = next(
             (
                 spec
                 for spec in _require_config().llm.resolved_providers()
-                if spec.name == provider_name and spec.type == payload.provider_type
+                if spec.name == saved_provider_name and spec.type == payload.provider_type
             ),
             None,
         )
         if configured is not None:
-            api_key = api_key or configured.api_key.strip()
-            base_url = base_url or configured.base_url.strip()
+            api_key = configured.api_key.strip()
     if not api_key and provider_requires_api_key(payload.provider_type):
         raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
 

@@ -299,6 +299,7 @@ class BubbleMiniLoop:
                     role="assistant",
                     content=response.content,
                     reasoning_content=response.reasoning_content,
+                    provider_state=response.provider_state,
                     tool_calls=[
                         {
                             "id": tc.id,
@@ -307,6 +308,7 @@ class BubbleMiniLoop:
                                 "name": tc.name,
                                 "arguments": json.dumps(tc.arguments),
                             },
+                            **({"extra_content": tc.extra_content} if tc.extra_content else {}),
                         }
                         for tc in response.tool_calls
                     ],

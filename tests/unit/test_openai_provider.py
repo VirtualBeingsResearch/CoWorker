@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -118,6 +119,25 @@ class TestOpenAIProvider:
         assert create.await_args.kwargs["reasoning"] == {"effort": "none"}
 
     @pytest.mark.asyncio
+    async def test_complete_normalizes_gpt_56_minimal_effort_to_low(self):
+        provider, create = _make_provider("gpt-5.6-sol")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking="minimal",
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {
+            "effort": "low",
+            "summary": "auto",
+        }
+        assert provider.supports_tool_use("gpt-5.6-sol") is True
+        assert provider.supports_vision("gpt-5.6-sol") is True
+
+    @pytest.mark.asyncio
     async def test_complete_reads_tool_calls_from_responses_output(self):
         provider, create = _make_provider("gpt-5.4")
         create.return_value = _make_response(
@@ -189,6 +209,84 @@ class TestOpenAIProvider:
                 "content": [{"type": "output_text", "text": "hello"}],
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_complete_replays_real_responses_output_items_on_next_turn(self):
+        provider, create = _make_provider("gpt-5.6-sol")
+        reasoning_item = SimpleNamespace(
+            type="reasoning",
+            id="rs_provider_generated",
+            encrypted_content="opaque-reasoning-state",
+            summary=[SimpleNamespace(type="summary_text", text="checked")],
+        )
+        function_item = SimpleNamespace(
+            type="function_call",
+            id="fc_1",
+            call_id="call_1",
+            name="search_web",
+            arguments='{"query":"hello"}',
+            status="completed",
+        )
+        first_wire_response = _make_response(output_text="")
+        first_wire_response.output = [reasoning_item, function_item]
+        create.side_effect = [first_wire_response, _make_response()]
+
+        first = await provider.complete(
+            messages=[Message(role="user", content="first")],
+            system_prompt="You are helpful.",
+            tools=[],
+        )
+        tool_call = first.tool_calls[0]
+        await provider.complete(
+            messages=[
+                Message(role="user", content="first"),
+                Message(
+                    role="assistant",
+                    content=first.content,
+                    reasoning_content=first.reasoning_content,
+                    provider_state=first.provider_state,
+                    tool_calls=[
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.name,
+                                "arguments": json.dumps(tool_call.arguments),
+                            },
+                        }
+                    ],
+                ),
+                Message(role="tool", content="done", tool_call_id="call_1"),
+            ],
+            system_prompt="You are helpful.",
+            tools=[],
+        )
+
+        replayed = create.await_args_list[1].kwargs["input_data"]
+        assert replayed[1:3] == [
+            {
+                "type": "reasoning",
+                "id": "rs_provider_generated",
+                "encrypted_content": "opaque-reasoning-state",
+                "summary": [{"type": "summary_text", "text": "checked"}],
+            },
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "search_web",
+                "arguments": '{"query":"hello"}',
+                "status": "completed",
+            },
+        ]
+        assert replayed[3] == {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "done",
+        }
+        assert [
+            item.get("id") for item in replayed if item.get("type") == "reasoning"
+        ] == ["rs_provider_generated"]
 
     @pytest.mark.asyncio
     async def test_complete_handles_malformed_tool_call_arguments(self):

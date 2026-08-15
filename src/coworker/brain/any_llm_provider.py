@@ -32,6 +32,32 @@ def parse_tool_arguments(raw: str, tool_name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"value": value}
 
 
+def serialize_provider_data(value: Any) -> Any:
+    """Convert SDK response objects into JSON-compatible conversation state."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): serialize_provider_data(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [serialize_provider_data(item) for item in value]
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return serialize_provider_data(model_dump(exclude_none=True))
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return serialize_provider_data(to_dict())
+    try:
+        attributes = vars(value)
+    except TypeError:
+        return str(value)
+    return {
+        key: serialize_provider_data(item)
+        for key, item in attributes.items()
+        if not key.startswith("_")
+    }
+
+
 class AnyLLMProvider(BaseLLMProvider):
     """Coworker's provider contract backed by an Any-LLM provider instance."""
 
@@ -95,9 +121,17 @@ class AnyLLMProvider(BaseLLMProvider):
         return message.role
 
     def _message_extra_fields(self, message: Message) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        state = message.provider_state
+        if (
+            state.get("kind") == "any_llm_message"
+            and state.get("provider") == self.provider_name
+            and isinstance(state.get("extra_content"), dict)
+        ):
+            fields["extra_content"] = state["extra_content"]
         if message.reasoning_content:
-            return {"reasoning_content": message.reasoning_content}
-        return {}
+            fields["reasoning_content"] = message.reasoning_content
+        return fields
 
     def _build_messages(self, messages: list[Message], system_prompt: str) -> list[dict[str, Any]]:
         api_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -161,6 +195,16 @@ class AnyLLMProvider(BaseLLMProvider):
                         str(getattr(function, "arguments", "") or "{}"),
                         name,
                     ),
+                    extra_content=(
+                        extra
+                        if isinstance(
+                            (extra := serialize_provider_data(
+                                getattr(tool_call, "extra_content", None)
+                            )),
+                            dict,
+                        )
+                        else {}
+                    ),
                 )
             )
         return tool_calls
@@ -223,6 +267,21 @@ class AnyLLMProvider(BaseLLMProvider):
             model=getattr(response, "model", self._current_model) or self._current_model,
             usage=self._extract_usage(response),
             reasoning_content=self._extract_reasoning(message),
+            provider_state=(
+                {
+                    "kind": "any_llm_message",
+                    "provider": self.provider_name,
+                    "extra_content": message_extra,
+                }
+                if isinstance(
+                    (message_extra := serialize_provider_data(
+                        getattr(message, "extra_content", None)
+                    )),
+                    dict,
+                )
+                and message_extra
+                else {}
+            ),
         )
 
 

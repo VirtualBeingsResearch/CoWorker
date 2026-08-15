@@ -2073,13 +2073,44 @@ def test_provider_model_discovery_can_reuse_configured_connection_secret(
     response = client.post(
         "/api/admin/provider-models",
         headers={"Authorization": "Bearer secret"},
-        json={"provider_type": "openai", "provider_name": "openai"},
+        json={
+            "provider_type": "openai",
+            "provider_name": "renamed-openai",
+            "saved_provider_name": "openai",
+            "reuse_saved_api_key": True,
+            "base_url": "",
+        },
     )
 
     assert response.status_code == 200
     assert response.json()["source"] == "catalog"
     assert captured["api_key"] == "sk-original"
+    assert captured["base_url"] is None
+    assert captured["name"] == "renamed-openai"
     assert "api_key" not in response.text
+
+
+def test_provider_model_discovery_does_not_implicitly_reuse_saved_secret(
+    tmp_path,
+    monkeypatch,
+):
+    client, _ = _client(tmp_path)
+    build_provider = MagicMock()
+    monkeypatch.setattr("coworker.brain.factory.build_provider", build_provider)
+
+    response = client.post(
+        "/api/admin/provider-models",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "provider_type": "openai",
+            "provider_name": "openai",
+            "saved_provider_name": "openai",
+            "reuse_saved_api_key": False,
+        },
+    )
+
+    assert response.status_code == 422
+    build_provider.assert_not_called()
 
 
 def test_provider_model_discovery_allows_keyless_local_provider(tmp_path, monkeypatch):

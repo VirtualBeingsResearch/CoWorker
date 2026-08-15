@@ -5,14 +5,25 @@ import json
 
 from any_llm.exceptions import AnyLLMError
 
-from coworker.brain.any_llm_provider import AnyLLMProvider, parse_tool_arguments
+from coworker.brain.any_llm_provider import (
+    AnyLLMProvider,
+    parse_tool_arguments,
+    serialize_provider_data,
+)
 from coworker.brain.base import (
     pdf_attachment_fallback,
     unsupported_image_fallback,
 )
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
-from coworker.core.types import LLMResponse, Message, ThinkingMode, ToolCall, reasoning_effort
+from coworker.core.types import (
+    LLMResponse,
+    Message,
+    ReasoningEffort,
+    ThinkingMode,
+    ToolCall,
+    reasoning_effort,
+)
 from coworker.i18n import tr
 
 _parse_tool_arguments = parse_tool_arguments
@@ -116,10 +127,24 @@ class OpenAIProvider(AnyLLMProvider):
     initial_model = "gpt-4o"
 
     def _supports_reasoning_effort(self, model_id: str) -> bool:
-        return model_id in _REASONING_MODELS
+        return model_id in _REASONING_MODELS or self._is_gpt_56(model_id)
+
+    @staticmethod
+    def _is_gpt_56(model_id: str) -> bool:
+        return model_id == "gpt-5.6" or model_id.startswith("gpt-5.6-")
+
+    def _normalize_reasoning_effort(
+        self,
+        model_id: str,
+        effort: ReasoningEffort,
+    ) -> ReasoningEffort:
+        # GPT-5.6 starts at low; sending the global "minimal" value is rejected.
+        if self._is_gpt_56(model_id) and effort == "minimal":
+            return "low"
+        return effort
 
     def supports_vision(self, model_id: str) -> bool:
-        return model_id in _VISION_MODELS
+        return model_id in _VISION_MODELS or self._is_gpt_56(model_id)
 
     def _build_prompt_cache_key(
         self,
@@ -257,6 +282,15 @@ class OpenAIProvider(AnyLLMProvider):
             ),
         }
 
+    @staticmethod
+    def _responses_output_items(response) -> list[dict]:
+        items: list[dict] = []
+        for item in getattr(response, "output", []) or []:
+            serialized = serialize_provider_data(item)
+            if isinstance(serialized, dict):
+                items.append(serialized)
+        return items
+
     async def complete(
         self,
         messages: list[Message],
@@ -276,7 +310,10 @@ class OpenAIProvider(AnyLLMProvider):
             }
             if tools:
                 kwargs["tools"] = self._to_responses_tools(tools)
-            effort = reasoning_effort(thinking)
+            effort = self._normalize_reasoning_effort(
+                self._current_model,
+                reasoning_effort(thinking),
+            )
             if effort == "none":
                 kwargs["reasoning"] = {"effort": "none"}
             elif self._supports_reasoning_effort(self._current_model) and effort != "auto":
@@ -288,6 +325,7 @@ class OpenAIProvider(AnyLLMProvider):
         tool_calls = self._parse_responses_tool_calls(response)
         usage = self._extract_usage(response)
         reasoning_content = self._extract_reasoning_content(response)
+        output_items = self._responses_output_items(response)
 
         return LLMResponse(
             content=getattr(response, "output_text", "") or "",
@@ -296,6 +334,15 @@ class OpenAIProvider(AnyLLMProvider):
             model=getattr(response, "model", self._current_model),
             usage=usage,
             reasoning_content=reasoning_content,
+            provider_state=(
+                {
+                    "kind": "openai_responses",
+                    "provider": self.provider_name,
+                    "output_items": output_items,
+                }
+                if output_items
+                else {}
+            ),
         )
 
     def _to_responses_input(self, messages: list[Message], model_id: str) -> tuple[list[dict], str]:
@@ -316,15 +363,16 @@ class OpenAIProvider(AnyLLMProvider):
                 )
                 continue
             if m.role == "assistant":
-                if m.reasoning_content:
-                    rc_id = "rs_" + hashlib.sha256(m.reasoning_content.encode()).hexdigest()[:24]
-                    input_items.append(
-                        {
-                            "type": "reasoning",
-                            "id": rc_id,
-                            "summary": [{"type": "summary_text", "text": m.reasoning_content}],
-                        }
+                state = m.provider_state
+                if (
+                    state.get("kind") == "openai_responses"
+                    and state.get("provider") == self.provider_name
+                    and isinstance(state.get("output_items"), list)
+                ):
+                    input_items.extend(
+                        item for item in state["output_items"] if isinstance(item, dict)
                     )
+                    continue
                 if m.content:
                     input_items.append(
                         {
@@ -368,4 +416,4 @@ class OpenAIProvider(AnyLLMProvider):
         return sorted(_TOOL_USE_MODELS)
 
     def supports_tool_use(self, model_id: str) -> bool:
-        return model_id in _TOOL_USE_MODELS
+        return model_id in _TOOL_USE_MODELS or self._is_gpt_56(model_id)

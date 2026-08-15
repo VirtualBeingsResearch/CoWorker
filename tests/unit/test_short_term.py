@@ -45,7 +45,14 @@ class TestShortTermMemory:
 
     def test_serialize_deserialize_round_trip(self):
         mem = ShortTermMemory(max_tokens=1000, compress_ratio=0.3)
-        mem.primary.append(Message(role="assistant", content="thought"))
+        mem.primary.append(
+            Message(
+                role="assistant",
+                content="thought",
+                reasoning_content="summary",
+                provider_state={"kind": "openai_responses", "output_items": [{"id": "rs_1"}]},
+            )
+        )
         thread = mem.get_thread("alice")
         thread.add(Message(role="user", content="hi alice"))
 
@@ -54,6 +61,11 @@ class TestShortTermMemory:
 
         assert len(restored.primary) == 1
         assert restored.primary[0].content == "thought"
+        assert restored.primary[0].reasoning_content == "summary"
+        assert restored.primary[0].provider_state == {
+            "kind": "openai_responses",
+            "output_items": [{"id": "rs_1"}],
+        }
         assert "alice" in restored.threads
         assert restored.threads["alice"].messages[0].content == "hi alice"
 

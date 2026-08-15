@@ -397,6 +397,7 @@ class AgentLoop:
                 f"{self._brain.current_provider_name}/{response.model or self._brain.current_model}"
             ),
             reasoning_content=response.reasoning_content,
+            provider_state=response.provider_state,
             tool_calls=[
                 {
                     "id": tc.id,
@@ -405,6 +406,7 @@ class AgentLoop:
                         "name": tc.name,
                         "arguments": json.dumps(tc.arguments, ensure_ascii=False),
                     },
+                    **({"extra_content": tc.extra_content} if tc.extra_content else {}),
                 }
                 for tc in response.tool_calls
             ],

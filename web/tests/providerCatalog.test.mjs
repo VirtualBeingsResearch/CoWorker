@@ -17,7 +17,16 @@ test('allows model discovery and setup without a key for keyless providers', () 
   assert.match(adminApp, /const apiKeyRequired = selectedCatalog\.requires_api_key !== false/);
   assert.match(adminApp, /required=\{apiKeyRequired\}/);
   assert.match(adminApp, /\(apiKeyRequired && !apiKey\.trim\(\)\)/);
-  assert.match(adminApp, /requiresApiKey && !apiKey\.trim\(\) && !providerName\.trim\(\)/);
+  assert.match(adminApp, /requiresApiKey && !apiKey\.trim\(\) && !reuseSavedApiKey/);
+});
+
+test('reuses an edited connection secret only through its saved identity', () => {
+  assert.match(adminApp, /saved_provider_name: savedProviderName/);
+  assert.match(adminApp, /reuse_saved_api_key: reuseSavedApiKey/);
+  assert.doesNotMatch(
+    adminApp,
+    /requiresApiKey && !apiKey\.trim\(\) && !providerName\.trim\(\)/,
+  );
 });
 
 test('presents OpenCode Go explicitly and keeps model discovery out of the input row', () => {

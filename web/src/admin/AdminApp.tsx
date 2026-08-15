@@ -273,13 +273,15 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
-function ProviderModelField({ id, label, value, onChange, providerType, providerName = '', apiKey, baseUrl, catalogModels = [], requiresApiKey = true, className = '' }: {
+function ProviderModelField({ id, label, value, onChange, providerType, providerName = '', savedProviderName = '', reuseSavedApiKey = false, apiKey, baseUrl, catalogModels = [], requiresApiKey = true, className = '' }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   providerType: string;
   providerName?: string;
+  savedProviderName?: string;
+  reuseSavedApiKey?: boolean;
   apiKey: string;
   baseUrl: string;
   catalogModels?: string[];
@@ -293,7 +295,7 @@ function ProviderModelField({ id, label, value, onChange, providerType, provider
   useEffect(() => {
     setRemoteModels([]);
     setMessage(null);
-  }, [providerType, baseUrl]);
+  }, [providerType, providerName, savedProviderName, baseUrl]);
   const discover = async () => {
     setLoading(true);
     setMessage(null);
@@ -301,6 +303,8 @@ function ProviderModelField({ id, label, value, onChange, providerType, provider
       const result = await api<Json>('/api/admin/provider-models', { method: 'POST', body: JSON.stringify({
         provider_type: providerType,
         provider_name: providerName,
+        saved_provider_name: savedProviderName,
+        reuse_saved_api_key: reuseSavedApiKey,
         api_key: apiKey,
         base_url: baseUrl,
       }) });
@@ -322,7 +326,7 @@ function ProviderModelField({ id, label, value, onChange, providerType, provider
   return <div className={`provider-model-field ${className}`}>
     <div className="provider-model-heading">
       <label id={`${id}-label`} htmlFor={id}>{t(label)}</label>
-      <button type="button" className="provider-model-discover" title={t('只读取模型列表，不会调用模型')} disabled={loading || (requiresApiKey && !apiKey.trim() && !providerName.trim())} onClick={() => void discover()}><RefreshCw size={13} />{t(loading ? '正在同步…' : '同步模型列表')}</button>
+      <button type="button" className="provider-model-discover" title={t('只读取模型列表，不会调用模型')} disabled={loading || (requiresApiKey && !apiKey.trim() && !reuseSavedApiKey)} onClick={() => void discover()}><RefreshCw size={13} />{t(loading ? '正在同步…' : '同步模型列表')}</button>
     </div>
     <div className="provider-model-control">
       <EditableCombobox id={id} value={value} options={models.map((item: string) => ({ value: item }))} onChange={onChange} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('没有匹配的推荐模型；仍可直接使用当前模型 ID。')} toggleLabel={t('展开推荐模型')} />
@@ -789,7 +793,7 @@ function normalizeThinkingEffort(value: unknown): string {
 }
 
 function ThinkingEffortField({ value, onChange }: { value: unknown; onChange: (value: string) => void }) {
-  return <Field label="思考强度" hint="支持强度的 Provider 会原样应用；仅支持开关的 Provider 会降级为开启或关闭。"><select value={normalizeThinkingEffort(value)} onChange={event => onChange(event.target.value)}>{THINKING_EFFORT_OPTIONS.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></Field>;
+  return <Field label="思考强度" hint="支持强度的 Provider 会按当前模型支持的档位应用；仅支持开关的 Provider 会降级为开启或关闭。"><select value={normalizeThinkingEffort(value)} onChange={event => onChange(event.target.value)}>{THINKING_EFFORT_OPTIONS.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></Field>;
 }
 
 function Models() {
@@ -1382,6 +1386,7 @@ function Settings() {
     message,
     resetGroup,
     save,
+    savedProviderName,
     saving,
     secretInputs,
     selectGroup,
@@ -1445,14 +1450,23 @@ function Settings() {
           {externalProviders.length > 0 && <div className="provider-effective"><b>{t('外部有效连接（只读）')}</b>{externalProviders.map((provider: Json) => <span key={provider.name}><strong>{provider.name}</strong><code>{provider.type}</code><small>{provider.base_url || t('供应商默认地址')}</small></span>)}</div>}
           {value.length ? value.map((provider: Json, index: number) => {
             const secretPath = `llm.managed_providers.${index}.api_key`;
-            const status = data.secret_status[secretPath];
+            const originalProviderName = savedProviderName(provider);
+            const originalProviders = data.config?.llm?.managed_providers || [];
+            const originalProviderIndex = originalProviders.findIndex(
+              (item: Json) => item.name === originalProviderName,
+            );
+            const originalProvider = originalProviders[originalProviderIndex];
+            const originalStatus = originalProviderIndex >= 0
+              ? data.secret_status[`llm.managed_providers.${originalProviderIndex}.api_key`]
+              : undefined;
+            const status = originalProvider?.type === provider.type ? originalStatus : undefined;
             const catalogEntry = providerCatalog.find((entry: Json) => entry.type === provider.type) || {};
             const availableProviderTypes = Array.from(new Set([...providerTypes, provider.type || 'openai']));
             return <article className="provider-row" key={index}>
               <Field label="连接名称" hint="在模型编排中引用的名称"><input value={provider.name || ''} onChange={e => changeProvider(index, 'name', e.target.value)} placeholder={t('例如 openai-work')} /></Field>
               <Field label="供应商类型"><div className="provider-type-select"><select value={provider.type || 'openai'} onChange={e => changeProvider(index, 'type', e.target.value)}>{availableProviderTypes.map(type => <option value={type} key={type}>{t(PROVIDER_LABELS[type] || type)}</option>)}</select><ChevronDown size={15} aria-hidden="true" /></div></Field>
               <Field label="服务地址（Base URL）"><input value={provider.base_url || ''} onChange={e => changeProvider(index, 'base_url', e.target.value)} placeholder={t('留空使用供应商默认地址')} /></Field>
-              <ProviderModelField id={`provider-default-model-${index}`} label="默认模型" value={provider.default_model || ''} onChange={next => changeProvider(index, 'default_model', next)} providerType={provider.type || 'openai'} providerName={provider.name || ''} apiKey={secretInputs[secretPath] || ''} baseUrl={provider.base_url || ''} catalogModels={catalogEntry.models || []} requiresApiKey={catalogEntry.requires_api_key !== false} />
+              <ProviderModelField id={`provider-default-model-${index}`} label="默认模型" value={provider.default_model || ''} onChange={next => changeProvider(index, 'default_model', next)} providerType={provider.type || 'openai'} providerName={provider.name || ''} savedProviderName={originalProviderName} reuseSavedApiKey={Boolean(status?.configured)} apiKey={secretInputs[secretPath] || ''} baseUrl={provider.base_url || ''} catalogModels={catalogEntry.models || []} requiresApiKey={catalogEntry.requires_api_key !== false} />
               <Field label="API Key" hint={status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : catalogEntry.requires_api_key === false ? t('当前 Provider 可使用本地或环境认证') : t('当前未配置')}><input type="password" value={secretInputs[secretPath] || ''} onChange={e => setSecretInputs({ ...secretInputs, [secretPath]: e.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : catalogEntry.requires_api_key === false ? t('可选') : t('输入 API Key')} /></Field>
               <ProviderModelCapabilityEditor value={Array.isArray(provider.model_capabilities) ? provider.model_capabilities : []} onChange={next => changeProvider(index, 'model_capabilities', next)} />
               <button className="danger-icon provider-remove" title={t('移除 Provider')} onClick={() => { change('managed_providers', value.filter((_: unknown, i: number) => i !== index)); setSecretInputs(current => Object.fromEntries(Object.entries(current).filter(([path]) => !path.startsWith('llm.managed_providers.')))); }}><Trash2 size={15} /></button>

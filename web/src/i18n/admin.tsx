@@ -581,7 +581,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '切换立即生效，正在执行的单次调用不会被中断。': 'Changes apply immediately; calls already in progress are not interrupted.',
   '当前接棒者': 'Current handler',
   '思考强度': 'Reasoning effort',
-  '支持强度的 Provider 会原样应用；仅支持开关的 Provider 会降级为开启或关闭。': 'Providers with effort controls apply this level directly; toggle-only providers fall back to on or off.',
+  '支持强度的 Provider 会按当前模型支持的档位应用；仅支持开关的 Provider 会降级为开启或关闭。': 'Providers with effort controls normalize to levels supported by the active model; toggle-only providers fall back to on or off.',
   '最小': 'Minimal',
   '低': 'Low',
   '中': 'Medium',
