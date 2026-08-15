@@ -1024,9 +1024,10 @@ html:has(.admin-login),
 .admin-usage-state.error { color: var(--admin-red); }
 .admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); align-items: start; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
 .admin-usage-metrics.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.admin-usage-metrics.compact article { grid-column: span 1; }
+.admin-usage-metrics.compact article { grid-column: span 1; height: 90px; overflow: hidden; }
 .admin-usage-metrics.compact article.total,
 .admin-usage-metrics.compact article.cost { grid-column: span 1; min-height: 90px; }
+.admin-usage-metrics .currency-cost-summary.empty { display: inline-block; margin-top: 10px; padding: 0; font: 680 14px/1 var(--admin-data); }
 .admin-usage-metrics article { position: relative; display: grid; align-content: start; min-width: 0; min-height: 90px; padding: 12px; background: var(--admin-surface); }
 .admin-usage-metrics article.total { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)), var(--admin-surface)); }
 .admin-usage-metrics article.cost { background: linear-gradient(135deg, color-mix(in oklch, var(--admin-sky) 8%, var(--admin-surface)), var(--admin-surface)); }
