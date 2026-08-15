@@ -7,6 +7,8 @@ from mem0.utils.factory import LlmFactory
 
 from coworker.memory.mem0_adapters import (
     CoworkerAnthropicLLM,
+    CoworkerAnyLLMConfig,
+    CoworkerAnyLLMLLM,
     CoworkerOpenAIConfig,
     CoworkerOpenAILLM,
     register_mem0_adapters,
@@ -64,6 +66,78 @@ def test_adapters_replace_mem0_supported_provider_implementations() -> None:
         "coworker.memory.mem0_adapters.CoworkerAnthropicLLM",
         AnthropicConfig,
     )
+    assert LlmFactory.provider_to_class["coworker_any_llm"] == (
+        "coworker.memory.mem0_adapters.CoworkerAnyLLMLLM",
+        CoworkerAnyLLMConfig,
+    )
+
+
+def test_any_llm_adapter_normalizes_response_without_network(monkeypatch) -> None:
+    function = MagicMock(name="function")
+    function.name = "lookup"
+    function.arguments = '{"query":"hello"}'
+    tool_call = MagicMock()
+    tool_call.function = function
+    message = MagicMock()
+    message.content = ""
+    message.tool_calls = [tool_call]
+    response = MagicMock()
+    response.choices = [MagicMock(message=message)]
+    response.usage.prompt_tokens = 8
+    response.usage.completion_tokens = 3
+    response.usage.prompt_tokens_details.cached_tokens = 2
+    client = MagicMock()
+    client.SUPPORTS_COMPLETION_REASONING = True
+    client.completion.return_value = response
+    create = MagicMock(return_value=client)
+    monkeypatch.setattr("coworker.memory.mem0_adapters.AnyLLM.create", create)
+
+    llm = CoworkerAnyLLMLLM(
+        {
+            "coworker_provider": "openrouter",
+            "api_key": "offline-key",
+            "api_base": "https://gateway.example.test/v1",
+            "model": "vendor-model",
+            "thinking": True,
+        }
+    )
+    result = llm.generate_response(
+        messages=[{"role": "user", "content": "hello"}],
+        tools=[{"type": "function", "function": {"name": "lookup"}}],
+    )
+
+    create.assert_called_once_with(
+        "openrouter",
+        api_key="offline-key",
+        api_base="https://gateway.example.test/v1",
+    )
+    assert client.completion.call_args.kwargs["reasoning_effort"] == "high"
+    assert result == {
+        "content": "",
+        "tool_calls": [{"name": "lookup", "arguments": {"query": "hello"}}],
+    }
+    assert llm._coworker_last_usage == {
+        "input_tokens": 8,
+        "output_tokens": 3,
+        "cached_tokens": 2,
+    }
+
+
+def test_any_llm_adapter_omits_reasoning_for_unsupported_provider(monkeypatch) -> None:
+    message = MagicMock(content="ok")
+    response = MagicMock(choices=[MagicMock(message=message)], usage=None)
+    client = MagicMock(SUPPORTS_COMPLETION_REASONING=False)
+    client.completion.return_value = response
+    monkeypatch.setattr(
+        "coworker.memory.mem0_adapters.AnyLLM.create",
+        MagicMock(return_value=client),
+    )
+    llm = CoworkerAnyLLMLLM(
+        {"coworker_provider": "openrouter", "model": "vendor-model"}
+    )
+
+    assert llm.generate_response([{"role": "user", "content": "hello"}]) == "ok"
+    assert client.completion.call_args.kwargs["reasoning_effort"] is None
 
 
 def _make_openai_response(content: str = "{}") -> MagicMock:

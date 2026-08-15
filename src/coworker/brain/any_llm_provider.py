@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from typing import Any, Literal, cast
@@ -9,11 +10,17 @@ from any_llm import AnyLLM
 from any_llm.exceptions import AnyLLMError
 from loguru import logger
 
-from coworker.brain.base import BaseLLMProvider
+from coworker.brain.base import (
+    BaseLLMProvider,
+    pdf_attachment_fallback,
+    unsupported_image_fallback,
+    unsupported_video_fallback,
+)
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
 from coworker.core.types import LLMResponse, Message, ThinkingMode, ToolCall, reasoning_effort
+from coworker.i18n import tr
 
 
 def parse_tool_arguments(raw: str, tool_name: str) -> dict[str, Any]:
@@ -39,13 +46,20 @@ class AnyLLMProvider(BaseLLMProvider):
     ) -> None:
         super().__init__(name)
         self._current_model = self.initial_model
-        self._llm = AnyLLM.create(
-            self.any_llm_provider,
-            api_key=api_key,
-            api_base=self.resolve_base_url(base_url),
-            http_client=httpx.AsyncClient(verify=shared_ssl_context()),
-        )
+        client_options = self._any_llm_client_options()
+        try:
+            self._llm = AnyLLM.create(
+                self.any_llm_provider,
+                api_key=api_key,
+                api_base=self.resolve_base_url(base_url),
+                **client_options,
+            )
+        except (AnyLLMError, ImportError) as error:
+            raise ProviderError(str(error)) from error
         self._client: Any = getattr(self._llm, "client", None)
+
+    def _any_llm_client_options(self) -> dict[str, Any]:
+        return {"http_client": httpx.AsyncClient(verify=shared_ssl_context())}
 
     def set_model(self, model_id: str) -> None:
         self._current_model = model_id
@@ -56,8 +70,8 @@ class AnyLLMProvider(BaseLLMProvider):
         if not self._llm.SUPPORTS_LIST_MODELS:
             return []
         try:
-            models = await self._llm.alist_models(timeout=15.0)
-        except AnyLLMError as error:
+            models = await asyncio.wait_for(self._llm.alist_models(), timeout=15.0)
+        except (AnyLLMError, TimeoutError) as error:
             raise ProviderError(str(error)) from error
         return sorted(
             {
@@ -69,6 +83,8 @@ class AnyLLMProvider(BaseLLMProvider):
 
     async def close(self) -> None:
         close = getattr(self._client, "close", None)
+        if close is None:
+            close = getattr(self._client, "aclose", None)
         if close is None:
             return
         result = close()
@@ -187,3 +203,86 @@ class AnyLLMProvider(BaseLLMProvider):
             usage=self._extract_usage(response),
             reasoning_content=self._extract_reasoning(message),
         )
+
+
+class DynamicAnyLLMProvider(AnyLLMProvider):
+    """Conservative adapter for an Any-LLM provider without Coworker overrides."""
+
+    provider_type = ""
+    initial_model = ""
+
+    def __init__(
+        self,
+        provider_key: str,
+        api_key: str,
+        base_url: str | None = None,
+        name: str | None = None,
+        client_dialect: str = "any_llm",
+        supports_reasoning: bool = False,
+    ) -> None:
+        self.provider_type = provider_key
+        self.any_llm_provider = provider_key
+        self.api_dialect = "any_llm"
+        self._client_dialect = client_dialect
+        self._supports_reasoning = supports_reasoning
+        super().__init__(api_key, base_url=base_url, name=name or provider_key)
+
+    def _any_llm_client_options(self) -> dict[str, Any]:
+        if self._client_dialect in {"openai", "anthropic"}:
+            return super()._any_llm_client_options()
+        return {}
+
+    def list_models(self) -> list[str]:
+        return []
+
+    def _completion_options(self, thinking: ThinkingMode) -> dict[str, Any]:
+        if not self._supports_reasoning:
+            return {"reasoning_effort": None}
+        return super()._completion_options(thinking)
+
+    def supports_tool_use(self, model_id: str) -> bool:
+        return False
+
+    def supports_vision(self, model_id: str) -> bool:
+        return False
+
+    def _adapt_content(
+        self,
+        content: str | list[dict[str, Any]],
+        model_id: str,
+    ) -> str | list[dict[str, Any]]:
+        if isinstance(content, str):
+            return content
+        if not self.can_use_vision(model_id):
+            return super()._adapt_content(content, model_id)
+
+        result: list[dict[str, Any]] = []
+        for block in content:
+            block_type = block.get("type")
+            if block_type == "image":
+                source = block.get("source", {})
+                if source.get("type") == "base64":
+                    data_url = f"data:{source['media_type']};base64,{source['data']}"
+                    result.append({"type": "image_url", "image_url": {"url": data_url}})
+                else:
+                    result.append({"type": "text", "text": unsupported_image_fallback()})
+            elif block_type == "video":
+                source = block.get("source", {})
+                if self.can_use_video(model_id) and source.get("type") == "base64":
+                    data_url = f"data:{source['media_type']};base64,{source['data']}"
+                    result.append({"type": "video_url", "video_url": {"url": data_url}})
+                else:
+                    result.append({"type": "text", "text": unsupported_video_fallback()})
+            elif block_type == "document":
+                filename = block.get("_filename", tr("attachment_fallback.document_name"))
+                result.append(
+                    {
+                        "type": "text",
+                        "text": pdf_attachment_fallback(filename, block.get("_saved_path", "")),
+                    }
+                )
+            else:
+                result.append(
+                    {key: value for key, value in block.items() if not key.startswith("_")}
+                )
+        return result

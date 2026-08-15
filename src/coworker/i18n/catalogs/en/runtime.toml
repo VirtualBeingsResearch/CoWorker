@@ -218,6 +218,8 @@ public_url_origin_only = "The public API URL must not contain credentials, a pat
 model_required = "A model capability declaration requires a model ID"
 video_requires_vision = "A video-capable model must also be marked as vision-capable"
 duplicate_model_capability = "Duplicate model capability declaration: {{model}}"
+unknown = "Unknown provider type {{provider}}; available types: {{available}}"
+unavailable = "Provider {{provider}} is unavailable in this installation: {{reason}}"
 
 [config.model_price]
 provider_and_model_required = "Model pricing requires both a Provider and model ID"

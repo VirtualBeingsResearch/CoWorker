@@ -37,6 +37,7 @@ already_initialized = "Initialization is complete; change the model connection i
 bootstrap_field_managed = "This setup field is managed by the connection or security boundary and cannot be overridden here: {{path}}"
 model_required = "The startup model is required"
 api_key_required = "The API key is required"
+provider_unavailable = "Provider {{provider}} is unavailable in this installation"
 model_discovery_failed = "Could not read the model list from this provider; check the API key and Base URL"
 custom_model_confirmation_required = "Model {{model}} is not in {{provider}}'s recommended catalog; declare its supported capabilities before continuing"
 unsupported_tool_model = "Model {{model}} on {{provider}} must support tool calling to serve as the primary model"

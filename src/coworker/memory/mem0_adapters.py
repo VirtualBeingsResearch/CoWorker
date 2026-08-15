@@ -4,17 +4,22 @@ from typing import Any, cast
 
 import anthropic
 import openai
+from any_llm import AnyLLM
 from mem0.configs.llms.anthropic import AnthropicConfig
+from mem0.configs.llms.base import BaseLlmConfig
 from mem0.configs.llms.openai import OpenAIConfig
 from mem0.llms.anthropic import AnthropicLLM
+from mem0.llms.base import LLMBase
 from mem0.llms.openai import OpenAILLM
 from mem0.utils.factory import LlmFactory
 
+from coworker.brain.any_llm_provider import parse_tool_arguments
 from coworker.brain.deepseek_provider import _THINKING_MODELS as _DEEPSEEK_THINKING_MODELS
 from coworker.brain.minimax_provider import _THINKING_MODELS as _MINIMAX_THINKING_MODELS
 from coworker.brain.qwen_provider import _THINKING_MODELS as _QWEN_THINKING_MODELS
 from coworker.brain.tls import shared_ssl_context
 from coworker.brain.zhipu_provider import _THINKING_MODELS as _ZHIPU_THINKING_MODELS
+from coworker.i18n import tr
 
 
 class CoworkerOpenAIConfig(OpenAIConfig):
@@ -34,6 +39,97 @@ class CoworkerOpenAIConfig(OpenAIConfig):
         super().__init__(**kwargs)
         self.thinking = thinking
         self.coworker_provider = coworker_provider
+
+
+class CoworkerAnyLLMConfig(BaseLlmConfig):
+    """mem0 configuration for a native Any-LLM provider."""
+
+    def __init__(
+        self,
+        coworker_provider: str,
+        api_base: str = "",
+        thinking: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.coworker_provider = coworker_provider
+        self.api_base = api_base
+        self.thinking = thinking
+
+
+class CoworkerAnyLLMLLM(LLMBase):
+    """Expose Any-LLM's normalized completion response through mem0's sync API."""
+
+    def __init__(
+        self,
+        config: CoworkerAnyLLMConfig | dict[str, Any] | None = None,
+    ) -> None:
+        if config is None:
+            raise ValueError(tr("mem0.provider_required"))
+        if isinstance(config, dict):
+            config = CoworkerAnyLLMConfig(**config)
+        super().__init__(config)
+        self.client = AnyLLM.create(
+            config.coworker_provider,
+            api_key=config.api_key,
+            api_base=config.api_base or None,
+        )
+
+    def generate_response(
+        self,
+        messages,
+        response_format=None,
+        tools=None,
+        tool_choice: str = "auto",
+        **kwargs,
+    ):
+        params = self._get_supported_params(messages=messages, **kwargs)
+        params.update(
+            {
+                "model": self.config.model,
+                "messages": messages,
+                "reasoning_effort": (
+                    "high" if self.config.thinking else "none"
+                )
+                if self.client.SUPPORTS_COMPLETION_REASONING
+                else None,
+            }
+        )
+        if response_format is not None:
+            params["response_format"] = response_format
+        if tools:
+            params["tools"] = tools
+            params["tool_choice"] = tool_choice
+        response = self.client.completion(**params)
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._coworker_last_usage = {
+                "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                "cached_tokens": getattr(
+                    getattr(usage, "prompt_tokens_details", None),
+                    "cached_tokens",
+                    0,
+                )
+                or 0,
+            }
+            self._coworker_last_usage_source = "provider"
+        message = response.choices[0].message
+        if not tools:
+            return message.content or ""
+        return {
+            "content": message.content,
+            "tool_calls": [
+                {
+                    "name": tool_call.function.name,
+                    "arguments": parse_tool_arguments(
+                        tool_call.function.arguments or "{}",
+                        tool_call.function.name,
+                    ),
+                }
+                for tool_call in message.tool_calls or []
+            ],
+        }
 
 
 def _thinking_extra_body(provider: str, model: str, thinking: bool) -> dict[str, Any] | None:
@@ -137,4 +233,9 @@ def register_mem0_adapters() -> None:
         "openai",
         "coworker.memory.mem0_adapters.CoworkerOpenAILLM",
         CoworkerOpenAIConfig,
+    )
+    LlmFactory.register_provider(
+        "coworker_any_llm",
+        "coworker.memory.mem0_adapters.CoworkerAnyLLMLLM",
+        CoworkerAnyLLMConfig,
     )

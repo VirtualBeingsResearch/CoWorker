@@ -50,7 +50,7 @@ from coworker.core.config import (
     normalize_admin_overrides_file,
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
-from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
+from coworker.core.exceptions import ModelNotSupportedError, ProviderError, ProviderNotFoundError
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
@@ -247,11 +247,13 @@ async def _enqueue_startup_event(
 
 
 def _register_providers(brain: Brain, config: Config) -> None:
+    from coworker.brain.factory import provider_requires_api_key
+
     for spec in config.llm.resolved_providers():
-        if not spec.api_key.strip():
-            logger.warning(f"Skipping LLM provider {spec.name!r}: API key is empty")
-            continue
         try:
+            if not spec.api_key.strip() and provider_requires_api_key(spec.type):
+                logger.warning(f"Skipping LLM provider {spec.name!r}: API key is empty")
+                continue
             brain.register_provider(
                 build_provider(
                     spec.type,
@@ -263,7 +265,7 @@ def _register_providers(brain: Brain, config: Config) -> None:
                     model_capabilities=spec.model_capabilities,
                 )
             )
-        except ValueError as e:
+        except (ProviderError, ValueError) as e:
             logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 

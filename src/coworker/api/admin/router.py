@@ -162,9 +162,9 @@ class PersonMergePayload(BaseModel):
 class BootstrapPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
+    provider_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     model: str = Field(min_length=1, max_length=120)
-    api_key: str = Field(min_length=1, max_length=4096)
+    api_key: str = Field(default="", max_length=4096)
     base_url: str = Field(default="", max_length=2048)
     coworker_name: str = Field(default="", max_length=80)
     reconnect_proof: str = Field(default="", pattern=r"^(?:[0-9a-f]{64})?$")
@@ -176,7 +176,7 @@ class BootstrapPayload(BaseModel):
 class ProviderModelsPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider_type: Literal["anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"]
+    provider_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     provider_name: str = Field(default="", max_length=128)
     api_key: str = Field(default="", max_length=4096)
     base_url: str = Field(default="", max_length=2048)
@@ -1015,11 +1015,16 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
 
     brain = _require_brain()
     snapshot = _require_admin_config_service().snapshot()
-    from coworker.brain.factory import available_models, available_types
+    from coworker.brain.factory import available_models, provider_catalog
 
     providers: list[dict[str, object]] = []
-    for provider_type in available_types():
-        providers.append({"type": provider_type, "models": available_models(provider_type)})
+    for entry in provider_catalog():
+        providers.append(
+            {
+                **entry.to_dict(),
+                "models": available_models(entry.type),
+            }
+        )
     return {
         "required": brain.active_provider is None,
         "active_provider": brain.current_provider_name,
@@ -1040,11 +1045,21 @@ async def discover_provider_models(
 ) -> ApiResponse:
     """Read model IDs from a provider metadata endpoint without invoking a model."""
 
-    from coworker.brain.factory import build_provider
+    from coworker.brain.factory import (
+        build_provider,
+        provider_catalog_entry,
+        provider_requires_api_key,
+    )
 
     provider_name = payload.provider_name.strip()
     api_key = payload.api_key.strip()
     base_url = payload.base_url.strip()
+    provider_entry = provider_catalog_entry(payload.provider_type)
+    if provider_entry is None or not provider_entry.available or not provider_entry.completion:
+        raise HTTPException(
+            status_code=422,
+            detail=tr("api.admin.provider_unavailable", provider=payload.provider_type),
+        )
     if provider_name and (not api_key or not base_url):
         configured = next(
             (
@@ -1057,7 +1072,7 @@ async def discover_provider_models(
         if configured is not None:
             api_key = api_key or configured.api_key.strip()
             base_url = base_url or configured.base_url.strip()
-    if not api_key:
+    if not api_key and provider_requires_api_key(payload.provider_type):
         raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
 
     provider = None
@@ -1111,15 +1126,26 @@ async def complete_bootstrap(
         if brain.active_provider is not None or config_service.pending_restart:
             raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
 
-        from coworker.brain.factory import available_models, build_provider
+        from coworker.brain.factory import (
+            available_models,
+            build_provider,
+            provider_catalog_entry,
+            provider_requires_api_key,
+        )
 
         provider_type = payload.provider_type.strip()
         model = payload.model.strip()
         api_key = payload.api_key.strip()
         base_url = payload.base_url.strip()
+        provider_entry = provider_catalog_entry(provider_type)
+        if provider_entry is None or not provider_entry.available or not provider_entry.completion:
+            raise HTTPException(
+                status_code=422,
+                detail=tr("api.admin.provider_unavailable", provider=provider_type),
+            )
         if not model:
             raise HTTPException(status_code=422, detail=tr("api.admin.model_required"))
-        if not api_key:
+        if not api_key and provider_requires_api_key(provider_type):
             raise HTTPException(status_code=422, detail=tr("api.admin.api_key_required"))
 
         catalog_models = available_models(provider_type)
@@ -1146,15 +1172,18 @@ async def complete_bootstrap(
             default_model=model,
             model_capabilities=declared_models,
         )
-        if not provider.can_use_tools(model):
-            raise HTTPException(
-                status_code=422,
-                detail=tr(
-                    "api.admin.unsupported_tool_model",
-                    model=repr(model),
-                    provider=provider_type,
-                ),
-            )
+        try:
+            if not provider.can_use_tools(model):
+                raise HTTPException(
+                    status_code=422,
+                    detail=tr(
+                        "api.admin.unsupported_tool_model",
+                        model=repr(model),
+                        provider=provider_type,
+                    ),
+                )
+        finally:
+            await provider.close()
 
         managed_path = _bootstrap_managed_config_path(
             payload.configuration,
@@ -1365,9 +1394,15 @@ async def usage(
 @router.get("/config")
 async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
     snapshot = _require_admin_config_service().snapshot()
+    from coworker.brain.factory import available_models, provider_catalog
+
     return {
         "config": snapshot.config,
         "effective_providers": snapshot.effective_providers,
+        "provider_catalog": [
+            {**entry.to_dict(), "models": available_models(entry.type)}
+            for entry in provider_catalog()
+        ],
         "secret_status": snapshot.secret_status,
         "overridden_fields": snapshot.overridden_fields,
         "hot_reloadable": snapshot.hot_reloadable,

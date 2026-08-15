@@ -758,6 +758,10 @@ def test_config_response_separates_external_and_managed_providers(tmp_path):
     ]
     assert all(provider["api_key"] == "" for provider in body["effective_providers"])
     assert all(provider["managed"] is False for provider in body["effective_providers"])
+    assert {entry["type"] for entry in body["provider_catalog"]} >= {
+        "openai",
+        "openrouter",
+    }
 
     llm_form = body["config"]["llm"]
     llm_form["max_tokens"] = 4096
@@ -2076,6 +2080,36 @@ def test_provider_model_discovery_can_reuse_configured_connection_secret(
     assert response.json()["source"] == "catalog"
     assert captured["api_key"] == "sk-original"
     assert "api_key" not in response.text
+
+
+def test_provider_model_discovery_allows_keyless_local_provider(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    fake_provider = SimpleNamespace(
+        fetch_models=AsyncMock(return_value=["local-model"]),
+        list_models=lambda: [],
+        close=AsyncMock(),
+    )
+    captured = {}
+
+    def fake_build_provider(type_, api_key, **kwargs):
+        captured.update(type_=type_, api_key=api_key, **kwargs)
+        return fake_provider
+
+    entry = SimpleNamespace(available=True, completion=True)
+    monkeypatch.setattr("coworker.brain.factory.provider_catalog_entry", lambda _type: entry)
+    monkeypatch.setattr("coworker.brain.factory.provider_requires_api_key", lambda _type: False)
+    monkeypatch.setattr("coworker.brain.factory.build_provider", fake_build_provider)
+
+    response = client.post(
+        "/api/admin/provider-models",
+        headers={"Authorization": "Bearer secret"},
+        json={"provider_type": "ollama", "base_url": "http://ollama:11434"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["models"] == ["local-model"]
+    assert captured["type_"] == "ollama"
+    assert captured["api_key"] == ""
 
 
 def test_bootstrap_failure_before_commit_does_not_leave_startup_intent(tmp_path):

@@ -4,10 +4,17 @@
 
 [← 返回配置与运维](README.md)
 
-Coworker 内置 `anthropic`、`openai`、`deepseek`、`qwen`、`zhipu` 和 `minimax`
-Provider。首次调用可能计费；项目不会在向导中主动探测模型能力。
-六种连接共用 Any-LLM 适配层；Coworker 仍保留各接口在消息、附件、工具、thinking 和
-Token 统计上的必要差异，不把“OpenAI-compatible”视为行为完全相同。
+Coworker 会从当前安装的 Any-LLM 运行时动态读取支持补全的 Provider。`anthropic`、
+`openai`、`deepseek`、`qwen`（Any-LLM 的 `dashscope`）、`zhipu`（`zai`）和
+`minimax` 保留 Coworker 的专用适配；其余可用 Provider 通过保守的通用适配器接入。
+因此新增 Any-LLM Provider 不需要再修改 Coworker 的前后端枚举。
+
+为保持默认安装轻量，项目只固定 Any-LLM 的 `anthropic` 和 `openai` extras，不安装体积较大
+的 `all` extra。OpenAI-compatible Provider 通常可直接出现；依赖专用 SDK 的 Provider 只有
+在对应依赖可导入时才显示。可按 Any-LLM 文档安装目标 extra，例如
+`any-llm-sdk[ollama]`，重启后目录会自动更新。首次调用可能计费；项目不会在向导中主动
+探测模型能力。Coworker 仍保留六个专用接口在消息、附件、工具、thinking 和 Token 统计上的
+必要差异，不把“OpenAI-compatible”视为行为完全相同。
 
 ## 选择模型
 
@@ -35,14 +42,19 @@ LLM__DEEPSEEK_API_KEY=...
 LLM__DEEPSEEK_BASE_URL=
 ```
 
-Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网关时仍应选择与其
-实际请求/响应方言匹配的 Provider 类型；“兼容”不保证工具调用、thinking、视频或错误结构
-完全一致。
+Base URL 留空时使用对应 Provider 默认值。Ollama、llama.cpp、LM Studio、云环境凭据链等
+无需表单 API Key 的 Provider 可以留空，实际认证规则以目标 Provider 为准。使用
+OpenAI-compatible 网关时应优先选择目录中的具体 Provider 类型；没有专用类型时可使用
+`openai` 并填写 Base URL。“兼容”不保证工具调用、thinking、视频或错误结构完全一致。
 
 首次设置和 Provider 连接中的“从接口读取”只请求该连接的模型列表元数据，不会发起对话、
 补全或其他模型推理。接口返回的模型会合并进选择器，但目录外模型仍需由管理员明确声明
 `tools`、`vision` 和 `video` 能力；模型列表本身不会被当作能力证明。并非所有兼容网关都实现
 模型列表接口，读取失败时仍可手动填写模型 ID。
+
+通用适配器不会根据 Provider 元数据推断某个具体模型的工具、图片或视频能力。新输入的模型
+必须由管理员声明能力；thinking 强度只会传给 Any-LLM 标记支持 reasoning 的 Provider。
+专用 SDK 所需的项目、区域或环境凭据等仍通过该 SDK/Any-LLM 约定的环境变量提供。
 
 ## 同类型多实例
 

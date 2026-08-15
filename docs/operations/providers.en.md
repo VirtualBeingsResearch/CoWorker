@@ -4,10 +4,18 @@
 
 [← Back to Configuration and Operations](README.en.md)
 
-Coworker includes `anthropic`, `openai`, `deepseek`, `qwen`, `zhipu`, and `minimax` Providers.
-The first call may incur cost; the setup wizard does not run an online capability probe.
-All six connections share the Any-LLM adapter layer. Coworker still preserves the necessary
-message, attachment, tool, thinking, and token-usage differences instead of treating
+Coworker dynamically reads completion-capable Providers from the installed Any-LLM runtime.
+`anthropic`, `openai`, `deepseek`, `qwen` (Any-LLM's `dashscope`), `zhipu` (`zai`), and `minimax`
+retain Coworker-specific adapters; other available Providers use a conservative generic adapter.
+Adding an Any-LLM Provider therefore does not require another Coworker frontend and backend enum.
+
+To keep the default installation lightweight, Coworker pins only Any-LLM's `anthropic` and
+`openai` extras instead of the large `all` extra. OpenAI-compatible Providers are generally
+available immediately. A Provider that needs its own SDK appears only when that dependency can be
+imported. Install a targeted extra from the Any-LLM documentation, such as
+`any-llm-sdk[ollama]`, and restart to refresh the catalog. The first call may incur cost; setup does
+not run an online capability probe. Coworker still preserves the necessary message, attachment,
+tool, thinking, and token-usage differences for its six specialized adapters instead of treating
 “OpenAI-compatible” as behaviorally identical.
 
 ## Choose a model
@@ -38,9 +46,11 @@ LLM__DEEPSEEK_API_KEY=...
 LLM__DEEPSEEK_BASE_URL=
 ```
 
-An empty Base URL uses the Provider default. For an OpenAI-compatible gateway, still choose the
-Provider type matching its actual request and response dialect. “Compatible” does not guarantee
-identical tools, thinking, video, or error behavior.
+An empty Base URL uses the Provider default. Providers using Ollama, llama.cpp, LM Studio, or a
+cloud environment credential chain may leave the form API key empty when their authentication
+rules permit it. For an OpenAI-compatible gateway, prefer its specific catalog Provider type. Use
+`openai` with a Base URL when no specific type exists. “Compatible” does not guarantee identical
+tools, thinking, video, or error behavior.
 
 “Read from API” in first-time setup and Provider connections requests only the connection's model
 list metadata; it does not start a chat, completion, or other model inference. Returned IDs are
@@ -48,6 +58,12 @@ merged into the selector, but an administrator must still declare `tools`, `visi
 capabilities for models outside the catalog. A model list is not treated as capability evidence.
 Some compatible gateways do not implement model listing, so a model ID can still be entered
 manually when discovery fails.
+
+The generic adapter does not infer a specific model's tool, image, or video capabilities from
+Provider-level metadata. Administrators must declare capabilities for newly entered models.
+Reasoning effort is passed only when Any-LLM marks the Provider as supporting reasoning. Project,
+region, or environment credentials required by a specialized SDK still follow that SDK and
+Any-LLM's environment-variable conventions.
 
 ## Multiple instances of one type
 

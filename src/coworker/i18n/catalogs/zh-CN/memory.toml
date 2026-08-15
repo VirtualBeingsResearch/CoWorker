@@ -32,6 +32,7 @@ header = "[记忆 {{span}} · {{count}}条{{flag}}]"
 custom_instructions = "保持每条源消息的语言，不翻译用户文本或第三方原文。只提炼可持久复用的事实、偏好、关系、决定和经历；保留人名、项目名、ID、URL、工具名及参数名原样。"
 tool_call = "[调用工具] {{name}}({{arguments}})"
 tool_result = "[工具结果] {{content}}"
+provider_required = "Any-LLM 记忆适配器必须指定 Provider"
 
 [log_digest]
 truncated = "…(截断)"

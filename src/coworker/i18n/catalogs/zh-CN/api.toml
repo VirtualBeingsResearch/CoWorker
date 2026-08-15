@@ -37,6 +37,7 @@ already_initialized = "初始化已完成，请在运行设置中修改模型连
 bootstrap_field_managed = "该初始化字段由连接设置或安全边界管理，不能在这里覆盖：{{path}}"
 model_required = "启动模型不能为空"
 api_key_required = "API Key 不能为空"
+provider_unavailable = "当前安装无法使用 Provider {{provider}}"
 model_discovery_failed = "无法从该 Provider 读取模型列表，请检查 API Key 和 Base URL"
 custom_model_confirmation_required = "模型 {{model}} 不在 {{provider}} 的推荐目录中；请先声明该模型支持的能力"
 unsupported_tool_model = "{{provider}} 上的模型 {{model}} 必须支持工具调用，才能作为主模型"

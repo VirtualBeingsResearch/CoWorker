@@ -360,6 +360,28 @@ def test_llm_config_preserves_provider_base_url(
     ).llm.provider == api_dialect
 
 
+def test_any_llm_config_preserves_dynamic_provider_identity() -> None:
+    llm = LongTermLLMConfig(
+        provider="openrouter",
+        api_dialect="any_llm",
+        api_key="secret",
+        model="vendor-model",
+        base_url="https://gateway.example.test/v1",
+        thinking=True,
+    )
+
+    resolved_provider, config = llm.as_mem0_config()
+
+    assert resolved_provider == "coworker_any_llm"
+    assert config == {
+        "model": "vendor-model",
+        "api_key": "secret",
+        "coworker_provider": "openrouter",
+        "api_base": "https://gateway.example.test/v1",
+        "thinking": True,
+    }
+
+
 class TestWriteResult:
     def _make(self) -> LongTermMemory:
         lt = LongTermMemory(db_path="data/_unused")

@@ -35,6 +35,15 @@ class LongTermLLMConfig:
 
     def as_mem0_config(self) -> tuple[str, dict[str, Any]]:
         config: dict[str, Any] = {"model": self.model, "api_key": self.api_key}
+        if self.api_dialect == "any_llm":
+            config.update(
+                {
+                    "coworker_provider": self.provider,
+                    "api_base": self.base_url,
+                    "thinking": self.thinking,
+                }
+            )
+            return "coworker_any_llm", config
         if self.base_url:
             config[f"{self.api_dialect}_base_url"] = self.base_url
         # thinking/coworker_provider 仅 openai 方言使用（CoworkerOpenAIConfig 才有

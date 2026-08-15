@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from any_llm import AnyLLM
 
 from coworker.application import _bind_memory_model_following, _register_providers
 from coworker.brain.base import BaseLLMProvider
 from coworker.brain.brain import Brain
-from coworker.brain.factory import api_dialect, available_models, available_types, build_provider
+from coworker.brain.factory import (
+    api_dialect,
+    available_models,
+    available_types,
+    build_provider,
+    provider_catalog,
+)
 from coworker.brain.zhipu_provider import ZhipuProvider
 from coworker.core.config import (
     Config,
@@ -48,7 +55,17 @@ def test_type_registry_contains_all_builtins():
     types = available_types()
     for t in ("anthropic", "openai", "deepseek", "qwen", "zhipu", "minimax"):
         assert t in types
+    assert "openrouter" in types
+    assert "dashscope" not in types
     assert BaseLLMProvider._TYPE_REGISTRY["zhipu"] is ZhipuProvider
+
+
+def test_catalog_represents_every_any_llm_provider_key():
+    catalog = provider_catalog(include_unavailable=True)
+
+    assert {entry.any_llm_provider for entry in catalog} == set(
+        AnyLLM.get_supported_providers()
+    )
 
 
 def test_model_catalog_does_not_construct_api_client(monkeypatch):
@@ -463,6 +480,34 @@ def test_register_providers_skips_empty_credentials():
     assert brain.list_providers() == []
 
 
+def test_register_providers_accepts_keyless_local_backend(monkeypatch):
+    config = Config.model_validate(
+        {
+            "llm": {
+                "default_provider": "ollama",
+                "default_model": "local-model",
+                "providers_file": "",
+                "managed_providers": [
+                    {"name": "ollama", "type": "ollama", "api_key": ""}
+                ],
+            }
+        }
+    )
+    brain = Brain("ollama", "local-model")
+    provider = SimpleNamespace(provider_name="ollama")
+    build = Mock(return_value=provider)
+    monkeypatch.setattr(
+        "coworker.brain.factory.provider_requires_api_key",
+        lambda _type: False,
+    )
+    monkeypatch.setattr("coworker.application.build_provider", build)
+
+    _register_providers(brain, config)
+
+    assert brain.list_providers() == ["ollama"]
+    build.assert_called_once()
+
+
 def test_memory_llm_uses_default_named_provider_endpoint():
     config = Config.model_validate(
         {
@@ -612,6 +657,7 @@ async def test_memory_model_binding_reconfigures_after_active_switch():
         ("qwen", "openai"),
         ("zhipu", "openai"),
         ("minimax", "openai"),
+        ("openrouter", "any_llm"),
     ],
 )
 def test_provider_declares_mem0_compatible_api_dialect(
