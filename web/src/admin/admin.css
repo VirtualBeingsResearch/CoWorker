@@ -1426,6 +1426,10 @@ html:has(.admin-login),
 .active-model strong { margin-top: 5px; font: 650 15px var(--admin-data); }
 
 .inline-form { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 10px; margin-top: 15px; }
+.inline-form-actions { display: flex; gap: 8px; align-items: stretch; }
+.inline-form-actions .ghost.mini { flex: 0 0 auto; min-height: 42px; padding: 0 12px; border-radius: 9px; }
+.inline-form .editable-combobox { min-width: 0; }
+.inline-form .editable-combobox > input { min-height: 42px; }
 .inline-form input,
 .inline-form select,
 .admin-input,

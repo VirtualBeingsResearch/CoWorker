@@ -587,6 +587,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '当前接棒者': 'Current handler',
   '选择 Provider': 'Select provider',
   '模型 ID（留空使用默认）': 'Model ID (leave empty for default)',
+  '展开模型目录': 'Show model catalog',
+  '当前 Provider 暂无模型目录，可直接输入模型 ID': 'This provider has no cached model catalog; enter a model ID directly.',
   '切换模型': 'Switch model',
   '正在切换…': 'Switching…',
   '切换模型失败': 'Failed to switch model',
