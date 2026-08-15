@@ -739,6 +739,7 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
         "stop_reason",
         "is_error",
         "thinking",
+        "thinking_effort",
         "messages_compressed",
         "duration_ms",
         "summary_calls",

@@ -166,12 +166,16 @@ class RuntimeEventCollector:
             base["cycle"] = entry.get("cycle")
             if "thinking" in entry:
                 base["thinking"] = bool(entry.get("thinking"))
+            if entry.get("thinking_effort"):
+                base["thinking_effort"] = str(entry.get("thinking_effort"))
             return base
 
         if t == "llm_response":
             base["content"] = self._redact(_truncate(entry.get("content"), 120))
             if "thinking" in entry:
                 base["thinking"] = bool(entry.get("thinking"))
+            if entry.get("thinking_effort"):
+                base["thinking_effort"] = str(entry.get("thinking_effort"))
             return base
 
         if t == "tool_call":

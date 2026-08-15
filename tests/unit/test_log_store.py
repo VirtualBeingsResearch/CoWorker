@@ -37,6 +37,54 @@ class TestInteractionLogSeq:
         assert [e["seq"] for e in lines] == [0, 1, 2]
         assert all("_log_offset" not in e and "_log_path" not in e for e in lines)
 
+    def test_thinking_effort_is_recorded_on_thinking_events(self, tmp_path):
+        p = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(p))
+
+        log.log_thinking_start(3, thinking=True, thinking_effort="high")
+        log.log_llm_response(
+            reasoning_content="...",
+            content="ok",
+            tool_calls=[],
+            stop_reason="end_turn",
+            model="mock-model",
+            usage={},
+            provider="mock",
+            thinking=True,
+            thinking_effort="high",
+        )
+
+        entries = [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert entries[0]["thinking_effort"] == "high"
+        assert entries[1]["thinking_effort"] == "high"
+        assert entries[1]["thinking"] is True
+
+    def test_summary_and_vision_responses_record_thinking_effort(self, tmp_path):
+        p = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(p))
+
+        log.log_summary_llm_response(
+            provider="mock",
+            model="summary-model",
+            usage={},
+            thinking=False,
+            thinking_effort="low",
+        )
+        log.log_vision_llm_response(
+            provider="mock",
+            model="vision-model",
+            usage={},
+            label="screenshot",
+            thinking=True,
+            thinking_effort="medium",
+        )
+
+        entries = [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert entries[0]["thinking"] is False
+        assert entries[0]["thinking_effort"] == "low"
+        assert entries[1]["thinking"] is True
+        assert entries[1]["thinking_effort"] == "medium"
+
     def test_mem0_usage_source_is_logged(self, tmp_path):
         p = tmp_path / "interactions.jsonl"
         log = InteractionLogger(str(p))

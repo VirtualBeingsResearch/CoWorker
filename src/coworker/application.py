@@ -403,6 +403,12 @@ async def _run_backfill() -> int:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                thinking=(
+                    bool(meta.get("thinking"))
+                    if meta.get("thinking") is not None
+                    else None
+                ),
+                thinking_effort=str(meta.get("thinking_effort") or "") or None,
             )
         )
         if short_term.active_provider and short_term.active_model:
@@ -673,6 +679,12 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             context_hint=str(meta.get("context_hint") or ""),
+            thinking=(
+                bool(meta.get("thinking"))
+                if meta.get("thinking") is not None
+                else None
+            ),
+            thinking_effort=str(meta.get("thinking_effort") or "") or None,
         )
     )
     brain.add_vision_usage_listener(
@@ -681,6 +693,12 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             label=str(meta.get("label") or ""),
+            thinking=(
+                bool(meta.get("thinking"))
+                if meta.get("thinking") is not None
+                else None
+            ),
+            thinking_effort=str(meta.get("thinking_effort") or "") or None,
         )
     )
 

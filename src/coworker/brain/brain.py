@@ -667,7 +667,11 @@ class Brain:
         self._notify_usage_listeners(
             self._vision_usage_listeners,
             resp,
-            usage_context or {},
+            {
+                "thinking": self._vision_thinking,
+                "thinking_effort": self._vision_thinking_effort,
+                **(usage_context or {}),
+            },
         )
         return resp.content
 
@@ -806,7 +810,11 @@ class Brain:
         self._notify_usage_listeners(
             self._summary_usage_listeners,
             response,
-            {"context_hint": context_hint},
+            {
+                "context_hint": context_hint,
+                "thinking": self._summary_thinking,
+                "thinking_effort": self._summary_thinking_effort,
+            },
         )
         if response.content and response.content.startswith("```json"):
             # 兼容部分模型喜欢加 markdown 代码块的输出

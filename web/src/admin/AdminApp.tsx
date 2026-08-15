@@ -1716,7 +1716,7 @@ function bubbleHistoryMessages(events: Json[]) {
     const common = { timestamp: event.ts, index, source: '并行思考' };
     if (event.type === 'tool_call' || event.type === 'tool_result') return [];
     if (event.type === 'message_in') return [{ ...common, role: event.participant_id === 'system' ? 'system' : 'user', source: event.source || '并行思考', content: event.content }];
-    if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : '' }) }];
+    if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : event.thinking_effort ? `（${event.thinking_effort}）` : '' }) }];
     if (event.type === 'llm_response') return [{
       ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage,
       stop_reason: event.stop_reason,

@@ -141,6 +141,7 @@ class InteractionLogger:
         self,
         cycle: int,
         thinking: bool | None = None,
+        thinking_effort: str | None = None,
     ) -> None:
         """一轮推理的起点（brain.think() 调用前）。
 
@@ -150,6 +151,8 @@ class InteractionLogger:
         entry = {"type": "thinking_start", "cycle": cycle}
         if thinking is not None:
             entry["thinking"] = thinking
+        if isinstance(thinking_effort, str) and thinking_effort:
+            entry["thinking_effort"] = thinking_effort
         self._write(entry)
 
     def log_message_tick(self, content: str):
@@ -191,6 +194,7 @@ class InteractionLogger:
         usage: dict,
         provider: str = "unknown",
         thinking: bool | None = None,
+        thinking_effort: str | None = None,
     ) -> None:
         entry: dict[str, Any] = {
             "type": "llm_response",
@@ -207,6 +211,8 @@ class InteractionLogger:
         }
         if thinking is not None:
             entry["thinking"] = thinking
+        if isinstance(thinking_effort, str) and thinking_effort:
+            entry["thinking_effort"] = thinking_effort
         self._write(entry)
 
     def log_summary_llm_response(
@@ -216,8 +222,10 @@ class InteractionLogger:
         model: str,
         usage: dict,
         context_hint: str = "",
+        thinking: bool | None = None,
+        thinking_effort: str | None = None,
     ) -> None:
-        entry = {
+        entry: dict[str, Any] = {
             "type": "summary_llm_response",
             "provider": provider,
             "model": model,
@@ -225,6 +233,10 @@ class InteractionLogger:
         }
         if context_hint:
             entry["context_hint"] = context_hint[:200]
+        if thinking is not None:
+            entry["thinking"] = thinking
+        if isinstance(thinking_effort, str) and thinking_effort:
+            entry["thinking_effort"] = thinking_effort
         self._write(entry)
 
     def log_memory_compression(
@@ -276,8 +288,10 @@ class InteractionLogger:
         model: str,
         usage: dict,
         label: str = "",
+        thinking: bool | None = None,
+        thinking_effort: str | None = None,
     ) -> None:
-        entry = {
+        entry: dict[str, Any] = {
             "type": "vision_llm_response",
             "provider": provider,
             "model": model,
@@ -285,6 +299,10 @@ class InteractionLogger:
         }
         if label:
             entry["label"] = label[:200]
+        if thinking is not None:
+            entry["thinking"] = thinking
+        if isinstance(thinking_effort, str) and thinking_effort:
+            entry["thinking_effort"] = thinking_effort
         self._write(entry)
 
     def log_mem0_llm_response(

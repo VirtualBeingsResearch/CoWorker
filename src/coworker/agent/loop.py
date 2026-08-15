@@ -358,6 +358,7 @@ class AgentLoop:
             self._ilog.log_thinking_start(
                 self.state.cycle_count,
                 thinking=bool(self._brain.thinking),
+                thinking_effort=self._brain.thinking_effort or None,
             )
         response = await self._brain.think(
             messages,
@@ -388,6 +389,7 @@ class AgentLoop:
                 response.usage,
                 provider=self._brain.current_provider_name,
                 thinking=bool(self._brain.thinking),
+                thinking_effort=self._brain.thinking_effort or None,
             )
 
         assistant_msg = Message(

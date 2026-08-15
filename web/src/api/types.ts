@@ -277,6 +277,7 @@ export type RuntimeLogEvent = {
   // thinking_start
   cycle?: number;
   thinking?: boolean;
+  thinking_effort?: string;
   // tool_call / tool_result：id = 真实 tool-call id，用于 call↔result 同行配对
   id?: string;
   name?: string;

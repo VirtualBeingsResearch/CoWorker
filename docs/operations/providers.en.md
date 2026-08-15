@@ -82,6 +82,10 @@ levels to its native scale:
 - `opencode-go`: `reasoning_effort` passthrough for the supported DeepSeek/Kimi models;
 - `openai_compatible`: sends standard `reasoning_effort` only when an effort is configured.
 
+Runtime interaction logs (`interactions.jsonl`) record `thinking_effort` on
+`thinking_start`, `llm_response`, `summary_llm_response`, and `vision_llm_response`
+entries. Older entries lack the field and are read with it absent.
+
 ## OpenCode Go
 
 `opencode-go` targets the OpenAI-compatible endpoint of the OpenCode Go subscription

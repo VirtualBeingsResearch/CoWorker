@@ -75,6 +75,10 @@ LLM__VISION_THINKING_EFFORT=medium
 - `opencode-go`：按 DeepSeek/Kimi 模型各自的档位透传 `reasoning_effort`；
 - `openai_compatible`：只有显式配置档位时才发送标准 `reasoning_effort`，未配置不注入。
 
+运行时交互日志（`interactions.jsonl`）会在 `thinking_start`、`llm_response`、
+`summary_llm_response` 和 `vision_llm_response` 条目中记录 `thinking_effort`；
+旧日志没有该字段，读取时按缺省处理。
+
 ## OpenCode Go
 
 `opencode-go` 使用 OpenCode Go 订阅的 OpenAI 兼容端点
