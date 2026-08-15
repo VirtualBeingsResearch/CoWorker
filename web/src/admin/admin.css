@@ -1022,7 +1022,7 @@ html:has(.admin-login),
 .admin-usage-windows button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 2px 8px color-mix(in oklch, var(--admin-ink) 8%, transparent); font-weight: 720; }
 .admin-usage-state { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 184px; color: var(--admin-muted); font-size: 11px; }
 .admin-usage-state.error { color: var(--admin-red); }
-.admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
+.admin-usage-metrics { display: grid; grid-template-columns: 1.18fr repeat(4, minmax(0, 1fr)); align-items: start; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-line); }
 .admin-usage-metrics.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .admin-usage-metrics.compact article { grid-column: span 1; }
 .admin-usage-metrics.compact article.total,
