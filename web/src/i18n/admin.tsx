@@ -1453,6 +1453,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '共采样 {{count}} 个 asyncio task；展开条目查看完整快照。': 'Sampled {{count}} asyncio tasks; expand an item to view its full snapshot.',
   'OpenAI / 兼容服务': 'OpenAI / compatible service',
   '智谱 GLM': 'Zhipu GLM',
+  'OpenCode Go': 'OpenCode Go',
+  'OpenAI 兼容端点': 'Generic OpenAI-compatible endpoint',
   '模型': 'Model',
   '已保存：{{hot}} 项立即生效，{{restart}} 项等待重启。': 'Saved: {{hot}} changes apply now; {{restart}} are waiting for restart.',
   '已保存，{{count}} 项修改已立即生效。': 'Saved. {{count}} changes apply now.',
