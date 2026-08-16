@@ -25,15 +25,18 @@ console and is not a long-term compatibility promise for independent clients.
 
 | Endpoint class | Default authentication |
 |---|---|
-| `POST /messages` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
-| `GET /status` | Returns basic lifecycle information when a token is configured but the Bearer is missing; returns the full snapshot when no token is configured or with a valid Bearer |
-| Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
+| `POST /messages` | Requires a Bearer once `API__COMMUNICATION_TOKEN` is explicitly set; otherwise relies on loopback/trusted-network isolation |
+| `GET /status` | Returns basic lifecycle information when a token is explicitly set but the Bearer is missing; returns the full snapshot when no token is explicitly set or with a valid Bearer |
+| `GET /logs/stream` | Requires a Bearer once a token is explicitly set; no check otherwise |
+| Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` (administrator-token fallback when not explicitly set) |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
 
-The first-run flow falls back to the administrator token when no separate communication token is
-configured. Set `API__COMMUNICATION_TOKEN` for long-running use. `API__DEVELOPMENT_MODE` does not
-disable API communication authentication.
+Communication Bearer checks for ordinary REST messages, full status snapshots, and the runtime
+log stream apply only after `API__COMMUNICATION_TOKEN` is explicitly set; without it those
+endpoints keep their previous behavior. Desktop communication falls back to the administrator
+token when no dedicated token is explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running
+use. `API__DEVELOPMENT_MODE` does not disable API communication authentication.
 
 ## Core HTTP endpoints
 
@@ -116,6 +119,8 @@ Integrations that require an audit trail should retain the raw response and Cowo
 - SSE sends a comment heartbeat every 15 seconds; proxies should disable response buffering.
 - `coworker-desktop:*` IDs require a communication Bearer. Native browser `EventSource` cannot set
   an Authorization header, so do not use it for a protected Desktop participant.
+- The runtime log stream `GET /logs/stream` also requires a Bearer once a communication token is
+  explicitly set; the identity page consumes it through an authenticated fetch stream.
 
 Outbound events contain message text and may include structured `extra`, such as Bubble handoff
 state. Prefer `extra.bubble` over parsing localized notice text.

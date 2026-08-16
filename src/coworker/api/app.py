@@ -33,6 +33,7 @@ from starlette.background import BackgroundTask
 from coworker.api.admin import admin_router
 from coworker.api.request_urls import desktop_update_asset_base_url
 from coworker.api.routes import (
+    communication_token_required,
     is_authenticated_relay_request,
     router,
     verify_communication_authorization,
@@ -923,6 +924,7 @@ async def sse_endpoint(
 @app.get("/logs/stream")
 async def logs_stream(
     request: Request,
+    authorization: str | None = Header(default=None),
     history_limit: int = Query(
         _LOG_HISTORY_LIMIT_DEFAULT,
         ge=0,
@@ -947,6 +949,8 @@ async def logs_stream(
     数据来自 RuntimeEventCollector——InteractionLogger 的唯一 tap，故事件流与持久化日志
     （data/logs/interactions*.jsonl）天然一致。先回放最近若干条历史事件，再实时推送。
     收尾机制与 /sse/{id} 一致（哨兵 + is_disconnected + 心跳），不拖住 uvicorn 优雅关闭。"""
+    if communication_token_required():
+        verify_communication_authorization(authorization)
     if _collector is None:
         return StreamingResponse(
             iter([": collector-not-ready\n\n"]),

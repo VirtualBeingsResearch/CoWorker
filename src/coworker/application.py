@@ -998,6 +998,7 @@ async def _main() -> bool:
         effective_communication_token(config),
         config.api.development_mode,
         channels=channel_system.registry,
+        communication_token_explicit=bool(config.api.communication_token),
     )
     setup_admin(
         agent=agent_loop,

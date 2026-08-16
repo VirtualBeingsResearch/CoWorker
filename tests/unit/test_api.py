@@ -60,6 +60,7 @@ def client(tmp_path):
     routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
+    routes_mod._communication_token_explicit = False
     routes_mod._channels = None
     routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
@@ -608,6 +609,42 @@ class TestPostMessages:
         assert accepted.status_code == 200
         mock_inbox.push.assert_awaited_once()
 
+    def test_plain_rest_stays_open_when_only_admin_fallback_token_exists(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="admin-fallback",
+            communication_token_explicit=False,
+            channels=communication.registry,
+        )
+
+        rest = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+        )
+        desktop = client.post(
+            "/messages",
+            json={
+                "sender_id": "coworker-desktop:desk:claude:cw:participant",
+                "type": "desktop.thread.event",
+                "payload": {"actor_id": "claude", "message": "hello"},
+                "message_id": "desktop-fallback-auth",
+                "protocol_version": 1,
+                "created_at": "2026-07-13T00:00:00Z",
+            },
+            headers={"Authorization": "Bearer admin-fallback"},
+        )
+
+        assert rest.status_code == 200
+        assert desktop.status_code == 200
+        assert mock_inbox.push.await_count == 2
+
     def test_plain_rest_message_keeps_token_requirement_in_development_mode(
         self, client, tmp_path
     ):
@@ -735,6 +772,21 @@ class TestSSE:
     def test_runtime_log_history_lines_is_bounded(self, client):
         resp = client.get("/logs/stream?history_lines=20001")
         assert resp.status_code == 422
+
+    def test_runtime_log_stream_requires_bearer_when_token_is_explicit(self, client):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        rejected = client.get("/logs/stream")
+        accepted = client.get(
+            "/logs/stream",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code == 200
 
 
 class TestUnregisterWsGuard:
@@ -1058,12 +1110,38 @@ class TestGetStatus:
         assert resp.status_code == 200
         assert resp.json() == {"status": "not_started"}
 
+    def test_status_returns_full_snapshot_when_only_admin_fallback_token_exists(
+        self, client
+    ):
+        import coworker.api.routes as routes_mod
+
+        mock_agent = MagicMock()
+        mock_agent.state = AgentState(
+            is_running=True,
+            is_sleeping=False,
+            current_provider="anthropic",
+            current_model="claude-sonnet-4-6",
+            cycle_count=7,
+        )
+        routes_mod._agent = mock_agent
+        routes_mod._communication_token = "admin-fallback"
+        routes_mod._communication_token_explicit = False
+
+        resp = client.get("/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "anthropic"
+        assert data["model"] == "claude-sonnet-4-6"
+        assert "communication_token_configured" not in data
+
     @pytest.mark.asyncio
     async def test_relay_status_returns_public_subset_without_inner_bearer(self):
         import coworker.api.routes as routes_mod
 
         routes_mod._agent = None
         routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
         request = Request(
             {
                 "type": "http",
@@ -1095,6 +1173,7 @@ class TestGetStatus:
 
         routes_mod._agent = None
         routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
 
         public = client.get("/status")
         authenticated = client.get(
@@ -1120,6 +1199,7 @@ class TestGetStatus:
 
         routes_mod._agent = None
         routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
         routes_mod._development_mode = True
 
         public = client.get("/status")
@@ -1156,6 +1236,7 @@ class TestGetStatus:
         routes_mod._brain = mock_brain
         routes_mod._usage_stats = mock_stats
         routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
 
         public = client.get("/status").json()
 
@@ -1192,6 +1273,7 @@ class TestGetStatus:
         routes_mod._agent = mock_agent
         routes_mod._brain = mock_brain
         routes_mod._communication_token = _TEST_COMMUNICATION_TOKEN
+        routes_mod._communication_token_explicit = True
 
         resp = client.get("/status", headers=_TEST_AUTH_HEADERS)
         assert resp.status_code == 200

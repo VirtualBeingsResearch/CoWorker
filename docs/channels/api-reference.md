@@ -23,14 +23,17 @@
 
 | 接口 | 默认认证 |
 |---|---|
-| `POST /messages` | 配置通信令牌后要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`；未配置时依赖回环/可信网络边界 |
-| `GET /status` | 已配置令牌且未携带有效 Bearer 时返回基础生命周期信息；未配置令牌或携带有效 Bearer 时返回完整快照 |
-| Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
+| `POST /messages` | 显式设置 `API__COMMUNICATION_TOKEN` 后要求 Bearer；未显式设置时依赖回环/可信网络边界 |
+| `GET /status` | 显式设置令牌且未携带有效 Bearer 时返回基础生命周期信息；未显式设置或携带有效 Bearer 时返回完整快照 |
+| `GET /logs/stream` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
+| Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>`（未显式设置时回退管理员令牌） |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
 
-未单独配置通信令牌时，首次运行流程会回退使用管理员令牌。长期使用应设置独立的
-`API__COMMUNICATION_TOKEN`。`API__DEVELOPMENT_MODE` 不会关闭 API 通信校验。
+只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照和运行日志流才启用
+通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置令牌时回退使用
+管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。`API__DEVELOPMENT_MODE`
+不会关闭 API 通信校验。
 
 ## 核心 HTTP 接口
 
@@ -109,6 +112,8 @@ curl -X POST http://127.0.0.1:8000/switch_model \
 - SSE 每 15 秒发送注释心跳；代理应关闭响应缓冲。
 - `coworker-desktop:*` ID 必须携带通信 Bearer。浏览器原生 `EventSource` 无法设置
   Authorization Header，因此不要用它承载受保护的 Desktop participant。
+- 运行日志流 `GET /logs/stream` 在显式设置通信令牌后也要求 Bearer；身份页使用带
+  Authorization 的 fetch 流消费该接口。
 
 出站事件包含正文，并可能包含结构化 `extra`，例如 Bubble 接管状态。客户端应优先读取
 `extra.bubble`，不要解析本地化提示文字。

@@ -33,6 +33,9 @@ _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
+# 只有管理员显式设置了 API__COMMUNICATION_TOKEN 才认为通信令牌“已配置”。
+# _communication_token 仍可携带管理员令牌回退值，供 Desktop 兼容校验。
+_communication_token_explicit = False
 # development_mode 仅保留参数兼容；通信 Bearer 校验始终生效，不再受它影响。
 _development_mode = False
 _channels: ChannelRegistry | None = None
@@ -72,15 +75,21 @@ def setup(
     communication_token: str = "",
     development_mode: bool = False,
     channels: ChannelRegistry | None = None,
+    communication_token_explicit: bool | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
-    global _communication_token, _development_mode, _channels
+    global _communication_token, _communication_token_explicit, _development_mode, _channels
     _inbox = inbox
     _agent = agent
     _brain = brain
     _usage_stats = usage_stats
     _model_config_path = Path(model_config_path)
     _communication_token = communication_token.strip()
+    _communication_token_explicit = (
+        bool(_communication_token)
+        if communication_token_explicit is None
+        else communication_token_explicit
+    )
     # 保留字段以兼容既有启动参数；API 侧通信认证不再提供 development_mode 绕过。
     _development_mode = development_mode
     _channels = channels
@@ -121,8 +130,15 @@ def verify_communication_authorization(authorization: str | None) -> None:
 def update_communication_token(token: str) -> None:
     """Atomically replace the communication token used by existing ASGI routes."""
 
-    global _communication_token
+    global _communication_token, _communication_token_explicit
     _communication_token = token.strip()
+    _communication_token_explicit = bool(_communication_token)
+
+
+def communication_token_required() -> bool:
+    """Return True when an administrator explicitly configured API__COMMUNICATION_TOKEN."""
+
+    return _communication_token_explicit
 
 
 def is_authenticated_relay_request(request: Request) -> bool:
@@ -187,10 +203,10 @@ async def post_message(
         or message.message_id is not None
         or message.type is not None
     )
-    # 普通 REST 入站同样受通信令牌保护：只要配置了令牌，所有 /messages 都必须携带
-    # Bearer；未配置时保持既有行为，由回环/可信网络边界兜底。
+    # 普通 REST 入站同样受通信令牌保护：只有显式设置了通信令牌时，所有 /messages
+    # 才必须携带 Bearer；未显式设置时保持既有行为，由回环/可信网络边界兜底。
     requires_communication_auth = (
-        is_desktop or is_authenticated_relay_request(request) or bool(_communication_token)
+        is_desktop or is_authenticated_relay_request(request) or _communication_token_explicit
     )
     if requires_communication_auth:
         verify_communication_authorization(authorization)
@@ -312,8 +328,8 @@ async def get_status(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    if not _communication_token:
-        # 管理员没有设置通信令牌时，保持与引入认证前一致：直接返回完整快照。
+    if not _communication_token_explicit:
+        # 管理员没有显式设置通信令牌时，保持与引入认证前一致：直接返回完整快照。
         return _full_status_payload()
     authenticated = authorization == f"Bearer {_communication_token}"
     if not authenticated:

@@ -1862,6 +1862,9 @@ const STATUS_ENGLISH_PHRASES: Record<string, string> = {
   '已挂载': 'loaded',
   '加载失败': 'failed to load',
   '日志流：{{error}}': 'Log stream: {{error}}',
+  '需要通信令牌后查看运行日志': 'Enter a communication token to view the runtime log',
+  '通信令牌无效，请重新输入。': 'Invalid communication token. Enter it again.',
+  '日志流连接异常，正在自动重连…': 'Log stream error, reconnecting…',
   '回到最新日志': 'Back to latest logs',
   '{{count}} 条新日志': '{{count}} new logs',
 };

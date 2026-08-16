@@ -95,7 +95,10 @@ function App() {
   // 身份证正面：轮询 /api/status 回填身份与生命体征（age_days 等由后端按当前日期动态计算）。
   const { data, error } = useStatus(communicationToken);
   const { data: profile } = useProfile();
-  const runtimeLogs = useRuntimeLogStream();
+  const runtimeLogs = useRuntimeLogStream(
+    communicationToken,
+    data.communication_token_configured === true,
+  );
   const { state: rawActivityState } = useMemo(
     () => activityStateFromEvents(runtimeLogs.events),
     [runtimeLogs.events],

@@ -187,13 +187,13 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信、Telegram 和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
-配置了通信令牌时，`POST /messages`（包括普通 REST 消息）以及 `coworker-desktop:*`
-participant 的消息、注册、SSE 和 WebSocket 都要求
-`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。此时 `GET /status` 未携带有效令牌只返回
-基础生命周期信息，携带令牌后才返回模型配置与用量；未配置通信令牌时，`GET /status` 保持返回
-完整快照。未单独配置通信令牌时，服务端会回退使用管理员令牌，方便本机首次连接；两者都未配置时，
-Desktop 通信会返回 `503`，普通 REST 消息仍依赖回环/可信网络边界。需要隔离权限时应显式配置
-独立令牌。`API__DEVELOPMENT_MODE` 不会关闭 API 通信校验。
+显式设置了 `API__COMMUNICATION_TOKEN` 时，`POST /messages`（包括普通 REST 消息）、
+`GET /logs/stream` 以及 `coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 都
+要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。此时 `GET /status` 未携带有效令牌
+只返回基础生命周期信息，携带令牌后才返回模型配置与用量；未显式设置通信令牌时，这些接口保持
+引入认证前的行为。Desktop 通信未显式设置令牌时回退使用管理员令牌，方便本机首次连接；两者都
+未配置时，Desktop 通信会返回 `503`。需要隔离权限时应显式配置独立令牌。`API__DEVELOPMENT_MODE`
+不会关闭 API 通信校验。
 
 浏览器示例：
 
