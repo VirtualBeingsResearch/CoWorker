@@ -295,7 +295,7 @@ const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   memory: '短期上下文、压缩树、自动召回、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
   i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
-  api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
+  api: '公开访问地址、内部监听地址、端口、跨域来源与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
   channel_access: '所有信道的入站和出站 participant 匹配规则。',
   wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
