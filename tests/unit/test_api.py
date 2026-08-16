@@ -819,6 +819,29 @@ class TestConnectionRejection:
         ):
             pass
 
+    def test_generic_websocket_requires_bearer_when_token_is_explicit(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        _setup_api_channels(communication)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="secret",
+        )
+
+        with pytest.raises(WebSocketDisconnect) as error:
+            with client.websocket_connect("/ws/alice"):
+                pass
+        assert error.value.code == 1008
+
+        with client.websocket_connect(
+            "/ws/alice",
+            headers={"Authorization": "Bearer secret"},
+        ):
+            pass
+
     def test_websocket_json_message_uses_message_field(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()

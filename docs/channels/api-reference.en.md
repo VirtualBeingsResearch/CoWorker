@@ -29,15 +29,17 @@ console and is not a long-term compatibility promise for independent clients.
 | `GET /status` | Returns basic lifecycle information when a token is explicitly set but the Bearer is missing; returns the full snapshot when no token is explicitly set or with a valid Bearer |
 | `GET /profile` | Requires a Bearer once a token is explicitly set; no check otherwise |
 | `GET /logs/stream` | Requires a Bearer once a token is explicitly set; no check otherwise |
+| `WebSocket /ws/{participant_id}` | Requires a Bearer for every connection once a token is explicitly set; otherwise only `coworker-desktop:*` IDs require one |
+| `SSE /sse/{participant_id}` | Requires a Bearer only for `coworker-desktop:*` IDs and inner Relay requests; generic connections are exempt (EventSource limitation) |
 | Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` (administrator-token fallback when not explicitly set) |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
 
 Communication Bearer checks for ordinary REST messages, full status snapshots, the identity
-profile, and the runtime log stream apply only after `API__COMMUNICATION_TOKEN` is explicitly
-set; without it those endpoints keep their previous behavior. Desktop communication falls back to
-the administrator token when no dedicated token is explicitly set. Set
-`API__COMMUNICATION_TOKEN` for long-running use.
+profile, the runtime log stream, and WebSocket connections apply only after
+`API__COMMUNICATION_TOKEN` is explicitly set; without it those endpoints keep their previous
+behavior. Desktop communication falls back to the administrator token when no dedicated token is
+explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
 
 ## Core HTTP endpoints
 
@@ -118,8 +120,11 @@ Integrations that require an audit trail should retain the raw response and Cowo
   `POST /messages` with the same ID.
 - Only one SSE or WebSocket connection may use a `participant_id` at a time.
 - SSE sends a comment heartbeat every 15 seconds; proxies should disable response buffering.
+- Once `API__COMMUNICATION_TOKEN` is explicitly set, every `/ws/{participant_id}` WebSocket
+  connection requires a Bearer; otherwise only `coworker-desktop:*` IDs require one.
 - `coworker-desktop:*` IDs require a communication Bearer. Native browser `EventSource` cannot set
-  an Authorization header, so do not use it for a protected Desktop participant.
+  an Authorization header, so the generic `/sse/{participant_id}` does not require a Bearer (except
+  for inner Relay requests).
 - The runtime log stream `GET /logs/stream` also requires a Bearer once a communication token is
   explicitly set; the identity page consumes it through an authenticated fetch stream.
 

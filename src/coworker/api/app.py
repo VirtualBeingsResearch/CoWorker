@@ -812,7 +812,7 @@ async def export_config(authorization: str | None = Header(default=None)):
 
 @app.websocket("/ws/{participant_id}")
 async def websocket_endpoint(ws: WebSocket, participant_id: str):
-    if participant_id.startswith("coworker-desktop:"):
+    if communication_token_required() or participant_id.startswith("coworker-desktop:"):
         try:
             verify_communication_authorization(ws.headers.get("authorization"))
         except HTTPException as error:

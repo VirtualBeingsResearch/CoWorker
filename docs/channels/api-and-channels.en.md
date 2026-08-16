@@ -183,14 +183,17 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, Telegram, and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
 When `API__COMMUNICATION_TOKEN` is explicitly set, `POST /messages` (including ordinary REST
-messages), `GET /profile`, `GET /logs/stream`, and all messages, registration, SSE, and WebSocket
-operations for `coworker-desktop:*` participants require `Authorization: Bearer
-<API__COMMUNICATION_TOKEN>`. In that case `GET /status` without a valid token returns only basic
-lifecycle information; with a valid token it also returns model configuration and usage. Without
-an explicitly set communication token, those endpoints keep their pre-authentication behavior.
-Desktop communication falls back to the administrator token when no dedicated token is explicitly
-set for a smoother first local connection; when neither is configured, Desktop communication
-returns `503`. Configure a dedicated token when the permissions must be isolated.
+messages), `GET /profile`, `GET /logs/stream`, every `/ws/{participant_id}` WebSocket connection,
+and all messages, registration, SSE, and WebSocket operations for `coworker-desktop:*`
+participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>`. The generic
+`/sse/{participant_id}` still does not require a Bearer because native browser `EventSource`
+cannot set an Authorization header (except for inner Relay requests). In that case `GET /status`
+without a valid token returns only basic lifecycle information; with a valid token it also returns
+model configuration and usage. Without an explicitly set communication token, those endpoints keep
+their pre-authentication behavior. Desktop communication falls back to the administrator token when
+no dedicated token is explicitly set for a smoother first local connection; when neither is
+configured, Desktop communication returns `503`. Configure a dedicated token when the permissions
+must be isolated.
 
 Browser examples:
 
