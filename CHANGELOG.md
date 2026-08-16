@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.9 - Unreleased
+## 0.3.9 - 2026-08-16
 
 - docs(release): finalize v0.3.8 changelog (#172)
 - docs: align guides with current behavior and tighten wording (#174)
