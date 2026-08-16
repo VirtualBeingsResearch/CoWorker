@@ -1298,7 +1298,7 @@ def _agent_with_profile(tmp_path, readme: str | None = None, days_old: int = 0):
     mock_agent._identity = identity
     mock_agent._short_term.log_store = None
     mock_agent._snapshot_path = tmp_path / "memory" / "short_term_snapshot.json"
-    mock_agent.state = AgentState(setup_mode=False)
+    mock_agent.state = AgentState(setup_mode=False, cycle_count=1)
     return mock_agent, identity_dir
 
 
@@ -1335,6 +1335,20 @@ class TestGetProfile:
         assert first.json()["readme"] == readme
         mock_inbox.push.assert_called_once()
         assert "profile.md" in mock_inbox.push.call_args.args[0].content
+        assert mock_inbox.push.call_args.kwargs.get("wake", True) is True
+
+    def test_profile_does_not_queue_before_first_cycle(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        mock_agent, _ = _agent_with_profile(tmp_path)
+        mock_agent.state = AgentState(setup_mode=False, cycle_count=0)
+        setup_routes(mock_inbox, mock_agent, MagicMock())
+
+        response = client.get("/profile")
+
+        assert response.status_code == 200
+        assert response.json()["readme"] is None
+        mock_inbox.push.assert_not_called()
 
     def test_first_run_profile_does_not_queue_generation(self, client, tmp_path):
         mock_inbox = MagicMock()

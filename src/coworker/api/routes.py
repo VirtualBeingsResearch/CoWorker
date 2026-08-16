@@ -508,6 +508,7 @@ async def get_profile(authorization: str | None = Header(default=None)):
     if (
         _inbox is not None
         and not _agent.state.setup_mode
+        and _agent.state.cycle_count > 0
         and readme_needs_update
         and reminder_due
     ):
