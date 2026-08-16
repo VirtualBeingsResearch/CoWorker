@@ -1033,10 +1033,24 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
   passiveMode?: boolean;
   activeAdminToken?: Json;
 }) {
+  const [copyTokenState, setCopyTokenState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
   const segments = path.split('.');
   const key = segments[segments.length - 1] || path;
   const label = CONFIG_LABELS[path] || humanize(key);
   const presentation = configFieldPresentation(path, { passiveMode });
+  const copyCommunicationToken = async () => {
+    setCopyTokenState('copying');
+    try {
+      const result = await api<Json>('/api/admin/communication-token');
+      const token = String(result.communication_token || '');
+      if (!token) throw new Error(t('通信令牌未配置'));
+      await navigator.clipboard.writeText(token);
+      setCopyTokenState('copied');
+    } catch {
+      setCopyTokenState('error');
+    }
+    window.setTimeout(() => setCopyTokenState('idle'), 1600);
+  };
   if (presentation.editor === 'locale') return <Field label={label} hint={presentation.hint} hot={hot}><select value={String(value)} onChange={event => change(event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
   if (presentation.editor === 'fallback-list' || presentation.editor === 'cors-list' || presentation.editor === 'participant-list') return <Fragment>
     {presentation.editor === 'participant-list' && <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>}
@@ -1058,14 +1072,31 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
       <div className="secret-field-row">
         <input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} />
         {path === 'api.communication_token' && (
-          <button
-            type="button"
-            className="ghost mini"
-            title={t('生成符合 Relay 要求的通信令牌')}
-            onClick={() => setSecretInputs({ ...secretInputs, [path]: generateCommunicationToken() })}
-          >
-            {t('生成')}
-          </button>
+          <>
+            <button
+              type="button"
+              className="ghost mini"
+              title={t('生成符合 Relay 要求的通信令牌')}
+              onClick={() => setSecretInputs({ ...secretInputs, [path]: generateCommunicationToken() })}
+            >
+              {t('生成')}
+            </button>
+            <button
+              type="button"
+              className="ghost mini"
+              disabled={copyTokenState === 'copying'}
+              title={t('复制通信令牌')}
+              onClick={() => void copyCommunicationToken()}
+            >
+              {t(copyTokenState === 'copied'
+                ? '通信令牌已复制'
+                : copyTokenState === 'copying'
+                  ? '正在复制…'
+                  : copyTokenState === 'error'
+                    ? '通信令牌复制失败'
+                    : '复制令牌')}
+            </button>
+          </>
         )}
       </div>
     </Field>;

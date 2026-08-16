@@ -1349,6 +1349,31 @@ class TestGetProfile:
         assert response.json()["readme"] is None
         mock_inbox.push.assert_not_called()
 
+    def test_profile_requires_bearer_and_skips_reminder_when_token_is_explicit(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        mock_agent, _ = _agent_with_profile(tmp_path)
+        setup_routes(
+            mock_inbox,
+            mock_agent,
+            MagicMock(),
+            communication_token="secret",
+        )
+
+        rejected = client.get("/profile")
+        assert rejected.status_code == 401
+        mock_inbox.push.assert_not_called()
+
+        accepted = client.get(
+            "/profile",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert accepted.status_code == 200
+        mock_inbox.push.assert_called_once()
+
 
 class TestSwitchModel:
     def test_returns_503_when_not_ready(self, client):

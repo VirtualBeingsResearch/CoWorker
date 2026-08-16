@@ -474,8 +474,12 @@ def _backup_dir() -> Path | None:
 
 
 @router.get("/profile")
-async def get_profile():
+async def get_profile(authorization: str | None = Header(default=None)):
     """Agent 基础信息：身份、最早记忆时间戳。"""
+    if _communication_token_explicit:
+        # 显式设置通信令牌后，profile 与完整 status 同权保护，避免未认证访问触发
+        # 档案自述更新提醒等副作用。
+        verify_communication_authorization(authorization)
     global _profile_readme_last_reminded_at
     if _agent is None:
         return {"status": "not_started"}

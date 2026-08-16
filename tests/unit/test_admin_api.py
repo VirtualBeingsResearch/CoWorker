@@ -142,6 +142,32 @@ def _client(
     return TestClient(app), config
 
 
+def test_admin_communication_token_copy_endpoint_returns_effective_token(tmp_path):
+    client, _ = _client(tmp_path, api={"communication_token": "desktop-secret"})
+    headers = {"Authorization": "Bearer secret"}
+
+    dedicated = client.get("/api/admin/communication-token", headers=headers)
+    fallback_client, _ = _client(tmp_path / "fallback")
+
+    fallback = fallback_client.get(
+        "/api/admin/communication-token",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert dedicated.status_code == 200
+    assert dedicated.json() == {
+        "communication_token": "desktop-secret",
+        "source": "api.communication_token",
+        "explicit": True,
+    }
+    assert fallback.status_code == 200
+    assert fallback.json() == {
+        "communication_token": "secret",
+        "source": "admin.token",
+        "explicit": False,
+    }
+
+
 def test_relay_status_does_not_return_token_until_explicitly_requested(tmp_path):
     class FakeRelayClient:
         def snapshot(self, *, include_token: bool = False):

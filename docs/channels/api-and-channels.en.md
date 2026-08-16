@@ -183,8 +183,8 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, Telegram, and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
 When `API__COMMUNICATION_TOKEN` is explicitly set, `POST /messages` (including ordinary REST
-messages), `GET /logs/stream`, and all messages, registration, SSE, and WebSocket operations for
-`coworker-desktop:*` participants require `Authorization: Bearer
+messages), `GET /profile`, `GET /logs/stream`, and all messages, registration, SSE, and WebSocket
+operations for `coworker-desktop:*` participants require `Authorization: Bearer
 <API__COMMUNICATION_TOKEN>`. In that case `GET /status` without a valid token returns only basic
 lifecycle information; with a valid token it also returns model configuration and usage. Without
 an explicitly set communication token, those endpoints keep their pre-authentication behavior.

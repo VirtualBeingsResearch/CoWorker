@@ -52,8 +52,12 @@ export function getStatus(communicationToken = '') {
 }
 
 /** Agent 基础档案：身份、目标、最早记忆时间戳。变化慢，建议低频轮询。 */
-export function getProfile() {
-  return requestJson<ProfileInfo>('/profile');
+export function getProfile(communicationToken = '') {
+  return requestJson<ProfileInfo>('/profile', {
+    headers: communicationToken
+      ? { Authorization: `Bearer ${communicationToken}` }
+      : undefined,
+  });
 }
 
 /** 运行日志 SSE 流（身份证背面运行日志的数据源）。同源部署留空 API_BASE，走 Vite /logs 代理。 */

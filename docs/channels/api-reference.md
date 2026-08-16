@@ -25,12 +25,13 @@
 |---|---|
 | `POST /messages` | 显式设置 `API__COMMUNICATION_TOKEN` 后要求 Bearer；未显式设置时依赖回环/可信网络边界 |
 | `GET /status` | 显式设置令牌且未携带有效 Bearer 时返回基础生命周期信息；未显式设置或携带有效 Bearer 时返回完整快照 |
+| `GET /profile` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
 | `GET /logs/stream` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>`（未显式设置时回退管理员令牌） |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
 
-只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照和运行日志流才启用
+只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照、身份档案和运行日志流才启用
 通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置令牌时回退使用
 管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。
 

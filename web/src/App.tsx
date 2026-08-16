@@ -94,7 +94,10 @@ function App() {
   // 运行日志：实时订阅后端 /api/logs/stream（InteractionLogger 的唯一 tap）。
   // 身份证正面：轮询 /api/status 回填身份与生命体征（age_days 等由后端按当前日期动态计算）。
   const { data, error } = useStatus(communicationToken);
-  const { data: profile } = useProfile();
+  const { data: profile } = useProfile(
+    communicationToken,
+    data.communication_token_configured === true,
+  );
   const runtimeLogs = useRuntimeLogStream(
     communicationToken,
     data.communication_token_configured === true,

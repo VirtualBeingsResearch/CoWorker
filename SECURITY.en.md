@@ -34,11 +34,11 @@ For the current v0.x releases:
 - Give it access only to disposable or backed-up workspaces.
 - Do not provide production credentials unless the deployment is specifically isolated for them.
 - The API binds to `127.0.0.1` and, once `API__COMMUNICATION_TOKEN` is explicitly set,
-  requires a Bearer token for REST messages, full status snapshots, the runtime log stream, and
-  Desktop traffic. In that case `GET /status` without a valid token returns only basic lifecycle
-  information; without an explicitly set token those endpoints keep their previous behavior. If
-  you expose it through a reverse proxy, terminate TLS there, set an explicit `API__HOST`,
-  configure `API__CORS_ORIGINS` to trusted browser origins, and set a strong
+  requires a Bearer token for REST messages, full status snapshots, the identity profile, the
+  runtime log stream, and Desktop traffic. In that case `GET /status` without a valid token
+  returns only basic lifecycle information; without an explicitly set token those endpoints keep
+  their previous behavior. If you expose it through a reverse proxy, terminate TLS there, set an
+  explicit `API__HOST`, configure `API__CORS_ORIGINS` to trusted browser origins, and set a strong
   `API__COMMUNICATION_TOKEN`.
 - Desktop `security.development_mode` permits loopback `http://` debugging only and must never
   be enabled on a shared or public listener.
