@@ -133,6 +133,21 @@ class TestSystemPromptBuilder:
         prompt = builder.build()
         assert "get_context" in prompt
 
+    def test_build_guidelines_direct_tool_call_after_thinking(self, tmp_path):
+        builder = make_builder(tmp_path)
+        prompt = builder.build()
+        assert "思考完成后直接调用工具" in prompt
+        assert "content" in prompt
+        assert "communicate" in prompt
+
+    def test_english_prompt_direct_tool_call_after_thinking(self, tmp_path):
+        with locale_context("en"):
+            builder = make_builder(tmp_path)
+            prompt = builder.build()
+        assert "Act immediately after thinking" in prompt
+        assert "content" in prompt
+        assert "communicate" in prompt
+
     def test_build_contains_environment_section(self, tmp_path):
         builder = make_builder(tmp_path)
         prompt = builder.build()
