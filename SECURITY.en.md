@@ -37,8 +37,10 @@ For the current v0.x releases:
   If you expose it through a reverse proxy, terminate TLS there, set an explicit `API__HOST`,
   configure `API__CORS_ORIGINS` to trusted browser origins, and set a strong
   `API__COMMUNICATION_TOKEN`.
-- `API__DEVELOPMENT_MODE=true` disables Desktop Bearer and HTTPS checks. Use it only for a
-  deliberately local HTTP setup; never enable it on a shared or public listener.
+- `API__DEVELOPMENT_MODE=true` disables only the Coworker API-side Desktop communication
+  Bearer check. Desktop-side HTTPS enforcement is controlled separately by the Desktop
+  `security.development_mode` setting; local HTTP debugging requires both. Use it only for a
+  deliberately local setup; never enable it on a shared or public listener.
 - Do not expose port 8000 directly to the public internet or an untrusted network. The admin token
   protects the management API, but it is not a complete authorization boundary for every route.
 - Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. New Desktop and

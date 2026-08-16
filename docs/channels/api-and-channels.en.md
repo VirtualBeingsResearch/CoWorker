@@ -57,7 +57,7 @@ When wrapping an existing async sender, no Channel class is needed:
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
 
-The built-in Stream, Desktop, WeCom, and Telegram implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
+The built-in Stream, Desktop, WeCom, Telegram, and Weixin Claw implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
 
 A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
 
@@ -160,7 +160,7 @@ Every live generic WebSocket/SSE session enables a transparent Bubble lifecycle 
 AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 ```
 
-List only one value to enable transparency for that transport alone, or set `[]` to disable both. Desktop identities never fall through to this generic rule: they must explicitly match a participant glob, so the defaults make only `coworker-desktop:<desktop_id>:local:…` transparent, never the `claude` or `codex` actors.
+List only one value to enable transparency for that transport alone, or set `[]` to disable both. Desktop identities never fall through to this generic rule: they must explicitly match a participant glob, so the defaults make only `coworker-desktop:d:local:…` transparent, never the `claude` or `codex` actors.
 
 Outbound channels that support structured `extra` (generic WebSocket/SSE and Desktop) also carry provenance for transparent handoff messages under `extra.bubble`. Frontends should prefer it for handoff state instead of parsing display copy:
 

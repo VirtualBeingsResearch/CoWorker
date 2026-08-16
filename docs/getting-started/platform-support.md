@@ -13,9 +13,9 @@
 |---|---|---|
 | Coworker Python 服务 | Python 3.13+、uv | macOS Apple Silicon、Windows、Linux；Intel macOS 使用 Dev Container 或 Docker |
 | browser 工具 | Playwright Chromium | Debian/Ubuntu 可能需要 `--with-deps` 安装系统库 |
-| Coworker Desktop | Node.js 24.15+、稳定版 Rust（构建） | Windows NSIS、macOS dmg、Linux AppImage/deb 构建目标 |
+| Coworker Desktop | Node.js ^24.15 或 ≥26、稳定版 Rust（构建） | Windows NSIS、macOS dmg、Linux AppImage/deb 构建目标 |
 | Explore Lab | Python workspace、Node.js | 本机开发工具，默认只监听 `127.0.0.1:8100` |
-| Relay | Go 1.26.5+（构建）或 Docker | 当前 v1 为单节点，不共享 bbolt 卷 |
+| Relay | Go 1.26.6+（构建）或 Docker | 当前 v1 为单节点，不共享 bbolt 卷 |
 
 Desktop 不包含 Python 服务、Codex CLI 或 Claude Code CLI；它们分别进行健康检查。缺少
 Codex 或 Claude 不会阻止本地用户和其他可用 actor 工作。
@@ -35,7 +35,7 @@ Docker offline 镜像预置 embedding 模型；配置的 embedding 模型必须�
 |---|---|---|
 | Windows | NSIS installer | Tauri updater + 签名 |
 | macOS Apple Silicon | `.dmg` | `.app.tar.gz` + `.sig` |
-| macOS Intel | x86_64 `.dmg` | x86_64 `.app.tar.gz` + `.sig` |
+| macOS Intel | x64 `.dmg` | x64 `.app.tar.gz` + `.sig` |
 | Linux | AppImage / deb | 对应平台 updater + 签名 |
 
 各平台通常要在对应 runner 构建。签名缺失或不匹配时 Desktop 必须拒绝更新并保留当前版本。

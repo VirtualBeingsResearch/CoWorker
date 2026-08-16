@@ -37,8 +37,8 @@ paths. A health probe should never call endpoints that incur model cost or mutat
 
 ## Usage and cost
 
-`/status.usage_stats` exposes today, last_7_days, and lifetime windows, split by model,
-Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0. This
+The `usage_stats` field returned by `GET /status` exposes today, last_7_days, and lifetime
+windows, split by model, Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0. This
 ordinary status interface returns usage only, never monetary amounts.
 
 The authenticated `GET /api/admin/usage` endpoint and Runtime analytics calculate local spend

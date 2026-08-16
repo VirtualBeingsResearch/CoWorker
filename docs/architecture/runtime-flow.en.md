@@ -9,7 +9,7 @@ This page maps an external message to persistent state. See
 
 ```mermaid
 flowchart LR
-    input["REST · WS/SSE · files · WeCom · Weixin · Desktop"] --> channel["Channel System"]
+    input["REST · WS/SSE · files · WeCom · Weixin · Telegram · Desktop"] --> channel["Channel System"]
     channel --> inbox["Normalized IncomingEvent / inbox"]
     inbox --> loop["Agent main loop"]
     identity["Identity · System Prompt"] --> loop

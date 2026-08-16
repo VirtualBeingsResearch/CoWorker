@@ -90,7 +90,7 @@ _GOLDEN_SUMMARIZE = (
     f"- 新了解到的系统行为、约束或规则\n"
     f"- 任何将来可能需要参考的背景事实\n"
     f"\n"
-    f"**3. 用户偏好**（category: user_preference）\n"
+    f"**3. 用户偏好**（category: experience，tags 加 user_preference）\n"
     f"识别用户表达或流露出的偏好、习惯、反馈：\n"
     f'- 用户明确纠正或否定了什么（"不要这样"、"不用X"）\n'
     f"- 用户确认或强化了什么做法\n"
@@ -98,7 +98,9 @@ _GOLDEN_SUMMARIZE = (
     f"- 用户对某类行为的明显喜好或反感\n"
     f"这类记忆直接影响未来的协作方式，即使只是隐含表达也值得记录。\n"
     f"\n"
-    f"对每条有价值的内容，调用 `manage_memory` 工具写入对应 category。鼓励同时调用多次 `manage_memory`，每条独立写入。\n"
+    f"对每条有价值的内容，调用 `manage_memory` 工具写入对应 category；用户偏好使用\n"
+    f"`category=\"experience\"` 并追加 `user_preference` 标签。保留源消息语言，不要翻译用户或\n"
+    f"第三方文本。鼓励同时调用多次 `manage_memory`，每条独立写入。\n"
     f"\n"
     f"【通信规则】\n"
     f"- 你的 bubble_done 结论不会传递给主线。\n"
@@ -135,7 +137,7 @@ _GOLDEN_EXPLORE = (
     f"\n"
     f"【通信规则】\n"
     f"- 你的 bubble_done 结论不会传递给主线。\n"
-    f"- 每轮最多调用一次 bubble_send(target='main')，把所有值得打扰主线的内容合并成一份摘要。\n"
+    f"- 整个运行期间最多调用一次 bubble_send(target='main')，把所有值得打扰主线的内容合并成一份摘要。\n"
     f"- 摘要最多 3 点、总长不超过 600 字；不要复述主线已经知道的内容，也不要为了输出而凑结论。\n"
     f"- 没有足够新颖且可行动的洞察时保持静默；可持久化的内容仍可写入长期记忆。"
 )

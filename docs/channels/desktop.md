@@ -43,7 +43,7 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 |---|---|
 | Windows | `.exe` NSIS installer |
 | macOS Apple Silicon | 标有 `aarch64` / Apple Silicon 的 `.dmg` |
-| macOS Intel | 标有 `x86_64` / Intel 的 `.dmg` |
+| macOS Intel | 标有 `x64` / Intel 的 `.dmg` |
 | Linux | `.AppImage` 或 `.deb` |
 
 优先使用项目正式 Release 中的安装包，并在需要时用同一 Release 的

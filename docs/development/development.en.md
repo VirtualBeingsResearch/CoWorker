@@ -23,8 +23,9 @@ uv run mypy src
 uv run pytest
 ```
 
-Web frontend or desktop changes also require Node.js 24.15+. The administration interface build
-output is written to `src/coworker/web/`, which is shipped as static assets in the Python package:
+The web frontend requires Node.js 22.12+ (Vite requirement); desktop tests require Node.js
+^24.15 or ≥26 because of jsdom. Repository CI and the Dev Container use Node.js 24.
+The administration interface build output is written to `src/coworker/web/`, which is shipped as static assets in the Python package:
 
 ```bash
 npm ci --prefix web
@@ -44,7 +45,7 @@ Apple Silicon uses native `linux/arm64` without forced x86 emulation.
 Install Docker Desktop (or a compatible container runtime) and the VS Code Dev Containers
 extension, then run **Dev Containers: Reopen in Container** from the repository. The first build:
 
-- installs Python 3.13, uv, Node.js 24, and FFmpeg;
+- installs Python 3.14, uv, Node.js 24, and FFmpeg;
 - installs the locked Python development dependencies and Linux CPU build of PyTorch;
 - installs Playwright Chromium and its Linux system libraries;
 - forwards port `8000` for the CoWorker API and `8100` for Explore Lab.

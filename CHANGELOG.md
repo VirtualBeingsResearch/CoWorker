@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.3.8 - 2026-08-15
+
+- docs(release): finalize v0.3.7 changelog (#149)
+- feat(container): simplify Docker startup (#150)
+- fix(memory): serialize shared tokenizer access to avoid Already borrowed (#151)
+- Bump the "all-dependencies" group with 3 updates across multiple ecosystems (#152)
+- refactor(memory): remove recent-activity index and obsolete chroma/tokenizer guards (#154)
+- fix(relay): serve desktop updates through instance URLs (#156)
+- fix(wecom): download quoted message attachments (#157)
+- feat(admin): improve first-run initialization (#153)
+- feat(channels): add multi-bot Telegram support (#158)
+- feat(container): add lightweight workspace tools (#161)
+- feat(prompt): support custom system prompt templates (#159)
+- fix(relay): update Go to 1.26.6 (#163)
+- feat(usage): add model pricing estimates (#162)
+- feat(web): improve model pricing currency UX (#164)
+- fix(memory): avoid duplicate LLM extraction for explicit writes (#166)
+- fix(admin): display timestamps in browser timezone (#160)
+- fix(memory): keep mem0 aligned with active model (#165)
+- feat(subconscious): schedule reviews around compression (#167)
+- fix(web): tighten line number gutter (#168)
+- feat(brain): add thinking effort and OpenCode Go provider (#170)
+
 ## 0.3.7 - 2026-08-07
 
 - docs(release): finalize v0.3.6 changelog (#137)
