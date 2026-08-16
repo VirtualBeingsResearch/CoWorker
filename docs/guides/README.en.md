@@ -241,7 +241,9 @@ other runtime parameters. The page:
 - redacts existing secrets and shows only whether they are configured;
 - marks validation errors;
 - distinguishes hot updates from restart-required changes;
-- provides dedicated management panels for some Channels.
+- provides dedicated management panels for some Channels;
+- offers a Generate button beside `API__COMMUNICATION_TOKEN` to create a
+  Relay-compatible high-entropy communication token.
 
 #### Channel Access
 

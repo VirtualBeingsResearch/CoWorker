@@ -34,10 +34,11 @@ For the current v0.x releases:
 - Give it access only to disposable or backed-up workspaces.
 - Do not provide production credentials unless the deployment is specifically isolated for them.
 - The API binds to `127.0.0.1` and, when a communication token is configured, requires a
-  Bearer token for REST messages, status, and Desktop traffic. `GET /status` without a valid
-  token returns only basic lifecycle information. If you expose it through a reverse proxy,
-  terminate TLS there, set an explicit `API__HOST`, configure `API__CORS_ORIGINS` to trusted
-  browser origins, and set a strong `API__COMMUNICATION_TOKEN`.
+  Bearer token for REST messages, status, and Desktop traffic. In that case `GET /status` without
+  a valid token returns only basic lifecycle information; when no token is configured, `/status`
+  keeps returning the full snapshot. If you expose it through a reverse proxy, terminate TLS
+  there, set an explicit `API__HOST`, configure `API__CORS_ORIGINS` to trusted browser origins,
+  and set a strong `API__COMMUNICATION_TOKEN`.
 - `API__DEVELOPMENT_MODE=true` no longer disables any Coworker API-side communication Bearer
   check. Desktop-side HTTPS enforcement remains controlled by the Desktop
   `security.development_mode` setting. Use that mode only for a deliberately local setup; never

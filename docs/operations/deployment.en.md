@@ -85,9 +85,10 @@ Do not run as root or grant file access beyond the intended workspace. Run
 
 ## Health, logs, and capacity
 
-Use `/status` for process and Agent state. Without a communication token it returns only basic
-lifecycle information. Use Diagnostics and Audit to find background tasks that fail repeatedly.
-See [Observability and Routine Operations](observability.en.md).
+Use `/status` for process and Agent state. Once an administrator configures a communication
+token, requests without one return only basic lifecycle information. Use Diagnostics and Audit to
+find background tasks that fail repeatedly. See
+[Observability and Routine Operations](observability.en.md).
 
 Capacity depends primarily on:
 

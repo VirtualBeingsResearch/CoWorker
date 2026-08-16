@@ -24,7 +24,7 @@
 | 接口 | 默认认证 |
 |---|---|
 | `POST /messages` | 配置通信令牌后要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`；未配置时依赖回环/可信网络边界 |
-| `GET /status` | 未携带有效 Bearer 时返回基础生命周期信息；携带后返回完整模型与用量快照 |
+| `GET /status` | 已配置令牌且未携带有效 Bearer 时返回基础生命周期信息；未配置令牌或携带有效 Bearer 时返回完整快照 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
@@ -87,7 +87,7 @@ Authorization: Bearer <API__COMMUNICATION_TOKEN>
 ### 状态与模型
 
 ```bash
-# 无 Bearer 时只返回基础状态；携带有效令牌返回完整快照
+# 已配置令牌时：无 Bearer 只返回基础状态；携带有效令牌返回完整快照
 curl http://127.0.0.1:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
@@ -96,10 +96,10 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、`setup_mode`、
-`communication_token_configured` 和 `authenticated`；不包含 Provider、模型配置与用量。
-携带有效 Bearer 时返回完整快照。字段会随可用模块增加，客户端应容忍未知字段。对需要
-稳定审计的集成，保存原始响应和 Coworker 版本。
+管理员配置了通信令牌时，未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、
+`setup_mode`、`communication_token_configured` 和 `authenticated`；不包含 Provider、模型
+配置与用量。未配置通信令牌或携带有效 Bearer 时返回完整快照。字段会随可用模块增加，客户端
+应容忍未知字段。对需要稳定审计的集成，保存原始响应和 Coworker 版本。
 
 ## SSE 与 WebSocket
 

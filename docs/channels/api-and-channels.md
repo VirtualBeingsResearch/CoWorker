@@ -100,7 +100,7 @@ curl -X POST http://localhost:8000/messages \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 
-# 查看状态（无 Bearer 时只返回基础状态，带有效令牌返回完整快照）
+# 查看状态（已配置令牌时：无 Bearer 只返回基础状态，带有效令牌返回完整快照）
 curl http://localhost:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
@@ -189,11 +189,11 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 配置了通信令牌时，`POST /messages`（包括普通 REST 消息）以及 `coworker-desktop:*`
 participant 的消息、注册、SSE 和 WebSocket 都要求
-`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。`GET /status` 未携带有效令牌时只返回
-基础生命周期信息，携带令牌后才返回模型配置与用量。未单独配置通信令牌时，服务端会回退使用
-管理员令牌，方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`，普通 REST 消息仍依赖
-回环/可信网络边界。需要隔离权限时应显式配置独立令牌。`API__DEVELOPMENT_MODE` 不会关闭
-API 通信校验。
+`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。此时 `GET /status` 未携带有效令牌只返回
+基础生命周期信息，携带令牌后才返回模型配置与用量；未配置通信令牌时，`GET /status` 保持返回
+完整快照。未单独配置通信令牌时，服务端会回退使用管理员令牌，方便本机首次连接；两者都未配置时，
+Desktop 通信会返回 `503`，普通 REST 消息仍依赖回环/可信网络边界。需要隔离权限时应显式配置
+独立令牌。`API__DEVELOPMENT_MODE` 不会关闭 API 通信校验。
 
 浏览器示例：
 

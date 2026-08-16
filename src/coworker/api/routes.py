@@ -261,10 +261,10 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
 
 
 def _public_status_payload(authenticated: bool = False) -> dict[str, Any]:
-    """未携带有效通信令牌时返回的基础状态：只暴露生命周期，不暴露模型与用量。"""
+    """管理员配置了通信令牌但请求未认证时返回的基础状态：只暴露生命周期。"""
 
     auth = {
-        "communication_token_configured": bool(_communication_token),
+        "communication_token_configured": True,
         "authenticated": authenticated,
     }
     if _agent is None:
@@ -285,44 +285,43 @@ def _public_status_payload(authenticated: bool = False) -> dict[str, Any]:
     }
 
 
-@router.get("/status")
-async def get_status(
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    authenticated = bool(
-        _communication_token and authorization == f"Bearer {_communication_token}"
-    )
-    if not authenticated:
-        # /status 对未认证读取保持可用，只降级为基础信息，避免把状态页整个挡在 401 后面。
-        return _public_status_payload()
-    auth = {
-        "communication_token_configured": True,
-        "authenticated": True,
-    }
+def _full_status_payload(auth: dict[str, Any] | None = None) -> dict[str, Any]:
     if _agent is None:
-        return {"status": "not_started", **auth}
+        return {"status": "not_started", **(auth or {})}
     s = _agent.state
     payload: dict[str, Any] = {
-        "status": (
-            "sleeping" if s.is_sleeping
-            else "running" if s.is_running
-            else "idle"
-        ),
         "is_running": s.is_running,
         "is_sleeping": s.is_sleeping,
         "provider": s.current_provider,
         "model": s.current_model,
         "cycle_count": s.cycle_count,
         "setup_mode": s.setup_mode,
-        **auth,
     }
+    if auth:
+        payload.update(auth)
     if _brain is not None:
         payload["providers"] = _brain.list_providers()
         payload["model_config"] = _model_config_response()
     if _usage_stats is not None:
         payload["usage_stats"] = _usage_stats.snapshot()
     return payload
+
+
+@router.get("/status")
+async def get_status(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    if not _communication_token:
+        # 管理员没有设置通信令牌时，保持与引入认证前一致：直接返回完整快照。
+        return _full_status_payload()
+    authenticated = authorization == f"Bearer {_communication_token}"
+    if not authenticated:
+        # 已配置令牌但未认证时保持 /status 可用，只降级为基础信息。
+        return _public_status_payload()
+    return _full_status_payload(
+        {"communication_token_configured": True, "authenticated": True}
+    )
 
 
 @router.get("/api/debug/tasks")

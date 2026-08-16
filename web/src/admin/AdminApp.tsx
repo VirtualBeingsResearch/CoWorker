@@ -153,6 +153,17 @@ function logTimeInputValue(value: string): string {
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
 
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function generateCommunicationToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `cwct_v1_${bytesToBase64Url(bytes)}`;
+}
+
 class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -1043,7 +1054,21 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
     const placeholder = status.configured
       ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
       : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（建议设置）');
-    return <Field label={label} hot={hot} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} /></Field>;
+    return <Field label={label} hot={hot} hint={hint}>
+      <div className="secret-field-row">
+        <input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} />
+        {path === 'api.communication_token' && (
+          <button
+            type="button"
+            className="ghost mini"
+            title={t('生成符合 Relay 要求的通信令牌')}
+            onClick={() => setSecretInputs({ ...secretInputs, [path]: generateCommunicationToken() })}
+          >
+            {t('生成')}
+          </button>
+        )}
+      </div>
+    </Field>;
   }
   if (typeof value === 'boolean') return <label className="switch config-switch"><input type="checkbox" checked={value} onChange={event => change(event.target.checked)} /><i /><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
   if (typeof value === 'number') return <Field label={label} hint={presentation.hint} hot={hot}><input type="number" value={value} min={presentation.minimum} max={presentation.maximum} step={presentation.step ?? 'any'} onChange={event => change(Number(event.target.value))} /></Field>;

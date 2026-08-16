@@ -169,7 +169,7 @@ troubleshooting</summary>
 First request status:
 
 ```bash
-# Without a Bearer this returns basic status; a valid token returns the full snapshot
+# When a token is configured: no Bearer returns basic status; a valid token returns the full snapshot
 curl http://127.0.0.1:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```

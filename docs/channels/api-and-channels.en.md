@@ -101,7 +101,7 @@ curl -X POST http://localhost:8000/messages \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
 
-# Check status (without a Bearer this returns basic status; a valid token returns the full snapshot)
+# Check status (when a token is configured: no Bearer returns basic status; a valid token returns the full snapshot)
 curl http://localhost:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
@@ -184,13 +184,14 @@ An announced handoff uses `phase: "end"` when it completes. Direct Bubble replie
 
 When a communication token is configured, `POST /messages` (including ordinary REST messages)
 and all messages, registration, SSE, and WebSocket operations for `coworker-desktop:*`
-participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>`. `GET /status` without
-a valid token returns only basic lifecycle information; with a valid token it also returns model
-configuration and usage. When no dedicated communication token is configured, the server falls
-back to the administrator token for a smoother first local connection; when neither is configured,
-Desktop communication returns `503` while ordinary REST messages still rely on
-loopback/trusted-network isolation. Configure a dedicated token when the permissions must be
-isolated. `API__DEVELOPMENT_MODE` does not disable API communication authentication.
+participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>`. In that case `GET
+/status` without a valid token returns only basic lifecycle information; with a valid token it
+also returns model configuration and usage. When no communication token is configured, `GET
+/status` keeps returning the full snapshot. When no dedicated communication token is configured,
+the server falls back to the administrator token for a smoother first local connection; when
+neither is configured, Desktop communication returns `503` while ordinary REST messages still
+rely on loopback/trusted-network isolation. Configure a dedicated token when the permissions must
+be isolated. `API__DEVELOPMENT_MODE` does not disable API communication authentication.
 
 Browser examples:
 

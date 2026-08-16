@@ -1056,11 +1056,7 @@ class TestGetStatus:
         routes_mod._communication_token = ""
         resp = client.get("/status")
         assert resp.status_code == 200
-        assert resp.json() == {
-            "status": "not_started",
-            "communication_token_configured": False,
-            "authenticated": False,
-        }
+        assert resp.json() == {"status": "not_started"}
 
     @pytest.mark.asyncio
     async def test_relay_status_returns_public_subset_without_inner_bearer(self):

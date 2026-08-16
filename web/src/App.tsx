@@ -244,10 +244,12 @@ function IdentityPage({
           <p className="kicker">{t('虚拟生命体')}</p>
           <div className="id-band-actions">
             <LanguageSwitch className="status-language-toggle" />
-            <StatusTokenControl
-              token={communicationToken}
-              onChange={onCommunicationTokenChange}
-            />
+            {data.communication_token_configured === true && (
+              <StatusTokenControl
+                token={communicationToken}
+                onChange={onCommunicationTokenChange}
+              />
+            )}
             <a className="admin-entry" href="/admin" aria-label={t('进入照看室')}>
               <Settings2 size={13} />
               <span>{t('照看室')}</span>
@@ -269,14 +271,9 @@ function IdentityPage({
               <span className="state-kicker">{t('当前状态')}</span>
               <strong>{t(currentState.name)}</strong>
               <span>{error ? t('状态接口异常：{{error}}', { error }) : t(currentState.desc)}</span>
-              {data.communication_token_configured === false && (
-                <span className="status-auth-note">
-                  {t('尚未配置通信令牌，状态只显示基础信息。请在照看室中设置 API__COMMUNICATION_TOKEN。')}
-                </span>
-              )}
               {data.communication_token_configured === true && data.authenticated === false && (
                 <span className="status-auth-note">
-                  {t('已配置通信令牌。输入令牌后即可查看完整状态与用量。')}
+                  {t('管理员已设置通信令牌。输入令牌后即可查看完整状态与用量。')}
                 </span>
               )}
             </div>
