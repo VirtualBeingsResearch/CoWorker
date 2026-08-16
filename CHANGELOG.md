@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.3.9 - Unreleased
+
+- docs(release): finalize v0.3.8 changelog (#172)
+- docs: align guides with current behavior and tighten wording (#174)
+- chore(workflow): report completed work locally (#176)
+- feat(api): enforce communication token auth with public status subset (#175)
+- feat(system-prompt): call tools directly after thinking (#177)
+
 ## 0.3.8 - 2026-08-15
 
 - docs(release): finalize v0.3.7 changelog (#149)
