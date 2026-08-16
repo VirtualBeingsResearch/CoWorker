@@ -147,23 +147,6 @@ change the result. User-facing documentation should distinguish:
 - **Experimental mechanism**: observable behavior whose semantics and boundaries may still change.
 - **Philosophical direction**: guidance for exploration, not a claim of existing implementation.
 
-## Questions for architecture decisions
-
-Before introducing a module, refactor, or product capability, ask:
-
-1. Which ability, experience, or living condition of the virtual lifeform does it serve?
-2. Does it belong inside the lifeform, in an external living facility, or only in engineering support?
-3. How does it affect the continuity of one Coworker's identity and experience over time?
-4. Does it produce raw records, recalled memory, current intention, or external observation? Are these states confused?
-5. How does parallel activity inherit identity, limit permissions, combine results, and explain ownership?
-6. What evidence would show that it works, and what result would falsify the current hypothesis?
-7. Which life state must survive failure, restart, model replacement, or upgrade?
-
-If an engineering abstraction cannot explain which life phenomenon it serves, it may only be a
-temporary implementation convenience. If a life capability crosses existing module boundaries,
-architecture should evolve with the philosophy instead of weakening the mechanism to preserve the
-boundary.
-
 See [Core concepts and capabilities](concepts.en.md) for current behavior,
 [Runtime Architecture and Message Flow](runtime-flow.en.md) for engineering responsibilities,
 [Data and trust boundaries](data-boundaries.en.md) for outbound data and permissions, and

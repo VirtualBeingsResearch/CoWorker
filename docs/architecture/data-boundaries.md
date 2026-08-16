@@ -27,9 +27,10 @@ Coworker 是本地运行的自主 Agent，但“本地运行”不等于“数�
 应依赖操作系统权限、磁盘加密和最小权限账户进行保护。配置导出包会包含运行数据和密钥，
 应按凭据文件处理。
 
-默认配置不会把整个 `data/` 或 `.coworker/` 自动同步到项目方服务器，mem0 和 Chroma 的
-匿名遥测也已显式关闭。在进程环境中显式设置 `MEM0_TELEMETRY=true` 会重新启用 mem0
-遥测。但第三方依赖的下载、模型服务和下述工具仍会产生网络请求。
+默认配置不会把整个 `data/` 或 `.coworker/` 自动同步到项目方服务器，并会显式关闭 mem0
+与 Chroma 的匿名遥测；在进程环境中显式设置 `MEM0_TELEMETRY=true` 或
+`ANONYMIZED_TELEMETRY=true` 会重新启用对应遥测。但第三方依赖的下载、模型服务和下述工具
+仍会产生网络请求。
 
 Compose 默认把宿主机的 Git checkout 挂载为工作区，并把运行数据和模型缓存分别保存在
 `coworker-state` 与 `coworker-models` 卷。直接运行镜像或显式设置

@@ -63,7 +63,7 @@ protected: true
 
 **退休三步路**（只建议，不执行）：
 - 若 purpose 暂时脱节但可能恢复：建议「暂停」→ 任务: `[潜意识] 建议暂停<模式名>：<原因>`
-- 若 purpose 持久脱节：建议「归档」→ 任务: `[潜意识] 建议归档<模式名>：<原因> ——主线确认后执行: mv .coworker/subconscious/<name>/ .coworker/subconscious/archived/<name>/`
+- 若 purpose 持久脱节：建议「归档」→ 任务: `[潜意识] 建议归档<模式名>：<原因> ——主线确认后执行: mkdir -p .coworker/subconscious/archived && mv .coworker/subconscious/<name>/ .coworker/subconscious/archived/<name>/`
 - 受保护模式（🔒）：**永远不建议禁用、归档或删除**，只能建议调优
 
 **步骤3 — 发现缺口时建议新增模式**

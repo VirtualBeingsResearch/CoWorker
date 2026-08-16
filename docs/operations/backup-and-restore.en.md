@@ -30,7 +30,8 @@ Stop Coworker, then account for the locations used by the deployment:
 - the Relay bbolt database, signing key, `.env`, and deployment files.
 
 Backups may contain model keys, administrator tokens, Relay private keys, conversations, and file
-content. Encrypt them and restrict access. Never commit them to Git or attach them to issues.
+content. Encrypt them and restrict access. Never commit them to Git, attach them to issues,
+or place them in a regular shared drive.
 
 ## Back up and restore `data/`
 
@@ -114,9 +115,10 @@ Stop Coworker with `docker compose stop`, then resolve its actual mounts with
 `docker compose config`, `docker volume ls`, and `docker volume inspect <name>`. A complete backup
 must cover both the host checkout used as the workspace (or the legacy `coworker-workspace`
 volume) and the state volume. The model cache is rebuildable, although retaining it shortens
-recovery. Do not back up only the container writable layer. For restore, create the empty state
-volume with `docker compose create --no-build`, import the backup before Coworker starts, and then
-verify that workspace and state come from the same backup point.
+recovery. Do not back up only the container writable layer. On a fresh host, create the state volume with
+`docker compose create --no-build`; if an old volume already exists, remove or empty it first.
+Then import the backup before Coworker starts and verify that workspace and state come from the
+same backup point.
 
 ### Relay
 

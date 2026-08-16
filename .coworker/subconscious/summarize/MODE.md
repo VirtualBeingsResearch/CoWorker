@@ -41,7 +41,7 @@ purpose: "将短期对话中有价值的内容蒸馏为长期记忆，防止经�
 - 新了解到的系统行为、约束或规则
 - 任何将来可能需要参考的背景事实
 
-**3. 用户偏好**（category: user_preference）
+**3. 用户偏好**（category: experience，tags 加 user_preference）
 识别用户表达或流露出的偏好、习惯、反馈：
 - 用户明确纠正或否定了什么（"不要这样"、"不用X"）
 - 用户确认或强化了什么做法
@@ -49,7 +49,9 @@ purpose: "将短期对话中有价值的内容蒸馏为长期记忆，防止经�
 - 用户对某类行为的明显喜好或反感
 这类记忆直接影响未来的协作方式，即使只是隐含表达也值得记录。
 
-对每条有价值的内容，调用 `manage_memory` 工具写入对应 category。鼓励同时调用多次 `manage_memory`，每条独立写入。
+对每条有价值的内容，调用 `manage_memory` 工具写入对应 category；用户偏好使用
+`category="experience"` 并追加 `user_preference` 标签。保留源消息语言，不要翻译用户或
+第三方文本。鼓励同时调用多次 `manage_memory`，每条独立写入。
 
 【通信规则】
 - 你的 bubble_done 结论不会传递给主线。

@@ -40,7 +40,7 @@ Provider 连接中声明它是否支持工具、图片和视频；系统不会�
 
 ```env
 LLM__DEFAULT_PROVIDER=deepseek
-LLM__DEFAULT_MODEL=deepseek-chat
+LLM__DEFAULT_MODEL=deepseek-v4-pro
 LLM__DEEPSEEK_API_KEY=...
 LLM__DEEPSEEK_BASE_URL=
 ```

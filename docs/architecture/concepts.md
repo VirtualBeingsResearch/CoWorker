@@ -9,10 +9,10 @@
 - **多 LLM Provider**：支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax、OpenCode Go，以及可声明能力的通用 OpenAI 兼容 Provider，可通过 API 或工具热切换模型；可经 `providers.json` 配置同一类型的多个命名实例（如多个智谱 Key），每个实例可带各自的默认模型。主线/摘要/视觉调用均可独立设置思考强度。
 - **分层记忆**：短期上下文自动压缩，长期记忆由 **mem0** 管理（底层 ChromaDB + 本地 SentenceTransformer）；原始对话入库时由 mem0 提炼并语义合并，显式写入的已提炼记忆直接保存并精确去重，避免再次调用 LLM；收到新消息时系统自动检索相关记忆以 `[自动回忆]` 形式注入上下文，已回忆/已写入的记忆在同一会话内不重复注入（持久化去重，重启后同样有效）；短期记忆在重启后自动恢复。
 - **多人对话隔离**：每个 `participant_id` 拥有独立对话线程，避免不同用户的上下文互相污染。
-- **三类交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信。
+- **内置交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信；外部 Channel 再接入 WeCom、微信 Claw、Telegram 与 Desktop。
 - **工具系统**：文件读写、代码执行、网页搜索、浏览器自动化、记忆读写、技能读取、任务板、模型切换等。
 - **视觉分析**：配置 `LLM__VISION_PROVIDER/MODEL` 后，纯文本模型（如 DeepSeek）可调用 `visual_analyze`，委托视觉模型理解图片或视频；视频以 Base64 原生输入发送，仅支持声明了视频能力的视觉模型，编码后达到 10 MiB 时会先尝试用 FFmpeg 压缩。
-- **泡泡思考**（可选）：设置 `AGENT__BUBBLE_THINKING=true` 后，模型可主动从当前上下文分叉出独立子任务并发执行，完成后自动合并结论；支持主线与泡泡之间双向通信。创建时绑定 `participant_id`（可同时绑定 `conversation_id`）后，匹配且无歧义的后续通信会直接交给该活跃泡泡处理；泡泡只能直接回复其绑定对象。可用 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` 通过整串 glob 为指定通信 ID 启用外显提示；在线 WebSocket/SSE 会话默认也会按传输层启用，可通过 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` 调整或关闭。默认 participant glob 匹配企微、微信 Claw 与 Desktop `local` actor，不匹配 Claude 或 Codex actor。接管提示延迟到首次真实收发，直接回复会标明来自泡泡，且只有已公告接管的会话才发送结束提示。达到轮次上限后，可在配置的宽限期内通过 `bubble_spawn(bubble_id=...)` 保留原上下文继续执行。
+- **泡泡思考**（可选）：设置 `AGENT__BUBBLE_THINKING=true` 后，模型可主动从当前上下文分叉出独立子任务并发执行，完成后自动合并结论；支持主线与泡泡之间双向通信。创建时绑定 `participant_id`（可同时绑定 `conversation_id`）后，匹配且无歧义的后续通信会直接交给该活跃泡泡处理；泡泡只能直接回复其绑定对象。可用 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` 通过整串 glob 为指定通信 ID 启用外显提示；在线 WebSocket/SSE 会话默认也会按传输层启用，可通过 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` 调整或关闭。默认 participant glob 匹配企微、微信 Claw、Telegram 与 Desktop `local` actor，不匹配 Claude 或 Codex actor。接管提示延迟到首次真实收发，直接回复会标明来自泡泡，且只有已公告接管的会话才发送结束提示。达到轮次上限后，可在配置的宽限期内通过 `bubble_spawn(bubble_id=...)` 保留原上下文继续执行。
 - **潜意识思考**（可选）：设置 `AGENT__SUBCONSCIOUS_THINKING=true` 后，系统自动在后台触发多类反省——**自我审计**、**经验总结**（仅在短期记忆压缩前提炼经验写入长期记忆）、自由发散、技能库审视、宫殿园丁等。各模式的周期触发和压缩前触发节奏都写在 `.coworker/subconscious/*/MODE.md`；内置模式让 `summarize` 在每次压缩前处理即将离开的切片，让 `audit` 在每次压缩前审视完整主线，让 `introspect` 每 3 次压缩运行一次；`explore` 每 6 小时最多向主线发送一份三点摘要。`meta` 和 `garden` 的时机不变。环境变量只保留总开关、压缩前总结开关和通用 `max_cycles` 兜底。整个过程默认静默运行。
 - **技能系统**：从 `.coworker/skills` 加载 `SKILL.md` 风格的自然语言操作指南。
 - **记忆宫殿（Memory Block Tree）**：从 `.coworker/palaces` 加载 `PALACE.md` 领域包。每个宫殿是一个领域的「组合层」——一张薄薄的领域速记卡，加上指向 skill（程序）和长期记忆（事实）的指针。系统提示中只常驻薄注册表（名字 + 何时挂载），完整宫殿在执行任务的「泡泡」里按需注入：关键 skill 强加载、相关 skill 列名待按需加载、按 `memory_tags` 召回相关长期记忆。泡泡成功收尾时，其结论会按宫殿标签自动写回长期记忆，使宫殿随任务执行持续「生长」。
@@ -55,11 +55,11 @@ prompt 不复制、不 monkey-patch。
 - 浏览器工具：`browser_open`、`browser_screenshot`、`browser_action`、`browser_get_content`、`browser_close`、`browser_list_sessions`
 - 代码工具：`execute_code`、`get_code_result`、`kill_code_job`（`execute_code` 默认最多等 2 秒；`block=true` 仅泡泡上下文生效，主线传入会被忽略。`get_code_result` 只返回当前状态，不负责等待；需要等待时应先调用 `sleep` 再重试）
 - 记忆工具：`query_memory`（综合搜索：query 检索长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`
-- 系统工具：`sleep`、`switch_model`、`get_context`、`restart_self`
+- 系统工具：`sleep`、`breathe`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
 - 通信工具：`communicate`、`list_connections`
 - 人物工具（可选子机制，`MEMORY__PERSONA_ENABLED=false` 关闭）：`persona`（`bind` 把通信地址绑定到已知或新建人物并记地址备注、`note` 记录人物级个性化备注、`card` 读渲染的画像框架、`merge` 合并重复人物）
-- 技能与任务：`get_skill`、`task_board`
+- 技能与任务：`get_skill`、`task_create`、`task_get`、`task_list`、`task_update`
 
 `visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：
 
@@ -97,7 +97,7 @@ coworker/
     ├── memory/              # mem0/ChromaDB 持久化 + short_term_snapshot.json + persons.json（Person 子机制）
     ├── identity/            # name.txt、personality.md 等
     ├── logs/                # 日志和 interactions*.jsonl 分片
-    └── task_board.md        # 任务板工具使用的文件
+    └── tasks.json           # 任务工具使用的文件
 ```
 
 ## 记忆系统
@@ -122,7 +122,7 @@ coworker/
 
 长期记忆由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。原始对话通过批量入口交给 mem0 调用 LLM 提炼并语义合并；`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接建立向量并保存。显式写入会先检索并跳过正文完全相同的已有记忆；语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
 
-**自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `write_memory` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
+**自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `manage_memory(action="write")` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
 
 **数据迁移**：首次升级到 mem0 版本前，旧 ChromaDB 数据格式与 mem0 不兼容，需清空旧数据：
 ```bash

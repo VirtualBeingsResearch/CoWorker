@@ -57,7 +57,7 @@ channels.registry.register(TeamChannel())
 channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 ```
 
-应用内置的 Stream、Desktop、WeCom 与 Telegram 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
+应用内置的 Stream、Desktop、WeCom、Telegram 与微信 Claw 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
 
 Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments` 和 `extra`，默认仅支持 `message`。Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。
 
@@ -165,7 +165,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES=["wecom:*","weixin:*","tg
 AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 ```
 
-只填写其中一项即可只启用该传输层，设为 `[]` 可全部关闭。Desktop 身份不会回退到这条通用规则：它必须显式命中 participant glob，因此默认只透明 `coworker-desktop:<desktop_id>:local:…`，不会透明 `claude` 或 `codex` actor。
+只填写其中一项即可只启用该传输层，设为 `[]` 可全部关闭。Desktop 身份不会回退到这条通用规则：它必须显式命中 participant glob，因此默认只透明 `coworker-desktop:d:local:…`，不会透明 `claude` 或 `codex` actor。
 
 支持结构化 `extra` 的出站通道（通用 WebSocket/SSE 与 Desktop）还会在透明转交消息的 `extra.bubble` 中携带来源，前端应优先使用它渲染接管状态，而不是解析提示文案：
 

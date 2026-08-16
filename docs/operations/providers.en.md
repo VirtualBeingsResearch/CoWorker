@@ -44,7 +44,7 @@ Prefer first-time setup or the management console. Use `.env` for unattended dep
 
 ```env
 LLM__DEFAULT_PROVIDER=deepseek
-LLM__DEFAULT_MODEL=deepseek-chat
+LLM__DEFAULT_MODEL=deepseek-v4-pro
 LLM__DEEPSEEK_API_KEY=...
 LLM__DEEPSEEK_BASE_URL=
 ```

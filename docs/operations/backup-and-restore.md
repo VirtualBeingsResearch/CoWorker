@@ -109,9 +109,9 @@ docker run --rm \
 先用 `docker compose stop` 停止 Coworker，再通过 `docker compose config`、
 `docker volume ls` 和 `docker volume inspect <name>` 解析实际挂载。完整备份必须同时覆盖
 作为工作区的宿主机 checkout（或旧版 `coworker-workspace` 卷）和状态卷；模型缓存可以
-重建，但备份可减少恢复时间。不要只复制容器的可写层。恢复时先使用
-`docker compose create --no-build` 创建空状态卷，在 Coworker 启动前导入备份，再验证工作区与
-状态来自同一备份时点。
+重建，但备份可减少恢复时间。不要只复制容器的可写层。全新主机上先用
+`docker compose create --no-build` 创建状态卷；如果主机上已有旧卷，必须先删除或清空它，再在
+Coworker 启动前导入备份，最后验证工作区与状态来自同一备份时点。
 
 ### Relay
 

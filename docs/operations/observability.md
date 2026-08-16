@@ -36,8 +36,8 @@ docker compose ps
 
 ## 用量与成本
 
-`/status.usage_stats` 提供 today、last_7_days 和 lifetime 窗口，并按模型、
-Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 scope 拆分；这个普通
+`GET /status` 返回的 `usage_stats` 字段提供 today、last_7_days 和 lifetime 窗口，并
+按模型、Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 scope 拆分；这个普通
 状态接口只返回用量，不返回金额。
 
 管理员 `GET /api/admin/usage` 和“运行分析”会使用当前 `llm.model_prices` 实时计算本地消费

@@ -24,7 +24,8 @@ uv run mypy src
 uv run pytest
 ```
 
-修改 Web 前端或桌面端时还需要 Node.js 24.15+。管理界面的构建结果写入
+Web 前端需要 Node.js 22.12+（Vite 要求）；桌面端测试因 jsdom 需要 Node.js ^24.15 或
+≥26。仓库 CI 与 Dev Container 统一使用 Node.js 24。管理界面的构建结果写入
 `src/coworker/web/`，它是随 Python 包发布的静态资源：
 
 ```bash
@@ -46,7 +47,7 @@ Silicon 则使用原生 `linux/arm64`，不需要强制模拟 x86。
 先安装 Docker Desktop（或兼容的容器运行时）以及 VS Code 的 Dev Containers
 扩展，然后在仓库目录执行 **Dev Containers: Reopen in Container**。首次构建会：
 
-- 安装 Python 3.13、uv、Node.js 24 和 FFmpeg；
+- 安装 Python 3.14、uv、Node.js 24 和 FFmpeg；
 - 通过锁文件安装 Python 开发依赖和 Linux CPU 版 PyTorch；
 - 安装 Playwright Chromium 及其 Linux 系统库；
 - 转发 CoWorker API 的 `8000` 端口和 Explore Lab 的 `8100` 端口。

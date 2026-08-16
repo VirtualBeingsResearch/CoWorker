@@ -72,8 +72,8 @@ memory_tags: [reliability, incident]
 - `retire_after`，说明何时应暂停或归档；
 - 核心安全模式才设置 `protected: true`。
 
-后台 Bubble 的 `bubble_done` 默认不会把结论传给主线。需要主线知道时必须明确使用
-`bubble_send(target="main", ...)`，或把成果写入允许的持久化载体。
+后台 Bubble 结束时，`bubble_done` 的 result 会随合并消息回到主线。运行中途需要主线
+立即知道时，使用 `bubble_send(target="main", ...)`；需要长期留存时写入允许的持久化载体。
 
 ## 本地化
 

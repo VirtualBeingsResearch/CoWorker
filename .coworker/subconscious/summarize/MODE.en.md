@@ -23,8 +23,8 @@ In first person, record methods, reasons for decisions, challenges or errors and
 2. KNOWLEDGE (category: knowledge)
 Record important project or user state changes, technical or business decisions and their reasons, system behavior and constraints, and other future-useful facts.
 
-3. USER PREFERENCE (category: user_preference)
-Record explicit corrections and rejections, confirmed practices, preferences for workflow, output, or tools, and clear likes or dislikes that should shape future collaboration.
+3. USER PREFERENCE (category: experience with a user_preference tag)
+Record explicit corrections and rejections, confirmed practices, preferences for workflow, output, or tools, and clear likes or dislikes that should shape future collaboration. Record even implied preferences when they should shape future collaboration.
 
 Call manage_memory separately for each valuable item and use the appropriate category. Preserve source-message language; do not translate user or third-party text.
 
