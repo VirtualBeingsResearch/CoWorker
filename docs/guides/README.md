@@ -198,7 +198,7 @@ Provider。修改 fallback 时按从上到下的接棒顺序填写，避免把�
 这里控制的是通信地址，不识别真实人员，也不决定谁可以唤醒 Agent。完整匹配语法、拒绝
 响应和日志行为见[信道访问列表](../channels/api-and-channels.md#信道访问列表)。
 
-不要用 development mode 代替正确的 HTTPS 或 Relay 配置。完整环境变量语义见
+不要用 Desktop development mode 代替正确的 HTTPS 或 Relay 配置。完整环境变量语义见
 [配置与模型](../operations/configuration.md)。
 
 ## 关系：维护搭档身份和关系

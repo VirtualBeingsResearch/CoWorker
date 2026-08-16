@@ -26,7 +26,7 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 
 | 连接场景 | Coworker 地址 | 要求 |
 |---|---|---|
-| 同机本地调试 | `http://127.0.0.1:8000` | Coworker 与 Desktop 都显式开启 development mode |
+| 同机本地调试 | `http://127.0.0.1:8000` | Desktop 显式开启 development mode；Coworker 仍要求通信 Bearer（默认回退管理员令牌） |
 | 可信网络直连 | `https://coworker.example.com` | HTTPS、强 Bearer token 和额外网络访问控制 |
 | 公网远程使用 | Relay 提供的实例地址 | 推荐方式；Desktop 会识别 Relay 并使用端到端加密 |
 

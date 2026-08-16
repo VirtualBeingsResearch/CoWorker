@@ -264,7 +264,7 @@ This controls communication addresses. It neither identifies real people nor
 decides who may wake the Agent. See [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists)
 for full matching, rejection-response, and logging behavior.
 
-Do not use development mode in place of correct HTTPS or Relay configuration.
+Do not use Desktop development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 
