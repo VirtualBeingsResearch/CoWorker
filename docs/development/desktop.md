@@ -93,9 +93,9 @@ cargo run --bin coworker-desktop -- --config coworker_desktop.json
 
 若 Coworker 服务端未单独配置 `API__COMMUNICATION_TOKEN`，这里可以直接使用管理员令牌；需要隔离 Desktop 与管理权限时，再为两者设置不同令牌。
 
-本机 HTTP 调试时，在确认服务仅监听回环地址后，手动改为
-`"security": {"development_mode": true}`，并在 Coworker 端同步设置
-`API__DEVELOPMENT_MODE=true`；不要把该配置用于共享网络。
+本机 HTTP 调试时，在确认服务仅监听回环地址后，可将 Desktop 配置手动改为
+`"security": {"development_mode": true}` 以允许 `http://` 地址。Coworker API 侧不再提供
+development mode 绕过，仍必须填写通信令牌或回退使用的管理员令牌；不要把该配置用于共享网络。
 
 配置必须使用 `schema_version=2` 且包含非空 `coworkers` 数组；顶层旧 Coworker 字段不会参与生成新配置。
 

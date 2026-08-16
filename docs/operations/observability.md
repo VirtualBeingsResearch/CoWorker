@@ -11,7 +11,7 @@
 
 | 入口 | 回答的问题 |
 |---|---|
-| `GET /status` | Agent 是否运行/休眠、当前模型、周期数和用量 |
+| `GET /status` | Agent 是否运行/休眠；携带通信 Bearer 时还包括当前模型、周期数和用量 |
 | 管理后台“生命总览” | 当前上下文、模型和关键状态 |
 | “诊断与审计” | 后台任务在哪里等待、最近错误和管理员操作 |
 | “诊断与审计 → 消息流量” | 各信道最近哪些消息被接收、发送、拒绝、忽略或投递失败 |
@@ -27,7 +27,9 @@
 每次部署或升级后：
 
 ```bash
-curl -fsS http://127.0.0.1:8000/status
+# 无 Bearer 时只返回基础状态；携带令牌返回完整模型与用量快照
+curl -fsS http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 docker compose ps
 ```
 
@@ -36,7 +38,7 @@ docker compose ps
 
 ## 用量与成本
 
-`GET /status` 返回的 `usage_stats` 字段提供 today、last_7_days 和 lifetime 窗口，并
+携带通信 Bearer 的 `GET /status` 会返回 `usage_stats` 字段，提供 today、last_7_days 和 lifetime 窗口，并
 按模型、Provider/模型和 main、summary、vision、bubble、subconscious、mem0 等 scope 拆分；这个普通
 状态接口只返回用量，不返回金额。
 

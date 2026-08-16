@@ -1037,10 +1037,12 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
     const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
     const hint = status.configured
       ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
-      : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置；敏感值不会回显');
+      : usesAdminToken
+        ? t('当前使用管理员令牌；可设置独立令牌以隔离权限')
+        : t('当前未配置；请设置以保护 REST 消息、状态与 Desktop 通信');
     const placeholder = status.configured
       ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
-      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（可选）');
+      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（建议设置）');
     return <Field label={label} hot={hot} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} /></Field>;
   }
   if (typeof value === 'boolean') return <label className="switch config-switch"><input type="checkbox" checked={value} onChange={event => change(event.target.checked)} /><i /><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
@@ -1345,8 +1347,8 @@ const CONFIG_LABELS: Record<string, string> = {
   'api.host': 'API 监听地址',
   'api.port': 'API 监听端口',
   'api.public_url': 'API 公开访问地址',
-  'api.communication_token': '桌面通信令牌',
-  'api.development_mode': 'API 开发模式',
+  'api.communication_token': '通信令牌',
+  'api.development_mode': 'API 开发模式（不再关闭通信校验）',
   'api.cors_origins': '允许的跨域来源',
   'relay.enabled': '启用 Relay',
   'relay.url': 'Relay 地址',

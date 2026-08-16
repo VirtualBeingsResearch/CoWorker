@@ -33,8 +33,7 @@ _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
-# Authentication is the safe baseline.  Tests and explicitly local-only
-# callers can opt into development mode through ``setup(..., True)``.
+# development_mode 仅保留参数兼容；通信 Bearer 校验始终生效，不再受它影响。
 _development_mode = False
 _channels: ChannelRegistry | None = None
 
@@ -82,10 +81,9 @@ def setup(
     _usage_stats = usage_stats
     _model_config_path = Path(model_config_path)
     _communication_token = communication_token.strip()
+    # 保留字段以兼容既有启动参数；API 侧通信认证不再提供 development_mode 绕过。
     _development_mode = development_mode
     _channels = channels
-    if _development_mode:
-        logger.warning("Coworker communication API is running in unauthenticated development mode")
 
 
 class AttachmentSchema(BaseModel):
@@ -108,8 +106,6 @@ class MessagePayload(BaseModel):
 
 
 def verify_communication_authorization(authorization: str | None) -> None:
-    if _development_mode:
-        return
     if not _communication_token:
         raise HTTPException(
             status_code=503,
@@ -264,24 +260,62 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
         raise HTTPException(status_code=403, detail=str(error)) from error
 
 
+def _public_status_payload(authenticated: bool = False) -> dict[str, Any]:
+    """未携带有效通信令牌时返回的基础状态：只暴露生命周期，不暴露模型与用量。"""
+
+    auth = {
+        "communication_token_configured": bool(_communication_token),
+        "authenticated": authenticated,
+    }
+    if _agent is None:
+        return {"status": "not_started", **auth}
+    s = _agent.state
+    if s.is_sleeping:
+        state = "sleeping"
+    elif s.is_running:
+        state = "running"
+    else:
+        state = "idle"
+    return {
+        "status": state,
+        "is_running": s.is_running,
+        "is_sleeping": s.is_sleeping,
+        "setup_mode": s.setup_mode,
+        **auth,
+    }
+
+
 @router.get("/status")
 async def get_status(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    # 状态快照同样受通信令牌保护：配置令牌后，无 Bearer 的状态读取返回 401。
-    if is_authenticated_relay_request(request) or bool(_communication_token):
-        verify_communication_authorization(authorization)
+    authenticated = bool(
+        _communication_token and authorization == f"Bearer {_communication_token}"
+    )
+    if not authenticated:
+        # /status 对未认证读取保持可用，只降级为基础信息，避免把状态页整个挡在 401 后面。
+        return _public_status_payload()
+    auth = {
+        "communication_token_configured": True,
+        "authenticated": True,
+    }
     if _agent is None:
-        return {"status": "not_started"}
+        return {"status": "not_started", **auth}
     s = _agent.state
-    payload = {
+    payload: dict[str, Any] = {
+        "status": (
+            "sleeping" if s.is_sleeping
+            else "running" if s.is_running
+            else "idle"
+        ),
         "is_running": s.is_running,
         "is_sleeping": s.is_sleeping,
         "provider": s.current_provider,
         "model": s.current_model,
         "cycle_count": s.cycle_count,
         "setup_mode": s.setup_mode,
+        **auth,
     }
     if _brain is not None:
         payload["providers"] = _brain.list_providers()

@@ -100,7 +100,7 @@ curl -X POST http://localhost:8000/messages \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 
-# 查看状态（配置通信令牌后必须携带 Authorization）
+# 查看状态（无 Bearer 时只返回基础状态，带有效令牌返回完整快照）
 curl http://localhost:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
@@ -124,7 +124,7 @@ curl -X POST http://localhost:8000/backfill_tree \
 curl http://localhost:8000/backfill_tree
 ```
 
-`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
+携带有效 Bearer 时，`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
 `by_model`（按模型名合并）和 `by_provider_model`（按 `provider/model` 精确区分）；
 同时在 `by_scope` 中拆出 `main` / `summary` / `vision` / `bubble` / `subconscious` / `mem0`
 六类来源统计，结构与窗口总账一致。窗口总账与 `by_scope` 均包含 `thinking_calls`、
@@ -187,12 +187,13 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信、Telegram 和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
-配置了通信令牌时，`POST /messages`、`GET /status`（包括普通 REST 消息与状态查询）以及
-`coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 都要求
-`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用
-管理员令牌，方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`，普通 REST 消息与
-状态查询仍依赖回环/可信网络边界。需要隔离权限时应显式配置独立令牌。只有将服务端和 Desktop
-配置都显式设为 `development_mode=true` 才会关闭这层校验；该模式仅适用于回环地址的本机调试。
+配置了通信令牌时，`POST /messages`（包括普通 REST 消息）以及 `coworker-desktop:*`
+participant 的消息、注册、SSE 和 WebSocket 都要求
+`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。`GET /status` 未携带有效令牌时只返回
+基础生命周期信息，携带令牌后才返回模型配置与用量。未单独配置通信令牌时，服务端会回退使用
+管理员令牌，方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`，普通 REST 消息仍依赖
+回环/可信网络边界。需要隔离权限时应显式配置独立令牌。`API__DEVELOPMENT_MODE` 不会关闭
+API 通信校验。
 
 浏览器示例：
 

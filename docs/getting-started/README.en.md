@@ -169,8 +169,7 @@ troubleshooting</summary>
 First request status:
 
 ```bash
-# Required once a communication token is configured;
-# <API__COMMUNICATION_TOKEN> may be the administrator token fallback
+# Without a Bearer this returns basic status; a valid token returns the full snapshot
 curl http://127.0.0.1:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```

@@ -586,6 +586,13 @@ h1, h2, h3, p { margin: 0; }
 }
 .state-copy strong { font-size: 18px; letter-spacing: -0.02em; }
 .state-copy span { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.state-copy .status-auth-note {
+  width: max-content; max-width: 100%; margin-top: 2px; padding: 4px 8px;
+  border: 1px solid color-mix(in oklch, var(--active-color, var(--coral)) 24%, var(--border));
+  border-radius: 8px; background: color-mix(in oklch, var(--active-color, var(--coral)) 6%, var(--surface));
+  color: color-mix(in oklch, var(--active-color, var(--coral)) 72%, var(--fg));
+  font-size: 11px; line-height: 1.45;
+}
 .state-wave { display: flex; align-items: end; gap: 5px; height: 58px; width: 116px; }
 .state-wave i {
   width: 10px; height: var(--h); border-radius: 999px;

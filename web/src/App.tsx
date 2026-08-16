@@ -269,6 +269,16 @@ function IdentityPage({
               <span className="state-kicker">{t('当前状态')}</span>
               <strong>{t(currentState.name)}</strong>
               <span>{error ? t('状态接口异常：{{error}}', { error }) : t(currentState.desc)}</span>
+              {data.communication_token_configured === false && (
+                <span className="status-auth-note">
+                  {t('尚未配置通信令牌，状态只显示基础信息。请在照看室中设置 API__COMMUNICATION_TOKEN。')}
+                </span>
+              )}
+              {data.communication_token_configured === true && data.authenticated === false && (
+                <span className="status-auth-note">
+                  {t('已配置通信令牌。输入令牌后即可查看完整状态与用量。')}
+                </span>
+              )}
             </div>
             <div className="state-wave" aria-hidden="true">
               <i style={{ '--h': '42%', '--n': 1 } as React.CSSProperties} />

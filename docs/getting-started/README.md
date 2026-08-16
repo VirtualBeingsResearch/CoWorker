@@ -148,7 +148,7 @@ Channel。按向导完成：
 先请求状态：
 
 ```bash
-# 配置通信令牌后必须携带；<API__COMMUNICATION_TOKEN> 可替换为管理员令牌
+# 无 Bearer 时只返回基础状态；携带有效令牌返回完整快照
 curl http://127.0.0.1:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```

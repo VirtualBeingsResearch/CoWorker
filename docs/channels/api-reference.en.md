@@ -26,14 +26,14 @@ console and is not a long-term compatibility promise for independent clients.
 | Endpoint class | Default authentication |
 |---|---|
 | `POST /messages` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
-| `GET /status` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
+| `GET /status` | Returns basic lifecycle information without a valid Bearer; returns the full model and usage snapshot with one |
 | Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
 
 The first-run flow falls back to the administrator token when no separate communication token is
-configured. Set `API__COMMUNICATION_TOKEN` for long-running use. Do not use development mode as an
-authentication workaround.
+configured. Set `API__COMMUNICATION_TOKEN` for long-running use. `API__DEVELOPMENT_MODE` does not
+disable API communication authentication.
 
 ## Core HTTP endpoints
 
@@ -91,7 +91,7 @@ the server returns `403` before decoding attachments or queuing the message.
 ### Status and models
 
 ```bash
-# Authorization is required once a communication token is configured
+# Without a Bearer this returns only basic status; a valid token returns the full snapshot
 curl http://127.0.0.1:8000/status \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
@@ -100,8 +100,11 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-`/status` may gain fields when optional modules are available. Clients should tolerate unknown
-fields. Integrations that require an audit trail should retain the raw response and Coworker version.
+Unauthenticated `/status` returns `status`, `is_running`, `is_sleeping`, `setup_mode`,
+`communication_token_configured`, and `authenticated`; it never includes providers, model
+configuration, or usage. A valid Bearer returns the full snapshot. The endpoint may gain fields
+when optional modules are available. Clients should tolerate unknown fields. Integrations that
+require an audit trail should retain the raw response and Coworker version.
 
 ## SSE and WebSocket
 

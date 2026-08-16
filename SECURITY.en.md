@@ -34,13 +34,14 @@ For the current v0.x releases:
 - Give it access only to disposable or backed-up workspaces.
 - Do not provide production credentials unless the deployment is specifically isolated for them.
 - The API binds to `127.0.0.1` and, when a communication token is configured, requires a
-  Bearer token for REST messages, status reads, and Desktop traffic. If you expose it through a
-  reverse proxy, terminate TLS there, set an explicit `API__HOST`, configure `API__CORS_ORIGINS`
-  to trusted browser origins, and set a strong `API__COMMUNICATION_TOKEN`.
-- `API__DEVELOPMENT_MODE=true` disables only the Coworker API-side REST message, status, and
-  Desktop communication Bearer checks. Desktop-side HTTPS enforcement is controlled separately
-  by the Desktop `security.development_mode` setting; local HTTP debugging requires both. Use it
-  only for a deliberately local setup; never enable it on a shared or public listener.
+  Bearer token for REST messages, status, and Desktop traffic. `GET /status` without a valid
+  token returns only basic lifecycle information. If you expose it through a reverse proxy,
+  terminate TLS there, set an explicit `API__HOST`, configure `API__CORS_ORIGINS` to trusted
+  browser origins, and set a strong `API__COMMUNICATION_TOKEN`.
+- `API__DEVELOPMENT_MODE=true` no longer disables any Coworker API-side communication Bearer
+  check. Desktop-side HTTPS enforcement remains controlled by the Desktop
+  `security.development_mode` setting. Use that mode only for a deliberately local setup; never
+  enable it on a shared or public listener.
 - Do not expose port 8000 directly to the public internet or an untrusted network. The admin token
   protects the management API, but it is not a complete authorization boundary for every route.
 - Use [self-hosted Relay](docs/operations/relay.en.md) for public Desktop access. New Desktop and

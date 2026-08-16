@@ -12,7 +12,7 @@ connection state.
 
 | Surface | Question answered |
 |---|---|
-| `GET /status` | Is the Agent running or sleeping, which model is active, and what is usage? |
+| `GET /status` | Is the Agent running or sleeping? With a communication Bearer it also reports the active model and usage |
 | Life Overview | What is the current context, model, and high-level state? |
 | Diagnostics and Audit | Where are background tasks waiting, what failed, and what did an administrator change? |
 | Diagnostics and Audit → Message traffic | Which recent channel messages were received, sent, denied, ignored, or failed delivery? |
@@ -28,7 +28,9 @@ successful activity, and repeated errors before declaring a stall.
 After deployment or upgrade:
 
 ```bash
-curl -fsS http://127.0.0.1:8000/status
+# Without a Bearer this returns basic status; a valid token returns the full snapshot
+curl -fsS http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 docker compose ps
 ```
 
@@ -37,7 +39,7 @@ paths. A health probe should never call endpoints that incur model cost or mutat
 
 ## Usage and cost
 
-The `usage_stats` field returned by `GET /status` exposes today, last_7_days, and lifetime
+The `usage_stats` field returned by an authenticated `GET /status` exposes today, last_7_days, and lifetime
 windows, split by model, Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0. This
 ordinary status interface returns usage only, never monetary amounts.
 
