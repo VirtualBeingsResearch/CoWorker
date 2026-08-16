@@ -28,14 +28,14 @@
 | `GET /profile` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
 | `GET /logs/stream` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
 | `WebSocket /ws/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 要求 |
-| `SSE /sse/{participant_id}` | 仅 `coworker-desktop:*` 与 Relay 内层请求要求 Bearer；通用连接不要求（EventSource 限制） |
+| `SSE /sse/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 与 Relay 内层请求要求 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>`（未显式设置时回退管理员令牌） |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
 
-只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照、身份档案、运行日志流和
-WebSocket 连接才启用通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置令牌时
-回退使用管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。
+只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照、身份档案、运行日志流、
+WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置
+令牌时回退使用管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。
 
 ## 核心 HTTP 接口
 
@@ -112,10 +112,10 @@ curl -X POST http://127.0.0.1:8000/switch_model \
 - SSE：`GET /sse/{participant_id}`，只负责出站；入站仍用相同 ID 调用 `POST /messages`。
 - 同一 `participant_id` 同时只允许一个 SSE 或 WebSocket 长连接，后来的连接会被拒绝。
 - SSE 每 15 秒发送注释心跳；代理应关闭响应缓冲。
-- 显式设置 `API__COMMUNICATION_TOKEN` 后，`/ws/{participant_id}` 的所有 WebSocket
-  连接都要求 Bearer；未显式设置时仅 `coworker-desktop:*` 要求。
-- `coworker-desktop:*` ID 必须携带通信 Bearer。浏览器原生 `EventSource` 无法设置
-  Authorization Header，因此通用 `/sse/{participant_id}` 不要求 Bearer（Relay 内层请求除外）。
+- 显式设置 `API__COMMUNICATION_TOKEN` 后，`/ws/{participant_id}` 和 `/sse/{participant_id}`
+  的所有连接都要求 Bearer；未显式设置时仅 `coworker-desktop:*` 与 Relay 内层请求要求。
+- `coworker-desktop:*` ID 必须携带通信 Bearer。网页聊天通过带 Authorization 的 fetch 流
+  消费通用 SSE，不再依赖无法设置 Header 的原生 `EventSource`。
 - 运行日志流 `GET /logs/stream` 在显式设置通信令牌后也要求 Bearer；身份页使用带
   Authorization 的 fetch 流消费该接口。
 

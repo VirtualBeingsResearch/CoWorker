@@ -842,6 +842,26 @@ class TestConnectionRejection:
         ):
             pass
 
+    def test_generic_sse_requires_bearer_when_token_is_explicit(self, client, tmp_path):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        rejected = client.get("/sse/alice")
+        assert rejected.status_code == 401
+
+        communication = _channel_system(tmp_path)
+        _setup_api_channels(communication)
+        assert communication.stream_runtime.register_session("alice", asyncio.Queue()) is True
+
+        accepted = client.get(
+            "/sse/alice",
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert accepted.status_code == 200
+        assert accepted.headers.get("x-connection-rejected") == "duplicate-participant"
+
     def test_websocket_json_message_uses_message_field(self, client, tmp_path):
         mock_inbox = MagicMock()
         mock_inbox.push = AsyncMock()

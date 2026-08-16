@@ -184,16 +184,16 @@ An announced handoff uses `phase: "end"` when it completes. Direct Bubble replie
 
 When `API__COMMUNICATION_TOKEN` is explicitly set, `POST /messages` (including ordinary REST
 messages), `GET /profile`, `GET /logs/stream`, every `/ws/{participant_id}` WebSocket connection,
-and all messages, registration, SSE, and WebSocket operations for `coworker-desktop:*`
-participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>`. The generic
-`/sse/{participant_id}` still does not require a Bearer because native browser `EventSource`
-cannot set an Authorization header (except for inner Relay requests). In that case `GET /status`
-without a valid token returns only basic lifecycle information; with a valid token it also returns
-model configuration and usage. Without an explicitly set communication token, those endpoints keep
-their pre-authentication behavior. Desktop communication falls back to the administrator token when
-no dedicated token is explicitly set for a smoother first local connection; when neither is
-configured, Desktop communication returns `503`. Configure a dedicated token when the permissions
-must be isolated.
+every `/sse/{participant_id}` SSE connection, and all messages, registration, SSE, and WebSocket
+operations for `coworker-desktop:*` participants require `Authorization: Bearer
+<API__COMMUNICATION_TOKEN>`. The web chat consumes generic SSE through an authenticated fetch
+stream instead of the native `EventSource`, which cannot set an Authorization header. In that case
+`GET /status` without a valid token returns only basic lifecycle information; with a valid token it
+also returns model configuration and usage. Without an explicitly set communication token, those
+endpoints keep their pre-authentication behavior. Desktop communication falls back to the
+administrator token when no dedicated token is explicitly set for a smoother first local
+connection; when neither is configured, Desktop communication returns `503`. Configure a dedicated
+token when the permissions must be isolated.
 
 Browser examples:
 

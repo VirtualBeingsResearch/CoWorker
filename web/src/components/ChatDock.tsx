@@ -17,6 +17,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
 import { useCommunicationToken } from '../hooks/useCommunicationToken';
 import { t } from '../i18n/admin';
@@ -422,7 +423,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(readNotificationPreference);
   const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<AbortController | null>(null);
   const openRef = useRef(false);
   const notificationsEnabledRef = useRef(notificationsEnabled);
   const counterpartNameRef = useRef(counterpartName);
@@ -456,94 +457,109 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
     let disposed = false;
     let rejected = false;
-    let source: EventSource | null = null;
+    const controller = new AbortController();
 
     setConnection('connecting');
     setConnectionDetail('正在建立 SSE 信号。');
 
-    try {
-      source = new EventSource(getChatEventStreamUrl(participantId));
-    } catch {
-      setConnection('error');
-      setConnectionDetail('对话通道地址无效，请检查前端连接配置。');
-      return;
-    }
+    eventSourceRef.current = controller;
 
-    eventSourceRef.current = source;
+    const headers: Record<string, string> = {};
+    if (chatToken) headers['Authorization'] = `Bearer ${chatToken}`;
 
-    source.onopen = () => {
-      if (disposed || eventSourceRef.current !== source) {
-        source?.close();
-        return;
-      }
-      setConnection('connected');
-      setConnectionDetail('');
-    };
+    void fetchEventSource(getChatEventStreamUrl(participantId), {
+      headers,
+      signal: controller.signal,
+      onopen: async response => {
+        if (disposed || eventSourceRef.current !== controller) {
+          controller.abort();
+          return;
+        }
+        if (!response.ok) {
+          rejected = true;
+          let detail = '';
+          try {
+            detail = await response.text();
+          } catch {
+            // 忽略响应体读取失败，保留状态码提示。
+          }
+          setConnection('error');
+          setConnectionDetail(detail || `SSE 连接失败（${response.status}）`);
+          controller.abort();
+          return;
+        }
+        setConnection('connected');
+        setConnectionDetail('');
+      },
+      onmessage: event => {
+        if (disposed || eventSourceRef.current !== controller) return;
+        const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
+        if (!content && !attachments.length) return;
 
-    source.onmessage = event => {
-      if (disposed || eventSourceRef.current !== source) return;
-      const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
-      if (!content && !attachments.length) return;
+        if (content.startsWith('连接被拒绝：')) {
+          rejected = true;
+          setConnection('error');
+          setConnectionDetail(content);
+          controller.abort();
+          return;
+        }
 
-      if (content.startsWith('连接被拒绝：')) {
-        rejected = true;
-        setConnection('error');
-        setConnectionDetail(content);
-        source?.close();
-        return;
-      }
-
-      setMessages(current => [
-        ...current,
-        createMessage('assistant', content, bubble, attachments, connectionStatus),
-      ].slice(-MAX_STORED_MESSAGES));
-      if (bubble?.kind !== 'handoff') {
-        setPendingReplies(current => Math.max(0, current - 1));
-        if (!openRef.current) {
-          setUnreadCount(current => Math.min(99, current + 1));
-          if (
-            notificationsEnabledRef.current
-            && document.hidden
-            && typeof Notification !== 'undefined'
-            && Notification.permission === 'granted'
-          ) {
-            try {
-              const notification = new Notification(
-                t('{{name}} 发来消息', { name: counterpartNameRef.current }),
-                { body: notificationBody(content, attachments), icon: '/favicon.png' },
-              );
-              notification.onclick = () => {
-                window.focus();
-                openRef.current = true;
-                setOpen(true);
-                setUnreadCount(0);
-                notification.close();
-              };
-            } catch {
-              setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+        setMessages(current => [
+          ...current,
+          createMessage('assistant', content, bubble, attachments, connectionStatus),
+        ].slice(-MAX_STORED_MESSAGES));
+        if (bubble?.kind !== 'handoff') {
+          setPendingReplies(current => Math.max(0, current - 1));
+          if (!openRef.current) {
+            setUnreadCount(current => Math.min(99, current + 1));
+            if (
+              notificationsEnabledRef.current
+              && document.hidden
+              && typeof Notification !== 'undefined'
+              && Notification.permission === 'granted'
+            ) {
+              try {
+                const notification = new Notification(
+                  t('{{name}} 发来消息', { name: counterpartNameRef.current }),
+                  { body: notificationBody(content, attachments), icon: '/favicon.png' },
+                );
+                notification.onclick = () => {
+                  window.focus();
+                  openRef.current = true;
+                  setOpen(true);
+                  setUnreadCount(0);
+                  notification.close();
+                };
+              } catch {
+                setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+              }
             }
           }
         }
-      }
-    };
-
-    source.onerror = () => {
-      if (disposed || rejected || eventSourceRef.current !== source) return;
-      if (source?.readyState === EventSource.CLOSED) {
+      },
+      onerror: error => {
+        if (disposed || rejected || eventSourceRef.current !== controller) {
+          controller.abort();
+          throw error;
+        }
+        setConnection('reconnecting');
+        setConnectionDetail('信号短暂中断，正在自动重新接通。');
+      },
+      onclose: () => {
+        if (disposed || rejected || eventSourceRef.current !== controller) return;
         setConnection('error');
         setConnectionDetail('SSE 通道已关闭，请关闭后重新打开对话。');
-        return;
-      }
-      setConnection('reconnecting');
-      setConnectionDetail('信号短暂中断，浏览器正在自动重新接通。');
-    };
+      },
+    }).catch(() => {
+      // fetchEventSource 在 abort/onerror 抛错时结束 promise，状态已在上方回调里维护。
+    });
 
     return () => {
       disposed = true;
-      if (eventSourceRef.current === source) eventSourceRef.current = null;
-      source?.close();
+      if (eventSourceRef.current === controller) eventSourceRef.current = null;
+      controller.abort();
     };
-  }, [connectionGeneration, participantId, shouldConnect, userName]);
+  }, [chatToken, connectionGeneration, participantId, shouldConnect, userName]);
 
   useEffect(() => {
     const refreshNotificationPermission = () => {
@@ -595,7 +611,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   }, [isFullPage, open]);
 
   const streamIsReady = connection === 'connected'
-    && eventSourceRef.current?.readyState === EventSource.OPEN;
+    && eventSourceRef.current !== null;
 
   const sendMessage = async () => {
     const content = draft.trim();

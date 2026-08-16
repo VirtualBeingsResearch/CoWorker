@@ -871,8 +871,10 @@ async def sse_endpoint(
 
     入站方向使用 POST /messages；EventSource 原生自动重连。
     """
-    if participant_id.startswith("coworker-desktop:") or is_authenticated_relay_request(
-        request
+    if (
+        communication_token_required()
+        or participant_id.startswith("coworker-desktop:")
+        or is_authenticated_relay_request(request)
     ):
         verify_communication_authorization(authorization)
     queue: asyncio.Queue = asyncio.Queue()
