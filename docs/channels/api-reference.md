@@ -23,7 +23,8 @@
 
 | 接口 | 默认认证 |
 |---|---|
-| 普通本机 `POST /messages`、`GET /status` | 无独立 Bearer；依赖回环/可信网络边界 |
+| `POST /messages` | 配置通信令牌后要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`；未配置时依赖回环/可信网络边界 |
+| `GET /status` | 无独立 Bearer；依赖回环/可信网络边界 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
@@ -46,6 +47,13 @@
 | `GET /api/debug/tasks` | 排查事件循环任务；仅用于受信任的诊断环境 |
 
 ### 发送消息
+
+配置了通信令牌（`API__COMMUNICATION_TOKEN`，未单独配置时回退管理员令牌）时，所有
+`POST /messages` 请求都必须携带：
+
+```text
+Authorization: Bearer <API__COMMUNICATION_TOKEN>
+```
 
 ```json
 {

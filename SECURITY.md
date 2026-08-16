@@ -25,8 +25,8 @@ Coworker 是自主 Agent，不是安全沙箱。它的工具可以用运行进�
 - 使用专用的最小权限用户运行 Coworker，或将它放在隔离的容器或虚拟机中。
 - 只授予它访问可丢弃或已备份工作区的权限。
 - 除非部署环境已专门进行隔离，否则不要提供生产凭据。
-- API 默认绑定 `127.0.0.1`，并要求 Desktop 通信 Bearer token。通过反向代理暴露服务时，应在代理层终止 TLS，显式设置 `API__HOST`，将 `API__CORS_ORIGINS` 配置为可信浏览器来源，并设置强 `API__COMMUNICATION_TOKEN`。
-- `API__DEVELOPMENT_MODE=true` 只会关闭 Coworker API 侧的 Desktop 通信 Bearer 检查；Desktop 侧的 HTTPS 检查由 Desktop 自己的 `security.development_mode` 单独控制。本机 HTTP 调试需要两侧同时开启，且只适用于刻意配置的纯本机环境，绝不能在共享或公开监听地址上启用。
+- API 默认绑定 `127.0.0.1`；配置通信令牌后，REST 消息与 Desktop 通信都要求 Bearer token。通过反向代理暴露服务时，应在代理层终止 TLS，显式设置 `API__HOST`，将 `API__CORS_ORIGINS` 配置为可信浏览器来源，并设置强 `API__COMMUNICATION_TOKEN`。
+- `API__DEVELOPMENT_MODE=true` 只会关闭 Coworker API 侧的 REST 消息与 Desktop 通信 Bearer 检查；Desktop 侧的 HTTPS 检查由 Desktop 自己的 `security.development_mode` 单独控制。本机 HTTP 调试需要两侧同时开启，且只适用于刻意配置的纯本机环境，绝不能在共享或公开监听地址上启用。
 - 不要把 8000 端口直接暴露到公网或不可信网络。管理员令牌会保护管理 API，但它并不是每个路由的完整授权边界。
 - 公网 Desktop 访问应使用[自托管中继（Relay）](docs/operations/relay.md)。新版 Desktop
   与 Coworker 在 Relay 字节流内建立固定公钥的 TLS 1.3；Relay只能观察连接元数据，不能

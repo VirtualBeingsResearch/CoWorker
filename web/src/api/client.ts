@@ -16,14 +16,20 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function postMessage(payload: {
-  sender_id: string;
-  content: string;
-  conversation_id?: string;
-}) {
+export function postMessage(
+  payload: {
+    sender_id: string;
+    content: string;
+    conversation_id?: string;
+  },
+  communicationToken = '',
+) {
   return requestJson<{ status: string; sender_id: string; conversation_id?: string }>('/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(communicationToken ? { Authorization: `Bearer ${communicationToken}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
 }

@@ -577,6 +577,57 @@ class TestPostMessages:
         assert accepted.status_code == 200
         mock_inbox.push.assert_awaited_once()
 
+    def test_plain_rest_message_requires_matching_bearer_when_token_is_configured(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="secret",
+            channels=communication.registry,
+        )
+
+        rejected = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+        )
+        accepted = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code == 200
+        mock_inbox.push.assert_awaited_once()
+
+    def test_plain_rest_message_allows_development_mode_bypass(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="secret",
+            development_mode=True,
+            channels=communication.registry,
+        )
+
+        response = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+        )
+
+        assert response.status_code == 200
+        mock_inbox.push.assert_awaited_once()
+
 
 class TestSSE:
     def test_format_sse_single_line(self):

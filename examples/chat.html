@@ -86,8 +86,9 @@
       outline: none;
     }
     .header-input:focus { border-color: #667eea; }
-    #userIdInput { width: 100px; }
-    #serverInput { width: 160px; }
+    #userIdInput { width: 90px; }
+    #tokenInput { width: 120px; }
+    #serverInput { width: 140px; }
 
     .header-label {
       font-size: 11px;
@@ -397,6 +398,8 @@
       <input class="header-input" id="serverInput" placeholder="localhost:8000" title="服务器地址" />
       <span class="header-label">用户 ID</span>
       <input class="header-input" id="userIdInput" placeholder="user" title="你的用户 ID" />
+      <span class="header-label">Token</span>
+      <input class="header-input" id="tokenInput" type="password" placeholder="通信 Token（SSE）" title="服务端配置通信令牌时，SSE 模式发送消息必须填写" />
       <span class="header-label">传输</span>
       <select class="header-input" id="transportSelect" title="消息传输方式">
         <option value="sse">SSE</option>
@@ -439,6 +442,7 @@
   const STORAGE_KEY_SERVER = "coworker_server";
   const STORAGE_KEY_USER = "coworker_user_id";
   const STORAGE_KEY_TRANSPORT = "coworker_transport";
+  const STORAGE_KEY_TOKEN = "coworker_chat_token";
 
   const messagesEl = document.getElementById("messages");
   const msgInput = document.getElementById("msgInput");
@@ -450,12 +454,18 @@
   const statusText = document.getElementById("statusText");
   const userIdInput = document.getElementById("userIdInput");
   const serverInput = document.getElementById("serverInput");
+  const tokenInput = document.getElementById("tokenInput");
   const typingIndicator = document.getElementById("typingIndicator");
   const transportSelect = document.getElementById("transportSelect");
 
   serverInput.value = localStorage.getItem(STORAGE_KEY_SERVER) || "localhost:8000";
   userIdInput.value = localStorage.getItem(STORAGE_KEY_USER) || "user";
   transportSelect.value = localStorage.getItem(STORAGE_KEY_TRANSPORT) || "sse";  // 默认 SSE
+  try {
+    tokenInput.value = sessionStorage.getItem(STORAGE_KEY_TOKEN) || "";
+  } catch {
+    tokenInput.value = "";
+  }
 
   let ws = null;
   let es = null;            // SSE EventSource
@@ -777,9 +787,12 @@
       data: f.data,
     }));
     if (curTransport() === "sse") {
+      const headers = { "Content-Type": "application/json" };
+      const token = tokenInput.value.trim();
+      if (token) headers.Authorization = `Bearer ${token}`;
       return fetch(`http://${curServer()}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           sender_id: curUserId(),
           content: message,
@@ -841,6 +854,15 @@
   userIdInput.addEventListener("change", reconnect);
   serverInput.addEventListener("change", reconnect);
   transportSelect.addEventListener("change", reconnect);
+  tokenInput.addEventListener("change", () => {
+    try {
+      const token = tokenInput.value.trim();
+      if (token) sessionStorage.setItem(STORAGE_KEY_TOKEN, token);
+      else sessionStorage.removeItem(STORAGE_KEY_TOKEN);
+    } catch {
+      // 无 sessionStorage 时只在当前页面保留。
+    }
+  });
 
   connect();
 </script>

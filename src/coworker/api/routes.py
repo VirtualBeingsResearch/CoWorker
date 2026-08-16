@@ -191,7 +191,12 @@ async def post_message(
         or message.message_id is not None
         or message.type is not None
     )
-    if is_desktop or is_authenticated_relay_request(request):
+    # 普通 REST 入站同样受通信令牌保护：只要配置了令牌，所有 /messages 都必须携带
+    # Bearer；未配置时保持既有行为，由回环/可信网络边界兜底。
+    requires_communication_auth = (
+        is_desktop or is_authenticated_relay_request(request) or bool(_communication_token)
+    )
+    if requires_communication_auth:
         verify_communication_authorization(authorization)
     if is_desktop:
         if message.protocol_version != 1:

@@ -229,8 +229,11 @@ current model are working.
 troubleshooting</summary>
 
 ```bash
+# Required once a communication token is configured;
+# <API__COMMUNICATION_TOKEN> may be the administrator token fallback
 curl -X POST http://127.0.0.1:8000/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "Hello, who are you?"}'
 ```
 

@@ -967,6 +967,10 @@
           <label>conversation_id</label>
           <input id="msgConversationId" type="text" placeholder="可选；同一 sender 下的会话" />
         </div>
+        <div class="form-group">
+          <label>Communication token</label>
+          <input id="msgToken" type="password" placeholder="可选；API__COMMUNICATION_TOKEN" />
+        </div>
       </div>
       <div class="form-group" style="margin-bottom:12px;">
         <label>Content</label>
@@ -2360,6 +2364,7 @@
     const sender_id = document.getElementById('msgSenderId').value.trim();
     const conversation_id = document.getElementById('msgConversationId').value.trim();
     const content   = document.getElementById('msgContent').value.trim();
+    const token = document.getElementById('msgToken').value.trim();
     if (!content) {
       alert('请填写消息内容');
       return;
@@ -2368,7 +2373,10 @@
     try {
       const res = await fetch(base() + '/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           sender_id,
           content,

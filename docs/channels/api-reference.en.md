@@ -25,7 +25,8 @@ console and is not a long-term compatibility promise for independent clients.
 
 | Endpoint class | Default authentication |
 |---|---|
-| Ordinary local `POST /messages` and `GET /status` | No separate Bearer; relies on loopback/trusted-network isolation |
+| `POST /messages` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
+| `GET /status` | No separate Bearer; relies on loopback/trusted-network isolation |
 | Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
@@ -49,6 +50,13 @@ authentication workaround.
 | `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
 
 ### Send a message
+
+When a communication token is configured (`API__COMMUNICATION_TOKEN`, falling back to the
+administrator token), every `POST /messages` request must include:
+
+```text
+Authorization: Bearer <API__COMMUNICATION_TOKEN>
+```
 
 ```json
 {

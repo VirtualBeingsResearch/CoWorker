@@ -59,6 +59,7 @@ type ChatProfile = {
 
 const CHAT_PROFILE_STORAGE_KEY = 'coworker-web-chat-profile';
 const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
+const CHAT_TOKEN_STORAGE_KEY = 'coworker-web-chat-token';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
 const CHAT_NOTIFICATIONS_STORAGE_KEY = 'coworker-web-chat-notifications';
 const MAX_STORED_MESSAGES = 160;
@@ -133,6 +134,23 @@ function persistChatProfile(profile: ChatProfile) {
     window.localStorage.setItem(LEGACY_USER_NAME_STORAGE_KEY, profile.name);
   } catch {
     // 无存储权限时，当前页面会话仍可继续。
+  }
+}
+
+function readChatToken(): string {
+  try {
+    return window.sessionStorage.getItem(CHAT_TOKEN_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function persistChatToken(token: string) {
+  try {
+    if (token) window.sessionStorage.setItem(CHAT_TOKEN_STORAGE_KEY, token);
+    else window.sessionStorage.removeItem(CHAT_TOKEN_STORAGE_KEY);
+  } catch {
+    // 敏感信息不落本地长期存储；无 sessionStorage 时仅保留在当前页面状态中。
   }
 }
 
@@ -412,6 +430,8 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [connectionDetail, setConnectionDetail] = useState('');
   const [nameDraft, setNameDraft] = useState(profile.name);
   const [nameError, setNameError] = useState('');
+  const [chatToken, setChatToken] = useState(readChatToken);
+  const [tokenDraft, setTokenDraft] = useState(chatToken);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [pendingReplies, setPendingReplies] = useState(0);
@@ -614,7 +634,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       await postMessage({
         sender_id: participantId,
         content: outgoing,
-      });
+      }, chatToken);
       hasSharedNameRef.current = true;
       setConnectionDetail('');
     } catch {
@@ -646,6 +666,10 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       return;
     }
 
+    const nextToken = tokenDraft.trim();
+    persistChatToken(nextToken);
+    setChatToken(nextToken);
+
     const isNewIdentity = nextName !== userName;
     const nextProfile = { ...profile, name: nextName };
     persistChatProfile(nextProfile);
@@ -666,6 +690,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const openProfileEditor = () => {
     setNameDraft(userName);
     setNameError('');
+    setTokenDraft(chatToken);
     setIsProfileEditorOpen(true);
   };
 
@@ -849,12 +874,23 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                   maxLength={40}
                 />
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
+                <label htmlFor="chat-user-token">{t('通信令牌（可选）')}</label>
+                <input
+                  id="chat-user-token"
+                  type="password"
+                  value={tokenDraft}
+                  onChange={event => setTokenDraft(event.target.value)}
+                  placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
+                  autoComplete="off"
+                  maxLength={4096}
+                />
                 <button type="submit" className="chat-name-start" disabled={!nameDraft.trim()}>
                   <span>{t('开始对话')}</span>
                   <Send size={15} aria-hidden="true" />
                 </button>
               </form>
               <p className="chat-name-note">{t('名字会用于建立这次连接；资料和界面聊天副本保存在此浏览器。')}</p>
+              <p className="chat-name-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
             </div>
           ) : isProfileEditorOpen ? (
             <div className="chat-profile-editor">
@@ -877,6 +913,16 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                   maxLength={40}
                 />
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
+                <label htmlFor="chat-profile-token">{t('通信令牌（可选）')}</label>
+                <input
+                  id="chat-profile-token"
+                  type="password"
+                  value={tokenDraft}
+                  onChange={event => setTokenDraft(event.target.value)}
+                  placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
+                  autoComplete="off"
+                  maxLength={4096}
+                />
                 <div className="chat-profile-actions">
                   <button type="submit" className="chat-name-start" disabled={!nameDraft.trim()}>
                     <span>{t('保存并重新连接')}</span>
@@ -888,6 +934,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                     onClick={() => {
                       setNameDraft(userName);
                       setNameError('');
+                      setTokenDraft(chatToken);
                       setIsProfileEditorOpen(false);
                     }}
                   >
@@ -906,6 +953,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </div>
               <p className="chat-profile-note">{t('此界面的聊天副本只保存在当前浏览器，不会同步到其他设备。')}</p>
+              <p className="chat-profile-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
             </div>
           ) : (
             <>
