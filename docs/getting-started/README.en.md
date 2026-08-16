@@ -169,14 +169,19 @@ troubleshooting</summary>
 First request status:
 
 ```bash
-curl http://127.0.0.1:8000/status
+# When a token is configured: no Bearer returns basic status; a valid token returns the full snapshot
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```
 
 Then send a message:
 
 ```bash
+# Required once a communication token is configured;
+# <API__COMMUNICATION_TOKEN> may be the administrator token fallback
 curl -X POST http://127.0.0.1:8000/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "Hello, who are you?"}'
 ```
 

@@ -47,6 +47,7 @@ from coworker.core.config import (
     ModelCapabilitySpec,
     _deep_merge,
     effective_admin_token,
+    effective_communication_token,
     load_admin_overrides,
 )
 from coworker.core.startup_intent import (
@@ -1332,6 +1333,31 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
             "providers": _require_config().llm.providers_file,
             "override": snapshot.override_path,
         },
+    }
+
+
+@router.get("/communication-token")
+async def get_communication_token(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Return the effective communication token for copy-to-Desktop workflows."""
+
+    _audit(request, "communication_token.read", "admin")
+    config = _require_config()
+    token = effective_communication_token(config)
+    if config.api.communication_token:
+        source = "api.communication_token"
+    elif config.admin.token:
+        source = "admin.token"
+    elif config.desktop_updates.admin_token:
+        source = "desktop_updates.admin_token"
+    else:
+        source = ""
+    return {
+        "communication_token": token,
+        "source": source,
+        "explicit": bool(config.api.communication_token),
     }
 
 

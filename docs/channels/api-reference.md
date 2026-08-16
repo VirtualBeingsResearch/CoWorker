@@ -23,13 +23,19 @@
 
 | 接口 | 默认认证 |
 |---|---|
-| 普通本机 `POST /messages`、`GET /status` | 无独立 Bearer；依赖回环/可信网络边界 |
-| Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
+| `POST /messages` | 显式设置 `API__COMMUNICATION_TOKEN` 后要求 Bearer；未显式设置时依赖回环/可信网络边界 |
+| `GET /status` | 显式设置令牌且未携带有效 Bearer 时返回基础生命周期信息；未显式设置或携带有效 Bearer 时返回完整快照 |
+| `GET /profile` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
+| `GET /logs/stream` | 显式设置令牌后要求 Bearer；未显式设置时不校验 |
+| `WebSocket /ws/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 要求 |
+| `SSE /sse/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 与 Relay 内层请求要求 |
+| Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>`（未显式设置时回退管理员令牌） |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
 
-未单独配置通信令牌时，首次运行流程会回退使用管理员令牌。长期使用应设置独立的
-`API__COMMUNICATION_TOKEN`。不要使用 development mode 绕过部署认证。
+只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照、身份档案、运行日志流、
+WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置
+令牌时回退使用管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。
 
 ## 核心 HTTP 接口
 
@@ -46,6 +52,13 @@
 | `GET /api/debug/tasks` | 排查事件循环任务；仅用于受信任的诊断环境 |
 
 ### 发送消息
+
+配置了通信令牌（`API__COMMUNICATION_TOKEN`，未单独配置时回退管理员令牌）时，所有
+`POST /messages` 请求都必须携带：
+
+```text
+Authorization: Bearer <API__COMMUNICATION_TOKEN>
+```
 
 ```json
 {
@@ -79,15 +92,19 @@
 ### 状态与模型
 
 ```bash
-curl http://127.0.0.1:8000/status
+# 已配置令牌时：无 Bearer 只返回基础状态；携带有效令牌返回完整快照
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 curl -X POST http://127.0.0.1:8000/switch_model \
   -H "Content-Type: application/json" \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-`/status` 的字段会随可用模块增加；客户端应容忍未知字段。对需要稳定审计的集成，保存
-原始响应和 Coworker 版本。
+管理员配置了通信令牌时，未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、
+`setup_mode`、`communication_token_configured` 和 `authenticated`；不包含 Provider、模型
+配置与用量。未配置通信令牌或携带有效 Bearer 时返回完整快照。字段会随可用模块增加，客户端
+应容忍未知字段。对需要稳定审计的集成，保存原始响应和 Coworker 版本。
 
 ## SSE 与 WebSocket
 
@@ -95,8 +112,12 @@ curl -X POST http://127.0.0.1:8000/switch_model \
 - SSE：`GET /sse/{participant_id}`，只负责出站；入站仍用相同 ID 调用 `POST /messages`。
 - 同一 `participant_id` 同时只允许一个 SSE 或 WebSocket 长连接，后来的连接会被拒绝。
 - SSE 每 15 秒发送注释心跳；代理应关闭响应缓冲。
-- `coworker-desktop:*` ID 必须携带通信 Bearer。浏览器原生 `EventSource` 无法设置
-  Authorization Header，因此不要用它承载受保护的 Desktop participant。
+- 显式设置 `API__COMMUNICATION_TOKEN` 后，`/ws/{participant_id}` 和 `/sse/{participant_id}`
+  的所有连接都要求 Bearer；未显式设置时仅 `coworker-desktop:*` 与 Relay 内层请求要求。
+- `coworker-desktop:*` ID 必须携带通信 Bearer。网页聊天通过带 Authorization 的 fetch 流
+  消费通用 SSE，不再依赖无法设置 Header 的原生 `EventSource`。
+- 运行日志流 `GET /logs/stream` 在显式设置通信令牌后也要求 Bearer；身份页使用带
+  Authorization 的 fetch 流消费该接口。
 
 出站事件包含正文，并可能包含结构化 `extra`，例如 Bubble 接管状态。客户端应优先读取
 `extra.bubble`，不要解析本地化提示文字。

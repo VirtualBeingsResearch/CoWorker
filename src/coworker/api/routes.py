@@ -33,9 +33,9 @@ _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
-# Authentication is the safe baseline.  Tests and explicitly local-only
-# callers can opt into development mode through ``setup(..., True)``.
-_development_mode = False
+# 只有管理员显式设置了 API__COMMUNICATION_TOKEN 才认为通信令牌“已配置”。
+# _communication_token 仍可携带管理员令牌回退值，供 Desktop 兼容校验。
+_communication_token_explicit = False
 _channels: ChannelRegistry | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
@@ -71,21 +71,23 @@ def setup(
     usage_stats: UsageStatsCollector | None = None,
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
-    development_mode: bool = False,
     channels: ChannelRegistry | None = None,
+    communication_token_explicit: bool | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
-    global _communication_token, _development_mode, _channels
+    global _communication_token, _communication_token_explicit, _channels
     _inbox = inbox
     _agent = agent
     _brain = brain
     _usage_stats = usage_stats
     _model_config_path = Path(model_config_path)
     _communication_token = communication_token.strip()
-    _development_mode = development_mode
+    _communication_token_explicit = (
+        bool(_communication_token)
+        if communication_token_explicit is None
+        else communication_token_explicit
+    )
     _channels = channels
-    if _development_mode:
-        logger.warning("Coworker communication API is running in unauthenticated development mode")
 
 
 class AttachmentSchema(BaseModel):
@@ -108,8 +110,6 @@ class MessagePayload(BaseModel):
 
 
 def verify_communication_authorization(authorization: str | None) -> None:
-    if _development_mode:
-        return
     if not _communication_token:
         raise HTTPException(
             status_code=503,
@@ -122,11 +122,20 @@ def verify_communication_authorization(authorization: str | None) -> None:
         )
 
 
-def update_communication_token(token: str) -> None:
+def update_communication_token(token: str, explicit: bool | None = None) -> None:
     """Atomically replace the communication token used by existing ASGI routes."""
 
-    global _communication_token
+    global _communication_token, _communication_token_explicit
     _communication_token = token.strip()
+    _communication_token_explicit = (
+        bool(_communication_token) if explicit is None else explicit
+    )
+
+
+def communication_token_required() -> bool:
+    """Return True when an administrator explicitly configured API__COMMUNICATION_TOKEN."""
+
+    return _communication_token_explicit
 
 
 def is_authenticated_relay_request(request: Request) -> bool:
@@ -191,7 +200,12 @@ async def post_message(
         or message.message_id is not None
         or message.type is not None
     )
-    if is_desktop or is_authenticated_relay_request(request):
+    # 普通 REST 入站同样受通信令牌保护：只有显式设置了通信令牌时，所有 /messages
+    # 才必须携带 Bearer；未显式设置时保持既有行为，由回环/可信网络边界兜底。
+    requires_communication_auth = (
+        is_desktop or is_authenticated_relay_request(request) or _communication_token_explicit
+    )
+    if requires_communication_auth:
         verify_communication_authorization(authorization)
     if is_desktop:
         if message.protocol_version != 1:
@@ -259,17 +273,36 @@ async def _push_message(message: MessagePayload, *, source_is_desktop: bool) -> 
         raise HTTPException(status_code=403, detail=str(error)) from error
 
 
-@router.get("/status")
-async def get_status(
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    if is_authenticated_relay_request(request):
-        verify_communication_authorization(authorization)
+def _public_status_payload(authenticated: bool = False) -> dict[str, Any]:
+    """管理员配置了通信令牌但请求未认证时返回的基础状态：只暴露生命周期。"""
+
+    auth = {
+        "communication_token_configured": True,
+        "authenticated": authenticated,
+    }
     if _agent is None:
-        return {"status": "not_started"}
+        return {"status": "not_started", **auth}
     s = _agent.state
-    payload = {
+    if s.is_sleeping:
+        state = "sleeping"
+    elif s.is_running:
+        state = "running"
+    else:
+        state = "idle"
+    return {
+        "status": state,
+        "is_running": s.is_running,
+        "is_sleeping": s.is_sleeping,
+        "setup_mode": s.setup_mode,
+        **auth,
+    }
+
+
+def _full_status_payload(auth: dict[str, Any] | None = None) -> dict[str, Any]:
+    if _agent is None:
+        return {"status": "not_started", **(auth or {})}
+    s = _agent.state
+    payload: dict[str, Any] = {
         "is_running": s.is_running,
         "is_sleeping": s.is_sleeping,
         "provider": s.current_provider,
@@ -277,12 +310,31 @@ async def get_status(
         "cycle_count": s.cycle_count,
         "setup_mode": s.setup_mode,
     }
+    if auth:
+        payload.update(auth)
     if _brain is not None:
         payload["providers"] = _brain.list_providers()
         payload["model_config"] = _model_config_response()
     if _usage_stats is not None:
         payload["usage_stats"] = _usage_stats.snapshot()
     return payload
+
+
+@router.get("/status")
+async def get_status(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    if not _communication_token_explicit:
+        # 管理员没有显式设置通信令牌时，保持与引入认证前一致：直接返回完整快照。
+        return _full_status_payload()
+    authenticated = authorization == f"Bearer {_communication_token}"
+    if not authenticated:
+        # 已配置令牌但未认证时保持 /status 可用，只降级为基础信息。
+        return _public_status_payload()
+    return _full_status_payload(
+        {"communication_token_configured": True, "authenticated": True}
+    )
 
 
 @router.get("/api/debug/tasks")
@@ -422,8 +474,12 @@ def _backup_dir() -> Path | None:
 
 
 @router.get("/profile")
-async def get_profile():
+async def get_profile(authorization: str | None = Header(default=None)):
     """Agent 基础信息：身份、最早记忆时间戳。"""
+    if _communication_token_explicit:
+        # 显式设置通信令牌后，profile 与完整 status 同权保护，避免未认证访问触发
+        # 档案自述更新提醒等副作用。
+        verify_communication_authorization(authorization)
     global _profile_readme_last_reminded_at
     if _agent is None:
         return {"status": "not_started"}
@@ -452,6 +508,7 @@ async def get_profile():
     if (
         _inbox is not None
         and not _agent.state.setup_mode
+        and _agent.state.cycle_count > 0
         and readme_needs_update
         and reminder_due
     ):

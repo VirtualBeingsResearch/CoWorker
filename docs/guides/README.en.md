@@ -241,7 +241,10 @@ other runtime parameters. The page:
 - redacts existing secrets and shows only whether they are configured;
 - marks validation errors;
 - distinguishes hot updates from restart-required changes;
-- provides dedicated management panels for some Channels.
+- provides dedicated management panels for some Channels;
+- offers Generate and Copy token buttons beside `API__COMMUNICATION_TOKEN` to
+  create a Relay-compatible high-entropy communication token or copy the
+  currently effective token; saving applies it immediately without a restart.
 
 #### Channel Access
 
@@ -261,7 +264,7 @@ This controls communication addresses. It neither identifies real people nor
 decides who may wake the Agent. See [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists)
 for full matching, rejection-response, and logging behavior.
 
-Do not use development mode in place of correct HTTPS or Relay configuration.
+Do not use Desktop development mode in place of correct HTTPS or Relay configuration.
 See [Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 

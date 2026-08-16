@@ -78,14 +78,14 @@ Do not run as root or grant file access beyond the intended workspace. Run
   strong `API__COMMUNICATION_TOKEN`, and restrict source networks. Set `API__PUBLIC_URL` to the
   browser-facing public origin so setup and restart return through the proxy instead of an internal
   bind port.
-- `API__DEVELOPMENT_MODE=true` disables some Desktop Bearer and HTTPS checks. Use it only for
-  deliberate local development.
 - For public Desktop access, deploy [Self-hosted Relay](relay.en.md). Relay is not a general HTTP/TCP proxy.
 
 ## Health, logs, and capacity
 
-Use `/status` for process and Agent state. Use Diagnostics and Audit to find background tasks that
-fail repeatedly. See [Observability and Routine Operations](observability.en.md).
+Use `/status` for process and Agent state. Once an administrator configures a communication
+token, requests without one return only basic lifecycle information. Use Diagnostics and Audit to
+find background tasks that fail repeatedly. See
+[Observability and Routine Operations](observability.en.md).
 
 Capacity depends primarily on:
 

@@ -25,14 +25,21 @@ console and is not a long-term compatibility promise for independent clients.
 
 | Endpoint class | Default authentication |
 |---|---|
-| Ordinary local `POST /messages` and `GET /status` | No separate Bearer; relies on loopback/trusted-network isolation |
-| Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
+| `POST /messages` | Requires a Bearer once `API__COMMUNICATION_TOKEN` is explicitly set; otherwise relies on loopback/trusted-network isolation |
+| `GET /status` | Returns basic lifecycle information when a token is explicitly set but the Bearer is missing; returns the full snapshot when no token is explicitly set or with a valid Bearer |
+| `GET /profile` | Requires a Bearer once a token is explicitly set; no check otherwise |
+| `GET /logs/stream` | Requires a Bearer once a token is explicitly set; no check otherwise |
+| `WebSocket /ws/{participant_id}` | Requires a Bearer for every connection once a token is explicitly set; otherwise only `coworker-desktop:*` IDs require one |
+| `SSE /sse/{participant_id}` | Requires a Bearer for every connection once a token is explicitly set; otherwise only `coworker-desktop:*` IDs and inner Relay requests require one |
+| Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` (administrator-token fallback when not explicitly set) |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
 
-The first-run flow falls back to the administrator token when no separate communication token is
-configured. Set `API__COMMUNICATION_TOKEN` for long-running use. Do not use development mode as an
-authentication workaround.
+Communication Bearer checks for ordinary REST messages, full status snapshots, the identity
+profile, the runtime log stream, WebSocket, and SSE connections apply only after
+`API__COMMUNICATION_TOKEN` is explicitly set; without it those endpoints keep their previous
+behavior. Desktop communication falls back to the administrator token when no dedicated token is
+explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
 
 ## Core HTTP endpoints
 
@@ -49,6 +56,13 @@ authentication workaround.
 | `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
 
 ### Send a message
+
+When a communication token is configured (`API__COMMUNICATION_TOKEN`, falling back to the
+administrator token), every `POST /messages` request must include:
+
+```text
+Authorization: Bearer <API__COMMUNICATION_TOKEN>
+```
 
 ```json
 {
@@ -83,15 +97,21 @@ the server returns `403` before decoding attachments or queuing the message.
 ### Status and models
 
 ```bash
-curl http://127.0.0.1:8000/status
+# When a token is configured: no Bearer returns basic status; a valid token returns the full snapshot
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 curl -X POST http://127.0.0.1:8000/switch_model \
   -H "Content-Type: application/json" \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-`/status` may gain fields when optional modules are available. Clients should tolerate unknown
-fields. Integrations that require an audit trail should retain the raw response and Coworker version.
+When an administrator has configured a communication token, unauthenticated `/status` returns
+`status`, `is_running`, `is_sleeping`, `setup_mode`, `communication_token_configured`, and
+`authenticated`; it never includes providers, model configuration, or usage. When no token is
+configured or a valid Bearer is supplied, the endpoint returns the full snapshot. The endpoint may
+gain fields when optional modules are available. Clients should tolerate unknown fields.
+Integrations that require an audit trail should retain the raw response and Coworker version.
 
 ## SSE and WebSocket
 
@@ -100,8 +120,14 @@ fields. Integrations that require an audit trail should retain the raw response 
   `POST /messages` with the same ID.
 - Only one SSE or WebSocket connection may use a `participant_id` at a time.
 - SSE sends a comment heartbeat every 15 seconds; proxies should disable response buffering.
-- `coworker-desktop:*` IDs require a communication Bearer. Native browser `EventSource` cannot set
-  an Authorization header, so do not use it for a protected Desktop participant.
+- Once `API__COMMUNICATION_TOKEN` is explicitly set, every `/ws/{participant_id}` WebSocket and
+  `/sse/{participant_id}` SSE connection requires a Bearer; otherwise only `coworker-desktop:*`
+  IDs and inner Relay requests require one.
+- `coworker-desktop:*` IDs require a communication Bearer. The web chat consumes generic SSE
+  through an authenticated fetch stream instead of the native `EventSource`, which cannot set an
+  Authorization header.
+- The runtime log stream `GET /logs/stream` also requires a Bearer once a communication token is
+  explicitly set; the identity page consumes it through an authenticated fetch stream.
 
 Outbound events contain message text and may include structured `extra`, such as Bubble handoff
 state. Prefer `extra.bubble` over parsing localized notice text.

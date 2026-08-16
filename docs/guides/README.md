@@ -181,7 +181,8 @@ Provider。修改 fallback 时按从上到下的接棒顺序填写，避免把�
 - 隐去已有密钥，只显示是否已经配置；
 - 标记校验错误；
 - 说明保存后是热更新还是需要重启；
-- 对部分 Channel 提供独立管理面板。
+- 对部分 Channel 提供独立管理面板；
+- 在 `API__COMMUNICATION_TOKEN` 字段旁提供“生成”和“复制令牌”按钮：一键生成 Relay 兼容的高熵通信令牌，或复制当前生效令牌；保存后立即生效，无需重启。
 
 #### 信道访问
 
@@ -197,7 +198,7 @@ Provider。修改 fallback 时按从上到下的接棒顺序填写，避免把�
 这里控制的是通信地址，不识别真实人员，也不决定谁可以唤醒 Agent。完整匹配语法、拒绝
 响应和日志行为见[信道访问列表](../channels/api-and-channels.md#信道访问列表)。
 
-不要用 development mode 代替正确的 HTTPS 或 Relay 配置。完整环境变量语义见
+不要用 Desktop development mode 代替正确的 HTTPS 或 Relay 配置。完整环境变量语义见
 [配置与模型](../operations/configuration.md)。
 
 ## 关系：维护搭档身份和关系

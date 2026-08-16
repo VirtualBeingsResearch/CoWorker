@@ -95,13 +95,15 @@ For inbound traffic, override `receive_raw`, normalize the payload into an `Inco
 ## REST API
 
 ```bash
-# Send a message
+# Send a message (Authorization is required once a communication token is configured)
 curl -X POST http://localhost:8000/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
 
-# Check status
-curl http://localhost:8000/status
+# Check status (when a token is configured: no Bearer returns basic status; a valid token returns the full snapshot)
+curl http://localhost:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 # Switch models (provider is a registered instance name; omit model_id to use its default_model)
 curl -X POST http://localhost:8000/switch_model \
@@ -124,7 +126,7 @@ curl -X POST http://localhost:8000/backfill_tree \
 curl http://localhost:8000/backfill_tree
 ```
 
-The `usage_stats` object in the `/status` response contains `today`, `last_7_days`, and `lifetime` windows. Each window provides both `by_model` aggregation by model name and `by_provider_model` for exact `provider/model` attribution. `by_scope` divides usage into six sources—`main`, `summary`, `vision`, `bubble`, `subconscious`, and `mem0`—using the same structure as the window total. Both window totals and `by_scope` include `thinking_calls`, `thinking_seconds`, and `avg_thinking_seconds`, which report average thinking time for lifecycles with a `thinking_start -> llm_response` sequence. Auxiliary summary, vision, and mem0 calls without a start event are excluded from that average. Historical logs without provider information are grouped under `unknown/<model>`. When source-level statistics are introduced during an upgrade, Coworker first rebuilds them from logs; if the raw logs have been lost, the source attribution of older aggregate data cannot be recovered.
+With a valid Bearer, the `usage_stats` object in the `/status` response contains `today`, `last_7_days`, and `lifetime` windows. Each window provides both `by_model` aggregation by model name and `by_provider_model` for exact `provider/model` attribution. `by_scope` divides usage into six sources—`main`, `summary`, `vision`, `bubble`, `subconscious`, and `mem0`—using the same structure as the window total. Both window totals and `by_scope` include `thinking_calls`, `thinking_seconds`, and `avg_thinking_seconds`, which report average thinking time for lifecycles with a `thinking_start -> llm_response` sequence. Auxiliary summary, vision, and mem0 calls without a start event are excluded from that average. Historical logs without provider information are grouped under `unknown/<model>`. When source-level statistics are introduced during an upgrade, Coworker first rebuilds them from logs; if the raw logs have been lost, the source attribution of older aggregate data cannot be recovered.
 
 You can also run the interactive example:
 
@@ -180,7 +182,18 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 
 An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, Telegram, and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
-Messages, registration, SSE, and WebSocket operations for `coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>` in the default production mode. When no dedicated communication token is configured, the server falls back to the administrator token for a smoother first local connection; configure a dedicated token when the permissions must be isolated. This check is disabled only when both the server and Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback address.
+When `API__COMMUNICATION_TOKEN` is explicitly set, `POST /messages` (including ordinary REST
+messages), `GET /profile`, `GET /logs/stream`, every `/ws/{participant_id}` WebSocket connection,
+every `/sse/{participant_id}` SSE connection, and all messages, registration, SSE, and WebSocket
+operations for `coworker-desktop:*` participants require `Authorization: Bearer
+<API__COMMUNICATION_TOKEN>`. The web chat consumes generic SSE through an authenticated fetch
+stream instead of the native `EventSource`, which cannot set an Authorization header. In that case
+`GET /status` without a valid token returns only basic lifecycle information; with a valid token it
+also returns model configuration and usage. Without an explicitly set communication token, those
+endpoints keep their pre-authentication behavior. Desktop communication falls back to the
+administrator token when no dedicated token is explicitly set for a smoother first local
+connection; when neither is configured, Desktop communication returns `503`. Configure a dedicated
+token when the permissions must be isolated.
 
 Browser examples:
 

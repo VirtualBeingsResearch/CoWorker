@@ -246,7 +246,7 @@ notes about specific legacy formats.
 
 ## Validate after upgrading
 
-- `/status` reports the expected runtime, Provider, and model;
+- `/status` with a communication Bearer reports the expected runtime, Provider, and model;
 - management diagnostics has no continuously growing failures;
 - a test message completes through the intended reply path;
 - long-term memory, tasks, alarms, and recent interactions remain readable;

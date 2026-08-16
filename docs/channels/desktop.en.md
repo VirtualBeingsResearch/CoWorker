@@ -29,7 +29,7 @@ corresponding CLI before using its conversations.
 
 | Connection | Coworker address | Requirement |
 |---|---|---|
-| Local debugging on one machine | `http://127.0.0.1:8000` | Explicit development mode in both Coworker and Desktop |
+| Local debugging on one machine | `http://127.0.0.1:8000` | Desktop enables development mode; Coworker still requires a communication Bearer (administrator-token fallback by default) |
 | Direct access on a trusted network | `https://coworker.example.com` | HTTPS, a strong Bearer token, and additional network access control |
 | Remote access over the public internet | Relay instance URL | Recommended; Desktop detects Relay and uses end-to-end encryption |
 

@@ -17,7 +17,9 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
+import { useCommunicationToken } from '../hooks/useCommunicationToken';
 import { t } from '../i18n/admin';
 
 type ChatRole = 'user' | 'assistant';
@@ -412,6 +414,8 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [connectionDetail, setConnectionDetail] = useState('');
   const [nameDraft, setNameDraft] = useState(profile.name);
   const [nameError, setNameError] = useState('');
+  const { token: chatToken, setToken: setChatToken } = useCommunicationToken();
+  const [tokenDraft, setTokenDraft] = useState(chatToken);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [pendingReplies, setPendingReplies] = useState(0);
@@ -419,7 +423,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(readNotificationPreference);
   const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<AbortController | null>(null);
   const openRef = useRef(false);
   const notificationsEnabledRef = useRef(notificationsEnabled);
   const counterpartNameRef = useRef(counterpartName);
@@ -453,94 +457,109 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
 
     let disposed = false;
     let rejected = false;
-    let source: EventSource | null = null;
+    const controller = new AbortController();
 
     setConnection('connecting');
     setConnectionDetail('正在建立 SSE 信号。');
 
-    try {
-      source = new EventSource(getChatEventStreamUrl(participantId));
-    } catch {
-      setConnection('error');
-      setConnectionDetail('对话通道地址无效，请检查前端连接配置。');
-      return;
-    }
+    eventSourceRef.current = controller;
 
-    eventSourceRef.current = source;
+    const headers: Record<string, string> = {};
+    if (chatToken) headers['Authorization'] = `Bearer ${chatToken}`;
 
-    source.onopen = () => {
-      if (disposed || eventSourceRef.current !== source) {
-        source?.close();
-        return;
-      }
-      setConnection('connected');
-      setConnectionDetail('');
-    };
+    void fetchEventSource(getChatEventStreamUrl(participantId), {
+      headers,
+      signal: controller.signal,
+      onopen: async response => {
+        if (disposed || eventSourceRef.current !== controller) {
+          controller.abort();
+          return;
+        }
+        if (!response.ok) {
+          rejected = true;
+          let detail = '';
+          try {
+            detail = await response.text();
+          } catch {
+            // 忽略响应体读取失败，保留状态码提示。
+          }
+          setConnection('error');
+          setConnectionDetail(detail || `SSE 连接失败（${response.status}）`);
+          controller.abort();
+          return;
+        }
+        setConnection('connected');
+        setConnectionDetail('');
+      },
+      onmessage: event => {
+        if (disposed || eventSourceRef.current !== controller) return;
+        const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
+        if (!content && !attachments.length) return;
 
-    source.onmessage = event => {
-      if (disposed || eventSourceRef.current !== source) return;
-      const { content, bubble, attachments, connectionStatus } = readOutboundMessage(event.data);
-      if (!content && !attachments.length) return;
+        if (content.startsWith('连接被拒绝：')) {
+          rejected = true;
+          setConnection('error');
+          setConnectionDetail(content);
+          controller.abort();
+          return;
+        }
 
-      if (content.startsWith('连接被拒绝：')) {
-        rejected = true;
-        setConnection('error');
-        setConnectionDetail(content);
-        source?.close();
-        return;
-      }
-
-      setMessages(current => [
-        ...current,
-        createMessage('assistant', content, bubble, attachments, connectionStatus),
-      ].slice(-MAX_STORED_MESSAGES));
-      if (bubble?.kind !== 'handoff') {
-        setPendingReplies(current => Math.max(0, current - 1));
-        if (!openRef.current) {
-          setUnreadCount(current => Math.min(99, current + 1));
-          if (
-            notificationsEnabledRef.current
-            && document.hidden
-            && typeof Notification !== 'undefined'
-            && Notification.permission === 'granted'
-          ) {
-            try {
-              const notification = new Notification(
-                t('{{name}} 发来消息', { name: counterpartNameRef.current }),
-                { body: notificationBody(content, attachments), icon: '/favicon.png' },
-              );
-              notification.onclick = () => {
-                window.focus();
-                openRef.current = true;
-                setOpen(true);
-                setUnreadCount(0);
-                notification.close();
-              };
-            } catch {
-              setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+        setMessages(current => [
+          ...current,
+          createMessage('assistant', content, bubble, attachments, connectionStatus),
+        ].slice(-MAX_STORED_MESSAGES));
+        if (bubble?.kind !== 'handoff') {
+          setPendingReplies(current => Math.max(0, current - 1));
+          if (!openRef.current) {
+            setUnreadCount(current => Math.min(99, current + 1));
+            if (
+              notificationsEnabledRef.current
+              && document.hidden
+              && typeof Notification !== 'undefined'
+              && Notification.permission === 'granted'
+            ) {
+              try {
+                const notification = new Notification(
+                  t('{{name}} 发来消息', { name: counterpartNameRef.current }),
+                  { body: notificationBody(content, attachments), icon: '/favicon.png' },
+                );
+                notification.onclick = () => {
+                  window.focus();
+                  openRef.current = true;
+                  setOpen(true);
+                  setUnreadCount(0);
+                  notification.close();
+                };
+              } catch {
+                setConnectionDetail('桌面通知发送失败；消息仍保留在页面内。');
+              }
             }
           }
         }
-      }
-    };
-
-    source.onerror = () => {
-      if (disposed || rejected || eventSourceRef.current !== source) return;
-      if (source?.readyState === EventSource.CLOSED) {
+      },
+      onerror: error => {
+        if (disposed || rejected || eventSourceRef.current !== controller) {
+          controller.abort();
+          throw error;
+        }
+        setConnection('reconnecting');
+        setConnectionDetail('信号短暂中断，正在自动重新接通。');
+      },
+      onclose: () => {
+        if (disposed || rejected || eventSourceRef.current !== controller) return;
         setConnection('error');
         setConnectionDetail('SSE 通道已关闭，请关闭后重新打开对话。');
-        return;
-      }
-      setConnection('reconnecting');
-      setConnectionDetail('信号短暂中断，浏览器正在自动重新接通。');
-    };
+      },
+    }).catch(() => {
+      // fetchEventSource 在 abort/onerror 抛错时结束 promise，状态已在上方回调里维护。
+    });
 
     return () => {
       disposed = true;
-      if (eventSourceRef.current === source) eventSourceRef.current = null;
-      source?.close();
+      if (eventSourceRef.current === controller) eventSourceRef.current = null;
+      controller.abort();
     };
-  }, [connectionGeneration, participantId, shouldConnect, userName]);
+  }, [chatToken, connectionGeneration, participantId, shouldConnect, userName]);
 
   useEffect(() => {
     const refreshNotificationPermission = () => {
@@ -592,7 +611,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   }, [isFullPage, open]);
 
   const streamIsReady = connection === 'connected'
-    && eventSourceRef.current?.readyState === EventSource.OPEN;
+    && eventSourceRef.current !== null;
 
   const sendMessage = async () => {
     const content = draft.trim();
@@ -614,7 +633,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       await postMessage({
         sender_id: participantId,
         content: outgoing,
-      });
+      }, chatToken);
       hasSharedNameRef.current = true;
       setConnectionDetail('');
     } catch {
@@ -646,6 +665,9 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
       return;
     }
 
+    const nextToken = tokenDraft.trim();
+    setChatToken(nextToken);
+
     const isNewIdentity = nextName !== userName;
     const nextProfile = { ...profile, name: nextName };
     persistChatProfile(nextProfile);
@@ -666,6 +688,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const openProfileEditor = () => {
     setNameDraft(userName);
     setNameError('');
+    setTokenDraft(chatToken);
     setIsProfileEditorOpen(true);
   };
 
@@ -849,12 +872,23 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                   maxLength={40}
                 />
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
+                <label htmlFor="chat-user-token">{t('通信令牌（可选）')}</label>
+                <input
+                  id="chat-user-token"
+                  type="password"
+                  value={tokenDraft}
+                  onChange={event => setTokenDraft(event.target.value)}
+                  placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
+                  autoComplete="off"
+                  maxLength={4096}
+                />
                 <button type="submit" className="chat-name-start" disabled={!nameDraft.trim()}>
                   <span>{t('开始对话')}</span>
                   <Send size={15} aria-hidden="true" />
                 </button>
               </form>
               <p className="chat-name-note">{t('名字会用于建立这次连接；资料和界面聊天副本保存在此浏览器。')}</p>
+              <p className="chat-name-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
             </div>
           ) : isProfileEditorOpen ? (
             <div className="chat-profile-editor">
@@ -877,6 +911,16 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                   maxLength={40}
                 />
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
+                <label htmlFor="chat-profile-token">{t('通信令牌（可选）')}</label>
+                <input
+                  id="chat-profile-token"
+                  type="password"
+                  value={tokenDraft}
+                  onChange={event => setTokenDraft(event.target.value)}
+                  placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
+                  autoComplete="off"
+                  maxLength={4096}
+                />
                 <div className="chat-profile-actions">
                   <button type="submit" className="chat-name-start" disabled={!nameDraft.trim()}>
                     <span>{t('保存并重新连接')}</span>
@@ -888,6 +932,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                     onClick={() => {
                       setNameDraft(userName);
                       setNameError('');
+                      setTokenDraft(chatToken);
                       setIsProfileEditorOpen(false);
                     }}
                   >
@@ -906,6 +951,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </div>
               <p className="chat-profile-note">{t('此界面的聊天副本只保存在当前浏览器，不会同步到其他设备。')}</p>
+              <p className="chat-profile-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
             </div>
           ) : (
             <>

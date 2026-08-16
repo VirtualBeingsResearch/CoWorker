@@ -67,6 +67,62 @@ button { cursor: pointer; }
   border-radius: 3px;
 }
 
+.status-token-control { position: relative; }
+.status-token-trigger {
+  width: max-content; min-height: 28px; padding: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; background: transparent;
+  color: oklch(58% 0.014 260); font: 500 11px var(--font-body);
+  transition: color .2s ease;
+}
+.status-token-trigger svg { width: 13px; height: 13px; color: currentColor; }
+.status-token-trigger > span { white-space: nowrap; }
+.status-token-trigger:hover,
+.status-token-trigger.is-set { color: var(--fg); }
+.status-token-trigger:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--active-color, var(--coral)) 55%, transparent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.status-token-pop {
+  position: absolute; z-index: 40; right: 0; top: calc(100% + 8px);
+  width: 260px; padding: 13px;
+  display: grid; gap: 8px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 14px 40px oklch(25% 0.04 265 / 0.16);
+}
+.status-token-pop label {
+  color: var(--fg); font: 650 12px var(--font-body);
+}
+.status-token-pop input {
+  width: 100%; min-height: 34px; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--fg);
+  font: 500 13px var(--font-body);
+}
+.status-token-pop input:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--active-color, var(--coral)) 55%, transparent);
+  outline-offset: 1px;
+}
+.status-token-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+}
+.status-token-actions button {
+  min-height: 28px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--fg);
+  font: 650 11px var(--font-body);
+}
+.status-token-actions button:hover { border-color: var(--active-color, var(--coral)); }
+.status-token-actions button:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--active-color, var(--coral)) 55%, transparent);
+  outline-offset: 2px;
+}
+.status-token-note {
+  margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45;
+}
+
 :root {
   --scrollbar-thumb: color-mix(in oklch, var(--active-color, var(--coral)) 42%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--active-color, var(--coral)) 66%, transparent);
@@ -374,6 +430,10 @@ h1, h2, h3, p { margin: 0; }
   gap: 16px;
   min-height: 0;
 }
+.id-right > * {
+  /* 英文/长文本的 min-content 较宽时，允许右侧各块收缩到列宽内，避免溢出卡片边框被裁切 */
+  min-width: 0;
+}
 /* Avatar */
 .avatar-wrap {
   border-radius: var(--radius-lg); border: 1px solid var(--border);
@@ -530,6 +590,13 @@ h1, h2, h3, p { margin: 0; }
 }
 .state-copy strong { font-size: 18px; letter-spacing: -0.02em; }
 .state-copy span { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.state-copy .status-auth-note {
+  width: max-content; max-width: 100%; margin-top: 2px; padding: 4px 8px;
+  border: 1px solid color-mix(in oklch, var(--active-color, var(--coral)) 24%, var(--border));
+  border-radius: 8px; background: color-mix(in oklch, var(--active-color, var(--coral)) 6%, var(--surface));
+  color: color-mix(in oklch, var(--active-color, var(--coral)) 72%, var(--fg));
+  font-size: 11px; line-height: 1.45;
+}
 .state-wave { display: flex; align-items: end; gap: 5px; height: 58px; width: 116px; }
 .state-wave i {
   width: 10px; height: var(--h); border-radius: 999px;

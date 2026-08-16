@@ -223,7 +223,7 @@ docker compose up --no-build -d
 
 ## 升级后验证
 
-- `/status` 返回运行状态、预期 Provider 和模型；
+- 携带通信 Bearer 的 `/status` 返回运行状态、预期 Provider 和模型；
 - 管理后台没有持续增长的失败任务；
 - 发送一条测试消息并确认回复路径；
 - 检查长期记忆、任务、闹钟和最近交互仍可读取；

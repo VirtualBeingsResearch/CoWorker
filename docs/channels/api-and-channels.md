@@ -94,13 +94,15 @@ chat 发送；完整行为与配置见 [Telegram](telegram.md)。
 ## REST API
 
 ```bash
-# 发送消息
+# 发送消息（配置通信令牌后必须携带 Authorization）
 curl -X POST http://localhost:8000/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 
-# 查看状态
-curl http://localhost:8000/status
+# 查看状态（已配置令牌时：无 Bearer 只返回基础状态，带有效令牌返回完整快照）
+curl http://localhost:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 # 切换模型（provider 为已注册的实例名；省略 model_id 则用该实例配置的 default_model）
 curl -X POST http://localhost:8000/switch_model \
@@ -122,7 +124,7 @@ curl -X POST http://localhost:8000/backfill_tree \
 curl http://localhost:8000/backfill_tree
 ```
 
-`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
+携带有效 Bearer 时，`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
 `by_model`（按模型名合并）和 `by_provider_model`（按 `provider/model` 精确区分）；
 同时在 `by_scope` 中拆出 `main` / `summary` / `vision` / `bubble` / `subconscious` / `mem0`
 六类来源统计，结构与窗口总账一致。窗口总账与 `by_scope` 均包含 `thinking_calls`、
@@ -185,10 +187,14 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信、Telegram 和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
-`coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 在默认生产模式下都要求
-`Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用
-管理员令牌，方便本机首次连接；需要隔离权限时应显式配置独立令牌。只有将服务端和 Desktop 配置都显式设为
-`development_mode=true` 才会关闭这层校验；该模式仅适用于回环地址的本机调试。
+显式设置了 `API__COMMUNICATION_TOKEN` 时，`POST /messages`（包括普通 REST 消息）、
+`GET /profile`、`GET /logs/stream`、所有 `/ws/{participant_id}` WebSocket 连接、所有
+`/sse/{participant_id}` SSE 连接，以及 `coworker-desktop:*` participant 的消息、注册、SSE
+和 WebSocket 都要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。网页聊天使用带
+Authorization 的 fetch 流消费通用 SSE，不再依赖无法设置 Header 的原生 `EventSource`。此时
+`GET /status` 未携带有效令牌只返回基础生命周期信息，携带令牌后才返回模型配置与用量；未显式
+设置通信令牌时，这些接口保持引入认证前的行为。Desktop 通信未显式设置令牌时回退使用管理员令牌，
+方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`。需要隔离权限时应显式配置独立令牌。
 
 浏览器示例：
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
@@ -26,6 +26,9 @@ from coworker.core.types import AgentState, CommunicateRequest
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
 from tests.conftest import MockProvider
+
+_TEST_COMMUNICATION_TOKEN = "test-communication-token"
+_TEST_AUTH_HEADERS = {"Authorization": f"Bearer {_TEST_COMMUNICATION_TOKEN}"}
 
 
 def _channel_system(tmp_path, handler=None) -> ChannelSystem:
@@ -57,8 +60,8 @@ def client(tmp_path):
     routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
+    routes_mod._communication_token_explicit = False
     routes_mod._channels = None
-    routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
@@ -75,12 +78,11 @@ def client(tmp_path):
 
 
 def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatch):
-    for name in ("API__HOST", "API__DEVELOPMENT_MODE", "API__CORS_ORIGINS"):
+    for name in ("API__HOST", "API__CORS_ORIGINS"):
         monkeypatch.delenv(name, raising=False)
     config = APIConfig(_env_file=None)
 
     assert config.host == "127.0.0.1"
-    assert config.development_mode is False
     assert "*" not in config.cors_origins
 
 
@@ -363,7 +365,7 @@ class TestPostMessages:
             mock_inbox,
             MagicMock(),
             MagicMock(),
-            development_mode=True,
+            communication_token=_TEST_COMMUNICATION_TOKEN,
             channels=communication.registry,
         )
         message = {
@@ -375,9 +377,9 @@ class TestPostMessages:
             "payload": {"actor_id": "claude", "message": "hello"},
         }
 
-        denied = client.post("/messages", json=message)
+        denied = client.post("/messages", json=message, headers=_TEST_AUTH_HEADERS)
         communication.access.config.root = {}
-        accepted = client.post("/messages", json=message)
+        accepted = client.post("/messages", json=message, headers=_TEST_AUTH_HEADERS)
 
         assert denied.status_code == 403
         assert accepted.status_code == 200
@@ -438,7 +440,7 @@ class TestPostMessages:
             MagicMock(),
             MagicMock(),
             inbox_dir=str(tmp_path / "inbox"),
-            development_mode=True,
+            communication_token=_TEST_COMMUNICATION_TOKEN,
             channels=communication.registry,
         )
         encoded = base64.b64encode(b"image bytes").decode("ascii")
@@ -464,7 +466,7 @@ class TestPostMessages:
             "sender_id": "coworker-desktop:desk:claude:cw:participant",
             **envelope,
         }
-        response = client.post("/messages", json=request)
+        response = client.post("/messages", json=request, headers=_TEST_AUTH_HEADERS)
 
         assert response.status_code == 200
         assert response.json() == {
@@ -491,7 +493,7 @@ class TestPostMessages:
             mock_inbox,
             MagicMock(),
             MagicMock(),
-            development_mode=True,
+            communication_token=_TEST_COMMUNICATION_TOKEN,
             channels=communication.registry,
         )
         message = {
@@ -503,8 +505,8 @@ class TestPostMessages:
             "payload": {"actor_id": "claude", "message": "hello"},
         }
 
-        first = client.post("/messages", json=message)
-        second = client.post("/messages", json=message)
+        first = client.post("/messages", json=message, headers=_TEST_AUTH_HEADERS)
+        second = client.post("/messages", json=message, headers=_TEST_AUTH_HEADERS)
 
         assert first.status_code == 200
         assert first.json() == {
@@ -527,7 +529,7 @@ class TestPostMessages:
             mock_inbox,
             MagicMock(),
             MagicMock(),
-            development_mode=True,
+            communication_token=_TEST_COMMUNICATION_TOKEN,
             channels=communication.registry,
         )
         request = {
@@ -539,7 +541,7 @@ class TestPostMessages:
             "payload": {"desktop_id": "desk", "actor_id": "claude"},
         }
 
-        response = client.post("/messages", json=request)
+        response = client.post("/messages", json=request, headers=_TEST_AUTH_HEADERS)
 
         assert response.status_code == 200
         # Snapshots are consumed at the inbound boundary (registry ingest),
@@ -576,6 +578,70 @@ class TestPostMessages:
         assert rejected.status_code == 401
         assert accepted.status_code == 200
         mock_inbox.push.assert_awaited_once()
+
+    def test_plain_rest_message_requires_matching_bearer_when_token_is_configured(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="secret",
+            channels=communication.registry,
+        )
+
+        rejected = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+        )
+        accepted = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code == 200
+        mock_inbox.push.assert_awaited_once()
+
+    def test_plain_rest_stays_open_when_only_admin_fallback_token_exists(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="admin-fallback",
+            communication_token_explicit=False,
+            channels=communication.registry,
+        )
+
+        rest = client.post(
+            "/messages",
+            json={"sender_id": "integration:alice", "content": "hello"},
+        )
+        desktop = client.post(
+            "/messages",
+            json={
+                "sender_id": "coworker-desktop:desk:claude:cw:participant",
+                "type": "desktop.thread.event",
+                "payload": {"actor_id": "claude", "message": "hello"},
+                "message_id": "desktop-fallback-auth",
+                "protocol_version": 1,
+                "created_at": "2026-07-13T00:00:00Z",
+            },
+            headers={"Authorization": "Bearer admin-fallback"},
+        )
+
+        assert rest.status_code == 200
+        assert desktop.status_code == 200
+        assert mock_inbox.push.await_count == 2
 
 
 class TestSSE:
@@ -676,6 +742,21 @@ class TestSSE:
         resp = client.get("/logs/stream?history_lines=20001")
         assert resp.status_code == 422
 
+    def test_runtime_log_stream_requires_bearer_when_token_is_explicit(self, client):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        rejected = client.get("/logs/stream")
+        accepted = client.get(
+            "/logs/stream",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code == 200
+
 
 class TestUnregisterWsGuard:
     def test_duplicate_registration_is_rejected_and_first_queue_kept(self):
@@ -737,6 +818,49 @@ class TestConnectionRejection:
             headers={"Authorization": "Bearer secret"},
         ):
             pass
+
+    def test_generic_websocket_requires_bearer_when_token_is_explicit(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        _setup_api_channels(communication)
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            communication_token="secret",
+        )
+
+        with pytest.raises(WebSocketDisconnect) as error:
+            with client.websocket_connect("/ws/alice"):
+                pass
+        assert error.value.code == 1008
+
+        with client.websocket_connect(
+            "/ws/alice",
+            headers={"Authorization": "Bearer secret"},
+        ):
+            pass
+
+    def test_generic_sse_requires_bearer_when_token_is_explicit(self, client, tmp_path):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        rejected = client.get("/sse/alice")
+        assert rejected.status_code == 401
+
+        communication = _channel_system(tmp_path)
+        _setup_api_channels(communication)
+        assert communication.stream_runtime.register_session("alice", asyncio.Queue()) is True
+
+        accepted = client.get(
+            "/sse/alice",
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert accepted.status_code == 200
+        assert accepted.headers.get("x-connection-rejected") == "duplicate-participant"
 
     def test_websocket_json_message_uses_message_field(self, client, tmp_path):
         mock_inbox = MagicMock()
@@ -838,7 +962,12 @@ class TestCommunicateRegistrationAPI:
     def test_desktop_registration_negotiates_protocol_or_rejects(self, client, tmp_path):
         comm = _channel_system(tmp_path)
         _setup_api_channels(comm)
-        setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
+        setup_routes(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            communication_token=_TEST_COMMUNICATION_TOKEN,
+        )
 
         incompatible = client.post(
             "/api/communicate/register",
@@ -847,6 +976,7 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:claude:cw_default",
                 "metadata": {"protocol_versions": [99]},
             },
+            headers=_TEST_AUTH_HEADERS,
         )
         assert incompatible.status_code == 422
 
@@ -857,6 +987,7 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:claude:cw_default",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         )
         assert compatible.status_code == 200
         assert compatible.json()["negotiated_protocol_version"] == 1
@@ -864,7 +995,12 @@ class TestCommunicateRegistrationAPI:
     def test_register_lists_and_deletes_inactive_registration(self, client, tmp_path):
         comm = _channel_system(tmp_path)
         _setup_api_channels(comm)
-        setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
+        setup_routes(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            communication_token=_TEST_COMMUNICATION_TOKEN,
+        )
 
         resp = client.post(
             "/api/communicate/register",
@@ -874,6 +1010,7 @@ class TestCommunicateRegistrationAPI:
                 "display_name": "Local Desktop",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         )
 
         assert resp.status_code == 200
@@ -882,22 +1019,32 @@ class TestCommunicateRegistrationAPI:
         assert len(registration["participant_id"]) == 33
         assert registration["active"] is False
 
-        list_resp = client.get("/api/communicate/register")
+        list_resp = client.get("/api/communicate/register", headers=_TEST_AUTH_HEADERS)
         assert list_resp.status_code == 200
         assert (
             list_resp.json()["registrations"][0]["registration_id"]
             == registration["registration_id"]
         )
 
-        delete_resp = client.delete(f"/api/communicate/register/{registration['registration_id']}")
+        delete_resp = client.delete(
+            f"/api/communicate/register/{registration['registration_id']}",
+            headers=_TEST_AUTH_HEADERS,
+        )
         assert delete_resp.status_code == 200
         assert delete_resp.json()["deleted"]["registration_id"] == registration["registration_id"]
-        assert client.get("/api/communicate/register").json()["registrations"] == []
+        assert client.get(
+            "/api/communicate/register", headers=_TEST_AUTH_HEADERS
+        ).json()["registrations"] == []
 
     def test_register_reuses_inactive_registration(self, client, tmp_path):
         comm = _channel_system(tmp_path)
         _setup_api_channels(comm)
-        setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
+        setup_routes(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            communication_token=_TEST_COMMUNICATION_TOKEN,
+        )
 
         first = client.post(
             "/api/communicate/register",
@@ -906,6 +1053,7 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:local:cw_default",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         ).json()
         second = client.post(
             "/api/communicate/register",
@@ -914,6 +1062,7 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:local:cw_default",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         ).json()
 
         assert second["registration_id"] == first["registration_id"]
@@ -922,7 +1071,12 @@ class TestCommunicateRegistrationAPI:
     def test_active_registration_gets_new_id_and_cannot_be_deleted(self, client, tmp_path):
         comm = _channel_system(tmp_path)
         _setup_api_channels(comm)
-        setup_routes(MagicMock(), MagicMock(), MagicMock(), development_mode=True)
+        setup_routes(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            communication_token=_TEST_COMMUNICATION_TOKEN,
+        )
         first = client.post(
             "/api/communicate/register",
             json={
@@ -930,6 +1084,7 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:local:cw_default",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         ).json()
         assert comm.stream_runtime.register_session(
             first["participant_id"], asyncio.Queue()
@@ -942,13 +1097,19 @@ class TestCommunicateRegistrationAPI:
                 "client_id": "desk:local:cw_default",
                 "metadata": {"protocol_versions": [1]},
             },
+            headers=_TEST_AUTH_HEADERS,
         ).json()
 
         assert second["registration_id"] != first["registration_id"]
         assert second["participant_id"] != first["participant_id"]
-        list_resp = client.get("/api/communicate/register").json()["registrations"]
+        list_resp = client.get(
+            "/api/communicate/register", headers=_TEST_AUTH_HEADERS
+        ).json()["registrations"]
         assert [item["active"] for item in list_resp] == [True, False]
-        delete_resp = client.delete(f"/api/communicate/register/{first['registration_id']}")
+        delete_resp = client.delete(
+            f"/api/communicate/register/{first['registration_id']}",
+            headers=_TEST_AUTH_HEADERS,
+        )
         assert delete_resp.status_code == 409
 
 
@@ -956,15 +1117,43 @@ class TestGetStatus:
     def test_returns_not_started_when_no_agent(self, client):
         import coworker.api.routes as routes_mod
         routes_mod._agent = None
+        routes_mod._communication_token = ""
         resp = client.get("/status")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "not_started"
+        assert resp.json() == {"status": "not_started"}
 
-    @pytest.mark.asyncio
-    async def test_relay_status_requires_existing_communication_authentication(self):
+    def test_status_returns_full_snapshot_when_only_admin_fallback_token_exists(
+        self, client
+    ):
         import coworker.api.routes as routes_mod
 
+        mock_agent = MagicMock()
+        mock_agent.state = AgentState(
+            is_running=True,
+            is_sleeping=False,
+            current_provider="anthropic",
+            current_model="claude-sonnet-4-6",
+            cycle_count=7,
+        )
+        routes_mod._agent = mock_agent
+        routes_mod._communication_token = "admin-fallback"
+        routes_mod._communication_token_explicit = False
+
+        resp = client.get("/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "anthropic"
+        assert data["model"] == "claude-sonnet-4-6"
+        assert "communication_token_configured" not in data
+
+    @pytest.mark.asyncio
+    async def test_relay_status_returns_public_subset_without_inner_bearer(self):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._agent = None
         routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
         request = Request(
             {
                 "type": "http",
@@ -976,11 +1165,84 @@ class TestGetStatus:
                 },
             }
         )
-        with pytest.raises(HTTPException) as rejected:
-            await routes_mod.get_status(request, None)
-        assert rejected.value.status_code == 401
-        result = await routes_mod.get_status(request, "Bearer secret")
-        assert result["status"] == "not_started"
+        public = await routes_mod.get_status(request, None)
+        assert public == {
+            "status": "not_started",
+            "communication_token_configured": True,
+            "authenticated": False,
+        }
+        authenticated = await routes_mod.get_status(request, "Bearer secret")
+        assert authenticated == {
+            "status": "not_started",
+            "communication_token_configured": True,
+            "authenticated": True,
+        }
+
+    def test_status_returns_public_subset_without_bearer_when_token_is_configured(
+        self, client
+    ):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._agent = None
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        public = client.get("/status")
+        authenticated = client.get(
+            "/status",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert public.status_code == 200
+        assert public.json() == {
+            "status": "not_started",
+            "communication_token_configured": True,
+            "authenticated": False,
+        }
+        assert authenticated.status_code == 200
+        assert authenticated.json() == {
+            "status": "not_started",
+            "communication_token_configured": True,
+            "authenticated": True,
+        }
+
+    def test_status_public_subset_hides_model_and_usage(self, client):
+        import coworker.api.routes as routes_mod
+
+        mock_agent = MagicMock()
+        mock_agent.state = AgentState(
+            is_running=True,
+            is_sleeping=False,
+            current_provider="anthropic",
+            current_model="claude-sonnet-4-6",
+            cycle_count=7,
+        )
+        mock_brain = MagicMock()
+        mock_brain.list_providers.return_value = ["anthropic"]
+        mock_brain.model_config_snapshot.return_value = {
+            "providers": ["anthropic"],
+            "active": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+        }
+        mock_stats = MagicMock()
+        mock_stats.snapshot.return_value = {"today": {"total_tokens": 99}}
+        routes_mod._agent = mock_agent
+        routes_mod._brain = mock_brain
+        routes_mod._usage_stats = mock_stats
+        routes_mod._communication_token = "secret"
+        routes_mod._communication_token_explicit = True
+
+        public = client.get("/status").json()
+
+        assert public == {
+            "status": "running",
+            "is_running": True,
+            "is_sleeping": False,
+            "setup_mode": False,
+            "communication_token_configured": True,
+            "authenticated": False,
+        }
+        mock_brain.list_providers.assert_not_called()
+        mock_stats.snapshot.assert_not_called()
 
     def test_returns_agent_state(self, client):
         mock_agent = MagicMock()
@@ -1003,10 +1265,13 @@ class TestGetStatus:
         import coworker.api.routes as routes_mod
         routes_mod._agent = mock_agent
         routes_mod._brain = mock_brain
+        routes_mod._communication_token = _TEST_COMMUNICATION_TOKEN
+        routes_mod._communication_token_explicit = True
 
-        resp = client.get("/status")
+        resp = client.get("/status", headers=_TEST_AUTH_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
+        assert data["authenticated"] is True
         assert data["is_running"] is True
         assert data["cycle_count"] == 7
         assert data["setup_mode"] is False
@@ -1040,11 +1305,18 @@ class TestGetStatus:
             "fallbacks": [],
             "vision": {"provider": "", "model": "", "thinking": True, "enabled": False},
         }
-        setup_routes(mock_inbox, mock_agent, mock_brain, usage_stats=mock_stats)
+        setup_routes(
+            mock_inbox,
+            mock_agent,
+            mock_brain,
+            usage_stats=mock_stats,
+            communication_token=_TEST_COMMUNICATION_TOKEN,
+        )
 
-        resp = client.get("/status")
+        resp = client.get("/status", headers=_TEST_AUTH_HEADERS)
 
         assert resp.status_code == 200
+        assert resp.json()["authenticated"] is True
         assert resp.json()["usage_stats"]["today"]["total_tokens"] == 12
         mock_stats.snapshot.assert_called_once()
 
@@ -1069,7 +1341,7 @@ def _agent_with_profile(tmp_path, readme: str | None = None, days_old: int = 0):
     mock_agent._identity = identity
     mock_agent._short_term.log_store = None
     mock_agent._snapshot_path = tmp_path / "memory" / "short_term_snapshot.json"
-    mock_agent.state = AgentState(setup_mode=False)
+    mock_agent.state = AgentState(setup_mode=False, cycle_count=1)
     return mock_agent, identity_dir
 
 
@@ -1106,6 +1378,20 @@ class TestGetProfile:
         assert first.json()["readme"] == readme
         mock_inbox.push.assert_called_once()
         assert "profile.md" in mock_inbox.push.call_args.args[0].content
+        assert mock_inbox.push.call_args.kwargs.get("wake", True) is True
+
+    def test_profile_does_not_queue_before_first_cycle(self, client, tmp_path):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        mock_agent, _ = _agent_with_profile(tmp_path)
+        mock_agent.state = AgentState(setup_mode=False, cycle_count=0)
+        setup_routes(mock_inbox, mock_agent, MagicMock())
+
+        response = client.get("/profile")
+
+        assert response.status_code == 200
+        assert response.json()["readme"] is None
+        mock_inbox.push.assert_not_called()
 
     def test_first_run_profile_does_not_queue_generation(self, client, tmp_path):
         mock_inbox = MagicMock()
@@ -1119,6 +1405,31 @@ class TestGetProfile:
         assert response.status_code == 200
         assert response.json()["readme"] is None
         mock_inbox.push.assert_not_called()
+
+    def test_profile_requires_bearer_and_skips_reminder_when_token_is_explicit(
+        self, client, tmp_path
+    ):
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        mock_agent, _ = _agent_with_profile(tmp_path)
+        setup_routes(
+            mock_inbox,
+            mock_agent,
+            MagicMock(),
+            communication_token="secret",
+        )
+
+        rejected = client.get("/profile")
+        assert rejected.status_code == 401
+        mock_inbox.push.assert_not_called()
+
+        accepted = client.get(
+            "/profile",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert accepted.status_code == 200
+        mock_inbox.push.assert_called_once()
 
 
 class TestSwitchModel:

@@ -221,8 +221,10 @@ docker compose up --pull always --no-build
 <summary>无界面环境或排障时，通过 API 验证</summary>
 
 ```bash
+# 配置通信令牌后必须携带；<API__COMMUNICATION_TOKEN> 可替换为管理员令牌
 curl -X POST http://127.0.0.1:8000/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 ```
 

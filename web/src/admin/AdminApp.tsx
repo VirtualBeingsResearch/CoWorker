@@ -153,6 +153,17 @@ function logTimeInputValue(value: string): string {
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
 
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function generateCommunicationToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `cwct_v1_${bytesToBase64Url(bytes)}`;
+}
+
 class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -284,7 +295,7 @@ const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   memory: '短期上下文、压缩树、自动召回、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
   i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
-  api: '公开访问地址、内部监听地址、端口、跨域来源、开发模式与桌面通信凭据。',
+  api: '公开访问地址、内部监听地址、端口、跨域来源与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
   channel_access: '所有信道的入站和出站 participant 匹配规则。',
   wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
@@ -1022,10 +1033,24 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
   passiveMode?: boolean;
   activeAdminToken?: Json;
 }) {
+  const [copyTokenState, setCopyTokenState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
   const segments = path.split('.');
   const key = segments[segments.length - 1] || path;
   const label = CONFIG_LABELS[path] || humanize(key);
   const presentation = configFieldPresentation(path, { passiveMode });
+  const copyCommunicationToken = async () => {
+    setCopyTokenState('copying');
+    try {
+      const result = await api<Json>('/api/admin/communication-token');
+      const token = String(result.communication_token || '');
+      if (!token) throw new Error(t('通信令牌未配置'));
+      await navigator.clipboard.writeText(token);
+      setCopyTokenState('copied');
+    } catch {
+      setCopyTokenState('error');
+    }
+    window.setTimeout(() => setCopyTokenState('idle'), 1600);
+  };
   if (presentation.editor === 'locale') return <Field label={label} hint={presentation.hint} hot={hot}><select value={String(value)} onChange={event => change(event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
   if (presentation.editor === 'fallback-list' || presentation.editor === 'cors-list' || presentation.editor === 'participant-list') return <Fragment>
     {presentation.editor === 'participant-list' && <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>}
@@ -1037,11 +1062,44 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
     const usesAdminToken = path === 'api.communication_token' && !status.configured && activeAdminToken?.configured;
     const hint = status.configured
       ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
-      : usesAdminToken ? t('当前使用管理员令牌') : t('当前未配置；敏感值不会回显');
+      : usesAdminToken
+        ? t('当前使用管理员令牌；可设置独立令牌以隔离权限')
+        : t('当前未配置；请设置以保护 REST 消息、状态与 Desktop 通信');
     const placeholder = status.configured
       ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
-      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（可选）');
-    return <Field label={label} hot={hot} hint={hint}><input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} /></Field>;
+      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（建议设置）');
+    return <Field label={label} hot={hot} hint={hint}>
+      <div className="secret-field-row">
+        <input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} />
+        {path === 'api.communication_token' && (
+          <>
+            <button
+              type="button"
+              className="ghost mini"
+              title={t('生成符合 Relay 要求的通信令牌')}
+              onClick={() => setSecretInputs({ ...secretInputs, [path]: generateCommunicationToken() })}
+            >
+              {t('生成')}
+            </button>
+            <button
+              type="button"
+              className="ghost mini"
+              disabled={copyTokenState === 'copying'}
+              title={t('复制通信令牌')}
+              onClick={() => void copyCommunicationToken()}
+            >
+              {t(copyTokenState === 'copied'
+                ? '通信令牌已复制'
+                : copyTokenState === 'copying'
+                  ? '正在复制…'
+                  : copyTokenState === 'error'
+                    ? '通信令牌复制失败'
+                    : '复制令牌')}
+            </button>
+          </>
+        )}
+      </div>
+    </Field>;
   }
   if (typeof value === 'boolean') return <label className="switch config-switch"><input type="checkbox" checked={value} onChange={event => change(event.target.checked)} /><i /><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span></label>;
   if (typeof value === 'number') return <Field label={label} hint={presentation.hint} hot={hot}><input type="number" value={value} min={presentation.minimum} max={presentation.maximum} step={presentation.step ?? 'any'} onChange={event => change(Number(event.target.value))} /></Field>;
@@ -1345,8 +1403,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'api.host': 'API 监听地址',
   'api.port': 'API 监听端口',
   'api.public_url': 'API 公开访问地址',
-  'api.communication_token': '桌面通信令牌',
-  'api.development_mode': 'API 开发模式',
+  'api.communication_token': '通信令牌',
   'api.cors_origins': '允许的跨域来源',
   'relay.enabled': '启用 Relay',
   'relay.url': 'Relay 地址',

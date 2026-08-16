@@ -378,7 +378,6 @@ class APIConfig(_EnvSettings):
     port: int = Field(default=8000, ge=1, le=65_535)
     public_url: str = Field(default="", max_length=2048)
     communication_token: str = ""
-    development_mode: bool = False
     # JSON list in environment/.env, e.g.
     # ["https://desktop.example", "http://127.0.0.1:1420"]
     cors_origins: list[str] = Field(

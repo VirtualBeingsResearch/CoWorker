@@ -16,14 +16,20 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function postMessage(payload: {
-  sender_id: string;
-  content: string;
-  conversation_id?: string;
-}) {
+export function postMessage(
+  payload: {
+    sender_id: string;
+    content: string;
+    conversation_id?: string;
+  },
+  communicationToken = '',
+) {
   return requestJson<{ status: string; sender_id: string; conversation_id?: string }>('/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(communicationToken ? { Authorization: `Bearer ${communicationToken}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
 }
@@ -37,13 +43,21 @@ export function switchModel(payload: { provider: string; model_id?: string }) {
 }
 
 /** 完整状态（身份证正面身份 + 生命体征的数据源）。后端动态计算 age_days。 */
-export function getStatus() {
-  return requestJson<FullStatus>('/status');
+export function getStatus(communicationToken = '') {
+  return requestJson<FullStatus>('/status', {
+    headers: communicationToken
+      ? { Authorization: `Bearer ${communicationToken}` }
+      : undefined,
+  });
 }
 
 /** Agent 基础档案：身份、目标、最早记忆时间戳。变化慢，建议低频轮询。 */
-export function getProfile() {
-  return requestJson<ProfileInfo>('/profile');
+export function getProfile(communicationToken = '') {
+  return requestJson<ProfileInfo>('/profile', {
+    headers: communicationToken
+      ? { Authorization: `Bearer ${communicationToken}` }
+      : undefined,
+  });
 }
 
 /** 运行日志 SSE 流（身份证背面运行日志的数据源）。同源部署留空 API_BASE，走 Vite /logs 代理。 */

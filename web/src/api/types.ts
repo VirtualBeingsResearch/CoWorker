@@ -13,6 +13,8 @@ export type BasicStatus = {
   provider?: string;
   model?: string;
   cycle_count?: number;
+  communication_token_configured?: boolean;
+  authenticated?: boolean;
 };
 
 export type IdentityInfo = {
@@ -77,6 +79,8 @@ export type FullStatus = {
   identity?: IdentityInfo;
   vitals?: VitalsInfo;
   usage_stats?: UsageStats;
+  communication_token_configured?: boolean;
+  authenticated?: boolean;
   short_term_memory?: ShortTermMemoryInfo;
   task_stats?: TaskStats;
   tasks?: TaskItem[];
