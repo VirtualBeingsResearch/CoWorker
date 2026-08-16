@@ -71,18 +71,20 @@ The fork may alternatively be synchronized with `gh repo sync <fork-owner>/CoWor
   affected feature tests; `test_i18n.py` enforces catalog key and placeholder
   parity.
 
-## Implementation, validation, and automatic pull-request delivery
+## Implementation, validation, and completion reporting
 
-- Completing a requested feature includes implementing it, running the relevant checks from `CONTRIBUTING.md`, committing the scoped changes, pushing the feature branch to `origin`, and creating the upstream pull request.
-- These commit, push, and pull-request steps are authorized by default for completed feature work. Perform them automatically without waiting for a separate confirmation unless the user explicitly asks not to, authentication is unavailable, validation has materially failed, the remote/branch target is ambiguous, or the operation risks overwriting or publishing unrelated work.
-- Pull-request creation is the automatic delivery boundary. Creating a PR never grants permission to merge it, enable auto-merge, or enqueue it in a merge queue.
+- Completing a requested feature includes implementing it, running the relevant checks from `CONTRIBUTING.md`, committing the scoped changes, and reporting the completed work and validation results to the user.
+- Committing scoped changes is authorized by default for completed feature work unless the user explicitly asks not to, validation has materially failed, the current branch is ambiguous, or the commit would include unrelated work.
+- Do not push the feature branch to `origin` or create a pull request unless the user explicitly requests that operation in the current conversation. Local completion and a user-facing report are the default delivery boundary.
 - Use clear, conventional commit messages. Prefer small coherent commits when they improve reviewability, but do not split a tightly coupled change mechanically.
-- Before delivery, review the final diff and confirm that required tests, documentation, examples, and paired localized docs have been handled according to `CONTRIBUTING.md`.
+- Before reporting completion, review the final diff and confirm that required tests, documentation, examples, and paired localized docs have been handled according to `CONTRIBUTING.md`.
 - Do not edit `CHANGELOG.md` in feature, fix, documentation, dependency, or routine maintenance pull requests. Keep the hand-written `Unreleased` section, but update it only in dedicated release-preparation or changelog-maintenance work so concurrent pull requests do not contend on the same file.
 - Use clear conventional commit and pull-request titles so the release maintainer can assemble the hand-written `Unreleased` notes accurately.
-- If some relevant check cannot be run, do not conceal it; document the exact unrun or failing check in the pull request.
+- If some relevant check cannot be run, do not conceal it; report the exact unrun or failing check to the user and, if a pull request is later requested, document it there as well.
 
-## Push and pull-request workflow
+## Optional push and pull-request workflow
+
+Use this workflow only when the user explicitly requests pushing the feature branch or creating a pull request in the current conversation.
 
 Push the feature branch to the developer's fork, not to upstream:
 
@@ -109,7 +111,7 @@ gh pr create \
 
 ## Manual merge only
 
-- After creating or updating a pull request, inspect its checks and review readiness when practical. Useful commands include:
+- If the user explicitly requests creating or updating a pull request, inspect its checks and review readiness when practical. Useful commands include:
 
   ```bash
   gh pr view <number> --repo VirtualBeingsResearch/CoWorker \
@@ -117,9 +119,9 @@ gh pr create \
   gh pr checks <number> --repo VirtualBeingsResearch/CoWorker --watch
   ```
 
-- Always leave the pull request open for human review after automatic delivery, even when every check passes and the authenticated account has merge permission.
-- Do not call `gh pr merge`, enable auto-merge, enqueue the pull request in a merge queue, invoke an equivalent GraphQL/API merge operation, or use an administrative policy bypass as part of the automatic workflow.
-- A general request to implement, complete, ship, or deliver work authorizes commit, push, and pull-request creation, but does not authorize merging. Merge only when the user explicitly asks to merge that specific pull request in the current conversation.
+- Always leave a created pull request open for human review, even when every check passes and the authenticated account has merge permission.
+- Do not call `gh pr merge`, enable auto-merge, enqueue the pull request in a merge queue, invoke an equivalent GraphQL/API merge operation, or use an administrative policy bypass unless the user explicitly requests merging that specific pull request.
+- A general request to implement, complete, ship, or deliver work authorizes a scoped local commit, but does not authorize pushing, pull-request creation, or merging. Perform each remote operation only when the user explicitly requests it in the current conversation. Merge only when the user explicitly asks to merge that specific pull request.
 - Report the PR URL, validation status, and any remaining review or CI requirements. If checks are pending, they may be monitored, but passing checks do not change the manual-merge requirement.
 
 Do not merge the feature branch into the local or fork `main` before opening the pull request. The pull request branch is the integration boundary. After the pull request is merged upstream, synchronize `main` from `upstream/main`, push the synchronized `main` to `origin`, and only then delete the feature branch after verifying that it contains no uncommitted work.
