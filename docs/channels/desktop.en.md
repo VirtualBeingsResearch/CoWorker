@@ -46,7 +46,7 @@ Download the latest published version from
 |---|---|
 | Windows | `.exe` NSIS installer |
 | macOS Apple Silicon | `.dmg` labeled `aarch64` or Apple Silicon |
-| macOS Intel | `.dmg` labeled `x86_64` or Intel |
+| macOS Intel | `.dmg` labeled `x64` or Intel |
 | Linux | `.AppImage` or `.deb` |
 
 Prefer packages attached to an official project Release. When needed, verify the

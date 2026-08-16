@@ -41,8 +41,8 @@ coworker-relay init --deployment native \
 coworker-relay serve
 ```
 
-向导会显示公网地址样例并默认使用 `http://<host>:8443`。无需域名、证书、ACME 或公网
-80 端口；也可以使用 `--deployment container|native` 非交互初始化：
+向导会显示公网地址样例并要求显式输入公网 origin；输入省略端口时才使用默认端口
+`8443`。无需域名、证书、ACME 或公网 80 端口；也可以使用 `--deployment container|native` 非交互初始化：
 
 ```bash
 coworker-relay init \
@@ -68,7 +68,7 @@ coworker-relay init \
 ```text
 RELAY_PUBLIC_URL=http://relay.example.com:8443
 RELAY_LISTEN=:8443
-RELAY_ADMIN_LISTEN=:8444
+RELAY_ADMIN_LISTEN=127.0.0.1:8444
 RELAY_DATABASE=/var/lib/coworker-relay/relay.db
 RELAY_SIGNING_KEY=/var/lib/coworker-relay/relay-signing.key
 RELAY_ADMIN_TOKEN=<至少 24 个字符的随机值>
@@ -107,7 +107,7 @@ Relay 要求 communication token 使用 `cwct_v1_<32-byte-base64url>` 格式。�
 
 “测试连接”会验证真实的配对或控制连接；它不请求公开 `/status`。
 
-## 管理、封禁与备份
+## 管理、封禁、备份与恢复
 
 ```bash
 coworker-relay health
@@ -127,6 +127,18 @@ Relay 对入口挑战签名失败按 `instance_id + 来源 IP` 计数；十分�
 
 升级前备份数据库、`.env` 和 Relay 签名密钥。检测到非 E2EE Relay v1 的数据库 schema
 时，进程会停止并要求先备份，再删除旧数据并重新初始化，不会猜测迁移。
+
+### 恢复
+
+停止 Relay 服务后，从备份恢复数据库：
+
+```bash
+coworker-relay restore --from <backup.db> --database <relay.db>
+```
+
+目标数据库已存在时需要显式加 `--force`，原有文件会被保留为
+`<relay.db>.before-restore-<UTC 时间戳>`。恢复完成后启动 Relay 并用
+`coworker-relay health` 验证。
 
 Relay v1 是单节点服务，不能让多个副本共享 bbolt 数据卷，也不能把同一实例随机分配到
 多个副本。SIGTERM 会停止新连接、关闭隧道并进行有界退出。

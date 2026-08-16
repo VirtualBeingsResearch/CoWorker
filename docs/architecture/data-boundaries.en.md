@@ -23,10 +23,10 @@ The following paths are relative to Coworker's working directory unless configur
 These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you. Protect them with operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and must be handled as credential files.
 
 The default configuration does not automatically synchronize the entire `data/` or `.coworker/`
-directory to a project-operated server, and anonymous telemetry from mem0 and Chroma is explicitly
-disabled. Setting `MEM0_TELEMETRY=true` explicitly in the process environment opts back into mem0
-telemetry. Downloads made by third-party dependencies, model services, and the tools below still
-produce network requests.
+directory to a project-operated server, and explicitly disables anonymous telemetry from mem0 and
+Chroma. Setting `MEM0_TELEMETRY=true` or `ANONYMIZED_TELEMETRY=true` explicitly in the process
+environment opts back into the corresponding telemetry. Downloads made by third-party dependencies,
+model services, and the tools below still produce network requests.
 
 By default, Compose bind-mounts the host Git checkout as the workspace and keeps runtime data and
 the model cache in the separate `coworker-state` and `coworker-models` volumes. When running the

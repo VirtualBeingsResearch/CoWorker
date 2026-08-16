@@ -72,8 +72,9 @@ Start from the closest existing `.coworker/subconscious/*/MODE.md`. Define at le
 - `retire_after`, describing when to pause or archive it;
 - `protected: true` only for a core safety or integrity mode.
 
-A background Bubble's `bubble_done` result is not delivered to the main line by default. Use
-`bubble_send(target="main", ...)` or an allowed persistent store when the main line must see it.
+When a background Bubble finishes, its `bubble_done` result is delivered back to the main line
+as part of the merge message. Use `bubble_send(target="main", ...)` for mid-run delivery, or
+write to an allowed persistent store for durable retention.
 
 ## Localization
 

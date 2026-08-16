@@ -25,15 +25,16 @@ and modify sensitive configuration and perform restart or recovery operations:
 - prefer a separate `API__COMMUNICATION_TOKEN` for routine Desktop traffic.
 
 The confirmation name displayed by the page comes from the current identity.
-Full restore, deletion, restart, and other destructive or state-changing
+Full restore, short-term-memory compression, restart, and other destructive or state-changing
 operations require typing it. This prevents accidental clicks but does not
 replace authorization or backups.
 
 ## First entry
 
-Before initialization, the console shows only first-time setup. After language,
-output-token, Provider, model, and Passive mode settings are saved, Coworker
-restarts. See [First Run](../getting-started/README.en.md) for the complete path.
+Before initialization, the console shows only first-time setup. After the Provider,
+model, API key, and startup-mode settings are saved, Coworker restarts. Runtime language,
+output-token limits, and other full parameters are available under Advanced initialization.
+See [First Run](../getting-started/README.en.md) for the complete path.
 
 After initialization, the management pages are organized into five
 responsibility groups: Observability, Operations, Configuration, Relationships,
@@ -246,7 +247,7 @@ other runtime parameters. The page:
 
 Open **Configuration → Runtime Settings → Channel Access** to configure
 inbound and outbound allow/deny rules by canonical participant address.
-`stream`, `desktop`, `wecom`, and `weixin` always appear in the channel
+`stream`, `desktop`, `wecom`, `weixin`, and `telegram` always appear in the channel
 selector; extension Channels can be added by registered name.
 
 Every channel uses the same default semantics: empty `inbound_allow`,
@@ -358,7 +359,7 @@ this page.
 - Review current model, fallback, and unexpected usage.
 - After tightening channel rules, check Message Traffic for unexpected denials
   or rejection-notice delivery failures.
-- Remove tasks, alarms, and recent interactions that are no longer needed.
+- Review tasks, alarms, and recent interactions, and remove any that are no longer needed.
 - Test that backups restore instead of only checking that backup files exist.
 - Record the current configuration and version before upgrading or changing a
   Provider, memory model, or Relay.

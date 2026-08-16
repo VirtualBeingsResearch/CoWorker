@@ -46,7 +46,8 @@ coworker-relay init --deployment native \
 coworker-relay serve
 ```
 
-The wizard shows a public-origin example and defaults to `http://<host>:8443`. It does not require
+The wizard shows a public-origin example and requires an explicit public origin; the
+default port `8443` applies only when the entered origin omits a port. It does not require
 a domain, certificate, ACME, or public port 80. Use `--deployment container|native` for
 non-interactive initialization:
 
@@ -78,7 +79,7 @@ CLI there. The minimum configuration is:
 ```text
 RELAY_PUBLIC_URL=http://relay.example.com:8443
 RELAY_LISTEN=:8443
-RELAY_ADMIN_LISTEN=:8444
+RELAY_ADMIN_LISTEN=127.0.0.1:8444
 RELAY_DATABASE=/var/lib/coworker-relay/relay.db
 RELAY_SIGNING_KEY=/var/lib/coworker-relay/relay-signing.key
 RELAY_ADMIN_TOKEN=<random value of at least 24 characters>
@@ -122,7 +123,7 @@ must be updated after rotation.
 “Test connection” authenticates a real pairing or control connection; it does not request a public
 `/status`.
 
-## Administration, bans, and backup
+## Administration, bans, backup, and restore
 
 ```bash
 coworker-relay health
@@ -144,6 +145,18 @@ only forwards bounded binary chunks and cannot interpret inner requests or route
 Back up the database, `.env`, and Relay signing key before upgrading. When the database schema is
 not E2EE Relay v1, startup stops with backup, removal, and reinitialization instructions instead of
 guessing a migration.
+
+### Restore
+
+Stop the Relay service, then restore the database from a backup:
+
+```bash
+coworker-relay restore --from <backup.db> --database <relay.db>
+```
+
+Add `--force` when the destination already exists; the previous file is preserved as
+`<relay.db>.before-restore-<UTC timestamp>`. Start Relay again and verify it with
+`coworker-relay health`.
 
 Relay v1 is single-node. Do not share one bbolt volume among replicas or randomly load-balance an
 instance across replicas. SIGTERM stops new connections, closes tunnels, and performs a bounded

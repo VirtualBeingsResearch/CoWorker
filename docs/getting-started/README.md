@@ -45,7 +45,7 @@ embedding 模型，Docker 会自动为 Git 工作区、运行状态和模型缓�
 同一个容器。在记录卷名或完成备份前，不要删除这个容器，也不要执行
 `docker rm -v`；直接 Docker 的[卷检查与备份方法](../operations/backup-and-restore.md#直接运行-docker-镜像)
 见运维文档。准备长期运行时，可迁移到
-[长期运行与部署](../operations/deployment.md#docker-compose--当前-checkout)
+[长期运行与部署](../operations/deployment.md#docker-compose-当前-checkout)
 中的 Compose 配置，以便明确管理卷、重启策略和备份。
 
 ### 从源码运行
@@ -104,16 +104,18 @@ docker compose up --pull always --no-build
 初始化未完成时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息轮询或外部
 Channel。按向导完成：
 
-1. 选择运行时语言；
-2. 设置单次输出 Token 上限；
-3. 选择 Provider 和启动模型；
-4. 输入对应 API Key 与 Base URL（如需要）；
-5. 选择是否启用 Passive mode；
-6. 检查摘要后保存。
+1. 选择 Provider 类型与启动模型；
+2. 输入对应 API Key；
+3. 需要时填写自定义 Base URL；
+4. 可选：给新搭档取一个名字；
+5. 确认页面显示的运行时区（由服务器环境决定）；
+6. 选择主动模式或 Passive mode。
+
+运行语言与单次输出 Token 上限等完整参数在“高级初始化”中调整。
 
 ![Coworker 首次初始化向导](../assets/screenshots/admin-first-run-zh.png)
 
-<p align="center"><sub>首次初始化向导 · 配置运行语言、Provider 与启动模型。</sub></p>
+<p align="center"><sub>首次初始化向导 · 配置 Provider、启动模型与启动模式。</sub></p>
 
 推荐模型目录中的模型已经声明工具调用能力。手动输入目录外模型时，需要确认模型和 API
 网关支持 tool/function calling；向导不会发起可能计费的能力探测。

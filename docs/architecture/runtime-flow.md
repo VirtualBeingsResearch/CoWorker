@@ -9,7 +9,7 @@
 
 ```mermaid
 flowchart LR
-    input["REST · WS/SSE · 文件 · WeCom · Weixin · Desktop"] --> channel["Channel System"]
+    input["REST · WS/SSE · 文件 · WeCom · Weixin · Telegram · Desktop"] --> channel["Channel System"]
     channel --> inbox["统一 IncomingEvent / inbox"]
     inbox --> loop["Agent 主循环"]
     identity["Identity · System Prompt"] --> loop

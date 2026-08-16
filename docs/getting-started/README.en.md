@@ -114,16 +114,19 @@ on operating-system permissions and disk encryption.
 Until setup is complete, Coworker starts only the management HTTP service. It
 does not start the Agent loop, message polling, or external Channels. Complete:
 
-1. runtime language;
-2. maximum output tokens per response;
-3. Provider and startup model;
-4. the API key and Base URL when required;
-5. whether to enable Passive mode;
-6. the final review and save.
+1. Provider type and startup model;
+2. the API key;
+3. a custom Base URL when required;
+4. optionally, a name for the new Coworker;
+5. the displayed runtime timezone, which comes from the server environment;
+6. Active or Passive mode.
+
+Runtime language, maximum output tokens per response, and other full parameters are adjusted
+under Advanced initialization.
 
 ![Coworker first-time setup wizard](../assets/screenshots/admin-first-run-en.png)
 
-<p align="center"><sub>First-time setup wizard · Configure runtime language, Provider, and startup model.</sub></p>
+<p align="center"><sub>First-time setup wizard · Configure Provider, startup model, and startup mode.</sub></p>
 
 Models in the recommended catalog declare tool-calling support. When you enter a
 model outside the catalog, confirm that the model and API gateway support

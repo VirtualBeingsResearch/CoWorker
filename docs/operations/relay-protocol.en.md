@@ -57,10 +57,10 @@ The inner protocol has a fixed ten-byte header:
 version:u8 | type:u8 | stream_id:u32be | payload_length:u32be
 ```
 
-Frames cover client proof, request start/body/end, response start/body/end, cancellation, errors,
-and ping. Headers are ordered `[name, value]` arrays that retain duplicate order. Bodies and SSE
-events stream in chunks. Stream IDs permit concurrency; receivers enforce bounded queues,
-backpressure, frame-size, and header limits.
+Frames cover client proof, client-ready, request start/body/end, response start/body/end,
+cancellation, errors, ping, and pong. Headers are ordered `[name, value]` arrays that
+retain duplicate order. Bodies and SSE events stream in chunks. Stream IDs permit
+concurrency; receivers enforce bounded queues, backpressure, frame-size, and header limits.
 
 After decryption, Coworker applies one Relay exposure policy covering status, Desktop registration,
 messages, SSE, and published desktop updates. Existing ASGI authentication still verifies the

@@ -232,7 +232,7 @@ workflow 时可以关闭 `notarize_macos`，用于先验证证书导入和签名
 
 ```bash
 cd apps/coworker-desktop/desktop
-npm run tauri -- signer generate -- -w ~/.tauri/coworker-desktop.key
+npm run tauri -- signer generate -w ~/.tauri/coworker-desktop.key
 ```
 
 GitHub Secrets：

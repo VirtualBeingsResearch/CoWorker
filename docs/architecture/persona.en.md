@@ -6,7 +6,7 @@ English · [中文](persona.md)
 
 > Person is an **optional, lightweight sub-mechanism**: it gives the model a "person" abstraction for recognizing the same human across multiple channel addresses, maintaining a persona card per person, and merging duplicate people. It embeds into existing mechanisms and can be turned off entirely with `MEMORY__PERSONA_ENABLED=false` — disabled behavior is identical to today.
 
-In the lifeform philosophy, "relationship" is one of the life concepts that constitute the persistent Coworker (see [virtual-life philosophy](lifeform-philosophy.en.md)). Person carries that relationship: `person_id` is the stable anchor; cross-channel address bindings and the agent-maintained card are organized around it and survive restarts through `data/persons.json` and the card files.
+In the lifeform philosophy, "relationship" is one of the life concepts that constitute the persistent Coworker (see [virtual-life philosophy](lifeform-philosophy.en.md)). Person carries that relationship: `person_id` is the stable anchor; cross-channel address bindings and the agent-maintained card are organized around it and survive restarts through `data/memory/persons.json`.
 
 ## How it works
 
@@ -54,4 +54,4 @@ The admin API exposes `GET/POST /api/admin/persons`, `GET/PATCH/DELETE /api/admi
 - **Bubble inheritance**: a card already injected on the main line flows into forked bubble context; fresh-start bubbles need an explicit load (future capability).
 - **States are not conflated**: card (current understanding) ≠ `relationship` memory (recallable facts) ≠ logs (records); stored separately with distinct semantics.
 
-[← Back to project home](../../README.md)
+[← Back to project home](../../README.en.md)
