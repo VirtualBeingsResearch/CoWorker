@@ -43,8 +43,12 @@ export function switchModel(payload: { provider: string; model_id?: string }) {
 }
 
 /** 完整状态（身份证正面身份 + 生命体征的数据源）。后端动态计算 age_days。 */
-export function getStatus() {
-  return requestJson<FullStatus>('/status');
+export function getStatus(communicationToken = '') {
+  return requestJson<FullStatus>('/status', {
+    headers: communicationToken
+      ? { Authorization: `Bearer ${communicationToken}` }
+      : undefined,
+  });
 }
 
 /** Agent 基础档案：身份、目标、最早记忆时间戳。变化慢，建议低频轮询。 */

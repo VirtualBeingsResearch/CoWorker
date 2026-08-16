@@ -26,7 +26,7 @@ console and is not a long-term compatibility promise for independent clients.
 | Endpoint class | Default authentication |
 |---|---|
 | `POST /messages` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
-| `GET /status` | No separate Bearer; relies on loopback/trusted-network isolation |
+| `GET /status` | Requires `Authorization: Bearer <API__COMMUNICATION_TOKEN>` once a communication token is configured; otherwise relies on loopback/trusted-network isolation |
 | Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` and configuration export | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
@@ -91,7 +91,9 @@ the server returns `403` before decoding attachments or queuing the message.
 ### Status and models
 
 ```bash
-curl http://127.0.0.1:8000/status
+# Authorization is required once a communication token is configured
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 curl -X POST http://127.0.0.1:8000/switch_model \
   -H "Content-Type: application/json" \

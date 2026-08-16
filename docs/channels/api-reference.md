@@ -24,7 +24,7 @@
 | 接口 | 默认认证 |
 |---|---|
 | `POST /messages` | 配置通信令牌后要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`；未配置时依赖回环/可信网络边界 |
-| `GET /status` | 无独立 Bearer；依赖回环/可信网络边界 |
+| `GET /status` | 配置通信令牌后要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`；未配置时依赖回环/可信网络边界 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` |
 | `/api/admin/*` 与配置导出 | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
@@ -87,7 +87,9 @@ Authorization: Bearer <API__COMMUNICATION_TOKEN>
 ### 状态与模型
 
 ```bash
-curl http://127.0.0.1:8000/status
+# 配置通信令牌后必须携带 Authorization
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 curl -X POST http://127.0.0.1:8000/switch_model \
   -H "Content-Type: application/json" \

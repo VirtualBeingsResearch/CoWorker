@@ -100,8 +100,9 @@ curl -X POST http://localhost:8000/messages \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 
-# 查看状态
-curl http://localhost:8000/status
+# 查看状态（配置通信令牌后必须携带 Authorization）
+curl http://localhost:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 # 切换模型（provider 为已注册的实例名；省略 model_id 则用该实例配置的 default_model）
 curl -X POST http://localhost:8000/switch_model \
@@ -186,12 +187,12 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 已公告的接管在结束时使用 `phase: "end"`；Bubble 直接回复使用 `kind: "reply"`。不支持结构化 `extra` 的普通信道（如企业微信、Telegram 和微信 Claw）不会收到这段元数据，仍通过接管/结束文本与 `🫧 泡泡：` 回复前缀标识来源；Desktop 已保证消费结构化元数据，因此接收原始正文，不注入也不解析该前缀。
 
-配置了通信令牌时，所有 `POST /messages`（包括普通 REST 消息）以及 `coworker-desktop:*`
-participant 的消息、注册、SSE 和 WebSocket 都要求
+配置了通信令牌时，`POST /messages`、`GET /status`（包括普通 REST 消息与状态查询）以及
+`coworker-desktop:*` participant 的消息、注册、SSE 和 WebSocket 都要求
 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。未单独配置通信令牌时，服务端会回退使用
-管理员令牌，方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`，普通 REST 消息仍依赖
-回环/可信网络边界。需要隔离权限时应显式配置独立令牌。只有将服务端和 Desktop 配置都显式设为
-`development_mode=true` 才会关闭这层校验；该模式仅适用于回环地址的本机调试。
+管理员令牌，方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`，普通 REST 消息与
+状态查询仍依赖回环/可信网络边界。需要隔离权限时应显式配置独立令牌。只有将服务端和 Desktop
+配置都显式设为 `development_mode=true` 才会关闭这层校验；该模式仅适用于回环地址的本机调试。
 
 浏览器示例：
 

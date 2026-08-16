@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
+import { useCommunicationToken } from '../hooks/useCommunicationToken';
 import { t } from '../i18n/admin';
 
 type ChatRole = 'user' | 'assistant';
@@ -59,7 +60,6 @@ type ChatProfile = {
 
 const CHAT_PROFILE_STORAGE_KEY = 'coworker-web-chat-profile';
 const LEGACY_USER_NAME_STORAGE_KEY = 'coworker-web-chat-user-name';
-const CHAT_TOKEN_STORAGE_KEY = 'coworker-web-chat-token';
 const CHAT_HISTORY_PREFIX = 'coworker-web-chat-history:';
 const CHAT_NOTIFICATIONS_STORAGE_KEY = 'coworker-web-chat-notifications';
 const MAX_STORED_MESSAGES = 160;
@@ -134,23 +134,6 @@ function persistChatProfile(profile: ChatProfile) {
     window.localStorage.setItem(LEGACY_USER_NAME_STORAGE_KEY, profile.name);
   } catch {
     // 无存储权限时，当前页面会话仍可继续。
-  }
-}
-
-function readChatToken(): string {
-  try {
-    return window.sessionStorage.getItem(CHAT_TOKEN_STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function persistChatToken(token: string) {
-  try {
-    if (token) window.sessionStorage.setItem(CHAT_TOKEN_STORAGE_KEY, token);
-    else window.sessionStorage.removeItem(CHAT_TOKEN_STORAGE_KEY);
-  } catch {
-    // 敏感信息不落本地长期存储；无 sessionStorage 时仅保留在当前页面状态中。
   }
 }
 
@@ -430,7 +413,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
   const [connectionDetail, setConnectionDetail] = useState('');
   const [nameDraft, setNameDraft] = useState(profile.name);
   const [nameError, setNameError] = useState('');
-  const [chatToken, setChatToken] = useState(readChatToken);
+  const { token: chatToken, setToken: setChatToken } = useCommunicationToken();
   const [tokenDraft, setTokenDraft] = useState(chatToken);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -667,7 +650,6 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     }
 
     const nextToken = tokenDraft.trim();
-    persistChatToken(nextToken);
     setChatToken(nextToken);
 
     const isNewIdentity = nextName !== userName;

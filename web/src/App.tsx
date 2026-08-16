@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Database,
   Hammer,
+  KeyRound,
   Settings2,
   Timer,
   type LucideIcon,
@@ -16,6 +17,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChatDock } from './components/ChatDock';
 import { RuntimeLedger, type RuntimeLogFeed } from './components/RuntimeLedger';
+import { useCommunicationToken } from './hooks/useCommunicationToken';
 import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
@@ -88,9 +90,10 @@ const PROFILE_MARKDOWN_ELEMENTS = ['p', 'strong', 'em', 'ul', 'ol', 'li', 'a', '
 function App() {
   useAdminI18n();
   const [page, setPage] = useState<'identity' | 'details'>('identity');
+  const { token: communicationToken, setToken: setCommunicationToken } = useCommunicationToken();
   // 运行日志：实时订阅后端 /api/logs/stream（InteractionLogger 的唯一 tap）。
   // 身份证正面：轮询 /api/status 回填身份与生命体征（age_days 等由后端按当前日期动态计算）。
-  const { data, error } = useStatus();
+  const { data, error } = useStatus(communicationToken);
   const { data: profile } = useProfile();
   const runtimeLogs = useRuntimeLogStream();
   const { state: rawActivityState } = useMemo(
@@ -119,6 +122,8 @@ function App() {
                 profile={profile}
                 error={error}
                 currentState={effectiveState}
+                communicationToken={communicationToken}
+                onCommunicationTokenChange={setCommunicationToken}
                 onFlip={flip}
               />
             </div>
@@ -133,17 +138,84 @@ function App() {
   );
 }
 
+function StatusTokenControl({
+  token,
+  onChange,
+}: {
+  token: string;
+  onChange: (token: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(token);
+
+  const toggle = () => {
+    if (!open) setDraft(token);
+    setOpen(current => !current);
+  };
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onChange(draft);
+    setOpen(false);
+  };
+
+  const clear = () => {
+    setDraft('');
+    onChange('');
+    setOpen(false);
+  };
+
+  return (
+    <div className="status-token-control">
+      <button
+        type="button"
+        className={`status-token-trigger ${token ? 'is-set' : ''}`}
+        onClick={toggle}
+        aria-expanded={open}
+        aria-label={t('设置通信令牌')}
+      >
+        <KeyRound size={12} aria-hidden="true" />
+        <span>{token ? t('令牌已设置') : t('设置令牌')}</span>
+      </button>
+      {open && (
+        <form className="status-token-pop" onSubmit={submit}>
+          <label htmlFor="status-token-input">{t('通信令牌')}</label>
+          <input
+            id="status-token-input"
+            type="password"
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
+            autoComplete="off"
+            maxLength={4096}
+            autoFocus
+          />
+          <div className="status-token-actions">
+            <button type="submit" className="status-token-save">{t('保存')}</button>
+            <button type="button" className="status-token-clear" onClick={clear}>{t('清除')}</button>
+          </div>
+          <p className="status-token-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function IdentityPage({
   data,
   profile,
   error,
   currentState,
+  communicationToken,
+  onCommunicationTokenChange,
   onFlip,
 }: {
   data: FullStatus;
   profile: ProfileInfo;
   error: string | null;
   currentState: typeof STATES[number];
+  communicationToken: string;
+  onCommunicationTokenChange: (token: string) => void;
   onFlip: () => void;
 }) {
   const identity = data.identity || {};
@@ -172,6 +244,10 @@ function IdentityPage({
           <p className="kicker">{t('虚拟生命体')}</p>
           <div className="id-band-actions">
             <LanguageSwitch className="status-language-toggle" />
+            <StatusTokenControl
+              token={communicationToken}
+              onChange={onCommunicationTokenChange}
+            />
             <a className="admin-entry" href="/admin" aria-label={t('进入照看室')}>
               <Settings2 size={13} />
               <span>{t('照看室')}</span>

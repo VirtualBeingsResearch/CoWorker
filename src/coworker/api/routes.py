@@ -269,7 +269,8 @@ async def get_status(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    if is_authenticated_relay_request(request):
+    # 状态快照同样受通信令牌保护：配置令牌后，无 Bearer 的状态读取返回 401。
+    if is_authenticated_relay_request(request) or bool(_communication_token):
         verify_communication_authorization(authorization)
     if _agent is None:
         return {"status": "not_started"}

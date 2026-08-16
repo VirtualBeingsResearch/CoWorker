@@ -9,7 +9,7 @@ const POLL_INTERVAL = 5000;
  * 生命体征（activity_state/activity_label，驱动背景呼吸）。后端按当前日期动态计算
  * age_days，因此前端不再保留会随时间漂移的硬编码默认值。
  */
-export function useStatus() {
+export function useStatus(communicationToken = '') {
   const [data, setData] = useState<FullStatus>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +19,7 @@ export function useStatus() {
 
     const tick = async () => {
       try {
-        const next = await getStatus();
+        const next = await getStatus(communicationToken);
         if (!active) return;
         setData(next);
         setError(null);
@@ -36,7 +36,7 @@ export function useStatus() {
       active = false;
       clearTimeout(timer);
     };
-  }, []);
+  }, [communicationToken]);
 
   return { data, error };
 }

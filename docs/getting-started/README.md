@@ -148,7 +148,9 @@ Channel。按向导完成：
 先请求状态：
 
 ```bash
-curl http://127.0.0.1:8000/status
+# 配置通信令牌后必须携带；<API__COMMUNICATION_TOKEN> 可替换为管理员令牌
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```
 
 再发送一条消息：

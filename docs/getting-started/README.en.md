@@ -169,7 +169,10 @@ troubleshooting</summary>
 First request status:
 
 ```bash
-curl http://127.0.0.1:8000/status
+# Required once a communication token is configured;
+# <API__COMMUNICATION_TOKEN> may be the administrator token fallback
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 ```
 
 Then send a message:

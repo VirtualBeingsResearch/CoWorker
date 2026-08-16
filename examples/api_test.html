@@ -799,6 +799,12 @@
       <button class="btn btn-secondary btn-sm" id="statusBtn" onclick="fetchStatus()">刷新</button>
     </div>
     <div class="card-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Communication token</label>
+          <input id="statusToken" type="password" placeholder="可选；API__COMMUNICATION_TOKEN" />
+        </div>
+      </div>
       <div id="statusGrid" class="status-grid" style="display:none;"></div>
       <div id="usagePanel" class="usage-panel" style="display:none;"></div>
       <div class="status-response-actions">
@@ -1304,13 +1310,16 @@
 
   async function fetchStatus() {
     const btn = document.getElementById('statusBtn');
+    const token = document.getElementById('statusToken').value.trim();
     btn.disabled = true;
     setLoading('statusResp', '请求中…');
     setStatusJsonExpanded(true);
     document.getElementById('statusGrid').style.display = 'none';
     document.getElementById('usagePanel').style.display = 'none';
     try {
-      const res = await fetch(base() + '/status');
+      const res = await fetch(base() + '/status', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       renderStatus(data);
       setResp('statusResp', data, res.ok);

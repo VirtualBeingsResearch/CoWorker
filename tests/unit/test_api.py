@@ -1033,6 +1033,34 @@ class TestGetStatus:
         result = await routes_mod.get_status(request, "Bearer secret")
         assert result["status"] == "not_started"
 
+    def test_status_requires_matching_bearer_when_token_is_configured(self, client):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._agent = None
+        routes_mod._communication_token = "secret"
+
+        rejected = client.get("/status")
+        accepted = client.get(
+            "/status",
+            headers={"Authorization": "Bearer secret"},
+        )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code == 200
+        assert accepted.json()["status"] == "not_started"
+
+    def test_status_allows_development_mode_bypass(self, client):
+        import coworker.api.routes as routes_mod
+
+        routes_mod._agent = None
+        routes_mod._communication_token = "secret"
+        routes_mod._development_mode = True
+
+        response = client.get("/status")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "not_started"
+
     def test_returns_agent_state(self, client):
         mock_agent = MagicMock()
         mock_agent.state = AgentState(

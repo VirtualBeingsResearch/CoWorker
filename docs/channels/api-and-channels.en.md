@@ -101,8 +101,9 @@ curl -X POST http://localhost:8000/messages \
   -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>" \
   -d '{"sender_id": "alice", "content": "Hi, who are you?"}'
 
-# Check status
-curl http://localhost:8000/status
+# Check status (Authorization is required once a communication token is configured)
+curl http://localhost:8000/status \
+  -H "Authorization: Bearer <API__COMMUNICATION_TOKEN>"
 
 # Switch models (provider is a registered instance name; omit model_id to use its default_model)
 curl -X POST http://localhost:8000/switch_model \
@@ -181,15 +182,16 @@ Outbound channels that support structured `extra` (generic WebSocket/SSE and Des
 
 An announced handoff uses `phase: "end"` when it completes. Direct Bubble replies use `kind: "reply"`. Plain channels without structured `extra` support, such as WeCom, Telegram, and Weixin Claw, do not receive this metadata and retain textual takeover/completion notices plus the `🫧 泡泡：` reply prefix; Desktop has guaranteed support for the structured metadata, so it receives the original reply body and neither injects nor parses that prefix.
 
-When a communication token is configured, every `POST /messages` request (including ordinary
-REST messages) and all messages, registration, SSE, and WebSocket operations for
-`coworker-desktop:*` participants require `Authorization: Bearer <API__COMMUNICATION_TOKEN>`.
-When no dedicated communication token is configured, the server falls back to the administrator
-token for a smoother first local connection; when neither is configured, Desktop communication
-returns `503` while ordinary REST messages still rely on loopback/trusted-network isolation.
-Configure a dedicated token when the permissions must be isolated. This check is disabled only when
-both the server and Desktop explicitly set `development_mode=true`; that mode is only for local
-debugging on a loopback address.
+When a communication token is configured, `POST /messages` and `GET /status` (including
+ordinary REST messages and status reads) and all messages, registration, SSE, and WebSocket
+operations for `coworker-desktop:*` participants require
+`Authorization: Bearer <API__COMMUNICATION_TOKEN>`. When no dedicated communication token is
+configured, the server falls back to the administrator token for a smoother first local
+connection; when neither is configured, Desktop communication returns `503` while ordinary REST
+messages and status reads still rely on loopback/trusted-network isolation. Configure a dedicated
+token when the permissions must be isolated. This check is disabled only when both the server and
+Desktop explicitly set `development_mode=true`; that mode is only for local debugging on a loopback
+address.
 
 Browser examples:
 
