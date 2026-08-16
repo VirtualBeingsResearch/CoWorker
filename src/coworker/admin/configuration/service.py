@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from coworker.core.config import (
     Config,
     _deep_merge,
+    effective_communication_token,
     load_admin_overrides,
     sparse_admin_overrides,
     write_admin_overrides,
@@ -62,6 +63,7 @@ HOT_CONFIG_PATHS = {
     "memory.auto_recall_enabled",
     "memory.auto_recall_relevance_threshold",
     "memory.auto_recall_limit",
+    "api.communication_token",
 } | MEM0_LLM_CONFIG_PATHS
 
 _SOURCE_TOKEN_PATH_RE = re.compile(
@@ -250,7 +252,9 @@ class AdminConfigService:
         _remove_telegram_bot_tokens(safe_changes)
         _preserve_telegram_bot_tokens(safe_changes, current_overrides)
 
-        next_overrides = dict(current_overrides)
+        # Deep-copy so secret merging below cannot mutate ``current_overrides``
+        # before it is used to compute the pre-update running config.
+        next_overrides = json.loads(json.dumps(current_overrides))
         for clear_path in update.clear_overrides:
             if not self._config_field_exists(clear_path):
                 raise ConfigUpdateError(
@@ -549,6 +553,18 @@ class AdminConfigService:
                 store = getattr(self._dependencies.agent, "_bubble_store", None)
                 if store is not None:
                     store.max_concurrent = desired.agent.bubble_max_concurrent
+            elif path == "api.communication_token":
+                # 管理后台保存通信令牌后立即替换现有 ASGI 路由的校验值。
+                # 显式清空时回退到管理员令牌，并保持“未显式配置”标记。
+                from coworker.api.routes import update_communication_token
+
+                explicit = bool(desired.api.communication_token)
+                update_communication_token(
+                    desired.api.communication_token
+                    if explicit
+                    else effective_communication_token(desired),
+                    explicit=explicit,
+                )
 
     def _refresh_pending_restart(
         self,

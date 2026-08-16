@@ -122,12 +122,14 @@ def verify_communication_authorization(authorization: str | None) -> None:
         )
 
 
-def update_communication_token(token: str) -> None:
+def update_communication_token(token: str, explicit: bool | None = None) -> None:
     """Atomically replace the communication token used by existing ASGI routes."""
 
     global _communication_token, _communication_token_explicit
     _communication_token = token.strip()
-    _communication_token_explicit = bool(_communication_token)
+    _communication_token_explicit = (
+        bool(_communication_token) if explicit is None else explicit
+    )
 
 
 def communication_token_required() -> bool:

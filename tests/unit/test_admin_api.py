@@ -912,6 +912,47 @@ def test_readding_removed_provider_clears_pending_restart(tmp_path, monkeypatch)
     assert restored.json()["pending_restart"] is False
 
 
+def test_config_patch_hot_applies_communication_token(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    snapshot = client.get("/api/admin/config", headers=headers).json()
+    assert "api.communication_token" in snapshot["hot_reloadable"]
+
+    import coworker.api.routes as routes_mod
+
+    routes_mod._communication_token = "old-token"
+    routes_mod._communication_token_explicit = False
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {}, "secrets": {"api.communication_token": "desktop-new"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["api.communication_token"]
+    assert response.json()["requires_restart"] == []
+    assert response.json()["pending_restart"] is False
+    assert routes_mod._communication_token == "desktop-new"
+    assert routes_mod._communication_token_explicit is True
+    assert config.api.communication_token == "desktop-new"
+
+    cleared = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={"changes": {}, "secrets": {"api.communication_token": ""}},
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["applied_now"] == ["api.communication_token"]
+    assert cleared.json()["requires_restart"] == []
+    assert cleared.json()["pending_restart"] is False
+    assert routes_mod._communication_token == "secret"
+    assert routes_mod._communication_token_explicit is False
+    assert config.api.communication_token == ""
+
+
 def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}

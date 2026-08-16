@@ -243,7 +243,8 @@ other runtime parameters. The page:
 - distinguishes hot updates from restart-required changes;
 - provides dedicated management panels for some Channels;
 - offers a Generate button beside `API__COMMUNICATION_TOKEN` to create a
-  Relay-compatible high-entropy communication token.
+  Relay-compatible high-entropy communication token; saving applies it
+  immediately without a restart.
 
 #### Channel Access
 
