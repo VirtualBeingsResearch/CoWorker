@@ -72,8 +72,6 @@ digest，并保留升级前的数据备份。
 - 若在可信内网前置反向代理，代理层终止 TLS，设置精确的 `API__CORS_ORIGINS` 和强
   `API__COMMUNICATION_TOKEN`，并限制来源网络。将 `API__PUBLIC_URL` 设为浏览器实际访问
   的公开 origin，使初始化和重启始终返回反向代理地址，而不是内部监听端口。
-- `API__DEVELOPMENT_MODE` 仅作兼容保留，不再关闭任何 API 通信 Bearer 检查；Desktop 侧
-  HTTPS 检查由 Desktop `security.development_mode` 控制。
 - 公网 Desktop 按[自托管 Relay](relay.md)部署。Relay 不是通用 HTTP/TCP 代理。
 
 ## 健康、日志与容量

@@ -191,7 +191,6 @@ an explicitly set communication token, those endpoints keep their pre-authentica
 Desktop communication falls back to the administrator token when no dedicated token is explicitly
 set for a smoother first local connection; when neither is configured, Desktop communication
 returns `503`. Configure a dedicated token when the permissions must be isolated.
-`API__DEVELOPMENT_MODE` does not disable API communication authentication.
 
 Browser examples:
 

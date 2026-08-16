@@ -36,8 +36,6 @@ _communication_token = ""
 # 只有管理员显式设置了 API__COMMUNICATION_TOKEN 才认为通信令牌“已配置”。
 # _communication_token 仍可携带管理员令牌回退值，供 Desktop 兼容校验。
 _communication_token_explicit = False
-# development_mode 仅保留参数兼容；通信 Bearer 校验始终生效，不再受它影响。
-_development_mode = False
 _channels: ChannelRegistry | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
@@ -73,12 +71,11 @@ def setup(
     usage_stats: UsageStatsCollector | None = None,
     model_config_path: str | Path = "data/model_runtime_config.json",
     communication_token: str = "",
-    development_mode: bool = False,
     channels: ChannelRegistry | None = None,
     communication_token_explicit: bool | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
-    global _communication_token, _communication_token_explicit, _development_mode, _channels
+    global _communication_token, _communication_token_explicit, _channels
     _inbox = inbox
     _agent = agent
     _brain = brain
@@ -90,8 +87,6 @@ def setup(
         if communication_token_explicit is None
         else communication_token_explicit
     )
-    # 保留字段以兼容既有启动参数；API 侧通信认证不再提供 development_mode 绕过。
-    _development_mode = development_mode
     _channels = channels
 
 

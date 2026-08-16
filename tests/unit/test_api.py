@@ -62,7 +62,6 @@ def client(tmp_path):
     routes_mod._communication_token = ""
     routes_mod._communication_token_explicit = False
     routes_mod._channels = None
-    routes_mod._development_mode = False
     routes_mod._seen_desktop_message_ids.clear()
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
@@ -79,12 +78,11 @@ def client(tmp_path):
 
 
 def test_api_defaults_bind_locally_and_require_desktop_authentication(monkeypatch):
-    for name in ("API__HOST", "API__DEVELOPMENT_MODE", "API__CORS_ORIGINS"):
+    for name in ("API__HOST", "API__CORS_ORIGINS"):
         monkeypatch.delenv(name, raising=False)
     config = APIConfig(_env_file=None)
 
     assert config.host == "127.0.0.1"
-    assert config.development_mode is False
     assert "*" not in config.cors_origins
 
 
@@ -645,35 +643,6 @@ class TestPostMessages:
         assert desktop.status_code == 200
         assert mock_inbox.push.await_count == 2
 
-    def test_plain_rest_message_keeps_token_requirement_in_development_mode(
-        self, client, tmp_path
-    ):
-        mock_inbox = MagicMock()
-        mock_inbox.push = AsyncMock()
-        communication = _channel_system(tmp_path, mock_inbox.push)
-        setup_routes(
-            mock_inbox,
-            MagicMock(),
-            MagicMock(),
-            communication_token="secret",
-            development_mode=True,
-            channels=communication.registry,
-        )
-
-        rejected = client.post(
-            "/messages",
-            json={"sender_id": "integration:alice", "content": "hello"},
-        )
-        accepted = client.post(
-            "/messages",
-            json={"sender_id": "integration:alice", "content": "hello"},
-            headers={"Authorization": "Bearer secret"},
-        )
-
-        assert rejected.status_code == 401
-        assert accepted.status_code == 200
-        mock_inbox.push.assert_awaited_once()
-
 
 class TestSSE:
     def test_format_sse_single_line(self):
@@ -1193,25 +1162,6 @@ class TestGetStatus:
             "communication_token_configured": True,
             "authenticated": True,
         }
-
-    def test_status_keeps_token_requirement_in_development_mode(self, client):
-        import coworker.api.routes as routes_mod
-
-        routes_mod._agent = None
-        routes_mod._communication_token = "secret"
-        routes_mod._communication_token_explicit = True
-        routes_mod._development_mode = True
-
-        public = client.get("/status")
-        authenticated = client.get(
-            "/status",
-            headers={"Authorization": "Bearer secret"},
-        )
-
-        assert public.status_code == 200
-        assert public.json()["authenticated"] is False
-        assert authenticated.status_code == 200
-        assert authenticated.json()["authenticated"] is True
 
     def test_status_public_subset_hides_model_and_usage(self, client):
         import coworker.api.routes as routes_mod

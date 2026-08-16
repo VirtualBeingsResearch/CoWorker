@@ -32,8 +32,7 @@
 
 只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照和运行日志流才启用
 通信 Bearer 校验；未显式设置时这些接口保持旧行为。Desktop 通信未显式设置令牌时回退使用
-管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。`API__DEVELOPMENT_MODE`
-不会关闭 API 通信校验。
+管理员令牌。长期使用应显式设置独立的 `API__COMMUNICATION_TOKEN`。
 
 ## 核心 HTTP 接口
 

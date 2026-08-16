@@ -166,8 +166,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `API__PORT` | `8000` | API 监听端口 |
 | `API__PUBLIC_URL` | 空 | 反向代理后浏览器访问的公开 HTTP(S) 根地址，只能包含 scheme、host 和可选端口；首次初始化重连优先使用它，而不是内部监听地址 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
-| `API__DEVELOPMENT_MODE` | `false` | 兼容保留；不再关闭任何 API 通信 Bearer 校验，Desktop 侧 HTTPS 校验仍由 Desktop `security.development_mode` 控制 |
-| `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | 生产通信 Bearer 令牌；配置后保护 Desktop 通信、普通 REST 消息与 `/status` 完整快照，需要与管理权限隔离时单独配置 |
+| `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | 生产通信 Bearer 令牌；显式设置后保护 Desktop 通信、普通 REST 消息、运行日志流与 `/status` 完整快照，需要与管理权限隔离时单独配置 |
 | `CHANNEL_ACCESS` | `{}` | 按信道设置 participant 入站/出站访问列表的 JSON 对象；每项可含 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` |
 | `ADMIN__TOKEN` | 首次启动自动生成 | `/admin` 管理控制台和 `/api/admin/*` 的 Bearer 令牌；自动值会保存到管理端配置文件 |
 | `ADMIN__CONFIG_FILE` | `data/admin_config.json` | 管理页保存的 typed JSON 覆盖层，优先级高于 `.env`；非热更新配置重启后生效 |

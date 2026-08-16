@@ -1373,7 +1373,6 @@ const CONFIG_LABELS: Record<string, string> = {
   'api.port': 'API 监听端口',
   'api.public_url': 'API 公开访问地址',
   'api.communication_token': '通信令牌',
-  'api.development_mode': 'API 开发模式（不再关闭通信校验）',
   'api.cors_origins': '允许的跨域来源',
   'relay.enabled': '启用 Relay',
   'relay.url': 'Relay 地址',

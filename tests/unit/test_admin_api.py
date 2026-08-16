@@ -1971,7 +1971,6 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
                 "api": {
                     "port": 8124,
                     "public_url": "https://coworker.example.com",
-                    "development_mode": True,
                     "cors_origins": ["https://desktop.example"],
                 },
                 "relay": {

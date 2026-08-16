@@ -192,8 +192,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 要求 `Authorization: Bearer <API__COMMUNICATION_TOKEN>`。此时 `GET /status` 未携带有效令牌
 只返回基础生命周期信息，携带令牌后才返回模型配置与用量；未显式设置通信令牌时，这些接口保持
 引入认证前的行为。Desktop 通信未显式设置令牌时回退使用管理员令牌，方便本机首次连接；两者都
-未配置时，Desktop 通信会返回 `503`。需要隔离权限时应显式配置独立令牌。`API__DEVELOPMENT_MODE`
-不会关闭 API 通信校验。
+未配置时，Desktop 通信会返回 `503`。需要隔离权限时应显式配置独立令牌。
 
 浏览器示例：
 

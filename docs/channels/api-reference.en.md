@@ -36,7 +36,7 @@ Communication Bearer checks for ordinary REST messages, full status snapshots, a
 log stream apply only after `API__COMMUNICATION_TOKEN` is explicitly set; without it those
 endpoints keep their previous behavior. Desktop communication falls back to the administrator
 token when no dedicated token is explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running
-use. `API__DEVELOPMENT_MODE` does not disable API communication authentication.
+use.
 
 ## Core HTTP endpoints
 

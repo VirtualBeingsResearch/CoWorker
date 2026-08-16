@@ -78,9 +78,6 @@ Do not run as root or grant file access beyond the intended workspace. Run
   strong `API__COMMUNICATION_TOKEN`, and restrict source networks. Set `API__PUBLIC_URL` to the
   browser-facing public origin so setup and restart return through the proxy instead of an internal
   bind port.
-- `API__DEVELOPMENT_MODE` is kept only for compatibility and no longer disables any API
-  communication Bearer check. Desktop-side HTTPS enforcement remains controlled by Desktop
-  `security.development_mode`.
 - For public Desktop access, deploy [Self-hosted Relay](relay.en.md). Relay is not a general HTTP/TCP proxy.
 
 ## Health, logs, and capacity
