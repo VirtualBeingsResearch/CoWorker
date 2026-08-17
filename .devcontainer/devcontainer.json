@@ -15,18 +15,6 @@
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
   "postCreateCommand": "uv sync --frozen --dev",
-  "forwardPorts": [
-    8000,
-    8100
-  ],
-  "portsAttributes": {
-    "8000": {
-      "label": "CoWorker API"
-    },
-    "8100": {
-      "label": "Explore Lab"
-    }
-  },
   "customizations": {
     "vscode": {
       "settings": {
