@@ -48,7 +48,7 @@ extension, then run **Dev Containers: Reopen in Container** from the repository.
 - installs Python 3.14, uv, Node.js 24, and FFmpeg;
 - installs the locked Python development dependencies and Linux CPU build of PyTorch;
 - installs Playwright Chromium and its Linux system libraries;
-- no longer pre-forwards ports `8000` (CoWorker API) and `8100` (Explore Lab); use the VS Code Ports view to forward them manually when needed (VS Code may also auto-forward ports it detects listening in the container).
+- the Dev Container configures no port forwarding by default; to open them from the host browser, forward `8000` (CoWorker API) or `8100` (Explore Lab) manually in the VS Code Ports view — VS Code may also auto-forward ports it detects listening in the container.
 
 The source checkout remains bind-mounted from the host, while the container's Python environment
 lives at `/opt/venv`. After creation, run the `uv run ...`, `npm ...`, and test commands from this

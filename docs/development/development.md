@@ -50,7 +50,7 @@ Silicon 则使用原生 `linux/arm64`，不需要强制模拟 x86。
 - 安装 Python 3.14、uv、Node.js 24 和 FFmpeg；
 - 通过锁文件安装 Python 开发依赖和 Linux CPU 版 PyTorch；
 - 安装 Playwright Chromium 及其 Linux 系统库；
-- 不再预置 `8000`（CoWorker API）和 `8100`（Explore Lab）的端口转发；需要从宿主机浏览器访问时，在 VS Code 的 Ports 视图手动转发（VS Code 检测到容器内监听端口时也可能自动转发）。
+- Dev Container 默认不配置端口转发；需要从宿主机浏览器访问时，在 VS Code 的 Ports 视图手动转发 `8000`（CoWorker API）或 `8100`（Explore Lab），VS Code 检测到容器内监听端口时也可能自动转发。
 
 源码仍由宿主机目录挂载，容器内的 Python 环境位于 `/opt/venv`。容器创建完成后，
 可直接运行本文中的 `uv run ...`、`npm ...` 和测试命令。依赖或锁文件发生变化后，
