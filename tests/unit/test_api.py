@@ -705,6 +705,10 @@ class TestSSE:
         paths = {getattr(r, "path", None) for r in api_app.app.routes}
         assert "/sse/{participant_id}" in paths
 
+    def test_config_export_route_not_registered(self):
+        paths = {getattr(r, "path", None) for r in api_app.app.routes}
+        assert "/api/export_config" not in paths
+
     @pytest.mark.asyncio
     async def test_connection_pool_sends_structured_payload_as_json(self):
         sent: list[str] = []

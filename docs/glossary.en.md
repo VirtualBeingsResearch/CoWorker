@@ -26,7 +26,6 @@
 | fallback | Ordered Provider/model chain used after main-model failure |
 | Relay | Self-hosted single-node entry point forwarding end-to-end-encrypted bytes between remote Desktop and Coworker |
 | Bridge | Rust runtime in Desktop connecting Local, Codex, Claude Code, and Coworker |
-| Explore Lab | Development tool for branching, stepping, replaying, and comparing sensitive instance snapshots |
 | Emergency backup | Short-term-context snapshot after repeated Agent errors, not a full disaster backup |
 | `restart_self` | Main-line tool that validates the current code, snapshots context, and requests a safe launcher restart |
 

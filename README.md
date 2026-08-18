@@ -270,7 +270,7 @@ curl -X POST http://127.0.0.1:8000/messages \
 | [故障排查](docs/operations/troubleshooting.md) | 服务、模型、记忆、Desktop、Relay 与容器的检查顺序 |
 | [自托管中继（Relay）](docs/operations/relay.md) | 通过端到端加密从内网提供 Desktop通信、部署、配对、备份与运维 |
 | [核心概念与能力](docs/architecture/concepts.md) | 工具、目录、记忆树、重启恢复与记忆宫殿 |
-| [开发指南](docs/development/development.md) | 本地检查与 Explore Lab |
+| [开发指南](docs/development/development.md) | 本地开发与检查 |
 
 ## 开发与贡献
 

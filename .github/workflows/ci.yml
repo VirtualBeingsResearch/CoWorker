@@ -221,15 +221,13 @@ jobs:
       - name: Check versions
         run: uv run --frozen python scripts/check_version.py
       - name: Lint Python
-        run: uv run --frozen ruff check src tests scripts apps/explore-lab/backend
+        run: uv run --frozen ruff check src tests scripts
       - name: Type-check Python
         run: uv run --frozen mypy src
       - name: Install Chromium
         run: uv run --frozen playwright install --with-deps chromium
       - name: Test Coworker
         run: uv run --frozen pytest -q
-      - name: Test Explore Lab
-        run: uv run --project apps/explore-lab/backend --frozen pytest -q apps/explore-lab/backend/tests
 
   python_latest:
     name: Python install (3.14)
@@ -324,9 +322,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Explore Lab
-            directory: apps/explore-lab/frontend
-            test: false
           - name: Desktop
             directory: apps/coworker-desktop/desktop
             test: true

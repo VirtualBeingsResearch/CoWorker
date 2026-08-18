@@ -80,7 +80,6 @@ Runtime configuration, model providers, multi-instance setup, and operational gu
 Local development, validation, contribution, and security workflows.
 
 - [Development guide](development/development.en.md)
-- [Explore Lab Usage and Development](development/explore-lab.en.md)
 - [Desktop development and release](development/desktop.en.md)
 - [Documentation Maintenance](development/documentation.en.md)
 - [Contributing guide](../CONTRIBUTING.en.md)

@@ -80,7 +80,6 @@ REST、SSE、WebSocket、文件、企业微信、Telegram 和 Coworker Desktop �
 本地开发、验证、贡献和安全协作流程。
 
 - [开发指南](development/development.md)
-- [Explore Lab 使用与开发](development/explore-lab.md)
 - [Desktop 开发与发布](development/desktop.md)
 - [文档维护规范](development/documentation.md)
 - [贡献指南](../CONTRIBUTING.md)

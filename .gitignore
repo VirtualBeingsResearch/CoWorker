@@ -54,8 +54,4 @@ Thumbs.db
 # Encrypted SA password storage
 credentials/
 
-# 探索平台：experiments 元数据 + 各分支 workdir（含导入的密钥/运行时状态）
-apps/explore-lab/backend/data/
-apps/explore-lab/frontend/node_modules/
-apps/explore-lab/frontend/dist/
 *.remote

@@ -30,7 +30,7 @@
 | `WebSocket /ws/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 要求 |
 | `SSE /sse/{participant_id}` | 显式设置令牌后所有连接要求 Bearer；未显式设置时仅 `coworker-desktop:*` 与 Relay 内层请求要求 |
 | Desktop participant、Desktop 注册、Relay 内层请求 | `Authorization: Bearer <API__COMMUNICATION_TOKEN>`（未显式设置时回退管理员令牌） |
-| `/api/admin/*` 与配置导出 | 管理员令牌 |
+| `/api/admin/*` | 管理员令牌 |
 | Desktop 发布管理 | Desktop update 管理令牌或管理员令牌 |
 
 只有显式设置 `API__COMMUNICATION_TOKEN` 后，普通 REST 消息、完整状态快照、身份档案、运行日志流、
@@ -143,8 +143,8 @@ FastAPI 错误通常为：
 
 ## 管理与发布接口
 
-`/api/admin/*`、`/api/desktop-updates/*` 和 `/api/export_config` 会修改配置、恢复状态、
-发布制品或导出包含密钥的数据。除非你在开发同版本官方管理端，否则优先使用 Web 界面；
+`/api/admin/*` 和 `/api/desktop-updates/*` 会修改配置、恢复状态或发布制品。除非你在开发
+同版本官方管理端，否则优先使用 Web 界面；
 调用前阅读 [Web 管理后台](../guides/README.md) 和[数据与信任边界](../architecture/data-boundaries.md)。
 
 [← 返回项目首页](../../README.md)

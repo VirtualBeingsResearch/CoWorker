@@ -32,7 +32,7 @@ console and is not a long-term compatibility promise for independent clients.
 | `WebSocket /ws/{participant_id}` | Requires a Bearer for every connection once a token is explicitly set; otherwise only `coworker-desktop:*` IDs require one |
 | `SSE /sse/{participant_id}` | Requires a Bearer for every connection once a token is explicitly set; otherwise only `coworker-desktop:*` IDs and inner Relay requests require one |
 | Desktop participants, Desktop registration, and inner Relay requests | `Authorization: Bearer <API__COMMUNICATION_TOKEN>` (administrator-token fallback when not explicitly set) |
-| `/api/admin/*` and configuration export | Administrator token |
+| `/api/admin/*` | Administrator token |
 | Desktop release management | Desktop-update administrator token or administrator token |
 
 Communication Bearer checks for ordinary REST messages, full status snapshots, the identity
@@ -153,8 +153,8 @@ for bounded deduplication. Custom integrations should avoid repeating side-effec
 
 ## Management and release endpoints
 
-`/api/admin/*`, `/api/desktop-updates/*`, and `/api/export_config` can change configuration,
-restore state, publish artifacts, or export secrets. Unless you are developing the matching
+`/api/admin/*` and `/api/desktop-updates/*` can change configuration, restore state, or publish
+artifacts. Unless you are developing the matching
 official console, prefer the Web UI and read [Web Management Console](../guides/README.en.md) and
 [Data and Trust Boundaries](../architecture/data-boundaries.en.md) first.
 

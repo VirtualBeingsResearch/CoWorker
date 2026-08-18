@@ -54,9 +54,6 @@ coworker = "coworker.__main__:main_sync"
 [tool.hatch.build.targets.wheel]
 packages = ["src/coworker"]
 
-[tool.uv.workspace]
-members = ["apps/explore-lab/backend"]
-
 [tool.uv.sources]
 torch = { index = "pytorch-cpu"}
 # uncomment it when you want to use Nvidia GPU
