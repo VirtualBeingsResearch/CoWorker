@@ -545,7 +545,7 @@ class SubconsciousScheduler:
         if garden is None:
             logger.debug("Subconscious garden skipped: 'garden' mode not loaded")
             return False
-        if self._palace_loader is None or self._long_term is None or self._long_term._mem is None:
+        if self._palace_loader is None or self._long_term is None or not self._long_term.is_ready():
             return False
         palaces = self._palace_loader.list_all()
         if not palaces:
@@ -588,10 +588,9 @@ class SubconsciousScheduler:
                         tr(
                             "subconscious.memory_item",
                             index=i,
-                            id=m["id"],
-                            category=m["category"],
-                            content=m["content"],
-                            relevance=f"{m['relevance']:.2f}",
+                            id=m.id,
+                            category=m.category,
+                            content=m.content,
                         )
                     )
                 ctx.append(Message(role="system", content="\n".join(lines)))

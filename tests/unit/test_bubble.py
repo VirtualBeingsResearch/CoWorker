@@ -24,6 +24,7 @@ from coworker.core.types import (
     ToolResult,
 )
 from coworker.i18n import locale_context
+from coworker.memory.base import MemoryRecord
 from coworker.tools.bubble_tools import (
     BubbleCancelTool,
     BubbleCheckTool,
@@ -2086,10 +2087,10 @@ class TestBubbleSpawnPalaces:
         mock_brain.think = AsyncMock(return_value=_make_response(content="done"))
 
         long_term = MagicMock()
-        long_term._mem = object()  # not None → recall runs
+        long_term.is_ready = MagicMock(return_value=True)
         # query_by_tags does the tag filtering (tested in test_long_term); here it returns the matched set
         long_term.query_by_tags = AsyncMock(return_value=[
-            {"id": "m1", "category": "experience", "content": "登录页 bug 复现要点", "tags": ["product", "bug"], "relevance": 0.9},
+            MemoryRecord(id="m1", category="experience", content="登录页 bug 复现要点", tags=["product", "bug"]),
         ])
         tool = self._make_tool(tmp_path, store, st, mock_brain, mock_registry, mock_prompt_builder, mock_inbox, long_term=long_term)
         await tool.execute(goal="提个 bug", palaces=["product-bug"], fresh_start=True)
@@ -2109,10 +2110,10 @@ class TestBubbleSpawnPalaces:
         st.pinned_as_messages.return_value = []
         mock_brain.think = AsyncMock(return_value=_make_response(content="done"))
         long_term = MagicMock()
-        long_term._mem = object()
+        long_term.is_ready = MagicMock(return_value=True)
         long_term.query_by_tags = AsyncMock(return_value=[
-            {"id": "m1", "category": "experience", "content": "登录页 bug 复现要点",
-             "tags": ["product", "bug"], "relevance": 0.9},
+            MemoryRecord(id="m1", category="experience", content="登录页 bug 复现要点",
+                         tags=["product", "bug"]),
         ])
         tool = self._make_tool(tmp_path, store, st, mock_brain, mock_registry, mock_prompt_builder, mock_inbox, long_term=long_term)
         await tool.execute(goal="提个 bug", palaces=["product-bug"], fresh_start=True)
@@ -2123,7 +2124,7 @@ class TestBubbleSpawnPalaces:
         assert inj["palaces"] == ["product-bug"]
         assert inj["tags"] == ["product", "bug"]
         assert inj["critical_skills"] == ["bug-create"]
-        assert [m["id"] for m in inj["recalled"]] == ["m1"]
+        assert [m.id for m in inj["recalled"]] == ["m1"]
 
 
 class TestPalaceWriteBack:
@@ -2131,7 +2132,7 @@ class TestPalaceWriteBack:
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
     ):
         long_term = MagicMock()
-        long_term._mem = object()
+        long_term.is_ready = MagicMock(return_value=True)
         long_term.write = AsyncMock(return_value="new_id")
 
         done_tc = ToolCall(id="c1", name="bubble_done", arguments={"result": "bug 单已提交"})
@@ -2156,7 +2157,7 @@ class TestPalaceWriteBack:
         self, store, messages, mock_brain, mock_inbox, mock_registry, tmp_path
     ):
         long_term = MagicMock()
-        long_term._mem = object()
+        long_term.is_ready = MagicMock(return_value=True)
         long_term.write = AsyncMock()
 
         done_tc = ToolCall(id="c1", name="bubble_done", arguments={"result": "结论"})
@@ -2189,7 +2190,7 @@ class TestPalaceLogging:
         b.palace_injection = {
             "palaces": ["product-bug"], "tags": ["product", "bug"],
             "critical_skills": ["bug-create"], "related_skills": ["issue-tracker"],
-            "recalled": [{"id": "m1", "category": "experience", "content": "复现要点", "relevance": 0.9}],
+            "recalled": [MemoryRecord(id="m1", category="experience", content="复现要点")],
         }
         loop = BubbleMiniLoop(
             bubble=b, brain=mock_brain, tool_registry=mock_registry, system_prompt="sys",

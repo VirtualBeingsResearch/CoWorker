@@ -337,6 +337,8 @@ class MemoryConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="MEMORY__", env_file=".env", extra="ignore")
 
     db_path: str = "data/memory"
+    # 长期记忆后端：mem0 为默认后端，file 为最简文件存储后端。
+    backend: Literal["mem0", "file"] = "mem0"
     short_term_max_tokens: int = Field(default=120_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。
     compress_ratio: float = Field(default=0.30, gt=0, lt=1)

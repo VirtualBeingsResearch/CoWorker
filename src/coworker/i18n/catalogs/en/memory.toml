@@ -56,7 +56,6 @@ filter_needs_query = "Searching long-term memory by category/tags requires query
 needs_input = "query_memory requires query or both start and end."
 time_parse_failed = "Failed to parse time: {{error}}"
 none = "No relevant memories found."
-relevance = "relevance: {{value}}"
 query_failed = "{{source}} query failed: {{error}}"
 combined_none = "No relevant time-window record or long-term memory was found."
 hint = "[note] {{message}}"

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from loguru import logger
 
+from coworker.memory.base import MemoryRecord
 from coworker.memory.long_term import MemoryWriteResult
 from coworker.memory.memory_tree import MemoryNode
 from coworker.memory.short_term import ShortTermMemory
@@ -83,8 +84,8 @@ class TestQueryMemoryTool:
     @pytest.mark.asyncio
     async def test_results_include_id(self):
         records = [
-            {"id": "id-001", "category": "knowledge", "content": "Python 是一种编程语言", "relevance": 0.95, "tags": [], "timestamp": ""},
-            {"id": "id-002", "category": "task", "content": "明天开会", "relevance": 0.80, "tags": [], "timestamp": ""},
+            MemoryRecord(id="id-001", category="knowledge", content="Python 是一种编程语言", tags=[], timestamp=""),
+            MemoryRecord(id="id-002", category="task", content="明天开会", tags=[], timestamp=""),
         ]
         tool = QueryMemoryTool(_make_memory(records))
         result = await tool.execute(query="编程")
@@ -92,7 +93,6 @@ class TestQueryMemoryTool:
         assert "id-001" in result.content
         assert "id-002" in result.content
         assert "knowledge" in result.content
-        assert "0.95" in result.content
 
     @pytest.mark.asyncio
     async def test_passes_category_and_limit(self):
@@ -111,7 +111,7 @@ class TestQueryMemoryTool:
     @pytest.mark.asyncio
     async def test_results_show_tags(self):
         records = [
-            {"id": "id-001", "category": "knowledge", "content": "内容", "relevance": 0.95, "tags": ["product", "bug"], "timestamp": ""},
+            MemoryRecord(id="id-001", category="knowledge", content="内容", tags=["product", "bug"], timestamp=""),
         ]
         tool = QueryMemoryTool(_make_memory(records))
         result = await tool.execute(query="x")
@@ -206,13 +206,12 @@ class TestQueryMemoryTool:
         brain.summarize = AsyncMock(return_value='{"summary":"不应出现"}')
         tool = QueryMemoryTool(
             _make_memory([
-                {
-                    "id": "id-001",
-                    "category": "task",
-                    "content": "长期记忆证据",
-                    "relevance": 0.8,
-                    "tags": [],
-                }
+                MemoryRecord(
+                    id="id-001",
+                    category="task",
+                    content="长期记忆证据",
+                    tags=[],
+                )
             ]),
             brain=brain,
         )
@@ -228,13 +227,12 @@ class TestQueryMemoryTool:
     @pytest.mark.asyncio
     async def test_long_term_limit_is_respected(self, tmp_path):
         long_term = [
-            {
-                "id": f"long-{i}",
-                "category": "knowledge",
-                "content": f"长期记忆 {i}",
-                "relevance": 0.8,
-                "tags": [],
-            }
+            MemoryRecord(
+                id=f"long-{i}",
+                category="knowledge",
+                content=f"长期记忆 {i}",
+                tags=[],
+            )
             for i in range(8)
         ]
         tool = QueryMemoryTool(
@@ -254,13 +252,12 @@ class TestQueryMemoryTool:
     async def test_combined_result_is_compact_and_full_text_is_frozen_to_file(self, tmp_path):
         full_content = "完整记忆正文" * 800
         tool = QueryMemoryTool(
-            _make_memory([{
-                "id": "long-large",
-                "category": "knowledge",
-                "content": full_content,
-                "relevance": 0.91,
-                "tags": ["large"],
-            }]),
+            _make_memory([MemoryRecord(
+                id="long-large",
+                category="knowledge",
+                content=full_content,
+                tags=["large"],
+            )]),
             snapshot_dir=tmp_path,
         )
 

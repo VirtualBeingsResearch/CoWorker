@@ -302,7 +302,7 @@ model_fallback = "[system notice] The primary model failed and automatically fel
 model_switched = "[system notice] The model was switched to {{provider}}/{{model}}"
 tool_parse_error = "Tool argument JSON could not be parsed. Generate valid arguments and try again: {{error}}"
 auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
-auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 task_reminder = "[task reminder] {{count}} unfinished task(s) remain; view them with task_list / task_get."
 task_wakeup = "[task reminder] {{count}} unfinished task(s) interrupted sleep."
 task_details_hint = " has_details=true; use task_get to view details"
@@ -408,7 +408,7 @@ pre_compress_goal = "The current context is a conversation segment about to be c
 palace = '''[palace:{{name}}]
 {{body}}'''
 palace_memory_title = "[palace memory] Domain long-term memories under tags {{tags}} for palace “{{name}}” ({{count}} entries, each with an id):"
-memory_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 garden_goal = "Inspect the domain long-term memory for palace “{{name}}” (tags: {{tags}}): remove stale, contradictory, or redundant items; consolidate and supplement it; and discover related memories that should be associated."
 none = "none"
 telemetry_title = "[subconscious telemetry] Recent execution and current configuration for each mode, for assessing cadence, drift, and health:"

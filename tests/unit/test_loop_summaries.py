@@ -9,6 +9,7 @@ from loguru import logger
 import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
+from coworker.memory.base import MemoryRecord
 from coworker.memory.short_term import ShortTermMemory
 
 
@@ -43,7 +44,7 @@ def _make_loop(brain, mem, events=None):
     loop._brain = brain
     loop._short_term = mem
     lt = MagicMock()
-    lt._mem = None  # disable auto-recall in unit tests
+    lt.is_ready = MagicMock(return_value=False)  # disable auto-recall in unit tests
     loop._long_term = lt
     loop._tools = MagicMock()
     loop._tools.get_schemas = MagicMock(return_value=[])
@@ -541,7 +542,7 @@ async def test_auto_recall_skips_empty_query():
 @pytest.mark.asyncio
 async def test_auto_recall_logs_long_term_query_exception_with_traceback():
     loop = _make_loop(_make_brain(), ShortTermMemory())
-    loop._long_term._mem = MagicMock()
+    loop._long_term.is_ready = MagicMock(return_value=True)
     loop._long_term.query = AsyncMock(side_effect=RuntimeError("primary index unavailable"))
     loop._config.memory.auto_recall_enabled = True
     loop._config.memory.auto_recall_limit = 5
@@ -635,22 +636,20 @@ async def test_auto_recall_injects_and_deduplicates():
     mem = ShortTermMemory()
     brain = _make_brain()
 
-    fake_memory = {
-        "id": "mem-001",
-        "content": "用户偏好 Python",
-        "category": "knowledge",
-        "tags": [],
-        "timestamp": "",
-        "relevance": 0.9,
-    }
+    fake_memory = MemoryRecord(
+        id="mem-001",
+        content="用户偏好 Python",
+        category="knowledge",
+        tags=[],
+        timestamp="",
+    )
 
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="Python")])
 
-    # 激活 auto_recall：给 _mem 设一个非 None 值，query 返回 fake_memory
-    loop._long_term._mem = MagicMock()
+    # 激活 auto_recall：is_ready 返回 True，query 返回 fake_memory
+    loop._long_term.is_ready = MagicMock(return_value=True)
     loop._long_term.query = AsyncMock(return_value=[fake_memory])
     loop._config.memory.auto_recall_enabled = True
-    loop._config.memory.auto_recall_relevance_threshold = 0.5
     loop._config.memory.auto_recall_limit = 5
 
     await loop._cycle()

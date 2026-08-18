@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from coworker.core.types import AttachmentData, ToolCall
+    from coworker.memory.base import MemoryRecord
 
 
 class InteractionLogger:
@@ -374,7 +375,7 @@ class InteractionLogger:
         tags: list[str],
         critical_skills: list[str],
         related_skills: list[str],
-        recalled: list[dict],
+        recalled: list[MemoryRecord],
     ) -> None:
         self._write({
             "type": "palace_injection",
@@ -383,23 +384,21 @@ class InteractionLogger:
             "critical_skills": critical_skills,
             "related_skills": related_skills,
             "recalled": [
-                {"id": m["id"], "category": m["category"],
-                 "relevance": m["relevance"], "content": m["content"]}
+                {"id": m.id, "category": m.category, "content": m.content}
                 for m in recalled
             ],
         })
 
-    def log_auto_recall(self, query: str, memories: list[dict]) -> None:
+    def log_auto_recall(self, query: str, memories: list[MemoryRecord]) -> None:
         self._write(
             {
                 "type": "auto_recall",
                 "query": query,
                 "memories": [
                     {
-                        "id": m["id"],
-                        "category": m["category"],
-                        "relevance": m["relevance"],
-                        "content": m["content"],
+                        "id": m.id,
+                        "category": m.category,
+                        "content": m.content,
                     }
                     for m in memories
                 ],

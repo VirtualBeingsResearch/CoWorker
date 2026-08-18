@@ -573,7 +573,7 @@ class AgentLoop:
             return
         cfg = self._config.memory
         excluded = self._get_recalled_ids()
-        if cfg.auto_recall_enabled and self._long_term._mem is not None:
+        if cfg.auto_recall_enabled and self._long_term.is_ready():
             logger.debug("Starting long-term auto-recall")
             try:
                 results = await self._long_term.query(query_text, limit=cfg.auto_recall_limit)
@@ -582,11 +582,7 @@ class AgentLoop:
                     f"Long-term auto-recall query failed, skipping: {e}"
                 )
                 results = []
-            new = [
-                m
-                for m in results
-                if m["id"] not in excluded and m["relevance"] >= cfg.auto_recall_relevance_threshold
-            ]
+            new = [m for m in results if m.id not in excluded]
             if new:
                 lines = [tr("loop.auto_recall_title")]
                 for i, m in enumerate(new, 1):
@@ -594,21 +590,20 @@ class AgentLoop:
                         tr(
                             "loop.auto_recall_item",
                             index=i,
-                            id=m["id"],
-                            category=m["category"],
-                            content=m["content"],
-                            relevance=f"{m['relevance']:.2f}",
+                            id=m.id,
+                            category=m.category,
+                            content=m.content,
                         )
                     )
                 self._short_term.primary.append(
                     Message(
                         role="user",
                         content="\n".join(lines),
-                        recalled_memory_ids=[m["id"] for m in new],
+                        recalled_memory_ids=[m.id for m in new],
                         source="auto_recall",
                     )
                 )
-                excluded.update(m["id"] for m in new)
+                excluded.update(m.id for m in new)
                 if self._ilog:
                     self._ilog.log_auto_recall(query_text, new)
                 logger.debug(f"Auto-recalled {len(new)} long-term memories")

@@ -211,7 +211,7 @@ palace_skill = '''[palace:{{palace}} · skill:{{skill}}]
 palace = '''[palace:{{palace}}]
 {{body}}'''
 palace_memory = "[palace memory] These long-term memories relate to the current palaces (tags: {{tags}}) and task:"
-memory_item = "{{index}}. id={{id}} [{{category}}] {{content}} (relevance: {{relevance}})"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 missing = "Bubble [{{id}}] not found"
 from_main = "[from main] {{message}}"
 pushed_main = "Message pushed to the main-thread inbox."

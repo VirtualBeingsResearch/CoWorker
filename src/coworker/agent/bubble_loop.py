@@ -575,7 +575,7 @@ class BubbleMiniLoop:
         bubble = self._bubble
         if bubble.status != "done" or not bubble.palace_tags or not bubble.result.strip():
             return
-        if self._long_term is None or self._long_term._mem is None:
+        if self._long_term is None or not self._long_term.is_ready():
             return
         try:
             await self._long_term.write(

@@ -302,7 +302,7 @@ model_fallback = "[系统通知] 主模型调用失败，已自动降级至 {{pr
 model_switched = "[系统通知] 模型已切换至 {{provider}}/{{model}}"
 tool_parse_error = "工具参数 JSON 解析失败，请重新生成正确格式的参数：{{error}}"
 auto_recall_title = "[自动回忆] 以下长期记忆与当前对话相关："
-auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 task_reminder = "[任务提醒] 还有 {{count}} 个未完成任务，可用 task_list / task_get 查看。"
 task_wakeup = "[任务提醒] 有 {{count}} 个未完成任务，中断睡眠。"
 task_details_hint = " has_details=true，请用 task_get 查看"
@@ -408,7 +408,7 @@ pre_compress_goal = "当前上下文是即将被压缩淘汰的对话片段，�
 palace = '''[宫殿:{{name}}]
 {{body}}'''
 palace_memory_title = "[宫殿记忆] 宫殿「{{name}}」标签 {{tags}} 下的领域长期记忆（共 {{count}} 条，每条带 id）："
-memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 garden_goal = "巡检记忆宫殿「{{name}}」（标签：{{tags}}）的领域长期记忆：剪除过期/矛盾/冗余、整合补写，并发掘可关联的相关记忆"
 none = "无"
 telemetry_title = "[潜意识遥测] 各模式近期运行情况与当前配置（供判断节奏/漂移/健康度）："

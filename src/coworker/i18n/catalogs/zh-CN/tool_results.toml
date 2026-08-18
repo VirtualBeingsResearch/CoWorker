@@ -211,7 +211,7 @@ palace_skill = '''[宫殿:{{palace}} · skill:{{skill}}]
 palace = '''[宫殿:{{palace}}]
 {{body}}'''
 palace_memory = "[宫殿记忆] 以下长期记忆与当前宫殿（标签：{{tags}}）和任务相关："
-memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}（相关度：{{relevance}}）"
+memory_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
 missing = "未找到泡泡 [{{id}}]"
 from_main = "[来自主线] {{message}}"
 pushed_main = "消息已推送到主线程 inbox。"

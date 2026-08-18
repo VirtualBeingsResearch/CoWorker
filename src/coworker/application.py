@@ -58,6 +58,7 @@ from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
+from coworker.memory.factory import build_long_term_backend
 from coworker.memory.long_term import LongTermMemory, build_memory_llm_config
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
@@ -498,14 +499,20 @@ async def _main() -> bool:
     # 原始日志的只读寻址层，供记忆块树按时间区间重摘要 / 下钻；抗后续分片轮转。
     log_store = LogStore(config.agent.logs_dir)
 
+    memory_llm = build_memory_llm_config(
+        config,
+        active_provider=brain.current_provider_name,
+        active_model=brain.current_model,
+    )
     long_term = LongTermMemory(
         db_path=config.memory.db_path,
-        llm=build_memory_llm_config(
-            config,
-            active_provider=brain.current_provider_name,
-            active_model=brain.current_model,
-        ),
+        llm=memory_llm,
         embedder_model=config.memory.mem0_embedder_model,
+        backend=build_long_term_backend(
+            config,
+            llm=memory_llm,
+            embedder_model=config.memory.mem0_embedder_model,
+        ),
     )
     if setup_required:
         Path(config.memory.db_path).mkdir(parents=True, exist_ok=True)

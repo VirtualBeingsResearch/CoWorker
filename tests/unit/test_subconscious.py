@@ -13,6 +13,7 @@ from coworker.agent.subconscious import (
 )
 from coworker.agent.subconscious_mode import SubconsciousMode, SubconsciousModeLoader
 from coworker.core.types import LLMResponse, Message, ToolCall
+from coworker.memory.base import MemoryRecord
 from coworker.palaces.loader import Palace
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1231,7 @@ def _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_bu
     palace_loader.list_all.return_value = palaces
     palace_loader.list_names.return_value = [p.name for p in palaces]
     long_term = MagicMock()
-    long_term._mem = object()
+    long_term.is_ready = MagicMock(return_value=True)
     long_term.query_by_tags = AsyncMock(return_value=mems)
     return SubconsciousScheduler(
         cfg=mock_cfg, bubble_store=store, brain=mock_brain, tool_registry=mock_registry,
@@ -1244,7 +1245,7 @@ class TestGardenScheduler:
     async def test_round_robin_selects_each_palace(self, mock_cfg, store, mock_brain,
                                                    mock_registry, mock_prompt_builder, mock_inbox,
                                                    mock_ilog, tmp_path):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"]), _palace("p1", ["b"])], mems=mems,
@@ -1286,7 +1287,7 @@ class TestGardenScheduler:
     async def test_garden_context_includes_card_and_memories(self, mock_cfg, store, mock_brain,
                                                              mock_registry, mock_prompt_builder, mock_inbox,
                                                              mock_ilog, tmp_path):
-        mems = [{"id": "mem_xyz", "category": "experience", "content": "登录复现要点", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="mem_xyz", content="登录复现要点", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"])], mems=mems, every_seconds=1)
@@ -1303,7 +1304,7 @@ class TestGardenScheduler:
 
     async def test_garden_triggers_by_time(self, mock_cfg, store, mock_brain, mock_registry,
                                            mock_prompt_builder, mock_inbox, mock_ilog, tmp_path, messages):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"])], mems=mems, every_seconds=1)
@@ -1329,7 +1330,7 @@ class TestGardenDebt:
     async def test_usage_debt_triggers_and_resets(self, mock_cfg, store, mock_brain,
                                                   mock_registry, mock_prompt_builder, mock_inbox,
                                                   mock_ilog, tmp_path, messages):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"])], mems=mems, use_threshold=2)
@@ -1349,7 +1350,7 @@ class TestGardenDebt:
     async def test_debt_below_threshold_does_not_trigger(self, mock_cfg, store, mock_brain,
                                                          mock_registry, mock_prompt_builder, mock_inbox,
                                                          mock_ilog, tmp_path, messages):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"])], mems=mems, use_threshold=3)
@@ -1362,7 +1363,7 @@ class TestGardenDebt:
     async def test_hottest_palace_gardened_first(self, mock_cfg, store, mock_brain,
                                                  mock_registry, mock_prompt_builder, mock_inbox,
                                                  mock_ilog, tmp_path):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"]), _palace("p1", ["b"])], mems=mems,
@@ -1380,7 +1381,7 @@ class TestGardenDebt:
     async def test_min_interval_blocks_regarden(self, mock_cfg, store, mock_brain,
                                                 mock_registry, mock_prompt_builder, mock_inbox,
                                                 mock_ilog, tmp_path):
-        mems = [{"id": "m1", "category": "experience", "content": "x", "tags": ["a"], "relevance": 0.9}]
+        mems = [MemoryRecord(id="m1", content="x", category="experience", tags=["a"])]
         sched = _garden_scheduler(mock_cfg, store, mock_brain, mock_registry, mock_prompt_builder,
                                   mock_inbox, mock_ilog, tmp_path,
                                   palaces=[_palace("p0", ["a"])], mems=mems,
