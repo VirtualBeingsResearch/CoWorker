@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import secrets
-import tempfile
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -28,7 +26,6 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles as _StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
-from starlette.background import BackgroundTask
 
 from coworker.api.admin import admin_router
 from coworker.api.request_urls import desktop_update_asset_base_url
@@ -42,7 +39,6 @@ from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
-from coworker.core.config_export import build_config_bundle, load_effective_config
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest
 from coworker.desktop_updates import (
@@ -790,24 +786,6 @@ async def check_desktop_update(
         "signature": signature,
         "notes": latest.get("notes", ""),
     }
-
-
-@app.get("/api/export_config")
-async def export_config(authorization: str | None = Header(default=None)):
-    """把当前有效配置（含 data/ 全量、skills/palaces/subconscious、providers.json）
-    打包成 zip 返回，供探索平台导入作为分支的起点。产物含密钥，只在本机/内网传输。"""
-    _require_admin(authorization)
-    config = load_effective_config()
-    fd, tmp_name = tempfile.mkstemp(prefix="coworker-config-export-", suffix=".zip")
-    os.close(fd)
-    tmp_path = _Path(tmp_name)
-    build_config_bundle(config, tmp_path)
-    return FileResponse(
-        tmp_path,
-        media_type="application/zip",
-        filename="coworker-config-export.zip",
-        background=BackgroundTask(tmp_path.unlink, missing_ok=True),
-    )
 
 
 @app.websocket("/ws/{participant_id}")

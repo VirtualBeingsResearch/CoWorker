@@ -36,7 +36,6 @@ Install only the frontend dependencies needed for your change:
 
 ```bash
 npm ci --prefix web
-npm ci --prefix apps/explore-lab/frontend
 npm ci --prefix apps/coworker-desktop/desktop
 ```
 
@@ -50,10 +49,9 @@ Run the checks relevant to the files you changed. Pull requests run all of these
 ```bash
 # Python
 uv run --frozen python scripts/check_version.py
-uv run --frozen ruff check src tests scripts apps/explore-lab/backend
+uv run --frozen ruff check src tests scripts
 uv run --frozen mypy src
 uv run --frozen pytest
-uv run --project apps/explore-lab/backend --frozen pytest apps/explore-lab/backend/tests
 
 # Rust
 cargo fmt --all -- --check
@@ -62,7 +60,6 @@ cargo test --workspace --locked
 # Web applications
 npm --prefix web run build
 git status --short -- src/coworker/web
-npm --prefix apps/explore-lab/frontend run build
 npm --prefix apps/coworker-desktop/desktop test
 npm --prefix apps/coworker-desktop/desktop run build
 ```

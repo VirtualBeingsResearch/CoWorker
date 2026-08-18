@@ -26,7 +26,6 @@
 | fallback | 主模型失败时按顺序尝试的 Provider/模型链 |
 | Relay | 为远程 Desktop 和 Coworker 转发端到端加密字节流的自托管单节点入口 |
 | Bridge | Desktop 中连接 Local、Codex、Claude Code 与 Coworker 的 Rust 运行层 |
-| Explore Lab | 从敏感实例快照创建可分叉、单步、回放和比较实验分支的开发工具 |
 | 应急备份 | 连续 Agent 错误时保存的短期上下文快照，不是整实例灾难备份 |
 | `restart_self` | 校验当前代码环境、保存短期快照并请求平台启动器安全重启的主线工具 |
 

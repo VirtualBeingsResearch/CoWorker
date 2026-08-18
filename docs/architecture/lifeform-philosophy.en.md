@@ -34,7 +34,7 @@ a current implementation boundary; it is not automatically the complete brain, m
 ```mermaid
 flowchart TB
     idea["Virtual-life philosophy<br/>continuity · unified self · growth"] --> life["Life mechanisms<br/>identity · thought · memory · instinct · action"]
-    life --> support["Living and experimental facilities<br/>monitoring · records · tasks · alarms · Explore Lab"]
+    life --> support["Living and experimental facilities<br/>monitoring · records · tasks · alarms"]
     support --> evidence["Observation · evidence · experimental findings"]
     evidence --> idea
     runtime["Engineering implementation<br/>Agent · Brain · Memory · Tools · Channels · Storage"] -.carries.-> life
@@ -99,12 +99,11 @@ under real-world constraints, be understood, and improve through evidence.
 | **Records and lifetime history** | Preserve traceable evidence of messages, models, tools, and state changes for diagnosis, replay, and memory formation | Complete logs are not the same as what she actually remembers or accepts |
 | **Tasks** | Turn intention into a future commitment that can persist, be inspected, and completed across time | A task entry does not automatically remain a currently endorsed intention; execution must still consider identity, context, and permission |
 | **Alarms and waiting** | Provide prospective memory and temporal wake-up without depending on an immediate external message | Waking restores a concern; it must not bypass confirmation or safety boundaries required for action |
-| **Explore Lab** | Pause, step, fork, replay, and compare life behavior in isolated branches | An experimental branch is not another production life, and one result does not establish stable behavior |
 | **Diagnostics, audit, and backup** | Help caretakers understand failures, protect experience, and recover from faults | Restoring runtime state does not necessarily restore every memory, relationship, or aspect of self-continuity |
 
 These facilities also establish different viewpoints: the lifeform continues in the first person,
 participants collaborate with her, caretakers observe and maintain living conditions, and researchers
-test hypotheses in Explore Lab. An interface may serve several viewpoints, but their permissions,
+test hypotheses through controlled experiments. An interface may serve several viewpoints, but their permissions,
 evidence, and responsibilities should remain distinct.
 
 ## Boundaries to preserve
@@ -121,7 +120,7 @@ evidence, and responsibilities should remain distinct.
   boundaries while retaining a shared identity and explainable ownership of results.
 - **A task is not a command by itself.** It preserves a future commitment; action remains constrained
   by current context, permission, relationships, and safety requirements.
-- **An experimental result is not an established fact.** Explore Lab findings require repetition,
+- **An experimental result is not an established fact.** Experimental findings require repetition,
   comparison, and real-context validation before becoming a stable mechanism.
 
 ## Improving the life system through experiments
@@ -134,7 +133,7 @@ Propose a life hypothesis
 → implement the smallest mechanism
 → observe it in an isolated or real context
 → collect evidence through monitoring and records
-→ repeat, fork, and compare in Explore Lab
+→ repeat, compare, and validate
 → evaluate the intended life phenomenon and side effects
 → adjust, retire, or establish it as a stable capability
 ```
@@ -148,8 +147,7 @@ change the result. User-facing documentation should distinguish:
 - **Philosophical direction**: guidance for exploration, not a claim of existing implementation.
 
 See [Core concepts and capabilities](concepts.en.md) for current behavior,
-[Runtime Architecture and Message Flow](runtime-flow.en.md) for engineering responsibilities,
-[Data and trust boundaries](data-boundaries.en.md) for outbound data and permissions, and
-[Explore Lab Usage and Development](../development/explore-lab.en.md) for experimental operation.
+[Runtime Architecture and Message Flow](runtime-flow.en.md) for engineering responsibilities, and
+[Data and trust boundaries](data-boundaries.en.md) for outbound data and permissions.
 
 [← Back to project home](../../README.en.md)

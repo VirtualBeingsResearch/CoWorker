@@ -50,13 +50,13 @@ Silicon 则使用原生 `linux/arm64`，不需要强制模拟 x86。
 - 安装 Python 3.14、uv、Node.js 24 和 FFmpeg；
 - 通过锁文件安装 Python 开发依赖和 Linux CPU 版 PyTorch；
 - 安装 Playwright Chromium 及其 Linux 系统库；
-- Dev Container 默认不配置端口转发；需要从宿主机浏览器访问时，在 VS Code 的 Ports 视图手动转发 `8000`（CoWorker API）或 `8100`（Explore Lab），VS Code 检测到容器内监听端口时也可能自动转发。
+- Dev Container 默认不配置端口转发；需要从宿主机浏览器访问时，在 VS Code 的 Ports 视图手动转发 `8000`（CoWorker API），VS Code 检测到容器内监听端口时也可能自动转发。
 
 源码仍由宿主机目录挂载，容器内的 Python 环境位于 `/opt/venv`。容器创建完成后，
 可直接运行本文中的 `uv run ...`、`npm ...` 和测试命令。依赖或锁文件发生变化后，
 执行 **Dev Containers: Rebuild Container** 以刷新缓存层。
 
-Dev Container 是 Linux 环境，适合 Python、Web 和 Explore Lab 开发，但不能生成或
+Dev Container 是 Linux 环境，适合 Python 和 Web 开发，但不能生成或
 验证 macOS 专属的 Tauri `.app`/`.dmg`、签名和公证；这些步骤仍需在 macOS 本机或
 对应的 CI runner 上完成。
 
@@ -75,29 +75,6 @@ docker compose up --pull always --no-build
 embedding 模型，以及 `vim-tiny`、`nano`、`less`、`jq` 和 `ripgrep` 等轻量命令行工具；
 源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，使用
 `docker compose up --build` 重新构建依赖环境。
-
-### Explore Lab
-
-Explore Lab 的后端可以直接托管前端构建产物，日常使用只需要启动后端。分支运行时使用模拟通信对象（默认 `explore_lab`）：`communicate` 只把出站消息记录到分支状态，不会投递到外部；`list_connections` 会将这些模拟对象显示为活跃连接。
-
-```bash
-# 1. 安装依赖并构建前端静态资源
-npm ci --prefix apps/explore-lab/frontend
-npm --prefix apps/explore-lab/frontend run build
-
-# 2. 启动后端并托管 UI
-uv run --project apps/explore-lab/backend python -m explore_lab
-# 等价方式：uv run --project apps/explore-lab/backend explore-lab
-
-# 3. 打开
-# http://127.0.0.1:8100/
-```
-
-默认读取 `apps/explore-lab/frontend/dist`。如需使用其它构建目录：
-
-```bash
-uv run --project apps/explore-lab/backend python -m explore_lab --ui-dir path/to/dist
-```
 
 清理运行时缓存和数据可参考：
 

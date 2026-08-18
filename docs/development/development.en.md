@@ -48,14 +48,14 @@ extension, then run **Dev Containers: Reopen in Container** from the repository.
 - installs Python 3.14, uv, Node.js 24, and FFmpeg;
 - installs the locked Python development dependencies and Linux CPU build of PyTorch;
 - installs Playwright Chromium and its Linux system libraries;
-- the Dev Container configures no port forwarding by default; to open them from the host browser, forward `8000` (CoWorker API) or `8100` (Explore Lab) manually in the VS Code Ports view — VS Code may also auto-forward ports it detects listening in the container.
+- the Dev Container configures no port forwarding by default; to open it from the host browser, forward `8000` (CoWorker API) manually in the VS Code Ports view — VS Code may also auto-forward ports it detects listening in the container.
 
 The source checkout remains bind-mounted from the host, while the container's Python environment
 lives at `/opt/venv`. After creation, run the `uv run ...`, `npm ...`, and test commands from this
 guide directly. Run **Dev Containers: Rebuild Container** after dependency or lockfile changes to
 refresh the cached layers.
 
-The Dev Container is a Linux environment. It supports Python, web, and Explore Lab development,
+The Dev Container is a Linux environment. It supports Python and web development,
 but cannot build or validate macOS-specific Tauri `.app`/`.dmg` artifacts, signing, or
 notarization. Continue to perform those tasks on macOS or a matching CI runner.
 
@@ -75,29 +75,6 @@ environment, Chromium, FFmpeg, a preloaded embedding model, and lightweight comm
 including `vim-tiny`, `nano`, `less`, `jq`, and `ripgrep`. Restart the container after source
 changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
 `docker compose up --build`.
-
-### Explore Lab
-
-The Explore Lab backend can serve the frontend build directly. Branch runtimes use virtual communication participants (`explore_lab` by default): `communicate` records outbound messages in branch state without external delivery, and `list_connections` reports those virtual participants as active connections. Normal use requires starting only the backend after building the UI:
-
-```bash
-# 1. Install dependencies and build the frontend assets
-npm ci --prefix apps/explore-lab/frontend
-npm --prefix apps/explore-lab/frontend run build
-
-# 2. Start the backend and serve the UI
-uv run --project apps/explore-lab/backend python -m explore_lab
-# Equivalent: uv run --project apps/explore-lab/backend explore-lab
-
-# 3. Open
-# http://127.0.0.1:8100/
-```
-
-The default build directory is `apps/explore-lab/frontend/dist`. To use another directory:
-
-```bash
-uv run --project apps/explore-lab/backend python -m explore_lab --ui-dir path/to/dist
-```
 
 To clean runtime caches and data, see:
 

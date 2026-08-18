@@ -283,7 +283,7 @@ data, cleanup scope, and deployment boundaries.
 | [Troubleshooting](docs/operations/troubleshooting.en.md) | Diagnostic order for the service, models, memory, Desktop, Relay, and containers |
 | [Self-hosted Relay](docs/operations/relay.en.md) | End-to-end encrypted Desktop access from a private network; deployment, pairing, backup, and operations |
 | [Core concepts and capabilities](docs/architecture/concepts.en.md) | Tools, directories, memory tree, restart recovery, and memory palaces |
-| [Development guide](docs/development/development.en.md) | Local checks and Explore Lab |
+| [Development guide](docs/development/development.en.md) | Local development and checks |
 
 ## Development and contributing
 
