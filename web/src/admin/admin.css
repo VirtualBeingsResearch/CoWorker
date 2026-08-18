@@ -2170,6 +2170,7 @@ html:has(.admin-login),
 .sequence-range input { flex: 0 1 86px; width: 86px; min-height: 32px; padding: 5px 8px; border-radius: 6px; font: 11px var(--admin-data); font-variant-numeric: tabular-nums; }
 .sequence-separator { color: color-mix(in oklch, var(--admin-vital) 66%, var(--admin-muted)); font: 700 13px var(--admin-data); }
 .sequence-locate { min-height: 32px; padding-inline: 9px; white-space: nowrap; }
+.history-clear-filters { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; white-space: nowrap; }
 .history-sequence-error { margin-bottom: 12px; }
 .lifecycle-log-table { max-height: min(680px, calc(100dvh - 310px)); }
 .lifecycle-log-table > .log-head { grid-template-columns: 142px 138px minmax(0, 1fr) 70px; }

@@ -2333,6 +2333,31 @@ function Logs() {
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     setContextSeq(null);
   };
+  const clearHistorySearch = () => {
+    setQuery('');
+    setDebouncedQuery('');
+    setType('');
+    setSeqStartDraft('');
+    setSeqEndDraft('');
+    setSeqStart('');
+    setSeqEnd('');
+    setTimeStartDraft('');
+    setTimeEndDraft('');
+    setTimeStart('');
+    setTimeEnd('');
+    setSequenceError('');
+    setTimeError('');
+    setCursor(null);
+    setNewerCursors([]);
+    setContextSeq(null);
+    setContextCursor(null);
+    setContextNewerCursors([]);
+    setOpenSeq(null);
+    setPage(null);
+    const url = new URL(window.location.href);
+    ['log_start', 'log_end', 'log_type', 'log_seq', 'log_q', 'log_seq_start', 'log_seq_end', 'log_cursor'].forEach(key => url.searchParams.delete(key));
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  };
   const bubbleHref = (bubble: Json) => {
     const url = new URL(window.location.href);
     url.searchParams.set('section', 'memory');
@@ -2380,6 +2405,10 @@ function Logs() {
   });
   const startPickerValue = pastedLogTimeToInput(timeStartDraft, 'start');
   const endPickerValue = pastedLogTimeToInput(timeEndDraft, 'end');
+  const hasHistorySearchState = Boolean(
+    contextSeq != null || query || type || seqStartDraft || seqEndDraft
+    || timeStartDraft || timeEndDraft || cursor,
+  );
   const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
@@ -2417,6 +2446,7 @@ function Logs() {
         <label><span>{t('序列上限')}</span><input aria-label={t('序列上限')} type="number" min="0" step="1" inputMode="numeric" value={seqEndDraft} onChange={event => { setSeqEndDraft(event.target.value); setSequenceError(''); }} placeholder={t('当前')} /></label>
       </div>
       <button className="ghost mini sequence-locate" type="submit">{t('应用范围')}</button>
+      {hasHistorySearchState && <button className="ghost mini history-clear-filters" type="button" onClick={clearHistorySearch}><X size={13} />{t('清除筛选')}</button>}
       <button className="icon-btn" type="button" aria-label={t('刷新生命全史日志')} title={t('刷新生命全史日志')} onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={15} /></button>
     </form>}
   >

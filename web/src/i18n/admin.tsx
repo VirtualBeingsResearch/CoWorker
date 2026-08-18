@@ -1276,6 +1276,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '当前': 'Current',
   '筛选范围': 'Filter range',
   '应用范围': 'Apply range',
+  '清除筛选': 'Clear filters',
   '日志起止时间必须同时提供': 'Both log start and end times are required',
   '日志起始时间不能晚于结束时间': 'The log start time must not be later than the end time',
   '日志时间范围不能超过 24 小时': 'The log time range cannot exceed 24 hours',
