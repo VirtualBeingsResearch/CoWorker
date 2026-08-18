@@ -2192,8 +2192,8 @@ html:has(.admin-login),
 .interaction-detail > small { display: block; margin-top: 8px; color: var(--admin-amber); font-size: 9px; }
 .lifecycle-log-table > article.context-anchor { border-block: 1px solid color-mix(in oklch, var(--admin-vital) 48%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 9%, var(--admin-surface)); box-shadow: inset 3px 0 0 var(--admin-vital); }
 .context-anchor-label { align-self: start; padding: 5px 8px; border-radius: 99px; color: var(--admin-vital); background: var(--admin-soft); font: 680 9px var(--admin-data); white-space: nowrap; }
-.history-empty { grid-column: 1 / -1; }
-.history-empty .empty-state { min-height: 210px; }
+.lifecycle-log-table > .history-empty { display: block; width: 100%; min-width: 0; padding: 0; }
+.history-empty .empty { width: 100%; min-height: 260px; text-align: center; }
 
 .danger-list { display: grid; gap: 9px; }
 .danger-card { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px solid color-mix(in oklch, var(--admin-red) 30%, var(--admin-line)); border-radius: 12px; color: var(--admin-red); background: color-mix(in oklch, var(--admin-red) 5%, var(--admin-surface)); }
