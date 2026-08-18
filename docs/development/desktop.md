@@ -378,7 +378,7 @@ Bridge 会把消息包装成类似下面的格式发给 Codex，`Coworker:<id>` 
 4. Codex 回复 Coworker：
 
 - Bridge 通过 app-server 的 `dynamicTools` 注册动态工具。Codex 应调用 `list_coworkers()` 查看可通信 Coworker，并用 `send_to_coworker(coworker_id, message, attachments=[...])` 主动发消息。
-- 对于无法注入动态工具的历史 thread，仍保留 frontmatter 文本工具；无论本机用户还是 Coworker 先继续该会话，Bridge 都会在第一次可见 turn 注入这段文本工具，并且每个会话只注入一次。解析后的消息同样通过 Desktop v1 outbox/ACK 链路发送。
+- 对于无法注入动态工具的历史 thread，仍保留 frontmatter 文本工具；无论本机用户还是 Coworker 先继续该会话，Bridge 都会在第一次可见 turn 注入这段文本工具，并且每个会话只注入一次。`list_coworkers` 的结果会在本轮结束后自动注入回会话，让 agent 能看到可通信的 Coworker 列表。解析后的消息同样通过 Desktop v1 outbox/ACK 链路发送。
 
 发送消息给 Coworker：
 
