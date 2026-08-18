@@ -627,6 +627,10 @@ _INTERACTION_DETAIL_STRING_CHARS = 32_000
 _INTERACTION_DETAIL_ITEMS = 200
 _INTERACTION_DETAIL_DEPTH = 10
 _INTERACTION_TIME_RANGE_LIMIT = timedelta(days=1)
+_INTERACTION_CONTEXT_LIMIT = 50
+_BUBBLE_ID_IN_TEXT = re.compile(
+    r"(?<![A-Za-z0-9_])(bbl_[A-Za-z0-9_-]{1,160})(?![A-Za-z0-9_-])"
+)
 
 
 def _interaction_logs_dir() -> Path:
@@ -724,6 +728,33 @@ def _interaction_preview(entry: Mapping[str, object]) -> str:
     return _interaction_text(details) if details else "—"
 
 
+def _interaction_bubble_reference(entry: Mapping[str, object]) -> JsonObject | None:
+    """Return a conservative Bubble link for current and legacy logs."""
+    event_type = str(entry.get("type") or "")
+    bubble_id = str(entry.get("bubble_id") or "").strip()
+    if event_type in {"subconscious_spawned", "subconscious_done"}:
+        if not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
+            return None
+        mode = str(entry.get("mode") or "").strip()
+        return {
+            "id": f"{bubble_id}_{mode}" if mode else bubble_id,
+            "bubble_id": bubble_id,
+            "scope": "subconscious",
+        }
+
+    if str(entry.get("name") or "") != "bubble_spawn":
+        return None
+    arguments = entry.get("arguments")
+    if isinstance(arguments, Mapping):
+        bubble_id = str(arguments.get("bubble_id") or "").strip()
+    if not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
+        match = _BUBBLE_ID_IN_TEXT.search(str(entry.get("content") or ""))
+        bubble_id = match.group(1) if match else ""
+    if not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
+        return None
+    return {"id": bubble_id, "bubble_id": bubble_id, "scope": "bubbles"}
+
+
 def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
     meta: JsonObject = {}
     for key in (
@@ -750,13 +781,36 @@ def _interaction_list_item(entry: Mapping[str, object]) -> JsonObject:
         if value not in (None, ""):
             meta[key] = _interaction_text(value, 120)
     seq = entry.get("seq")
-    return {
+    item: JsonObject = {
         "seq": seq if isinstance(seq, int) else None,
         "ts": str(entry.get("ts") or ""),
         "type": str(entry.get("type") or "unknown"),
         "preview": _interaction_preview(entry),
         "meta": meta,
     }
+    bubble = _interaction_bubble_reference(entry)
+    if bubble is not None:
+        item["bubble"] = bubble
+    return item
+
+
+def _interaction_context_items(entries: list[dict[str, Any]]) -> list[JsonObject]:
+    """Attach a Bubble inferred from a tool result to its paired tool call."""
+    bubbles_by_call: dict[str, JsonObject] = {}
+    for entry in entries:
+        reference = _interaction_bubble_reference(entry)
+        call_id = str(entry.get("id") or "")
+        if reference is not None and call_id:
+            bubbles_by_call[call_id] = reference
+
+    items: list[JsonObject] = []
+    for entry in entries:
+        item = _interaction_list_item(entry)
+        call_id = str(entry.get("id") or "")
+        if "bubble" not in item and call_id in bubbles_by_call:
+            item["bubble"] = bubbles_by_call[call_id]
+        items.append(item)
+    return items
 
 
 def _bounded_interaction_value(value: object, state: list[bool], depth: int = 0) -> JsonValue:
@@ -1795,8 +1849,11 @@ async def delete_task(
 async def list_bubbles(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    bubble_id: str | None = Query(default=None, max_length=164),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
+    if bubble_id is not None and not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
+        raise HTTPException(status_code=404, detail=tr("api.admin.bubble_record_missing"))
     store = _require_bubble_store()
     agent = _require_agent()
     scheduler = getattr(agent, "_subconscious", None)
@@ -1829,6 +1886,8 @@ async def list_bubbles(
         key=lambda item: (item["status"] == "running", str(item.get("created_at") or "")),
         reverse=True,
     )
+    if bubble_id is not None:
+        bubbles = [item for item in bubbles if str(item.get("id") or "") == bubble_id]
     return {
         "bubbles": bubbles[offset : offset + limit],
         "total": len(bubbles),
@@ -1858,8 +1917,13 @@ async def get_bubble_history(
 async def list_subconscious(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    bubble_id: str | None = Query(default=None, max_length=164),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
+    if bubble_id is not None and not _SAFE_BUBBLE_ID.fullmatch(bubble_id):
+        raise HTTPException(
+            status_code=404, detail=tr("api.admin.subconscious_record_missing")
+        )
     by_log_id: dict[str, JsonObject] = {}
     scheduler = getattr(_require_agent(), "_subconscious", None)
     store = getattr(_require_agent(), "_bubble_store", None)
@@ -1877,6 +1941,12 @@ async def list_subconscious(
         by_log_id[str(summary["log_id"])] = summary
     items = list(by_log_id.values())
     items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    if bubble_id is not None:
+        items = [
+            item
+            for item in items
+            if str(item.get("log_id") or item.get("id") or "") == bubble_id
+        ]
     return {
         "bubbles": items[offset : offset + limit],
         "total": len(items),
@@ -2397,6 +2467,38 @@ async def get_interaction_detail(
     return {
         "entry": _bounded_interaction_value(entry, state),
         "truncated": state[0],
+    }
+
+
+@router.get("/interactions/{seq}/context")
+async def get_interaction_context(
+    seq: int,
+    before: int = Query(default=10, ge=0, le=_INTERACTION_CONTEXT_LIMIT),
+    after: int = Query(default=10, ge=0, le=_INTERACTION_CONTEXT_LIMIT),
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Read a bounded chronological window around one stable log sequence."""
+    if seq < 0:
+        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
+    store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
+    sequence = _interaction_sequence_summary(store)
+    first = sequence.get("first")
+    latest = sequence.get("latest")
+    if not isinstance(first, int) or not isinstance(latest, int) or not first <= seq <= latest:
+        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
+
+    seq_start = max(first, seq - before)
+    seq_end = min(latest, seq + after)
+    entries, complete = store.read_seq_range(seq_start, seq_end)
+    if not any(entry.get("seq") == seq for entry in entries):
+        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
+    return {
+        "anchor_seq": seq,
+        "events": _interaction_context_items(entries),
+        "complete": complete,
+        "has_older": seq_start > first,
+        "has_newer": seq_end < latest,
+        "sequence": sequence,
     }
 
 

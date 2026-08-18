@@ -2412,6 +2412,13 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     assert response.json()["total"] == 1
     assert response.json()["has_more"] is False
 
+    response = client.get(
+        "/api/admin/bubbles?bubble_id=bbl_260716120000", headers=headers
+    )
+    assert [item["id"] for item in response.json()["bubbles"]] == [
+        "bbl_260716120000"
+    ]
+
     response = client.get("/api/admin/bubbles?limit=1&offset=1", headers=headers)
     assert response.json()["bubbles"] == []
 
@@ -2441,6 +2448,13 @@ def test_bubble_history_survives_restart_and_preserves_raw_values(tmp_path):
     response = client.get("/api/admin/subconscious", headers=headers)
     assert response.status_code == 200
     assert response.json()["bubbles"][0]["mode"] == "audit"
+    response = client.get(
+        "/api/admin/subconscious?bubble_id=bbl_260716120000_audit",
+        headers=headers,
+    )
+    assert [item["log_id"] for item in response.json()["bubbles"]] == [
+        "bbl_260716120000_audit"
+    ]
     response = client.get("/api/admin/subconscious/bbl_260716120000_audit/history", headers=headers)
     assert response.status_code == 200
     assert len(response.json()["events"]) == 4
@@ -2908,6 +2922,96 @@ def test_admin_interaction_history_rejects_invalid_cursor(tmp_path):
         headers={"Authorization": "Bearer secret"},
     )
     assert response.status_code == 400
+
+
+def test_admin_interaction_context_links_legacy_bubble_tool_pairs(tmp_path):
+    client, config = _client(tmp_path)
+    logs_dir = Path(config.agent.logs_dir)
+    logs_dir.mkdir(parents=True)
+    archived = [
+        {
+            "type": "message_in",
+            "seq": 0,
+            "ts": "2026-07-01T09:00:00",
+            "content": "开始",
+        },
+        {
+            "type": "tool_call",
+            "seq": 1,
+            "ts": "2026-07-01T09:01:00",
+            "id": "call-bubble",
+            "name": "bubble_spawn",
+            "arguments": {"goal": "核对发布"},
+        },
+    ]
+    active = [
+        {
+            "type": "tool_result",
+            "seq": 2,
+            "ts": "2026-07-01T09:02:00",
+            "id": "call-bubble",
+            "name": "bubble_spawn",
+            "content": "已创建泡泡 bbl_260701090200，正在后台处理。",
+        },
+        {
+            "type": "subconscious_done",
+            "seq": 3,
+            "ts": "2026-07-01T09:03:00",
+            "mode": "audit",
+            "bubble_id": "bbl_260701090300",
+            "result": "完成",
+        },
+    ]
+    (logs_dir / "interactions-000001.jsonl").write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in archived) + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "interactions.jsonl").write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in active) + "\n",
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/api/admin/interactions/2/context?before=2&after=2",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["seq"] for item in payload["events"]] == [0, 1, 2, 3]
+    assert payload["anchor_seq"] == 2
+    assert payload["complete"] is True
+    assert payload["events"][1]["bubble"] == {
+        "id": "bbl_260701090200",
+        "bubble_id": "bbl_260701090200",
+        "scope": "bubbles",
+    }
+    assert payload["events"][2]["bubble"] == payload["events"][1]["bubble"]
+    assert payload["events"][3]["bubble"] == {
+        "id": "bbl_260701090300_audit",
+        "bubble_id": "bbl_260701090300",
+        "scope": "subconscious",
+    }
+
+
+def test_admin_interaction_context_rejects_missing_anchor_and_large_window(tmp_path):
+    client, config = _client(tmp_path)
+    logs_dir = Path(config.agent.logs_dir)
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "interactions.jsonl").write_text(
+        json.dumps({"type": "message_in", "seq": 1, "ts": "2026-07-01T09:00:00"})
+        + "\n",
+        encoding="utf-8",
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    assert client.get("/api/admin/interactions/0/context", headers=headers).status_code == 404
+    assert (
+        client.get(
+            "/api/admin/interactions/1/context?before=51", headers=headers
+        ).status_code
+        == 422
+    )
 
 
 def test_admin_interaction_history_filters_and_previews_memory_compressions(tmp_path):

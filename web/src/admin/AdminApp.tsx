@@ -1,7 +1,7 @@
-import { createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ClipboardEvent as ReactClipboardEvent, createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
-  Check, Clock3, CloudUpload, Database, Download, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
+  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
@@ -30,6 +30,7 @@ import {
   formatTime,
   localDateKey,
   localDateTimeInputToIso,
+  pastedLogTimeToInput,
   setServerTimezone,
   timestampMillis,
   toAbsoluteIso,
@@ -116,6 +117,16 @@ function sectionHref(next: Section) {
     url.searchParams.delete('log_start');
     url.searchParams.delete('log_end');
     url.searchParams.delete('log_type');
+    url.searchParams.delete('log_seq');
+    url.searchParams.delete('log_q');
+    url.searchParams.delete('log_seq_start');
+    url.searchParams.delete('log_seq_end');
+    url.searchParams.delete('log_cursor');
+  }
+  if (next !== 'memory' || current !== 'memory') {
+    url.searchParams.delete('memory_tab');
+    url.searchParams.delete('thought_scope');
+    url.searchParams.delete('bubble_id');
   }
   url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
@@ -145,6 +156,37 @@ function logTimeFromLocation(key: 'log_start' | 'log_end'): string {
 function logTypeFromLocation(): string {
   const value = new URLSearchParams(window.location.search).get('log_type') || '';
   return /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : '';
+}
+
+function safeLocationParam(key: string, pattern: RegExp): string {
+  const value = new URLSearchParams(window.location.search).get(key) || '';
+  return pattern.test(value) ? value : '';
+}
+
+function boundedLocationParam(key: string, maxLength: number): string {
+  const value = new URLSearchParams(window.location.search).get(key) || '';
+  return value.length <= maxLength ? value : '';
+}
+
+function logSeqFromLocation(): number | null {
+  const value = safeLocationParam('log_seq', /^\d+$/);
+  const seq = value ? Number(value) : NaN;
+  return Number.isSafeInteger(seq) ? seq : null;
+}
+
+function memoryTabFromLocation(): 'short' | 'long' | 'thoughts' {
+  const value = new URLSearchParams(window.location.search).get('memory_tab');
+  return value === 'long' || value === 'thoughts' ? value : 'short';
+}
+
+function thoughtScopeFromLocation(): 'bubbles' | 'subconscious' {
+  return new URLSearchParams(window.location.search).get('thought_scope') === 'subconscious'
+    ? 'subconscious'
+    : 'bubbles';
+}
+
+function bubbleIdFromLocation(): string {
+  return safeLocationParam('bubble_id', /^bbl_[A-Za-z0-9_-]{1,160}$/);
 }
 
 function logTimeInputValue(value: string): string {
@@ -1567,9 +1609,7 @@ function Runtime({ confirmationName }: { confirmationName: string }) {
     if (next === 'tasks') url.searchParams.delete('runtime_tab');
     else url.searchParams.set('runtime_tab', next);
     if (next !== 'logs') {
-      url.searchParams.delete('log_start');
-      url.searchParams.delete('log_end');
-      url.searchParams.delete('log_type');
+      ['log_start', 'log_end', 'log_type', 'log_seq', 'log_q', 'log_seq_start', 'log_seq_end', 'log_cursor'].forEach(key => url.searchParams.delete(key));
     }
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     setTab(next);
@@ -1582,12 +1622,28 @@ function Runtime({ confirmationName }: { confirmationName: string }) {
 }
 
 function MemoryCenter({ coworkerName, confirmationName }: { coworkerName: string; confirmationName: string }) {
-  const [tab, setTab] = useState<'short' | 'long' | 'thoughts'>('short');
+  const [tab, setTab] = useState<'short' | 'long' | 'thoughts'>(memoryTabFromLocation);
+  const selectTab = (next: 'short' | 'long' | 'thoughts') => {
+    const url = new URL(window.location.href);
+    if (next === 'short') url.searchParams.delete('memory_tab');
+    else url.searchParams.set('memory_tab', next);
+    if (next !== 'thoughts') {
+      url.searchParams.delete('thought_scope');
+      url.searchParams.delete('bubble_id');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setTab(next);
+  };
+  useEffect(() => {
+    const sync = () => setTab(memoryTabFromLocation());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
   return <div className="page-stack memory-center">
     <div className="tabbar memory-tabs">
-      <button className={tab === 'short' ? 'active' : ''} onClick={() => setTab('short')}><MessagesSquare size={14} />{t('短期记忆')}</button>
-      <button className={tab === 'long' ? 'active' : ''} onClick={() => setTab('long')}><Database size={14} />{t('长期记忆')}</button>
-      <button className={tab === 'thoughts' ? 'active' : ''} onClick={() => setTab('thoughts')}><Orbit size={14} />{t('并行思考记录')}</button>
+      <button className={tab === 'short' ? 'active' : ''} onClick={() => selectTab('short')}><MessagesSquare size={14} />{t('短期记忆')}</button>
+      <button className={tab === 'long' ? 'active' : ''} onClick={() => selectTab('long')}><Database size={14} />{t('长期记忆')}</button>
+      <button className={tab === 'thoughts' ? 'active' : ''} onClick={() => selectTab('thoughts')}><Orbit size={14} />{t('并行思考记录')}</button>
     </div>
     {tab === 'short' ? <ShortTermMemoryView coworkerName={coworkerName} confirmationName={confirmationName} /> : tab === 'long' ? <Memories /> : <Bubbles coworkerName={coworkerName} />}
   </div>;
@@ -1793,12 +1849,31 @@ function Tasks() {
 }
 
 function Bubbles({ coworkerName }: { coworkerName: string }) {
-  const [scope, setScope] = useState<'bubbles' | 'subconscious'>('bubbles');
+  const [scope, setScope] = useState<'bubbles' | 'subconscious'>(thoughtScopeFromLocation);
+  const [targetBubbleId, setTargetBubbleId] = useState(bubbleIdFromLocation);
   const basePath = scope === 'bubbles' ? '/api/admin/bubbles' : '/api/admin/subconscious';
-  const { data, error, loading, reload, setData } = useLoad(() => api<Json>(basePath + '?limit=50'), [scope]);
+  const targetQuery = targetBubbleId ? '&bubble_id=' + encodeURIComponent(targetBubbleId) : '';
+  const { data, error, loading, reload, setData } = useLoad(() => api<Json>(basePath + '?limit=50' + targetQuery), [scope, targetBubbleId]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState('');
   useEffect(() => setMoreError(''), [scope]);
+  const selectScope = (next: 'bubbles' | 'subconscious') => {
+    const url = new URL(window.location.href);
+    if (next === 'bubbles') url.searchParams.delete('thought_scope');
+    else url.searchParams.set('thought_scope', next);
+    url.searchParams.delete('bubble_id');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setTargetBubbleId('');
+    setScope(next);
+  };
+  useEffect(() => {
+    const sync = () => {
+      setScope(thoughtScopeFromLocation());
+      setTargetBubbleId(bubbleIdFromLocation());
+    };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
   if (loading || !data) return <Loading error={error} />;
   const loadMore = async () => {
     setLoadingMore(true); setMoreError('');
@@ -1808,7 +1883,7 @@ function Bubbles({ coworkerName }: { coworkerName: string }) {
     } catch (error) { setMoreError(error instanceof Error ? error.message : t('更多历史记录加载失败')); }
     finally { setLoadingMore(false); }
   };
-  return <Panel title="并行思考记录" note="查看主动 Bubble 和潜意识已落盘的完整思考轨迹。"><div className="list-toolbar"><div className="task-filters"><button className={scope === 'bubbles' ? 'active' : ''} onClick={() => setScope('bubbles')}>{t('主动 Bubble')}</button><button className={scope === 'subconscious' ? 'active' : ''} onClick={() => setScope('subconscious')}>{t('潜意识')}</button></div><button className="icon-btn" onClick={() => void reload()} title={t('刷新思考记录')} aria-label={t('刷新思考记录')}><RefreshCw size={15} /></button></div><div className="bubble-list">{data.bubbles.length ? data.bubbles.map((bubble: Json) => <BubbleRecord bubble={bubble} reload={reload} scope={scope} coworkerName={coworkerName} key={bubble.log_id || bubble.id} />) : <Empty text={scope === 'bubbles' ? '当前没有 Bubble 记录。' : '当前没有潜意识记录。'} />}</div>{moreError && <div className="notice error">{moreError}</div>}{data.has_more && <button className="bubble-load-more ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? t('加载中…') : t('加载更多（已显示 {{shown}}/{{total}}）', { shown: data.bubbles.length, total: data.total })}</button>}</Panel>;
+  return <Panel title="并行思考记录" note="查看主动 Bubble 和潜意识已落盘的完整思考轨迹。"><div className="list-toolbar"><div className="task-filters"><button className={scope === 'bubbles' ? 'active' : ''} onClick={() => selectScope('bubbles')}>{t('主动 Bubble')}</button><button className={scope === 'subconscious' ? 'active' : ''} onClick={() => selectScope('subconscious')}>{t('潜意识')}</button></div><button className="icon-btn" onClick={() => void reload()} title={t('刷新思考记录')} aria-label={t('刷新思考记录')}><RefreshCw size={15} /></button></div>{targetBubbleId && <div className="notice bubble-target-notice"><Orbit size={15} />{t('已定位思考记录 {{id}}', { id: targetBubbleId })}</div>}<div className="bubble-list">{data.bubbles.length ? data.bubbles.map((bubble: Json) => <BubbleRecord bubble={bubble} reload={reload} scope={scope} coworkerName={coworkerName} defaultOpen={Boolean(targetBubbleId)} targeted={Boolean(targetBubbleId)} key={bubble.log_id || bubble.id} />) : <Empty text={targetBubbleId ? '没有找到对应的思考记录。' : scope === 'bubbles' ? '当前没有 Bubble 记录。' : '当前没有潜意识记录。'} />}</div>{moreError && <div className="notice error">{moreError}</div>}{data.has_more && <button className="bubble-load-more ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? t('加载中…') : t('加载更多（已显示 {{shown}}/{{total}}）', { shown: data.bubbles.length, total: data.total })}</button>}</Panel>;
 }
 
 const BUBBLE_STATUS: Record<string, string> = {
@@ -1843,21 +1918,30 @@ function bubbleHistoryMessages(events: Json[]) {
   });
 }
 
-function BubbleRecord({ bubble, reload, scope, coworkerName }: { bubble: Json; reload: () => Promise<void>; scope: 'bubbles' | 'subconscious'; coworkerName: string }) {
-  const [open, setOpen] = useState(false);
+function BubbleRecord({ bubble, reload, scope, coworkerName, defaultOpen = false, targeted = false }: { bubble: Json; reload: () => Promise<void>; scope: 'bubbles' | 'subconscious'; coworkerName: string; defaultOpen?: boolean; targeted?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [events, setEvents] = useState<Json[] | null>(null);
   const [historyError, setHistoryError] = useState('');
+  const recordRef = useRef<HTMLElement>(null);
   const messages = useMemo(() => events ? bubbleHistoryMessages(events) : null, [events]);
-  const loadHistory = async () => {
-    const next = !open; setOpen(next);
-    if (!next || events) return;
+  const fetchHistory = useCallback(async () => {
+    if (events) return;
     setHistoryError('');
     try { const result = await api<Json>('/api/admin/' + scope + '/' + encodeURIComponent(bubble.log_id || bubble.id) + '/history'); setEvents(result.events || []); }
     catch (error) { setHistoryError(error instanceof Error ? error.message : t('历史记录加载失败')); }
+  }, [bubble.id, bubble.log_id, events, scope]);
+  const loadHistory = async () => {
+    const next = !open; setOpen(next);
+    if (next) await fetchHistory();
   };
+  useEffect(() => { if (defaultOpen) void fetchHistory(); }, [defaultOpen, fetchHistory]);
+  useEffect(() => {
+    if (!targeted) return;
+    recordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [targeted]);
   const model = [bubble.provider, bubble.model].filter(Boolean).join('/') || t('模型未记录');
   const createdAt = bubble.created_at ? t(' · {{time}}', { time: formatDateTime(bubble.created_at) }) : '';
-  return <article className={'bubble-record ' + (open ? 'open' : '')}>
+  return <article ref={recordRef} className={'bubble-record ' + (open ? 'open ' : '') + (targeted ? 'targeted' : '')}>
     <div className="bubble-record-head">
       <div className="record-main">
         <div className="bubble-record-tags">
@@ -1969,34 +2053,75 @@ function Alarms() {
 }
 
 function Logs() {
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const initialQuery = boundedLocationParam('log_q', 500);
+  const initialSeqStart = safeLocationParam('log_seq_start', /^\d+$/);
+  const initialSeqEnd = safeLocationParam('log_seq_end', /^\d+$/);
+  const initialCursor = boundedLocationParam('log_cursor', 512) || null;
+  const [query, setQuery] = useState(initialQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [type, setType] = useState(logTypeFromLocation);
-  const [seqStartDraft, setSeqStartDraft] = useState('');
-  const [seqEndDraft, setSeqEndDraft] = useState('');
-  const [seqStart, setSeqStart] = useState('');
-  const [seqEnd, setSeqEnd] = useState('');
+  const [seqStartDraft, setSeqStartDraft] = useState(initialSeqStart);
+  const [seqEndDraft, setSeqEndDraft] = useState(initialSeqEnd);
+  const [seqStart, setSeqStart] = useState(initialSeqStart);
+  const [seqEnd, setSeqEnd] = useState(initialSeqEnd);
   const [sequenceError, setSequenceError] = useState('');
   const [timeStartDraft, setTimeStartDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_start')));
   const [timeEndDraft, setTimeEndDraft] = useState(() => logTimeInputValue(logTimeFromLocation('log_end')));
   const [timeStart, setTimeStart] = useState(() => logTimeFromLocation('log_start'));
   const [timeEnd, setTimeEnd] = useState(() => logTimeFromLocation('log_end'));
   const [timeError, setTimeError] = useState('');
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [newerCursors, setNewerCursors] = useState<Array<string | null>>([]);
   const [page, setPage] = useState<Json | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [openSeq, setOpenSeq] = useState<number | null>(null);
-  const [details, setDetails] = useState<Record<number, Json>>({});
-  const [detailError, setDetailError] = useState('');
+  const [contextSeq, setContextSeq] = useState<number | null>(logSeqFromLocation);
+  const [context, setContext] = useState<Json | null>(null);
+  const [contextDetail, setContextDetail] = useState<Json | null>(null);
+  const [contextError, setContextError] = useState('');
+  const [contextLoading, setContextLoading] = useState(false);
   const requestVersion = useRef(0);
-  const detailVersion = useRef(0);
+  const contextVersion = useRef(0);
+  const firstFilterReset = useRef(true);
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query), 320);
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+      const url = new URL(window.location.href);
+      if (query) url.searchParams.set('log_q', query);
+      else url.searchParams.delete('log_q');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }, 320);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    const sync = () => setContextSeq(logSeqFromLocation());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  useEffect(() => {
+    if (contextSeq == null) {
+      contextVersion.current += 1;
+      setContext(null); setContextDetail(null); setContextError(''); setContextLoading(false);
+      return;
+    }
+    const version = ++contextVersion.current;
+    setContextLoading(true); setContextError(''); setContext(null); setContextDetail(null);
+    void Promise.all([
+      api<Json>('/api/admin/interactions/' + contextSeq + '/context?before=10&after=10'),
+      api<Json>('/api/admin/interactions/' + contextSeq),
+    ]).then(([nextContext, detail]) => {
+      if (version !== contextVersion.current) return;
+      setContext(nextContext); setContextDetail(detail);
+    }).catch(reason => {
+      if (version !== contextVersion.current) return;
+      setContextError(reason instanceof Error ? reason.message : t('日志详情加载失败'));
+    }).finally(() => {
+      if (version === contextVersion.current) setContextLoading(false);
+    });
+  }, [contextSeq]);
 
   const applyHistoryFilters = () => {
     const normalize = (value: string) => value.trim().replace(/^0+(?=\d)/, '');
@@ -2048,16 +2173,36 @@ function Logs() {
       url.searchParams.delete('log_start');
       url.searchParams.delete('log_end');
     }
+    if (start) url.searchParams.set('log_seq_start', start);
+    else url.searchParams.delete('log_seq_start');
+    if (end) url.searchParams.set('log_seq_end', end);
+    else url.searchParams.delete('log_seq_end');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
+  const pasteTime = (boundary: 'start' | 'end') => (event: ReactClipboardEvent<HTMLInputElement>) => {
+    const value = pastedLogTimeToInput(event.clipboardData.getData('text'), boundary);
+    event.preventDefault();
+    if (!value) {
+      setTimeError(t('无法识别粘贴的日志时间'));
+      return;
+    }
+    if (boundary === 'start') setTimeStartDraft(value);
+    else setTimeEndDraft(value);
+    setTimeError('');
+  };
+
   useEffect(() => {
+    if (firstFilterReset.current) {
+      firstFilterReset.current = false;
+      return;
+    }
     setCursor(null);
     setNewerCursors([]);
     setPage(null);
-    setOpenSeq(null);
-    setDetails({});
-    setDetailError('');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('log_cursor');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [type, debouncedQuery, seqStart, seqEnd, timeStart, timeEnd]);
 
   useEffect(() => {
@@ -2084,9 +2229,6 @@ function Logs() {
       .then(result => {
         if (version !== requestVersion.current) return;
         setPage(result);
-        setOpenSeq(null);
-        setDetails({});
-        setDetailError('');
       })
       .catch(reason => {
         if (version !== requestVersion.current) return;
@@ -2104,32 +2246,43 @@ function Logs() {
     if (!next || loading) return;
     setNewerCursors(items => [...items, cursor]);
     setCursor(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set('log_cursor', next);
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
   const showNewer = () => {
     const previous = newerCursors[newerCursors.length - 1];
     if (previous === undefined || loading) return;
     setNewerCursors(items => items.slice(0, -1));
     setCursor(previous);
+    const url = new URL(window.location.href);
+    if (previous) url.searchParams.set('log_cursor', previous);
+    else url.searchParams.delete('log_cursor');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
-  const toggleDetail = async (event: Json) => {
-    const seq = Number(event.seq);
+  const openContext = (seq: number) => {
     if (!Number.isInteger(seq) || seq < 0) return;
-    if (openSeq === seq) {
-      setOpenSeq(null);
-      return;
-    }
-    setOpenSeq(seq);
-    setDetailError('');
-    if (details[seq]) return;
-    const version = ++detailVersion.current;
-    try {
-      const result = await api<Json>('/api/admin/interactions/' + seq);
-      if (version !== detailVersion.current) return;
-      setDetails(current => ({ ...current, [seq]: result }));
-    } catch (reason) {
-      if (version !== detailVersion.current) return;
-      setDetailError(reason instanceof Error ? reason.message : t('日志详情加载失败'));
-    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('log_seq', String(seq));
+    window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setContextSeq(seq);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const closeContext = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('log_seq');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    setContextSeq(null);
+  };
+  const bubbleHref = (bubble: Json) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('section', 'memory');
+    url.searchParams.set('memory_tab', 'thoughts');
+    if (bubble.scope === 'subconscious') url.searchParams.set('thought_scope', 'subconscious');
+    else url.searchParams.delete('thought_scope');
+    url.searchParams.set('bubble_id', String(bubble.id));
+    ['runtime_tab', 'log_start', 'log_end', 'log_type', 'log_q', 'log_seq_start', 'log_seq_end', 'log_cursor', 'log_seq'].forEach(key => url.searchParams.delete(key));
+    return `${url.pathname}${url.search}${url.hash}`;
   };
   const events = [...(page?.events || [])].reverse();
   const hasOlder = Boolean(page?.next_cursor);
@@ -2179,13 +2332,13 @@ function Logs() {
         window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
       }}>
         <option value="">{t('全部事件')}</option>
-        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>memory_compression</option><option>subconscious_done</option>
+        <option>message_in</option><option>thinking_start</option><option>llm_response</option><option>tool_call</option><option>tool_result</option><option>system_prompt</option><option>summary_llm_response</option><option>vision_llm_response</option><option>mem0_llm_response</option><option>memory_compression</option><option>subconscious_spawned</option><option>subconscious_done</option>
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="history-time-range" aria-label={t('日志时间范围')}>
-        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} type="datetime-local" step="any" value={timeStartDraft} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="datetime-local" step="any" value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
-        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} type="datetime-local" step="any" min={timeStartDraft || undefined} value={timeEndDraft} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="datetime-local" step="any" min={timeStartDraft || undefined} value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
       </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
@@ -2198,17 +2351,25 @@ function Logs() {
   >
     {sequenceError && <div className="notice error history-sequence-error">{sequenceError}</div>}
     {timeError && <div className="notice error history-sequence-error">{timeError}</div>}
+    {contextSeq != null ? <div className="interaction-context-view">
+      <div className="history-navigator context-navigator"><div className="history-position"><span className="history-marker"><Clock3 size={15} /></span><div><b>{t('日志 #{{seq}} 的上下文', { seq: contextSeq })}</b><small>{t('按时间顺序显示目标日志前后的运行事件')}</small></div></div><button className="ghost mini" onClick={closeContext}><ChevronLeft size={14} />{t('返回筛选结果')}</button></div>
+      {contextLoading ? <Loading error="" /> : contextError ? <Loading error={contextError} /> : context ? <div className="log-table lifecycle-log-table context-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{(context.events || []).map((event: Json) => {
+        const seq = Number(event.seq);
+        const anchored = seq === contextSeq;
+        const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
+        return <article key={String(event.seq) + '-' + event.type} className={anchored ? 'context-anchor open' : ''}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('定位')}</button>}{anchored && <div className="interaction-detail">{contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
+      })}</div> : null}
+    </div> : <>
     <div className="history-navigator">
       <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : activeScope ? t('已应用日志范围') : t('最新记录')}</b><div className="history-detail-line"><small>{activeScope ? activeScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
       <div className="history-actions"><button className="ghost mini" disabled={!newerCursors.length || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{continuationLabel}</button></div>
     </div>
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
       const seq = Number(event.seq);
-      const isOpen = openSeq === seq;
-      const detail = Number.isInteger(seq) ? details[seq] : null;
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-      return <article key={String(event.seq) + '-' + event.type} className={isOpen ? 'open' : ''}><time>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}</div>{Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" aria-expanded={isOpen} onClick={() => void toggleDetail(event)}>{isOpen ? t('收起') : t('详情')}</button>}{isOpen && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : detail ? <><pre>{JSON.stringify(detail.entry, null, 2)}</pre>{detail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
+      return <article key={String(event.seq) + '-' + event.type}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('详情')}</button>}</article>;
     }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
+    </>}
   </Panel>;
 }
 
@@ -3644,6 +3805,7 @@ export default function AdminApp() {
     }
     if (eventType) url.searchParams.set('log_type', eventType);
     else url.searchParams.delete('log_type');
+    ['log_seq', 'log_q', 'log_seq_start', 'log_seq_end', 'log_cursor'].forEach(key => url.searchParams.delete(key));
     url.searchParams.delete('group');
     url.searchParams.delete('source');
     const href = `${url.pathname}${url.search}${url.hash}`;
