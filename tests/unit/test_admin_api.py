@@ -2924,7 +2924,7 @@ def test_admin_interaction_history_rejects_invalid_cursor(tmp_path):
     assert response.status_code == 400
 
 
-def test_admin_interaction_context_links_legacy_bubble_tool_pairs(tmp_path):
+def test_admin_interaction_page_links_legacy_bubble_tool_pairs(tmp_path):
     client, config = _client(tmp_path)
     logs_dir = Path(config.agent.logs_dir)
     logs_dir.mkdir(parents=True)
@@ -2972,46 +2972,24 @@ def test_admin_interaction_context_links_legacy_bubble_tool_pairs(tmp_path):
     )
 
     response = client.get(
-        "/api/admin/interactions/2/context?before=2&after=2",
+        "/api/admin/interactions?limit=100&seq_end=3",
         headers={"Authorization": "Bearer secret"},
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["seq"] for item in payload["events"]] == [0, 1, 2, 3]
-    assert payload["anchor_seq"] == 2
-    assert payload["complete"] is True
-    assert payload["events"][1]["bubble"] == {
+    assert [item["seq"] for item in payload["events"]] == [3, 2, 1, 0]
+    assert payload["events"][2]["bubble"] == {
         "id": "bbl_260701090200",
         "bubble_id": "bbl_260701090200",
         "scope": "bubbles",
     }
-    assert payload["events"][2]["bubble"] == payload["events"][1]["bubble"]
-    assert payload["events"][3]["bubble"] == {
+    assert payload["events"][1]["bubble"] == payload["events"][2]["bubble"]
+    assert payload["events"][0]["bubble"] == {
         "id": "bbl_260701090300_audit",
         "bubble_id": "bbl_260701090300",
         "scope": "subconscious",
     }
-
-
-def test_admin_interaction_context_rejects_missing_anchor_and_large_window(tmp_path):
-    client, config = _client(tmp_path)
-    logs_dir = Path(config.agent.logs_dir)
-    logs_dir.mkdir(parents=True)
-    (logs_dir / "interactions.jsonl").write_text(
-        json.dumps({"type": "message_in", "seq": 1, "ts": "2026-07-01T09:00:00"})
-        + "\n",
-        encoding="utf-8",
-    )
-    headers = {"Authorization": "Bearer secret"}
-
-    assert client.get("/api/admin/interactions/0/context", headers=headers).status_code == 404
-    assert (
-        client.get(
-            "/api/admin/interactions/1/context?before=51", headers=headers
-        ).status_code
-        == 422
-    )
 
 
 def test_admin_interaction_history_filters_and_previews_memory_compressions(tmp_path):

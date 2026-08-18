@@ -627,7 +627,6 @@ _INTERACTION_DETAIL_STRING_CHARS = 32_000
 _INTERACTION_DETAIL_ITEMS = 200
 _INTERACTION_DETAIL_DEPTH = 10
 _INTERACTION_TIME_RANGE_LIMIT = timedelta(days=1)
-_INTERACTION_CONTEXT_LIMIT = 50
 _BUBBLE_ID_IN_TEXT = re.compile(
     r"(?<![A-Za-z0-9_])(bbl_[A-Za-z0-9_-]{1,160})(?![A-Za-z0-9_-])"
 )
@@ -2439,7 +2438,7 @@ async def get_interaction_history(
         seq_end=effective_seq_end,
     )
     response: ApiResponse = {
-        "events": [_interaction_list_item(entry) for entry in page.entries],
+        "events": _interaction_context_items(page.entries),
         "next_cursor": _encode_interaction_cursor(page.cursor),
         "has_more": page.has_more,
         "scanned_bytes": page.scanned_bytes,
@@ -2467,38 +2466,6 @@ async def get_interaction_detail(
     return {
         "entry": _bounded_interaction_value(entry, state),
         "truncated": state[0],
-    }
-
-
-@router.get("/interactions/{seq}/context")
-async def get_interaction_context(
-    seq: int,
-    before: int = Query(default=10, ge=0, le=_INTERACTION_CONTEXT_LIMIT),
-    after: int = Query(default=10, ge=0, le=_INTERACTION_CONTEXT_LIMIT),
-    _: None = Depends(require_admin),
-) -> ApiResponse:
-    """Read a bounded chronological window around one stable log sequence."""
-    if seq < 0:
-        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
-    store = _interaction_log_store(str(_interaction_logs_dir().resolve()))
-    sequence = _interaction_sequence_summary(store)
-    first = sequence.get("first")
-    latest = sequence.get("latest")
-    if not isinstance(first, int) or not isinstance(latest, int) or not first <= seq <= latest:
-        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
-
-    seq_start = max(first, seq - before)
-    seq_end = min(latest, seq + after)
-    entries, complete = store.read_seq_range(seq_start, seq_end)
-    if not any(entry.get("seq") == seq for entry in entries):
-        raise HTTPException(status_code=404, detail=tr("api.admin.log_missing"))
-    return {
-        "anchor_seq": seq,
-        "events": _interaction_context_items(entries),
-        "complete": complete,
-        "has_older": seq_start > first,
-        "has_newer": seq_end < latest,
-        "sequence": sequence,
     }
 
 

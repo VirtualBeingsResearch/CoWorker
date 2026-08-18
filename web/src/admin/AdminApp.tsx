@@ -2077,12 +2077,13 @@ function Logs() {
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [contextSeq, setContextSeq] = useState<number | null>(logSeqFromLocation);
-  const [context, setContext] = useState<Json | null>(null);
+  const [contextCursor, setContextCursor] = useState<string | null>(null);
+  const [contextNewerCursors, setContextNewerCursors] = useState<Array<string | null>>([]);
   const [contextDetail, setContextDetail] = useState<Json | null>(null);
-  const [contextError, setContextError] = useState('');
-  const [contextLoading, setContextLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const requestVersion = useRef(0);
   const contextVersion = useRef(0);
+  const anchorRef = useRef<HTMLElement>(null);
   const firstFilterReset = useRef(true);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2102,26 +2103,29 @@ function Logs() {
   }, []);
 
   useEffect(() => {
+    setContextCursor(null);
+    setContextNewerCursors([]);
+    setPage(null);
     if (contextSeq == null) {
       contextVersion.current += 1;
-      setContext(null); setContextDetail(null); setContextError(''); setContextLoading(false);
+      setContextDetail(null); setDetailError('');
       return;
     }
     const version = ++contextVersion.current;
-    setContextLoading(true); setContextError(''); setContext(null); setContextDetail(null);
-    void Promise.all([
-      api<Json>('/api/admin/interactions/' + contextSeq + '/context?before=10&after=10'),
-      api<Json>('/api/admin/interactions/' + contextSeq),
-    ]).then(([nextContext, detail]) => {
+    setDetailError(''); setContextDetail(null);
+    void api<Json>('/api/admin/interactions/' + contextSeq).then(detail => {
       if (version !== contextVersion.current) return;
-      setContext(nextContext); setContextDetail(detail);
+      setContextDetail(detail);
     }).catch(reason => {
       if (version !== contextVersion.current) return;
-      setContextError(reason instanceof Error ? reason.message : t('日志详情加载失败'));
-    }).finally(() => {
-      if (version === contextVersion.current) setContextLoading(false);
+      setDetailError(reason instanceof Error ? reason.message : t('日志详情加载失败'));
     });
   }, [contextSeq]);
+
+  useEffect(() => {
+    if (contextSeq == null || !page || !anchorRef.current) return;
+    anchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [contextSeq, page]);
 
   const applyHistoryFilters = () => {
     const normalize = (value: string) => value.trim().replace(/^0+(?=\d)/, '');
@@ -2208,20 +2212,25 @@ function Logs() {
   useEffect(() => {
     const version = ++requestVersion.current;
     const controller = new AbortController();
-    const filtersActive = Boolean(type || debouncedQuery || seqStart || seqEnd || timeStart || timeEnd);
+    const activeCursor = contextSeq == null ? cursor : contextCursor;
+    const filtersActive = contextSeq == null && Boolean(type || debouncedQuery || seqStart || seqEnd || timeStart || timeEnd);
     setLoading(true);
     setError('');
     void loadInteractionHistoryPage({
-      cursor,
+      cursor: activeCursor,
       filtersActive,
       fetchPage: pageCursor => {
         const params = new URLSearchParams({ limit: '100' });
-        if (type) params.set('event_type', type);
-        if (debouncedQuery) params.set('q', debouncedQuery);
-        if (seqStart) params.set('seq_start', seqStart);
-        if (seqEnd) params.set('seq_end', seqEnd);
-        if (timeStart) params.set('start_time', timeStart);
-        if (timeEnd) params.set('end_time', timeEnd);
+        if (contextSeq != null) {
+          params.set('seq_end', String(Math.min(Number.MAX_SAFE_INTEGER, contextSeq + 50)));
+        } else {
+          if (type) params.set('event_type', type);
+          if (debouncedQuery) params.set('q', debouncedQuery);
+          if (seqStart) params.set('seq_start', seqStart);
+          if (seqEnd) params.set('seq_end', seqEnd);
+          if (timeStart) params.set('start_time', timeStart);
+          if (timeEnd) params.set('end_time', timeEnd);
+        }
         if (pageCursor) params.set('cursor', pageCursor);
         return api<Json>('/api/admin/interactions?' + params.toString(), { signal: controller.signal });
       },
@@ -2239,11 +2248,16 @@ function Logs() {
         if (version === requestVersion.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [cursor, debouncedQuery, refreshKey, seqEnd, seqStart, timeEnd, timeStart, type]);
+  }, [contextCursor, contextSeq, cursor, debouncedQuery, refreshKey, seqEnd, seqStart, timeEnd, timeStart, type]);
 
   const showOlder = () => {
     const next = typeof page?.next_cursor === 'string' ? page.next_cursor : null;
     if (!next || loading) return;
+    if (contextSeq != null) {
+      setContextNewerCursors(items => [...items, contextCursor]);
+      setContextCursor(next);
+      return;
+    }
     setNewerCursors(items => [...items, cursor]);
     setCursor(next);
     const url = new URL(window.location.href);
@@ -2251,8 +2265,14 @@ function Logs() {
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   };
   const showNewer = () => {
-    const previous = newerCursors[newerCursors.length - 1];
+    const cursorStack = contextSeq == null ? newerCursors : contextNewerCursors;
+    const previous = cursorStack[cursorStack.length - 1];
     if (previous === undefined || loading) return;
+    if (contextSeq != null) {
+      setContextNewerCursors(items => items.slice(0, -1));
+      setContextCursor(previous);
+      return;
+    }
     setNewerCursors(items => items.slice(0, -1));
     setCursor(previous);
     const url = new URL(window.location.href);
@@ -2266,7 +2286,6 @@ function Logs() {
     url.searchParams.set('log_seq', String(seq));
     window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
     setContextSeq(seq);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const closeContext = () => {
     const url = new URL(window.location.href);
@@ -2286,6 +2305,8 @@ function Logs() {
   };
   const events = [...(page?.events || [])].reverse();
   const hasOlder = Boolean(page?.next_cursor);
+  const effectiveCursor = contextSeq == null ? cursor : contextCursor;
+  const canShowNewer = contextSeq == null ? newerCursors.length > 0 : contextNewerCursors.length > 0;
   const loadedLabel = page?.has_more
     ? t('本页 {{count}} 条，可继续向更早的记录回溯。', { count: events.length })
     : t('本页 {{count}} 条，已到最早记录。', { count: events.length });
@@ -2313,7 +2334,7 @@ function Logs() {
       count: sequenceTotal.toLocaleString(), first: sequenceFirst.toLocaleString(), latest: sequenceLatest.toLocaleString(),
     })
     : page ? t('总序列 0') : '';
-  const searchContinuation = events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(activeScope));
+  const searchContinuation = contextSeq == null && events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(activeScope));
   const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
@@ -2351,25 +2372,16 @@ function Logs() {
   >
     {sequenceError && <div className="notice error history-sequence-error">{sequenceError}</div>}
     {timeError && <div className="notice error history-sequence-error">{timeError}</div>}
-    {contextSeq != null ? <div className="interaction-context-view">
-      <div className="history-navigator context-navigator"><div className="history-position"><span className="history-marker"><Clock3 size={15} /></span><div><b>{t('日志 #{{seq}} 的上下文', { seq: contextSeq })}</b><small>{t('按时间顺序显示目标日志前后的运行事件')}</small></div></div><button className="ghost mini" onClick={closeContext}><ChevronLeft size={14} />{t('返回筛选结果')}</button></div>
-      {contextLoading ? <Loading error="" /> : contextError ? <Loading error={contextError} /> : context ? <div className="log-table lifecycle-log-table context-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{(context.events || []).map((event: Json) => {
-        const seq = Number(event.seq);
-        const anchored = seq === contextSeq;
-        const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-        return <article key={String(event.seq) + '-' + event.type} className={anchored ? 'context-anchor open' : ''}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('定位')}</button>}{anchored && <div className="interaction-detail">{contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
-      })}</div> : null}
-    </div> : <>
     <div className="history-navigator">
-      <div className="history-position"><span className={cursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{cursor ? t('正在回溯更早的记录') : activeScope ? t('已应用日志范围') : t('最新记录')}</b><div className="history-detail-line"><small>{activeScope ? activeScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
-      <div className="history-actions"><button className="ghost mini" disabled={!newerCursors.length || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{continuationLabel}</button></div>
+      <div className="history-position"><span className={effectiveCursor ? 'history-marker earlier' : 'history-marker'}><Clock3 size={15} /></span><div><b>{contextSeq != null ? effectiveCursor ? t('从日志 #{{seq}} 继续回溯', { seq: contextSeq }) : t('已定位日志 #{{seq}}', { seq: contextSeq }) : cursor ? t('正在回溯更早的记录') : activeScope ? t('已应用日志范围') : t('最新记录')}</b><div className="history-detail-line"><small>{contextSeq != null ? t('目标日志位于这一页，并按正常生命全史顺序展示上下文。') + ' · ' + loadedLabel : activeScope ? activeScope + ' · ' + loadedLabel : loadedLabel}</small>{lifetimeSequenceLabel && <span className="history-sequence-total">{lifetimeSequenceLabel}</span>}</div></div></div>
+      <div className="history-actions">{contextSeq != null && <button className="ghost mini" onClick={closeContext}><X size={13} />{t('返回筛选结果')}</button>}<button className="ghost mini" disabled={!canShowNewer || loading} onClick={showNewer}><ChevronRight size={14} />{t('较新')}</button><button className="ghost mini" disabled={!hasOlder || loading} onClick={showOlder}><ChevronLeft size={14} />{contextSeq != null ? t('查看更早记录') : continuationLabel}</button></div>
     </div>
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
       const seq = Number(event.seq);
+      const anchored = contextSeq === seq;
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-      return <article key={String(event.seq) + '-' + event.type}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('详情')}</button>}</article>;
+      return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={anchored ? 'context-anchor open' : ''}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('详情')}</button>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
     }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
-    </>}
   </Panel>;
 }
 

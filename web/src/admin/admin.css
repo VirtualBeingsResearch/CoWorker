@@ -2185,8 +2185,7 @@ html:has(.admin-login),
 .interaction-detail { grid-column: 1 / -1; margin-top: 1px; padding: 10px; border: 1px solid color-mix(in oklch, var(--admin-vital) 18%, var(--admin-line)); border-radius: 8px; background: color-mix(in oklch, var(--admin-paper) 50%, var(--admin-surface)); }
 .interaction-detail pre { overflow: auto; max-height: 360px; margin: 0; padding: 11px; border-radius: 6px; color: color-mix(in oklch, var(--admin-paper) 90%, var(--admin-ink)); background: var(--admin-ink); font: 10px/1.55 var(--admin-data); white-space: pre-wrap; overflow-wrap: anywhere; }
 .interaction-detail > small { display: block; margin-top: 8px; color: var(--admin-amber); font-size: 9px; }
-.context-navigator .history-marker::after { display: none; }
-.context-log-table > article.context-anchor { border-block: 1px solid color-mix(in oklch, var(--admin-vital) 48%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 9%, var(--admin-surface)); box-shadow: inset 3px 0 0 var(--admin-vital); }
+.lifecycle-log-table > article.context-anchor { border-block: 1px solid color-mix(in oklch, var(--admin-vital) 48%, var(--admin-line)); background: color-mix(in oklch, var(--admin-vital) 9%, var(--admin-surface)); box-shadow: inset 3px 0 0 var(--admin-vital); }
 .context-anchor-label { align-self: start; padding: 5px 8px; border-radius: 99px; color: var(--admin-vital); background: var(--admin-soft); font: 680 9px var(--admin-data); white-space: nowrap; }
 .history-empty { grid-column: 1 / -1; }
 .history-empty .empty-state { min-height: 210px; }
