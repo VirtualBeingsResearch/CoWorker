@@ -373,7 +373,7 @@ Please review this change.
 4. Codex replies to Coworker:
 
 - The bridge registers dynamic tools through the app-server's `dynamicTools`. Codex should call `list_coworkers()` to inspect reachable Coworker instances, then call `send_to_coworker(coworker_id, message, attachments=[...])` to send a message explicitly.
-- Historical threads that cannot receive dynamic tools retain the frontmatter-based text tool. Parsed messages use the same Desktop v1 outbox/ACK delivery path.
+- Historical threads that cannot receive dynamic tools retain the frontmatter-based text tool. The bridge injects that text tool on the first visible turn regardless of whether a local user or a Coworker continues the session first, and only once per session. Parsed messages use the same Desktop v1 outbox/ACK delivery path.
 
 Send a message to Coworker:
 

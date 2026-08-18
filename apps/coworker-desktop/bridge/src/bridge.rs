@@ -433,13 +433,15 @@ impl CodexBridge {
             author_label.as_deref(),
             &content,
         )?;
-        let should_bootstrap = author_kind == "coworker"
-            && !self
-                .state
-                .lock()
-                .await
-                .bootstrapped_thread_ids
-                .contains(&thread_id);
+        // Native/legacy Codex sessions cannot receive dynamic tools, so inject
+        // the text-tool fallback before the first visible turn regardless of
+        // which side (Coworker or local user) opens/continues the session.
+        let should_bootstrap = !self
+            .state
+            .lock()
+            .await
+            .bootstrapped_thread_ids
+            .contains(&thread_id);
         let content = if should_bootstrap {
             format!("{NATIVE_SESSION_COWORKER_INSTRUCTIONS}\n\n{content}")
         } else {
@@ -3299,7 +3301,7 @@ mod tests {
                 .contains("external_thread")
         );
         assert!(
-            !bridge
+            bridge
                 .state
                 .lock()
                 .await
@@ -3359,6 +3361,87 @@ mod tests {
         assert!(first.contains("type: coworker_tool_call"));
         assert!(first.contains("tool: send_to_coworker"));
         assert!(first.ends_with("[来自Coworker:cw_02][搭档 B]的消息:\n先看一下"));
+        assert_eq!(calls[2].0, "turn/steer");
+        let second = calls[2].1["input"][0]["text"]
+            .as_str()
+            .expect("second input text");
+        assert_eq!(second, "[来自Coworker:cw_02][搭档 B]的消息:\n再确认一下");
+
+        let persisted: PersistedState =
+            serde_json::from_slice(&fs::read(&state_path).expect("persisted bridge state"))
+                .expect("valid bridge state");
+        assert_eq!(
+            persisted.bootstrapped_thread_ids,
+            vec!["external_thread".to_owned()]
+        );
+        let _ = fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn native_codex_history_bootstraps_text_tool_fallback_on_first_local_input() {
+        let client = FakeCodexClient::new();
+        client
+            .push_response(json!({
+                "thread": {"id": "external_thread", "status": {"type": "idle"}}
+            }))
+            .await;
+        client
+            .push_response(json!({"turn": {"id": "turn_external", "status": "running"}}))
+            .await;
+        let state_path = temp_state_path("native-local-bootstrap");
+        let mut cfg = multi_config();
+        cfg.state_path = Some(state_path.clone());
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-external_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"external_thread","source":"vscode"}}"#,
+        )
+        .expect("native Codex history");
+        let bridge = bridge_with(cfg, client.clone(), RecordingTransport::new());
+
+        bridge
+            .send_actor_conversation_message(
+                Some("external_thread".into()),
+                "先看一下".into(),
+                Vec::new(),
+                None,
+                None,
+                None,
+                "local".into(),
+                Some("desktop-test".into()),
+                Some("本机".into()),
+                None,
+            )
+            .await
+            .expect("native Codex history should accept local input");
+
+        bridge
+            .send_actor_conversation_message(
+                Some("external_thread".into()),
+                "再确认一下".into(),
+                Vec::new(),
+                None,
+                None,
+                None,
+                "coworker".into(),
+                Some("cw_02".into()),
+                Some("搭档 B".into()),
+                Some("cw_02".into()),
+            )
+            .await
+            .expect("native Codex history should accept Coworker input");
+
+        let calls = client.calls().await;
+        assert_eq!(calls[0].0, "thread/resume");
+        assert_eq!(calls[1].0, "turn/start");
+        let first = calls[1].1["input"][0]["text"]
+            .as_str()
+            .expect("first input text");
+        assert!(first.starts_with("[协作背景]\n"));
+        assert!(first.contains("type: coworker_tool_call"));
+        assert!(first.contains("tool: send_to_coworker"));
+        assert!(first.ends_with("先看一下"));
         assert_eq!(calls[2].0, "turn/steer");
         let second = calls[2].1["input"][0]["text"]
             .as_str()
