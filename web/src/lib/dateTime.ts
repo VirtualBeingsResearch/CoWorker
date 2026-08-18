@@ -231,6 +231,64 @@ export function localDateTimeInputToIso(value: string): string {
   return Number.isFinite(date.getTime()) ? date.toISOString() : '';
 }
 
+/** Normalize a copied log timestamp for a datetime-local filter control. */
+export function pastedLogTimeToInput(
+  value: string,
+  boundary: 'start' | 'end',
+): string {
+  const text = value.trim();
+  if (!text) return '';
+  const normalized = text
+    .replace(/[年/]/g, '-')
+    .replace(/月/g, '-')
+    .replace(/日/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const dateOnly = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(normalized);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]);
+    const day = Number(dateOnly[3]);
+    const date = new Date(
+      year,
+      month - 1,
+      day,
+      boundary === 'end' ? 23 : 0,
+      boundary === 'end' ? 59 : 0,
+      boundary === 'end' ? 59 : 0,
+      boundary === 'end' ? 999 : 0,
+    );
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+    return toLocalDateTimeInput(date);
+  }
+
+  // Raw persisted timestamps use an ISO ``T`` separator.  Offset-free raw
+  // values belong to the configured server timezone, while copied display
+  // text below is interpreted in the browser's local timezone.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+    const apiDate = parseTimestamp(text);
+    return apiDate ? toLocalDateTimeInput(apiDate) : '';
+  }
+
+  const yearFirst = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d{1,9}))?)?$/.exec(normalized);
+  if (yearFirst) {
+    const [, y, m, d, hh, mm, ss = '0', fraction = ''] = yearFirst;
+    const date = new Date(
+      Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss),
+      Number(fraction.slice(0, 3).padEnd(3, '0')),
+    );
+    if (
+      date.getFullYear() !== Number(y) || date.getMonth() !== Number(m) - 1
+      || date.getDate() !== Number(d) || date.getHours() !== Number(hh)
+      || date.getMinutes() !== Number(mm) || date.getSeconds() !== Number(ss)
+    ) return '';
+    return toLocalDateTimeInput(date);
+  }
+
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? toLocalDateTimeInput(parsed) : '';
+}
+
 /** Normalize an offset-bearing API timestamp for URLs and requests. */
 export function toAbsoluteIso(value: TimestampValue): string {
   return parseTimestamp(value)?.toISOString() ?? '';

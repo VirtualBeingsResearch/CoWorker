@@ -6,6 +6,7 @@ import {
   localDateKey,
   localDateTimeInputToIso,
   parseTimestamp,
+  pastedLogTimeToInput,
   setServerTimezone,
   toAbsoluteIso,
   toLocalDateTimeInput,
@@ -92,6 +93,37 @@ test('turns datetime-local values into absolute instants', () => {
     toAbsoluteIso('2026-08-13T08:30:00+08:00'),
     '2026-08-13T00:30:00.000Z',
   );
+});
+
+test('normalizes copied log timestamps for history filters', () => {
+  process.env.TZ = 'Asia/Shanghai';
+  setServerTimezone('Asia/Shanghai');
+
+  assert.equal(
+    pastedLogTimeToInput('2026-08-18T14:32:10.123456', 'start'),
+    '2026-08-18T14:32:10.123',
+  );
+  assert.equal(
+    pastedLogTimeToInput('2026/08/18 14:32:10', 'start'),
+    '2026-08-18T14:32:10.000',
+  );
+  assert.equal(
+    pastedLogTimeToInput('2026/8/18 14:32:10', 'start'),
+    '2026-08-18T14:32:10.000',
+  );
+  assert.equal(
+    pastedLogTimeToInput('2026年8月18日 14:32:10', 'start'),
+    '2026-08-18T14:32:10.000',
+  );
+  assert.equal(
+    pastedLogTimeToInput('2026-08-18', 'start'),
+    '2026-08-18T00:00:00.000',
+  );
+  assert.equal(
+    pastedLogTimeToInput('2026-08-18', 'end'),
+    '2026-08-18T23:59:59.999',
+  );
+  assert.equal(pastedLogTimeToInput('not-a-log-time', 'start'), '');
 });
 
 test('rejects empty and invalid timestamp values', () => {
