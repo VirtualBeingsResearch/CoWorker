@@ -1306,6 +1306,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '目标日志位于这一页，并按正常生命全史顺序展示上下文。': 'The target log is on this page, with context shown in the normal lifetime-history order.',
   '返回筛选结果': 'Back to filtered results',
   '当前日志': 'Current log',
+  '查看上下文': 'View context',
   '定位': 'Locate',
   '查看 Bubble {{id}}': 'View Bubble {{id}}',
   '为了保持页面流畅，这条超长记录已在详情中截断。': 'This unusually large record is truncated in the detail view to keep the page responsive.',

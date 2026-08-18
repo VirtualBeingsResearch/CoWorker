@@ -23,6 +23,7 @@ import { bootstrapTimezoneAdvice, detectBrowserTimezone } from './bootstrapTimez
 import { AdminUsageOverview } from './UsageOverview';
 import { AdminUsageAnalytics } from './UsageAnalytics';
 import { LineNumberTextarea } from './LineNumberTextarea';
+import { isTargetBubbleRecord, shouldShowInteractionContextAction } from './interactionNavigation';
 import type { UsageStats } from '../api/types';
 import {
   formatDate,
@@ -1883,7 +1884,10 @@ function Bubbles({ coworkerName }: { coworkerName: string }) {
     } catch (error) { setMoreError(error instanceof Error ? error.message : t('更多历史记录加载失败')); }
     finally { setLoadingMore(false); }
   };
-  return <Panel title="并行思考记录" note="查看主动 Bubble 和潜意识已落盘的完整思考轨迹。"><div className="list-toolbar"><div className="task-filters"><button className={scope === 'bubbles' ? 'active' : ''} onClick={() => selectScope('bubbles')}>{t('主动 Bubble')}</button><button className={scope === 'subconscious' ? 'active' : ''} onClick={() => selectScope('subconscious')}>{t('潜意识')}</button></div><button className="icon-btn" onClick={() => void reload()} title={t('刷新思考记录')} aria-label={t('刷新思考记录')}><RefreshCw size={15} /></button></div>{targetBubbleId && <div className="notice bubble-target-notice"><Orbit size={15} />{t('已定位思考记录 {{id}}', { id: targetBubbleId })}</div>}<div className="bubble-list">{data.bubbles.length ? data.bubbles.map((bubble: Json) => <BubbleRecord bubble={bubble} reload={reload} scope={scope} coworkerName={coworkerName} defaultOpen={Boolean(targetBubbleId)} targeted={Boolean(targetBubbleId)} key={bubble.log_id || bubble.id} />) : <Empty text={targetBubbleId ? '没有找到对应的思考记录。' : scope === 'bubbles' ? '当前没有 Bubble 记录。' : '当前没有潜意识记录。'} />}</div>{moreError && <div className="notice error">{moreError}</div>}{data.has_more && <button className="bubble-load-more ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? t('加载中…') : t('加载更多（已显示 {{shown}}/{{total}}）', { shown: data.bubbles.length, total: data.total })}</button>}</Panel>;
+  return <Panel title="并行思考记录" note="查看主动 Bubble 和潜意识已落盘的完整思考轨迹。"><div className="list-toolbar"><div className="task-filters"><button className={scope === 'bubbles' ? 'active' : ''} onClick={() => selectScope('bubbles')}>{t('主动 Bubble')}</button><button className={scope === 'subconscious' ? 'active' : ''} onClick={() => selectScope('subconscious')}>{t('潜意识')}</button></div><button className="icon-btn" onClick={() => void reload()} title={t('刷新思考记录')} aria-label={t('刷新思考记录')}><RefreshCw size={15} /></button></div>{targetBubbleId && <div className="notice bubble-target-notice"><Orbit size={15} />{t('已定位思考记录 {{id}}', { id: targetBubbleId })}</div>}<div className="bubble-list">{data.bubbles.length ? data.bubbles.map((bubble: Json) => {
+    const targeted = isTargetBubbleRecord(bubble, targetBubbleId);
+    return <BubbleRecord bubble={bubble} reload={reload} scope={scope} coworkerName={coworkerName} defaultOpen={targeted} targeted={targeted} key={bubble.log_id || bubble.id} />;
+  }) : <Empty text={targetBubbleId ? '没有找到对应的思考记录。' : scope === 'bubbles' ? '当前没有 Bubble 记录。' : '当前没有潜意识记录。'} />}</div>{moreError && <div className="notice error">{moreError}</div>}{data.has_more && <button className="bubble-load-more ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? t('加载中…') : t('加载更多（已显示 {{shown}}/{{total}}）', { shown: data.bubbles.length, total: data.total })}</button>}</Panel>;
 }
 
 const BUBBLE_STATUS: Record<string, string> = {
@@ -2081,8 +2085,12 @@ function Logs() {
   const [contextNewerCursors, setContextNewerCursors] = useState<Array<string | null>>([]);
   const [contextDetail, setContextDetail] = useState<Json | null>(null);
   const [detailError, setDetailError] = useState('');
+  const [openSeq, setOpenSeq] = useState<number | null>(null);
+  const [details, setDetails] = useState<Record<number, Json>>({});
+  const [rowDetailErrors, setRowDetailErrors] = useState<Record<number, string>>({});
   const requestVersion = useRef(0);
   const contextVersion = useRef(0);
+  const detailVersion = useRef(0);
   const anchorRef = useRef<HTMLElement>(null);
   const firstFilterReset = useRef(true);
   useEffect(() => {
@@ -2238,6 +2246,7 @@ function Logs() {
       .then(result => {
         if (version !== requestVersion.current) return;
         setPage(result);
+        setOpenSeq(null);
       })
       .catch(reason => {
         if (version !== requestVersion.current) return;
@@ -2287,6 +2296,25 @@ function Logs() {
     window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
     setContextSeq(seq);
   };
+  const toggleDetail = async (seq: number) => {
+    if (!Number.isInteger(seq) || seq < 0) return;
+    if (openSeq === seq) {
+      setOpenSeq(null);
+      return;
+    }
+    setOpenSeq(seq);
+    if (details[seq]) return;
+    const version = ++detailVersion.current;
+    try {
+      const detail = await api<Json>('/api/admin/interactions/' + seq);
+      if (version !== detailVersion.current) return;
+      setDetails(current => ({ ...current, [seq]: detail }));
+      setRowDetailErrors(current => ({ ...current, [seq]: '' }));
+    } catch (reason) {
+      if (version !== detailVersion.current) return;
+      setRowDetailErrors(current => ({ ...current, [seq]: reason instanceof Error ? reason.message : t('日志详情加载失败') }));
+    }
+  };
   const closeContext = () => {
     const url = new URL(window.location.href);
     url.searchParams.delete('log_seq');
@@ -2335,6 +2363,9 @@ function Logs() {
     })
     : page ? t('总序列 0') : '';
   const searchContinuation = contextSeq == null && events.length === 0 && hasOlder && (Boolean(type) || Boolean(debouncedQuery) || Boolean(activeScope));
+  const filteredResults = shouldShowInteractionContextAction({
+    contextSeq, type, query: debouncedQuery, seqStart, seqEnd, timeStart, timeEnd,
+  });
   const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
@@ -2379,8 +2410,11 @@ function Logs() {
     {loading && !page ? <Loading error={error} /> : error ? <Loading error={error} /> : <div className="log-table lifecycle-log-table"><div className="log-head" aria-hidden="true"><b>{t('时间')}</b><b>{t('事件')}</b><b>{t('内容')}</b></div>{events.length ? events.map((event: Json) => {
       const seq = Number(event.seq);
       const anchored = contextSeq === seq;
+      const rowOpen = openSeq === seq;
+      const rowDetail = details[seq];
+      const rowDetailError = rowDetailErrors[seq];
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-      return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={anchored ? 'context-anchor open' : ''}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <button className="ghost mini interaction-detail-toggle" onClick={() => openContext(seq)}>{t('详情')}</button>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
+      return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={[anchored ? 'context-anchor' : '', anchored || rowOpen ? 'open' : ''].filter(Boolean).join(' ')}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <div className="interaction-row-actions"><button className="ghost mini interaction-detail-toggle" onClick={() => void toggleDetail(seq)}>{t(rowOpen ? '收起' : '详情')}</button>{filteredResults && <button className="ghost mini interaction-context-toggle" onClick={() => openContext(seq)}>{t('查看上下文')}</button>}</div>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}{!anchored && rowOpen && <div className="interaction-detail">{rowDetailError ? <p className="notice error">{rowDetailError}</p> : rowDetail ? <><pre>{JSON.stringify(rowDetail.entry, null, 2)}</pre>{rowDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
     }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
   </Panel>;
 }
