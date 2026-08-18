@@ -2160,7 +2160,10 @@ html:has(.admin-login),
 .history-time-range { display: flex; align-items: center; gap: 5px; min-height: 42px; padding: 3px 8px; border: 1px solid color-mix(in oklch, var(--admin-sky) 24%, var(--admin-line)); border-radius: 10px; background: color-mix(in oklch, var(--admin-sky) 4%, var(--admin-surface)); }
 .history-time-range label { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .history-time-range label > span { color: var(--admin-muted); font: 680 8px var(--admin-data); white-space: nowrap; }
-.history-time-range input { width: 178px; min-height: 32px; padding: 5px 7px; border-radius: 6px; font: 9px var(--admin-data); font-variant-numeric: tabular-nums; }
+.history-editable-time { position: relative; display: flex; align-items: center; min-width: 0; }
+.history-editable-time > input:first-child { width: 198px; min-height: 32px; padding: 5px 30px 5px 7px; border-radius: 6px; font: 9px var(--admin-data); font-variant-numeric: tabular-nums; }
+.history-editable-time > svg { position: absolute; right: 9px; color: var(--admin-muted); pointer-events: none; }
+.history-native-time-picker { position: absolute; top: 0; right: 0; width: 31px; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; }
 .sequence-range { display: flex; align-items: center; gap: 5px; min-height: 42px; padding: 3px 4px 3px 8px; border: 1px solid color-mix(in oklch, var(--admin-vital) 22%, var(--admin-line)); border-radius: 10px; background: color-mix(in oklch, var(--admin-soft) 62%, var(--admin-surface)); }
 .sequence-range label { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .sequence-range label > span { color: var(--admin-muted); font: 680 8px var(--admin-data); letter-spacing: .04em; white-space: nowrap; }
@@ -3374,8 +3377,9 @@ html:has(.admin-login),
   .history-sequence-total { padding-left: 0; border-left: 0; }
   .history-log-filters { justify-content: flex-start; }
   .history-time-range { width: 100%; flex-wrap: wrap; }
-  .history-time-range label { flex: 1 1 210px; }
-  .history-time-range input { flex: 1 1 0; width: 100%; min-width: 0; }
+  .history-time-range label { flex: 1 1 245px; }
+  .history-editable-time { flex: 1; }
+  .history-editable-time > input:first-child { flex: 1 1 0; width: 100%; min-width: 0; }
   .sequence-range { width: 100%; }
   .sequence-range label { flex: 1; }
   .sequence-range input { flex: 1 1 0; width: 100%; min-width: 0; }

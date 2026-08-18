@@ -1,6 +1,6 @@
 import { ClipboardEvent as ReactClipboardEvent, createContext, FormEvent, Fragment, MouseEvent as ReactMouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, ChevronLeft, ChevronRight, CircleGauge,
+  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
@@ -2374,6 +2374,8 @@ function Logs() {
   const filteredResults = shouldShowInteractionContextAction({
     contextSeq, type, query: debouncedQuery, seqStart, seqEnd, timeStart, timeEnd,
   });
+  const startPickerValue = pastedLogTimeToInput(timeStartDraft, 'start');
+  const endPickerValue = pastedLogTimeToInput(timeEndDraft, 'end');
   const continuationLabel = activeScope
     ? t('继续查看范围内更早记录')
     : searchContinuation
@@ -2396,9 +2398,9 @@ function Logs() {
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="history-time-range" aria-label={t('日志时间范围')}>
-        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder={t('粘贴日志时间')} value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('开始')}</span><div className="history-editable-time"><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志开始时间')} lang={dateLocale} type="datetime-local" step="any" value={startPickerValue} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></div></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
-        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder={t('粘贴日志时间')} value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('结束')}</span><div className="history-editable-time"><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志结束时间')} lang={dateLocale} type="datetime-local" step="any" min={startPickerValue || undefined} value={endPickerValue} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></div></label>
       </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
