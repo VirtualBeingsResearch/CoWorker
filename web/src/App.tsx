@@ -18,6 +18,11 @@ import remarkGfm from 'remark-gfm';
 import { ChatDock } from './components/ChatDock';
 import { RuntimeLedger, type RuntimeLogFeed } from './components/RuntimeLedger';
 import { useCommunicationToken } from './hooks/useCommunicationToken';
+import {
+  COMMUNICATION_CREDENTIAL_USERNAME,
+  COMMUNICATION_PASSWORD_AUTOCOMPLETE,
+  COMMUNICATION_USERNAME_AUTOCOMPLETE,
+} from './lib/browserCredentials';
 import { useRuntimeLogStream } from './hooks/useRuntimeLogStream';
 import { useStatus } from './hooks/useStatus';
 import { useProfile } from './hooks/useProfile';
@@ -187,12 +192,23 @@ function StatusTokenControl({
         <form className="status-token-pop" onSubmit={submit}>
           <label htmlFor="status-token-input">{t('通信令牌')}</label>
           <input
+            className="credential-username"
+            type="text"
+            name="username"
+            value={COMMUNICATION_CREDENTIAL_USERNAME}
+            autoComplete={COMMUNICATION_USERNAME_AUTOCOMPLETE}
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          <input
             id="status-token-input"
             type="password"
+            name="password"
             value={draft}
             onChange={event => setDraft(event.target.value)}
             placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
-            autoComplete="off"
+            autoComplete={COMMUNICATION_PASSWORD_AUTOCOMPLETE}
             maxLength={4096}
             autoFocus
           />
@@ -200,7 +216,7 @@ function StatusTokenControl({
             <button type="submit" className="status-token-save">{t('保存')}</button>
             <button type="button" className="status-token-clear" onClick={clear}>{t('清除')}</button>
           </div>
-          <p className="status-token-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
+          <p className="status-token-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
         </form>
       )}
     </div>

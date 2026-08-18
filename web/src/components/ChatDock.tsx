@@ -20,6 +20,11 @@ import {
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { getChatEventStreamUrl, postMessage } from '../api/client';
 import { useCommunicationToken } from '../hooks/useCommunicationToken';
+import {
+  COMMUNICATION_CREDENTIAL_USERNAME,
+  COMMUNICATION_PASSWORD_AUTOCOMPLETE,
+  COMMUNICATION_USERNAME_AUTOCOMPLETE,
+} from '../lib/browserCredentials';
 import { t } from '../i18n/admin';
 
 type ChatRole = 'user' | 'assistant';
@@ -874,12 +879,23 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
                 <label htmlFor="chat-user-token">{t('通信令牌（可选）')}</label>
                 <input
+                  className="credential-username"
+                  type="text"
+                  name="username"
+                  value={COMMUNICATION_CREDENTIAL_USERNAME}
+                  autoComplete={COMMUNICATION_USERNAME_AUTOCOMPLETE}
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+                <input
                   id="chat-user-token"
                   type="password"
+                  name="password"
                   value={tokenDraft}
                   onChange={event => setTokenDraft(event.target.value)}
                   placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
-                  autoComplete="off"
+                  autoComplete={COMMUNICATION_PASSWORD_AUTOCOMPLETE}
                   maxLength={4096}
                 />
                 <button type="submit" className="chat-name-start" disabled={!nameDraft.trim()}>
@@ -888,7 +904,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </form>
               <p className="chat-name-note">{t('名字会用于建立这次连接；资料和界面聊天副本保存在此浏览器。')}</p>
-              <p className="chat-name-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
+              <p className="chat-name-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
             </div>
           ) : isProfileEditorOpen ? (
             <div className="chat-profile-editor">
@@ -913,12 +929,23 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 {nameError && <p className="chat-name-error" role="alert">{t(nameError)}</p>}
                 <label htmlFor="chat-profile-token">{t('通信令牌（可选）')}</label>
                 <input
+                  className="credential-username"
+                  type="text"
+                  name="username"
+                  value={COMMUNICATION_CREDENTIAL_USERNAME}
+                  autoComplete={COMMUNICATION_USERNAME_AUTOCOMPLETE}
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+                <input
                   id="chat-profile-token"
                   type="password"
+                  name="password"
                   value={tokenDraft}
                   onChange={event => setTokenDraft(event.target.value)}
                   placeholder={t('API__COMMUNICATION_TOKEN 或管理员令牌')}
-                  autoComplete="off"
+                  autoComplete={COMMUNICATION_PASSWORD_AUTOCOMPLETE}
                   maxLength={4096}
                 />
                 <div className="chat-profile-actions">
@@ -951,7 +978,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </div>
               <p className="chat-profile-note">{t('此界面的聊天副本只保存在当前浏览器，不会同步到其他设备。')}</p>
-              <p className="chat-profile-note">{t('通信令牌只在当前标签页会话中保留，不会写入长期存储。')}</p>
+              <p className="chat-profile-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
             </div>
           ) : (
             <>

@@ -105,6 +105,8 @@ test('keeps multi-currency spend compact and links summaries to pricing', () => 
   assert.match(adminApp, /function sectionHref[\s\S]*url\.hash = '';/);
   assert.match(adminApp, /url\.hash = 'model-pricing'/);
   assert.match(adminApp, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
-  assert.match(adminCss, /usage-analytics-metrics \{[^}]*repeat\(6/);
-  assert.match(adminCss, /admin-usage-metrics\.compact \{[^}]*repeat\(6/);
+  // Eight analytics cards form two balanced rows; the five-card overview stays
+  // on one row at desktop widths.
+  assert.match(adminCss, /usage-analytics-metrics \{[^}]*repeat\(4/);
+  assert.match(adminCss, /admin-usage-metrics\.compact \{[^}]*repeat\(5/);
 });
