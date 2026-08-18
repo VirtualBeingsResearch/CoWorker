@@ -2385,6 +2385,11 @@ function Logs() {
     : searchContinuation
       ? t('继续搜索更早日志')
       : t('查看更早记录');
+  const emptyHistoryText = searchContinuation
+    ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。'
+    : filteredResults
+      ? '当前筛选条件下没有匹配的日志。'
+      : '这里还没有交互日志。';
   return <Panel
     title="生命全史日志"
     note="时间与序列范围都包含端点，结果从范围内最新记录开始分页；时间范围最多 24 小时。"
@@ -2429,7 +2434,7 @@ function Logs() {
       const rowDetailError = rowDetailErrors[seq];
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
       return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={[anchored ? 'context-anchor' : '', anchored || rowOpen ? 'open' : ''].filter(Boolean).join(' ')}><time title={String(event.ts || '')}>{formatDateTime(event.ts, dateLocale)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <div className="interaction-row-actions"><button className="ghost mini interaction-detail-toggle" onClick={() => void toggleDetail(seq)}>{t(rowOpen ? '收起' : '详情')}</button>{filteredResults && <button className="ghost mini interaction-context-toggle" onClick={() => openContext(seq)}>{t('查看上下文')}</button>}</div>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}{!anchored && rowOpen && <div className="interaction-detail">{rowDetailError ? <p className="notice error">{rowDetailError}</p> : rowDetail ? <><pre>{JSON.stringify(rowDetail.entry, null, 2)}</pre>{rowDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
-    }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
+    }) : <div className="history-empty"><Empty text={emptyHistoryText} /></div>}</div>}
   </Panel>;
 }
 

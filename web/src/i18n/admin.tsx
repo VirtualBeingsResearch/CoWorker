@@ -1313,6 +1313,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '查看 Bubble {{id}}': 'View Bubble {{id}}',
   '为了保持页面流畅，这条超长记录已在详情中截断。': 'This unusually large record is truncated in the detail view to keep the page responsive.',
   '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。': 'No matching record appeared in this scan window. Continue into earlier logs.',
+  '当前筛选条件下没有匹配的日志。': 'No logs match the current filters.',
   '这里还没有交互日志。': 'There are no interaction logs yet.',
   '事件': 'Event',
   '未命名': 'Unnamed',
