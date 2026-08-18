@@ -134,6 +134,7 @@ struct BridgeState {
     bridge_started_thread_ids: HashSet<String>,
     thread_pending_collaboration_mode: HashMap<String, String>,
     handled_text_tool_calls: HashSet<String>,
+    pending_list_coworker_results: HashMap<String, String>,
 }
 
 pub struct CodexBridge {
@@ -433,13 +434,15 @@ impl CodexBridge {
             author_label.as_deref(),
             &content,
         )?;
-        let should_bootstrap = author_kind == "coworker"
-            && !self
-                .state
-                .lock()
-                .await
-                .bootstrapped_thread_ids
-                .contains(&thread_id);
+        // Native/legacy Codex sessions cannot receive dynamic tools, so inject
+        // the text-tool fallback before the first visible turn regardless of
+        // which side (Coworker or local user) opens/continues the session.
+        let should_bootstrap = !self
+            .state
+            .lock()
+            .await
+            .bootstrapped_thread_ids
+            .contains(&thread_id);
         let content = if should_bootstrap {
             format!("{NATIVE_SESSION_COWORKER_INSTRUCTIONS}\n\n{content}")
         } else {
@@ -1818,6 +1821,7 @@ impl CodexBridge {
                         // 不再转发 turn 事件本身，避免提出计划时连发数条空消息。
                         self.handle_text_tool_calls_from_value(thread_id, turn, None)
                             .await;
+                        self.flush_pending_list_coworker_result(thread_id).await;
                         if turn.get("status").and_then(Value::as_str) == Some("interrupted") {
                             return Some((thread_id.to_owned(), turn.clone()));
                         }
@@ -2197,6 +2201,18 @@ impl CodexBridge {
         if name == LIST_COWORKERS_TOOL {
             let result = self.handle_list_coworkers();
             let message = text_tool_result_message(LIST_COWORKERS_TOOL, &result);
+            if self.thread_requires_steer(thread_id).await {
+                // The assistant emitted the text tool call while its turn is
+                // still active (typically item/completed before
+                // turn/completed). Steering a completing turn can fail, so
+                // defer the result injection until the turn is fully idle.
+                self.state
+                    .lock()
+                    .await
+                    .pending_list_coworker_results
+                    .insert(thread_id.to_owned(), message);
+                return;
+            }
             if let Ok(response) = self.start_or_steer_turn(thread_id, &message, None).await {
                 let mut state = self.state.lock().await;
                 remember_turn_from_response(&mut state, thread_id, &response);
@@ -2215,6 +2231,25 @@ impl CodexBridge {
             let _ = self
                 .post_message_to_coworker(&coworker_id, thread_id, &message, &[])
                 .await;
+        }
+    }
+
+    async fn flush_pending_list_coworker_result(&self, thread_id: &str) {
+        let message = self
+            .state
+            .lock()
+            .await
+            .pending_list_coworker_results
+            .remove(thread_id);
+        if let Some(message) = message {
+            info!(
+                thread_id,
+                "Flushing deferred list_coworkers text tool result"
+            );
+            if let Ok(response) = self.start_or_steer_turn(thread_id, &message, None).await {
+                let mut state = self.state.lock().await;
+                remember_turn_from_response(&mut state, thread_id, &response);
+            }
         }
     }
 
@@ -3299,7 +3334,7 @@ mod tests {
                 .contains("external_thread")
         );
         assert!(
-            !bridge
+            bridge
                 .state
                 .lock()
                 .await
@@ -3359,6 +3394,87 @@ mod tests {
         assert!(first.contains("type: coworker_tool_call"));
         assert!(first.contains("tool: send_to_coworker"));
         assert!(first.ends_with("[来自Coworker:cw_02][搭档 B]的消息:\n先看一下"));
+        assert_eq!(calls[2].0, "turn/steer");
+        let second = calls[2].1["input"][0]["text"]
+            .as_str()
+            .expect("second input text");
+        assert_eq!(second, "[来自Coworker:cw_02][搭档 B]的消息:\n再确认一下");
+
+        let persisted: PersistedState =
+            serde_json::from_slice(&fs::read(&state_path).expect("persisted bridge state"))
+                .expect("valid bridge state");
+        assert_eq!(
+            persisted.bootstrapped_thread_ids,
+            vec!["external_thread".to_owned()]
+        );
+        let _ = fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn native_codex_history_bootstraps_text_tool_fallback_on_first_local_input() {
+        let client = FakeCodexClient::new();
+        client
+            .push_response(json!({
+                "thread": {"id": "external_thread", "status": {"type": "idle"}}
+            }))
+            .await;
+        client
+            .push_response(json!({"turn": {"id": "turn_external", "status": "running"}}))
+            .await;
+        let state_path = temp_state_path("native-local-bootstrap");
+        let mut cfg = multi_config();
+        cfg.state_path = Some(state_path.clone());
+        let session_dir = Path::new(&cfg.codex_home_dir).join("sessions/2026/07/25");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(
+            session_dir.join("rollout-external_thread.jsonl"),
+            r#"{"type":"session_meta","payload":{"id":"external_thread","source":"vscode"}}"#,
+        )
+        .expect("native Codex history");
+        let bridge = bridge_with(cfg, client.clone(), RecordingTransport::new());
+
+        bridge
+            .send_actor_conversation_message(
+                Some("external_thread".into()),
+                "先看一下".into(),
+                Vec::new(),
+                None,
+                None,
+                None,
+                "local".into(),
+                Some("desktop-test".into()),
+                Some("本机".into()),
+                None,
+            )
+            .await
+            .expect("native Codex history should accept local input");
+
+        bridge
+            .send_actor_conversation_message(
+                Some("external_thread".into()),
+                "再确认一下".into(),
+                Vec::new(),
+                None,
+                None,
+                None,
+                "coworker".into(),
+                Some("cw_02".into()),
+                Some("搭档 B".into()),
+                Some("cw_02".into()),
+            )
+            .await
+            .expect("native Codex history should accept Coworker input");
+
+        let calls = client.calls().await;
+        assert_eq!(calls[0].0, "thread/resume");
+        assert_eq!(calls[1].0, "turn/start");
+        let first = calls[1].1["input"][0]["text"]
+            .as_str()
+            .expect("first input text");
+        assert!(first.starts_with("[协作背景]\n"));
+        assert!(first.contains("type: coworker_tool_call"));
+        assert!(first.contains("tool: send_to_coworker"));
+        assert!(first.ends_with("先看一下"));
         assert_eq!(calls[2].0, "turn/steer");
         let second = calls[2].1["input"][0]["text"]
             .as_str()
@@ -4826,6 +4942,63 @@ mod tests {
         assert!(text.contains("[coworker text tool result]"));
         assert!(text.contains("cw_01"));
         assert!(text.contains("cw_02"));
+    }
+
+    #[tokio::test]
+    async fn frontmatter_list_coworkers_result_is_deferred_until_turn_completes() {
+        let client = FakeCodexClient::new();
+        let bridge = bridge_with(multi_config(), client.clone(), RecordingTransport::new());
+        {
+            let mut state = bridge.state.lock().await;
+            state.thread_status.insert("thr_1".into(), "active".into());
+            state
+                .thread_active_turn
+                .insert("thr_1".into(), "turn_1".into());
+        }
+
+        // item/completed arrives while the turn is still active; the bridge
+        // must not try to steer the completing turn.
+        bridge
+            .handle_notification(json!({
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thr_1",
+                    "turnId": "turn_1",
+                    "item": {
+                        "type": "agentMessage",
+                        "text": "---\ntype: coworker_tool_call\ntool: list_coworkers\n---\n"
+                    }
+                }
+            }))
+            .await;
+        assert!(client.calls().await.is_empty());
+
+        // turn/completed makes the thread idle and flushes the deferred result.
+        bridge
+            .handle_notification(json!({
+                "method": "turn/completed",
+                "params": {
+                    "threadId": "thr_1",
+                    "turn": {"id": "turn_1", "status": "completed"}
+                }
+            }))
+            .await;
+
+        let calls = client.calls().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "turn/start");
+        let text = calls[0].1["input"][0]["text"].as_str().unwrap();
+        assert!(text.contains("[coworker text tool result]"));
+        assert!(text.contains("cw_01"));
+        assert!(text.contains("cw_02"));
+        assert!(
+            !bridge
+                .state
+                .lock()
+                .await
+                .pending_list_coworker_results
+                .contains_key("thr_1")
+        );
     }
 
     #[test]
