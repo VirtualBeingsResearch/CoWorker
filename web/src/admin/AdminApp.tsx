@@ -190,8 +190,12 @@ function bubbleIdFromLocation(): string {
   return safeLocationParam('bubble_id', /^bbl_[A-Za-z0-9_-]{1,160}$/);
 }
 
+function editableLogTimeValue(value: string): string {
+  return value.replace('T', ' ').replace(/\.000$/, '');
+}
+
 function logTimeInputValue(value: string): string {
-  return toLocalDateTimeInput(value);
+  return editableLogTimeValue(toLocalDateTimeInput(value));
 }
 
 function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
@@ -2207,8 +2211,8 @@ function Logs() {
       setTimeError(t('无法识别粘贴的日志时间'));
       return;
     }
-    if (boundary === 'start') setTimeStartDraft(value);
-    else setTimeEndDraft(value);
+    if (boundary === 'start') setTimeStartDraft(editableLogTimeValue(value));
+    else setTimeEndDraft(editableLogTimeValue(value));
     setTimeError('');
   };
 
@@ -2398,9 +2402,9 @@ function Logs() {
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="history-time-range" aria-label={t('日志时间范围')}>
-        <label><span>{t('开始')}</span><div className="history-editable-time"><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志开始时间')} lang={dateLocale} type="datetime-local" step="any" value={startPickerValue} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></div></label>
+        <label><span>{t('开始')}</span><div className="history-editable-time"><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志开始时间')} lang={dateLocale} type="datetime-local" step="any" value={startPickerValue} onChange={event => { setTimeStartDraft(editableLogTimeValue(event.target.value)); setTimeError(''); }} /></div></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
-        <label><span>{t('结束')}</span><div className="history-editable-time"><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志结束时间')} lang={dateLocale} type="datetime-local" step="any" min={startPickerValue || undefined} value={endPickerValue} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></div></label>
+        <label><span>{t('结束')}</span><div className="history-editable-time"><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD HH:mm:ss" value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /><CalendarDays size={13} aria-hidden="true" /><input className="history-native-time-picker" aria-label={t('选择日志结束时间')} lang={dateLocale} type="datetime-local" step="any" min={startPickerValue || undefined} value={endPickerValue} onChange={event => { setTimeEndDraft(editableLogTimeValue(event.target.value)); setTimeError(''); }} /></div></label>
       </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
