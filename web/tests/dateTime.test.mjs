@@ -108,6 +108,10 @@ test('normalizes copied log timestamps for history filters', () => {
     '2026-08-18T14:32:10.000',
   );
   assert.equal(
+    pastedLogTimeToInput('2026/8/18 14:32:10', 'start'),
+    '2026-08-18T14:32:10.000',
+  );
+  assert.equal(
     pastedLogTimeToInput('2026年8月18日 14:32:10', 'start'),
     '2026-08-18T14:32:10.000',
   );

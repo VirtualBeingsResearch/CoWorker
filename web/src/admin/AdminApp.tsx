@@ -2057,6 +2057,8 @@ function Alarms() {
 }
 
 function Logs() {
+  const { language } = useAdminI18n();
+  const dateLocale = language === 'zh' ? 'zh-CN' : 'en-US';
   const initialQuery = boundedLocationParam('log_q', 500);
   const initialSeqStart = safeLocationParam('log_seq_start', /^\d+$/);
   const initialSeqEnd = safeLocationParam('log_seq_end', /^\d+$/);
@@ -2149,12 +2151,18 @@ function Logs() {
     }
     const draftedTimeStart = timeStartDraft.trim();
     const draftedTimeEnd = timeEndDraft.trim();
-    const selectedTimeStart = draftedTimeStart ? localDateTimeInputToIso(draftedTimeStart) : '';
-    const selectedTimeEnd = draftedTimeEnd ? localDateTimeInputToIso(draftedTimeEnd) : '';
-    if (Boolean(selectedTimeStart) !== Boolean(selectedTimeEnd)) {
+    if (Boolean(draftedTimeStart) !== Boolean(draftedTimeEnd)) {
       setTimeError(t('日志起止时间必须同时提供'));
       return;
     }
+    const normalizedTimeStart = draftedTimeStart ? pastedLogTimeToInput(draftedTimeStart, 'start') : '';
+    const normalizedTimeEnd = draftedTimeEnd ? pastedLogTimeToInput(draftedTimeEnd, 'end') : '';
+    if ((draftedTimeStart && !normalizedTimeStart) || (draftedTimeEnd && !normalizedTimeEnd)) {
+      setTimeError(t('无法识别粘贴的日志时间'));
+      return;
+    }
+    const selectedTimeStart = normalizedTimeStart ? localDateTimeInputToIso(normalizedTimeStart) : '';
+    const selectedTimeEnd = normalizedTimeEnd ? localDateTimeInputToIso(normalizedTimeEnd) : '';
     if (selectedTimeStart && selectedTimeEnd) {
       const startTimestamp = timestampMillis(selectedTimeStart);
       const endTimestamp = timestampMillis(selectedTimeEnd);
@@ -2347,8 +2355,8 @@ function Logs() {
         : '';
   const timeScope = timeStart && timeEnd
     ? t('{{start}} 至 {{end}}', {
-      start: formatDateTime(timeStart),
-      end: formatDateTime(timeEnd),
+      start: formatDateTime(timeStart, dateLocale),
+      end: formatDateTime(timeEnd, dateLocale),
     })
     : '';
   const activeScope = [timeScope, sequenceScope].filter(Boolean).join(' · ');
@@ -2388,9 +2396,9 @@ function Logs() {
       </select>
       <input aria-label={t('过滤日志内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('过滤内容')} />
       <div className="history-time-range" aria-label={t('日志时间范围')}>
-        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="datetime-local" step="any" value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('开始')}</span><input aria-label={t('日志开始时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder={t('粘贴日志时间')} value={timeStartDraft} onPaste={pasteTime('start')} onChange={event => { setTimeStartDraft(event.target.value); setTimeError(''); }} /></label>
         <span className="sequence-separator" aria-hidden="true">–</span>
-        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="datetime-local" step="any" min={timeStartDraft || undefined} value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
+        <label><span>{t('结束')}</span><input aria-label={t('日志结束时间')} title={t('可直接粘贴日志时间')} type="text" inputMode="numeric" autoComplete="off" placeholder={t('粘贴日志时间')} value={timeEndDraft} onPaste={pasteTime('end')} onChange={event => { setTimeEndDraft(event.target.value); setTimeError(''); }} /></label>
       </div>
       <div className="sequence-range" aria-label={t('序列范围')}>
         <label><span>{t('序列下限')}</span><input aria-label={t('序列下限')} type="number" min="0" step="1" inputMode="numeric" value={seqStartDraft} onChange={event => { setSeqStartDraft(event.target.value); setSequenceError(''); }} placeholder="0" /></label>
@@ -2414,7 +2422,7 @@ function Logs() {
       const rowDetail = details[seq];
       const rowDetailError = rowDetailErrors[seq];
       const meta = Object.entries(event.meta || {}).map(([key, value]) => key + ': ' + value).join(' · ');
-      return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={[anchored ? 'context-anchor' : '', anchored || rowOpen ? 'open' : ''].filter(Boolean).join(' ')}><time title={String(event.ts || '')}>{formatDateTime(event.ts)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <div className="interaction-row-actions"><button className="ghost mini interaction-detail-toggle" onClick={() => void toggleDetail(seq)}>{t(rowOpen ? '收起' : '详情')}</button>{filteredResults && <button className="ghost mini interaction-context-toggle" onClick={() => openContext(seq)}>{t('查看上下文')}</button>}</div>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}{!anchored && rowOpen && <div className="interaction-detail">{rowDetailError ? <p className="notice error">{rowDetailError}</p> : rowDetail ? <><pre>{JSON.stringify(rowDetail.entry, null, 2)}</pre>{rowDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
+      return <article ref={anchored ? anchorRef : undefined} key={String(event.seq) + '-' + event.type} className={[anchored ? 'context-anchor' : '', anchored || rowOpen ? 'open' : ''].filter(Boolean).join(' ')}><time title={String(event.ts || '')}>{formatDateTime(event.ts, dateLocale)}</time><span className={'event-type ' + event.type}>{event.type}</span><div className="interaction-row-copy"><code title={event.preview}>{event.preview}</code>{meta && <small>{meta}</small>}{event.bubble && <a className="bubble-log-link" href={bubbleHref(event.bubble)}><Orbit size={12} />{t('查看 Bubble {{id}}', { id: event.bubble.bubble_id || event.bubble.id })}<ExternalLink size={11} /></a>}</div>{anchored ? <span className="context-anchor-label">{t('当前日志')}</span> : Number.isInteger(seq) && <div className="interaction-row-actions"><button className="ghost mini interaction-detail-toggle" onClick={() => void toggleDetail(seq)}>{t(rowOpen ? '收起' : '详情')}</button>{filteredResults && <button className="ghost mini interaction-context-toggle" onClick={() => openContext(seq)}>{t('查看上下文')}</button>}</div>}{anchored && <div className="interaction-detail">{detailError ? <p className="notice error">{detailError}</p> : contextDetail ? <><pre>{JSON.stringify(contextDetail.entry, null, 2)}</pre>{contextDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}{!anchored && rowOpen && <div className="interaction-detail">{rowDetailError ? <p className="notice error">{rowDetailError}</p> : rowDetail ? <><pre>{JSON.stringify(rowDetail.entry, null, 2)}</pre>{rowDetail.truncated && <small>{t('为了保持页面流畅，这条超长记录已在详情中截断。')}</small>}</> : <div className="bubble-history-loading">{t('正在读取日志详情…')}</div>}</div>}</article>;
     }) : <div className="history-empty"><Empty text={searchContinuation ? '这个扫描窗口里没有符合条件的记录；继续向更早的日志查找。' : '这里还没有交互日志。'} /></div>}</div>}
   </Panel>;
 }
