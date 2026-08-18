@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.4.0 - Unreleased
+
+- docs(release): finalize v0.3.9 changelog (#180)
+- chore(devcontainer): drop default 8000/8100 port forwarding (#181)
+- feat(admin): link lifetime logs to context and bubbles (#182)
+- fix(desktop): make non-coworker Codex sessions able to collaborate with Coworker (#184)
+- refactor(explore-lab): remove application (#183)
+- fix(web): distinguish saved admin and communication tokens (#186)
+
 ## 0.3.9 - 2026-08-16
 
 - docs(release): finalize v0.3.8 changelog (#172)
