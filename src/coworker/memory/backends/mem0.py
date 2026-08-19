@@ -265,63 +265,6 @@ class Mem0Backend:
         setattr(llm, "generate_response", tracked_generate_response)
         self._usage_hook_installed = True
 
-    async def migrate_embeddings(self, new_model: str) -> int:
-        """Rebuild all memories under a new embedding model via mem0 API."""
-        import shutil
-        from datetime import datetime
-
-        if self._mem is None:
-            raise RuntimeError("LongTermMemory not initialized")
-
-        result = await self._mem.get_all(filters={"user_id": _AGENT_USER_ID})
-        memories = result.get("results", [])
-
-        if not memories:
-            logger.info("No memories to migrate — switching embedder model")
-            self._embedder_model = new_model
-            self._mem = None
-            await self.initialize()
-            return 0
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = self._db_path.parent / f"{self._db_path.name}_backup_{timestamp}"
-        shutil.copytree(self._db_path, backup_path)
-        logger.info(f"Backup created at {backup_path}")
-
-        original_model = self._embedder_model
-        logger.info(f"Rebuilding {len(memories)} memories: {original_model} → {new_model}")
-
-        try:
-            await self._mem.delete_all(user_id=_AGENT_USER_ID)
-            self._mem.vector_store.delete_col()
-
-            self._embedder_model = new_model
-            self._mem = None
-            await self.initialize()
-
-            for item in memories:
-                memory_text = item.get("memory", "")
-                if not memory_text:
-                    continue
-                metadata = item.get("metadata") or {}
-                category = metadata.get("category", "general")
-                tags = json.loads(metadata.get("tags", "[]"))
-                await self.write(memory_text, category=category, tags=tags)
-
-        except Exception:
-            logger.error("Migration failed — restoring backup")
-            self._mem = None
-            if self._db_path.exists():
-                shutil.rmtree(self._db_path)
-            shutil.copytree(backup_path, self._db_path)
-            self._embedder_model = original_model
-            await self.initialize()
-            logger.info("Backup restored successfully")
-            raise
-
-        logger.info(f"Rebuild complete: {len(memories)} memories re-added with {new_model}")
-        return len(memories)
-
     async def write(
         self,
         content: str,

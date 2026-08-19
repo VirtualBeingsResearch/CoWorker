@@ -200,9 +200,3 @@ class LongTermMemory:
 
     async def count(self) -> int:
         return await self._backend.count()
-
-    async def migrate_embeddings(self, new_model: str) -> int:
-        migrate = getattr(self._backend, "migrate_embeddings", None)
-        if migrate is None:
-            raise NotImplementedError("This backend does not support embedding migration")
-        return await migrate(new_model)
