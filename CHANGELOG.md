@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.0 - Unreleased
+## 0.4.0 - 2026-08-18
 
 - docs(release): finalize v0.3.9 changelog (#180)
 - chore(devcontainer): drop default 8000/8100 port forwarding (#181)
