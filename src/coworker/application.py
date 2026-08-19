@@ -499,16 +499,11 @@ async def _main() -> bool:
     # 原始日志的只读寻址层，供记忆块树按时间区间重摘要 / 下钻；抗后续分片轮转。
     log_store = LogStore(config.agent.logs_dir)
 
-    memory_llm = build_memory_llm_config(
-        config,
-        active_provider=brain.current_provider_name,
-        active_model=brain.current_model,
-    )
     long_term = LongTermMemory(
         backend=build_long_term_backend(
             config,
-            llm=memory_llm,
-            embedder_model=config.memory.mem0_embedder_model,
+            active_provider=brain.current_provider_name,
+            active_model=brain.current_model,
         ),
     )
     if setup_required:
