@@ -143,7 +143,7 @@ MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，请用
 - 主线：对话、工具规划和持续任务；
 - summary：短期压缩与摘要，通常关闭 thinking 以降低成本；
 - vision：图片/视频分析，必须由 Provider 声明相应能力；
-- mem0：长期记忆提取；
+- long-term：长期记忆提取（默认由 mem0 后端执行）；
 - fallback：主模型失败后的有序接棒链。
 
 先验证每个专用模型，再加入 fallback。不要把失效 Provider 留在链首制造额外延迟。
@@ -157,7 +157,7 @@ MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，请用
 - **thinking 参数失败**：关闭该专用模型的 thinking，或改用与模型档位匹配的
   `thinking_effort`；不支持的档位会导致 Provider 返回 400。
 - **高延迟/高成本**：在管理端“运行分析”按 main、summary、vision、bubble、subconscious
-  和 mem0 区分职责，结合定价覆盖率和 Provider 账单再调整模型分工。
+  和 long-term 区分职责，结合定价覆盖率和 Provider 账单再调整模型分工。
 
 完整变量表见[配置与模型](configuration.md)，数据外发范围见
 [数据与信任边界](../architecture/data-boundaries.md)。

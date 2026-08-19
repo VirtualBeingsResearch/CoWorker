@@ -84,7 +84,7 @@ class Mem0Backend:
         register_mem0_adapters()
         llm_provider, llm_config = _as_mem0_config(self._llm or _EmptyMemoryConfig())
         config = {
-            "custom_instructions": _mem0_custom_instructions(),
+            "custom_instructions": _long_term_custom_instructions(),
             "llm": {
                 "provider": llm_provider,
                 "config": llm_config,
@@ -327,7 +327,7 @@ class Mem0Backend:
         content: str,
         *,
         category: str,
-        tags: list[str],
+        tags: list[str] | None = None,
         source_timestamp: datetime | None = None,
     ) -> MemoryWriteResult:
         if self._mem is None:
@@ -506,7 +506,7 @@ class _EmptyMemoryConfig:
     thinking = False
 
 
-def _mem0_custom_instructions() -> str:
+def _long_term_custom_instructions() -> str:
     from coworker.i18n import tr
 
-    return tr("mem0.custom_instructions")
+    return tr("long_term.custom_instructions")

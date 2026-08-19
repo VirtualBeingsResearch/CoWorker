@@ -85,11 +85,11 @@ class TestInteractionLogSeq:
         assert entries[1]["thinking"] is True
         assert entries[1]["thinking_effort"] == "medium"
 
-    def test_mem0_usage_source_is_logged(self, tmp_path):
+    def test_long_term_usage_source_is_logged(self, tmp_path):
         p = tmp_path / "interactions.jsonl"
         log = InteractionLogger(str(p))
 
-        log.log_mem0_llm_response(
+        log.log_long_term_llm_response(
             provider="mock",
             model="mem-model",
             usage={"input_tokens": 1, "output_tokens": 2},
@@ -98,7 +98,7 @@ class TestInteractionLogSeq:
         )
 
         entry = json.loads(p.read_text(encoding="utf-8").strip())
-        assert entry["type"] == "mem0_llm_response"
+        assert entry["type"] == "long_term_llm_response"
         assert entry["usage_source"] == "estimated"
         assert entry["operation"] == "generate_response"
 

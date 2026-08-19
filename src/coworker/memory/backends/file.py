@@ -83,7 +83,7 @@ class FileBackend:
         content: str,
         *,
         category: str,
-        tags: list[str],
+        tags: list[str] | None = None,
         source_timestamp: datetime | None = None,
     ) -> MemoryWriteResult:
         if not content.strip():
@@ -97,7 +97,7 @@ class FileBackend:
                 id=uuid4().hex,
                 content=content,
                 category=category,
-                tags=list(dict.fromkeys(tags)),
+                tags=list(dict.fromkeys(tags or [])),
                 timestamp=(source_timestamp or datetime.now()).isoformat(),
             )
             self._records[record.id] = record

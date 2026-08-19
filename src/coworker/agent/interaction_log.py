@@ -306,7 +306,7 @@ class InteractionLogger:
             entry["thinking_effort"] = thinking_effort
         self._write(entry)
 
-    def log_mem0_llm_response(
+    def log_long_term_llm_response(
         self,
         *,
         provider: str,
@@ -316,7 +316,7 @@ class InteractionLogger:
         operation: str = "",
     ) -> None:
         entry = {
-            "type": "mem0_llm_response",
+            "type": "long_term_llm_response",
             "provider": provider,
             "model": model,
             "usage": usage,

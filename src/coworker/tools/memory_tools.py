@@ -13,6 +13,7 @@ from loguru import logger
 from coworker.core.ids import new_compact_id
 from coworker.core.types import Message, SummaryResult, ToolResult
 from coworker.i18n import tr
+from coworker.memory.base import MemoryRecord
 from coworker.memory.long_term import LongTermMemory
 from coworker.tools.base import PAGE_CHAR_LIMIT, PAGE_CHAR_MAX, Tool, ToolDefinition, paginate_text
 
@@ -24,7 +25,6 @@ _QUERY_MEMORY_SNAPSHOT_LINE_CHARS = 500
 if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.core.tool_scope import ToolScope
-    from coworker.memory.base import MemoryRecord
     from coworker.memory.memory_tree import MemoryNode
     from coworker.memory.short_term import ShortTermMemory
 

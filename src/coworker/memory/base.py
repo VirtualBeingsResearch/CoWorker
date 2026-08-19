@@ -43,15 +43,27 @@ class MemoryBackendConfig(Protocol):
     """Structural protocol for backend reconfiguration payloads.
 
     ``LongTermLLMConfig`` satisfies this protocol; backend implementations should
-    not depend on mem0-specific config types.
+    not depend on mem0-specific config types. Members are read-only so frozen
+    dataclasses satisfy the protocol.
     """
 
-    provider: str
-    api_dialect: str
-    api_key: str
-    model: str
-    base_url: str
-    thinking: bool
+    @property
+    def provider(self) -> str: ...
+
+    @property
+    def api_dialect(self) -> str: ...
+
+    @property
+    def api_key(self) -> str: ...
+
+    @property
+    def model(self) -> str: ...
+
+    @property
+    def base_url(self) -> str: ...
+
+    @property
+    def thinking(self) -> bool: ...
 
 
 @runtime_checkable
@@ -67,7 +79,7 @@ class LongTermMemoryBackend(Protocol):
         content: str,
         *,
         category: str,
-        tags: list[str],
+        tags: list[str] | None = None,
         source_timestamp: datetime | None = None,
     ) -> MemoryWriteResult: ...
 

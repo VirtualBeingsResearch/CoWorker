@@ -669,9 +669,9 @@ async def _main() -> bool:
         lambda event: interaction_log.log_memory_compression(**event)
     )
 
-    def log_mem0_usage(entry: dict[str, Any]) -> None:
+    def log_long_term_usage(entry: dict[str, Any]) -> None:
         usage = entry.get("usage")
-        interaction_log.log_mem0_llm_response(
+        interaction_log.log_long_term_llm_response(
             provider=str(entry.get("provider") or "unknown"),
             model=str(entry.get("model") or "unknown"),
             usage=usage if isinstance(usage, dict) else {},
@@ -679,7 +679,7 @@ async def _main() -> bool:
             operation=str(entry.get("operation") or ""),
         )
 
-    long_term.add_usage_listener(log_mem0_usage)
+    long_term.add_usage_listener(log_long_term_usage)
     brain.add_summary_usage_listener(
         lambda response, meta: interaction_log.log_summary_llm_response(
             provider=response.provider,
