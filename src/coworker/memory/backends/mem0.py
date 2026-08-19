@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 
@@ -47,6 +47,32 @@ class Mem0Backend:
     This is the default production backend. It intentionally implements the
     backend-agnostic contract and keeps mem0-specific details inside this class.
     """
+
+    backend_id: ClassVar[str] = "mem0"
+
+    # 仅列出 Coworker 直接 import 的顶层模块；mem0 栈其余（chromadb、
+    # sentence-transformers、torch、spacy 等）由 mem0ai[nlp] 作为传递依赖一并安装，
+    # 不在此单列，避免因传递依赖差异误报缺失。
+    _MEM0_REQUIRED: ClassVar[tuple[str, ...]] = ("mem0",)
+
+    @classmethod
+    def required_modules(cls) -> tuple[str, ...]:
+        """报错明细用：列出缺少的可导入顶层模块。
+
+        mem0 后端运行时直接 import 的顶层模块是 ``mem0``；其余为 ``mem0ai[nlp]``
+        的传递依赖，不单列。
+        """
+        return cls._MEM0_REQUIRED
+
+    @classmethod
+    def available(cls) -> bool:
+        """仅用 ``find_spec`` 探测，不触发真实 import；缺依赖时返回 False。"""
+        import importlib.util
+
+        return all(
+            importlib.util.find_spec(module) is not None
+            for module in cls._MEM0_REQUIRED
+        )
 
     def __init__(
         self,

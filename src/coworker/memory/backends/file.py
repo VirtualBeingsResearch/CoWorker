@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 from uuid import uuid4
 
 from loguru import logger
@@ -25,6 +26,21 @@ class FileBackend:
     This backend is intentionally simple: it does not perform semantic search or
     expose relevance scores. ``query`` uses substring/category/tag/time filtering.
     """
+
+    backend_id: ClassVar[str] = "file"
+
+    @classmethod
+    def required_modules(cls) -> tuple[str, ...]:
+        """报错明细用：列出缺少的可导入顶层模块。
+
+        file 后端仅依赖标准库与 loguru，无额外第三方模型库。
+        """
+        return ()
+
+    @classmethod
+    def available(cls) -> bool:
+        """file 后端仅依赖标准库与 loguru，恒可用。"""
+        return True
 
     def __init__(self, directory: str) -> None:
         self._dir = Path(directory)

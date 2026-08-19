@@ -494,3 +494,6 @@ sleep_interrupted = "睡眠被系统重启中断。当前时间：{{time}}。"
 system_restarted = "系统已重启。当前时间：{{time}}。"
 alarms_restored = "已恢复 {{count}} 个待触发闹钟。"
 system_started = "系统启动。当前时间：{{time}}。{{environment}}。"
+
+[system]
+memory_backend_missing_deps = "无法启动：配置的长期记忆后端 \"{{backend}}\" 缺少必要依赖（{{missing}}）。请执行 `uv sync --extra mem0` 安装。"

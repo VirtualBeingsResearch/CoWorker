@@ -9,6 +9,7 @@ Read the [contributing guide](../../CONTRIBUTING.en.md) before submitting code. 
 ```bash
 # Install development dependencies
 uv sync --dev
+# When using the default mem0 memory backend, also install its optional deps: uv sync --dev --extra mem0
 
 # Install Chromium for the browser tool (once)
 uv run playwright install chromium

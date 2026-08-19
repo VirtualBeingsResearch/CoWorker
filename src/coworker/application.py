@@ -58,7 +58,11 @@ from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
 from coworker.identity.identity import Identity
-from coworker.memory.factory import build_long_term_backend
+from coworker.memory.factory import (
+    available_backends,
+    build_long_term_backend,
+    missing_backend_modules,
+)
 from coworker.memory.long_term import LongTermMemory, build_memory_llm_config
 from coworker.memory.short_term import ShortTermMemory
 from coworker.palaces.loader import PalaceLoader
@@ -317,10 +321,30 @@ def _bind_memory_model_following(
     brain.add_model_switch_listener(reconfigure_for_active_model)
 
 
+def _validate_backend_available(config: Config) -> None:
+    """确认配置的长期记忆后端在当前环境可用；否则抛带引导的本地化错误。
+
+    这是“致命依赖”护栏：某后端缺依赖会让进程无法正常启动，因此在
+    ``--check``（以及委托给它的 ``restart_self``）阶段就拦截，而不是等运行时
+    裸 ``ImportError``。缺失时显式报错并给出安装引导，不静默降级。
+    """
+    configured = config.memory.backend
+    if configured not in available_backends():
+        missing = ", ".join(missing_backend_modules(configured)) or "mem0"
+        raise RuntimeError(
+            tr(
+                "system.memory_backend_missing_deps",
+                backend=configured,
+                missing=missing,
+            )
+        )
+
+
 async def _run_check() -> int:
     """--check 模式：走配置加载 + Provider 注册，不启动服务。0=通过，1=失败。"""
     try:
         config = _load_config()
+        _validate_backend_available(config)
         _setup_logging(config.agent.logs_dir)
         brain = Brain(
             config.llm.default_provider,

@@ -10,6 +10,7 @@
 ```bash
 # 安装开发依赖
 uv sync --dev
+# 使用默认配置的 mem0 记忆后端时，需额外安装其可选依赖：uv sync --dev --extra mem0
 
 # 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium

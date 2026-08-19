@@ -169,6 +169,14 @@ This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
 `uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
+A plain `uv sync` installs enough to run the **`file` memory backend**. To enable the
+**`mem0` semantic memory backend** (the bundled default configuration), install its
+optional dependencies:
+
+```bash
+uv sync --extra mem0
+```
+
 </details>
 
 <details>

@@ -121,7 +121,7 @@ as codes.
 | Variable | Default | Description |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Coworker memory data directory (short-term snapshots, state files, and the default mem0 backend data) |
-| `MEMORY__BACKEND` | `mem0` | Long-term memory backend: `mem0` (default) or `file` (minimal file-backed backend) |
+| `MEMORY__BACKEND` | `mem0` | Long-term memory backend: `mem0` (default) or `file` (minimal file-backed backend). `mem0` requires the optional dependencies installed (`uv sync --extra mem0`); `file` works with a plain install |
 | `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | Fraction of the oldest primary-message tokens processed by each compression pass; shared by tree and legacy modes |
 | `MEMORY__TREE_ENABLED` | `true` | Enable the multiresolution memory tree; disabling it restores the legacy single-anchor compression behavior |

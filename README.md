@@ -167,6 +167,12 @@ uv run coworker
 需要 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)。
 `uv run python -m coworker` 与最后一条命令等价；首次运行不需要提前创建 `.env`。
 
+默认 `uv sync` 依赖已足够运行 **`file` 记忆后端**。要启用默认配置的 **`mem0` 语义记忆后端**，需安装其可选依赖：
+
+```bash
+uv sync --extra mem0
+```
+
 </details>
 
 <details>

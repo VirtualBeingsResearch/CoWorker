@@ -494,3 +494,6 @@ sleep_interrupted = "Sleep was interrupted by a system restart. Current time: {{
 system_restarted = "The system restarted. Current time: {{time}}."
 alarms_restored = "Restored {{count}} pending alarms."
 system_started = "The system started. Current time: {{time}}. {{environment}}."
+
+[system]
+memory_backend_missing_deps = "Cannot start: the configured long-term memory backend \"{{backend}}\" is missing required dependencies ({{missing}}). Install them with `uv sync --extra mem0`."
