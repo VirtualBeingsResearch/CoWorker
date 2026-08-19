@@ -505,9 +505,6 @@ async def _main() -> bool:
         active_model=brain.current_model,
     )
     long_term = LongTermMemory(
-        db_path=config.memory.db_path,
-        llm=memory_llm,
-        embedder_model=config.memory.mem0_embedder_model,
         backend=build_long_term_backend(
             config,
             llm=memory_llm,

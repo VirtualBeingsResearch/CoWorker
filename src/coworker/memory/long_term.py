@@ -6,7 +6,6 @@ from typing import Any
 
 from coworker.brain.factory import api_dialect, resolve_base_url
 from coworker.core.config import Config, ProviderSpec
-from coworker.memory.backends.mem0 import Mem0Backend
 from coworker.memory.base import (
     LongTermMemoryBackend,
     MemoryBackendConfig,
@@ -15,8 +14,6 @@ from coworker.memory.base import (
     MemoryWriteResult,
     UsageListener,
 )
-
-_DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 __all__ = [
     "LongTermLLMConfig",
@@ -123,30 +120,12 @@ class LongTermMemory:
     and the admin API, while delegating all backend-specific work.
     """
 
-    def __init__(
-        self,
-        db_path: str,
-        llm: LongTermLLMConfig | None = None,
-        embedder_model: str = _DEFAULT_EMBEDDER,
-        backend: LongTermMemoryBackend | None = None,
-    ) -> None:
-        self._backend = backend or Mem0Backend(
-            db_path=db_path,
-            llm=llm,
-            embedder_model=embedder_model,
-        )
+    def __init__(self, backend: LongTermMemoryBackend) -> None:
+        self._backend = backend
 
     @property
     def backend(self) -> LongTermMemoryBackend:
         return self._backend
-
-    @property
-    def embedder(self) -> Any | None:
-        return getattr(self._backend, "embedder", None)
-
-    @property
-    def chroma_client(self) -> Any | None:
-        return getattr(self._backend, "chroma_client", None)
 
     async def initialize(self) -> None:
         await self._backend.initialize()

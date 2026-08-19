@@ -94,7 +94,7 @@ class FakeBackend:
 class TestLongTermMemoryFacade:
     def _make(self) -> tuple[LongTermMemory, FakeBackend]:
         backend = FakeBackend()
-        memory = LongTermMemory(db_path="data/_unused", backend=backend)
+        memory = LongTermMemory(backend=backend)
         return memory, backend
 
     async def test_initialize_and_is_ready(self):
