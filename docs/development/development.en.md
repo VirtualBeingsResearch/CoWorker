@@ -9,6 +9,8 @@ Read the [contributing guide](../../CONTRIBUTING.en.md) before submitting code. 
 ```bash
 # Install development dependencies
 uv sync --dev
+# When using the default mem0 memory backend, also install its optional deps: uv sync --dev --extra mem0
+# Keep passing --extra mem0 on every later sync (uv sync --dev --extra mem0 / uv run --extra mem0), otherwise uv sync prunes mem0 from the environment
 
 # Install Chromium for the browser tool (once)
 uv run playwright install chromium
@@ -75,6 +77,16 @@ environment, Chromium, FFmpeg, a preloaded embedding model, and lightweight comm
 including `vim-tiny`, `nano`, `less`, `jq`, and `ripgrep`. Restart the container after source
 changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
 `docker compose up --build`.
+
+For a leaner image without the mem0 dependency or a preloaded embedding model that defaults to
+the `file` memory backend, build or use the `lite-offline` target:
+
+```bash
+docker build --target lite-offline --build-arg WITH_MEM0=false -t coworker:lite-offline .
+# or use the published image via Compose
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:lite-offline \
+docker compose up --pull always --no-build
+```
 
 To clean runtime caches and data, see:
 

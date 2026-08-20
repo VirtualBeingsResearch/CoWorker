@@ -169,6 +169,18 @@ This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
 `uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
+A plain `uv sync` installs enough to run the **`file` memory backend**. To enable the
+**`mem0` semantic memory backend** (the bundled default configuration), install its
+optional dependencies:
+
+```bash
+uv sync --extra mem0
+```
+
+To keep `mem0`, keep passing `--extra mem0` on every subsequent sync
+(`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`);
+otherwise `uv sync` will prune the extra from the environment.
+
 </details>
 
 <details>
@@ -191,6 +203,15 @@ The `offline` image blocks automatic downloads of missing Hugging Face content a
 startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
 Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
 integrations may still access the network.
+
+> [!TIP]
+> A leaner `lite-offline` image is also published
+> (`ghcr.io/virtualbeingsresearch/coworker:lite-offline`): it ships without the mem0 optional
+> dependency or a preloaded embedding model and defaults to the `file` memory backend, which is
+> convenient when you do not need semantic retrieval and prefer a smaller footprint. The
+> `MEMORY_DEFAULT_BACKEND` variable described in the
+> [configuration reference](docs/operations/configuration.en.md) lets an image change the default
+> memory backend.
 
 > [!NOTE]
 > Intel macOS cannot install the current PyTorch wheel. Run the service through the

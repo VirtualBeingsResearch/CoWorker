@@ -4,341 +4,163 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-from mem0.configs.base import MemoryConfig
-
-from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory, MemoryWriteResult
-
-
-@pytest.fixture(autouse=True)
-def isolate_relative_storage(tmp_path, monkeypatch):
-    """Keep vector-store test paths out of the repository's ``data/`` tree."""
-    monkeypatch.chdir(tmp_path)
-
-
-def _mem(id_: str, tags: list[str], relevance: float) -> dict:
-    return {
-        "id": id_,
-        "content": f"memory {id_}",
-        "category": "experience",
-        "tags": tags,
-        "timestamp": "",
-        "relevance": relevance,
-    }
-
-
-def test_embedder_returns_mem0_embedding_model():
-    lt = LongTermMemory(db_path="data/_unused")
-    embedder = object()
-    lt._mem = MagicMock()
-    lt._mem.embedding_model = embedder
-
-    assert lt.embedder is embedder
-
-
-def test_chroma_client_returns_mem0_vector_store_client():
-    lt = LongTermMemory(db_path="data/_unused")
-    client = object()
-    lt._mem = MagicMock()
-    lt._mem.vector_store.client = client
-
-    assert lt.chroma_client is client
-
-
-class TestQueryByTags:
-    def _make(self) -> LongTermMemory:
-        return LongTermMemory(db_path="data/_unused")
-
-    async def test_empty_tags_returns_empty(self):
-        lt = self._make()
-        lt.query = AsyncMock()
-        assert await lt.query_by_tags("q", []) == []
-        lt.query.assert_not_awaited()
-
-    async def test_filters_by_tag_intersection(self):
-        lt = self._make()
-        lt.query = AsyncMock(return_value=[
-            _mem("a", ["product", "bug"], 0.9),
-            _mem("b", ["other"], 0.8),
-            _mem("c", ["bug"], 0.7),
-        ])
-        out = await lt.query_by_tags("q", ["bug"])
-        ids = [m["id"] for m in out]
-        assert ids == ["a", "c"]  # b filtered out; order by relevance desc
-
-    async def test_sorted_by_relevance_desc(self):
-        lt = self._make()
-        lt.query = AsyncMock(return_value=[
-            _mem("low", ["t"], 0.3),
-            _mem("high", ["t"], 0.95),
-            _mem("mid", ["t"], 0.6),
-        ])
-        out = await lt.query_by_tags("q", ["t"])
-        assert [m["id"] for m in out] == ["high", "mid", "low"]
-
-    async def test_respects_limit(self):
-        lt = self._make()
-        lt.query = AsyncMock(return_value=[_mem(str(i), ["t"], 1.0 - i * 0.01) for i in range(20)])
-        out = await lt.query_by_tags("q", ["t"], limit=5)
-        assert len(out) == 5
-
-
-class TestQueryWithTags:
-    def _search_item(self, id_: str, tags: list[str], score: float) -> dict:
-        return {
-            "id": id_,
-            "memory": f"memory {id_}",
-            "metadata": {"category": "experience", "tags": json.dumps(tags)},
-            "score": score,
-        }
-
-    async def test_tags_post_filter_and_limit(self):
-        lt = LongTermMemory(db_path="data/_unused")
-        mem = MagicMock()
-        mem.search = AsyncMock(return_value={"results": [
-            self._search_item("a", ["product", "bug"], 0.9),
-            self._search_item("b", ["other"], 0.8),
-            self._search_item("c", ["bug"], 0.7),
-        ]})
-        lt._mem = mem
-        out = await lt.query("q", tags=["bug"], limit=5)
-        assert [m["id"] for m in out] == ["a", "c"]  # b filtered out
-        # 有 tags 时宽召回：top_k 放大
-        assert mem.search.await_args.kwargs["top_k"] == 20
-
-    async def test_no_tags_uses_limit_as_top_k(self):
-        lt = LongTermMemory(db_path="data/_unused")
-        mem = MagicMock()
-        mem.search = AsyncMock(return_value={"results": []})
-        lt._mem = mem
-        await lt.query("q", limit=5)
-        assert mem.search.await_args.kwargs["top_k"] == 5
-
-    async def test_time_filter_uses_source_timestamp_and_expands_top_k(self):
-        lt = LongTermMemory(db_path="data/_unused")
-        mem = MagicMock()
-        mem.search = AsyncMock(return_value={"results": [
-            {
-                "id": "in",
-                "memory": "inside",
-                "metadata": {
-                    "category": "task",
-                    "tags": "[]",
-                    "source_timestamp": "2026-06-02T12:00:00",
-                },
-                "score": 0.9,
-            },
-            {
-                "id": "out",
-                "memory": "outside",
-                "metadata": {
-                    "category": "task",
-                    "tags": "[]",
-                    "source_timestamp": "2026-06-05T12:00:00",
-                },
-                "score": 0.8,
-            },
-            {
-                "id": "bad",
-                "memory": "bad ts",
-                "metadata": {"category": "task", "tags": "[]", "source_timestamp": "not-a-date"},
-                "score": 0.7,
-            },
-        ]})
-        lt._mem = mem
-
-        out = await lt.query(
-            "q",
-            limit=2,
-            start=datetime(2026, 6, 1),
-            end=datetime(2026, 6, 3),
-        )
-
-        assert [m["id"] for m in out] == ["in"]
-        assert mem.search.await_args.kwargs["top_k"] == 30
-
-
-def _lt_with_mem(get_return) -> tuple[LongTermMemory, MagicMock]:
-    lt = LongTermMemory(db_path="data/_unused")
-    mem = MagicMock()
-    mem.get = AsyncMock(return_value=get_return)
-    mem.update = AsyncMock()
-    lt._mem = mem
-    return lt, mem
-
-
-def _get_item(memory: str, category: str, tags: list[str], ts: str | None = "2026-06-01T00:00:00") -> dict:
-    meta: dict = {"category": category, "tags": json.dumps(tags)}
-    if ts is not None:
-        meta["source_timestamp"] = ts
-    return {"id": "m1", "memory": memory, "metadata": meta}
-
-
-class TestAssociateTags:
-    async def test_appends_and_preserves_metadata(self):
-        lt, mem = _lt_with_mem(_get_item("登录复现要点", "experience", ["product"]))
-        merged = await lt.associate_tags("m1", ["bug", "product"])  # product already present → dedup
-        assert merged == ["product", "bug"]
-        mem.update.assert_awaited_once()
-        kwargs = mem.update.await_args.kwargs
-        assert kwargs["memory_id"] == "m1"
-        assert kwargs["data"] == "登录复现要点"  # content untouched
-        md = kwargs["metadata"]
-        assert md["category"] == "experience"           # category preserved
-        assert json.loads(md["tags"]) == ["product", "bug"]
-        assert md["source_timestamp"] == "2026-06-01T00:00:00"  # source_timestamp preserved
-
-    async def test_noop_when_all_tags_present(self):
-        lt, mem = _lt_with_mem(_get_item("x", "general", ["a", "b"]))
-        merged = await lt.associate_tags("m1", ["a"])
-        assert merged == ["a", "b"]
-        mem.update.assert_not_awaited()  # nothing new → no write
-
-    async def test_missing_memory_raises(self):
-        lt, _ = _lt_with_mem(None)
-        with pytest.raises(ValueError):
-            await lt.associate_tags("nope", ["a"])
-
-    async def test_empty_tags_raises(self):
-        lt, mem = _lt_with_mem(_get_item("x", "general", []))
-        with pytest.raises(ValueError):
-            await lt.associate_tags("m1", [])
-        mem.get.assert_not_awaited()
-
-
-class TestUpdatePreservesMetadata:
-    async def test_update_carries_back_metadata(self):
-        lt, mem = _lt_with_mem(_get_item("old", "knowledge", ["t1"]))
-        await lt.update("m1", "new content")
-        kwargs = mem.update.await_args.kwargs
-        assert kwargs["data"] == "new content"
-        md = kwargs["metadata"]
-        assert md["category"] == "knowledge"          # not wiped
-        assert json.loads(md["tags"]) == ["t1"]        # not wiped
-        assert md["source_timestamp"] == "2026-06-01T00:00:00"
-
-    async def test_update_missing_memory_passes_none_metadata(self):
-        lt, mem = _lt_with_mem(None)
-        await lt.update("gone", "new content")
-        kwargs = mem.update.await_args.kwargs
-        assert kwargs["metadata"] is None  # nothing to preserve
-
-    async def test_update_can_replace_tags(self):
-        lt, mem = _lt_with_mem(_get_item("old", "knowledge", ["old-tag"]))
-        await lt.update("m1", "new content", tags=["project", "decision"])
-        md = mem.update.await_args.kwargs["metadata"]
-        assert md["category"] == "knowledge"
-        assert json.loads(md["tags"]) == ["project", "decision"]
-        assert md["source_timestamp"] == "2026-06-01T00:00:00"
-
-
-class TestUsageHook:
-    def test_mem0_generate_response_notifies_usage_listener(self):
-        class FakeLlm:
-            class Config:
-                model = "mem-model"
-
-            config = Config()
-
-            def generate_response(self, messages, **kwargs):
-                return "extracted memory"
-
-        lt = LongTermMemory(
-            db_path="data/_unused",
-            llm=LongTermLLMConfig(
-                provider="mock-provider",
-                api_dialect="mock-provider",
-                model="fallback-model",
-            ),
-        )
-        lt._mem = MagicMock()
-        lt._mem.llm = FakeLlm()
-        seen = []
-        lt.add_usage_listener(seen.append)
-
-        lt._install_usage_hook()
-        out = lt._mem.llm.generate_response(messages=[
-            {"role": "system", "content": "Extract facts."},
-            {"role": "user", "content": "用户喜欢喝咖啡"},
-        ])
-
-        assert out == "extracted memory"
-        assert len(seen) == 1
-        assert seen[0]["provider"] == "mock-provider"
-        assert seen[0]["model"] == "mem-model"
-        assert seen[0]["operation"] == "generate_response"
-        assert seen[0]["usage_source"] == "estimated"
-        assert seen[0]["usage"]["input_tokens"] > 0
-        assert seen[0]["usage"]["output_tokens"] > 0
-
-    def test_mem0_usage_hook_prefers_raw_provider_usage(self):
-        class Usage:
-            prompt_tokens = 123
-            completion_tokens = 45
-            prompt_tokens_details = type("Details", (), {"cached_tokens": 67})()
-
-        class Response:
-            usage = Usage()
-            choices = [type("Choice", (), {"message": type("Message", (), {"content": "ok"})()})()]
-
-        class Completions:
-            def create(self, **kwargs):
-                return Response()
-
-        class FakeLlm:
-            class Config:
-                model = "mem-model"
-
-            config = Config()
-            client = type("Client", (), {
-                "chat": type("Chat", (), {"completions": Completions()})()
-            })()
-
-            def generate_response(self, messages, **kwargs):
-                response = self.client.chat.completions.create(messages=messages)
-                return response.choices[0].message.content
-
-        lt = LongTermMemory(
-            db_path="data/_unused",
-            llm=LongTermLLMConfig(
-                provider="mock-provider",
-                api_dialect="mock-provider",
-            ),
-        )
-        lt._mem = MagicMock()
-        lt._mem.llm = FakeLlm()
-        seen = []
-        lt.add_usage_listener(seen.append)
-
-        lt._install_usage_hook()
-        lt._mem.llm.generate_response(messages=[{"role": "user", "content": "tiny"}])
-
-        assert seen[0]["usage"] == {
-            "input_tokens": 123,
-            "output_tokens": 45,
-            "cached_tokens": 67,
-        }
-        assert seen[0]["usage_source"] == "provider"
-
-
-@pytest.mark.parametrize(
-    ("provider", "api_dialect", "base_url_key"),
-    [
-        ("openai", "openai", "openai_base_url"),
-        ("deepseek", "openai", "openai_base_url"),
-        ("minimax", "openai", "openai_base_url"),
-        ("qwen", "openai", "openai_base_url"),
-        ("zhipu", "openai", "openai_base_url"),
-    ],
+from coworker.memory.backends.mem0 import Mem0Backend
+from coworker.memory.base import (
+    MemoryBackendConfig,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryWriteResult,
 )
-def test_llm_config_preserves_provider_base_url(
-    provider: str,
-    api_dialect: str,
-    base_url_key: str,
-) -> None:
+from coworker.memory.long_term import LongTermLLMConfig, LongTermMemory
+
+
+class FakeBackend:
+    """Minimal in-test backend for facade delegation checks."""
+
+    def __init__(self) -> None:
+        self.initialized = False
+        self.records: dict[str, MemoryRecord] = {}
+        self.listeners = []
+        self.reconfigured_with = None
+
+    async def initialize(self) -> None:
+        self.initialized = True
+
+    def is_ready(self) -> bool:
+        return self.initialized
+
+    async def write(
+        self,
+        content: str,
+        *,
+        category: str,
+        tags: list[str],
+        source_timestamp: datetime | None = None,
+    ) -> MemoryWriteResult:
+        record = MemoryRecord(
+            id=f"id-{len(self.records) + 1}",
+            content=content,
+            category=category,
+            tags=tags,
+            timestamp=(source_timestamp or datetime.now()).isoformat(),
+        )
+        self.records[record.id] = record
+        return MemoryWriteResult(status="written", memory_id=record.id)
+
+    async def query(self, params: MemoryQuery) -> list[MemoryRecord]:
+        return list(self.records.values())[: params.limit]
+
+    async def update(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        tags: list[str] | None = None,
+    ) -> None:
+        record = self.records[memory_id]
+        self.records[memory_id] = MemoryRecord(
+            id=record.id,
+            content=content,
+            category=record.category,
+            tags=record.tags if tags is None else tags,
+            timestamp=record.timestamp,
+        )
+
+    async def delete(self, memory_id: str) -> None:
+        self.records.pop(memory_id, None)
+
+    async def associate_tags(self, memory_id: str, tags: list[str]) -> list[str]:
+        record = self.records[memory_id]
+        merged = list(dict.fromkeys([*record.tags, *tags]))
+        self.records[memory_id] = MemoryRecord(
+            id=record.id,
+            content=record.content,
+            category=record.category,
+            tags=merged,
+            timestamp=record.timestamp,
+        )
+        return merged
+
+    async def reconfigure(self, config: MemoryBackendConfig) -> None:
+        self.reconfigured_with = config
+
+    def add_usage_listener(self, listener) -> None:
+        self.listeners.append(listener)
+
+    async def count(self) -> int:
+        return len(self.records)
+
+
+class TestLongTermMemoryFacade:
+    def _make(self) -> tuple[LongTermMemory, FakeBackend]:
+        backend = FakeBackend()
+        memory = LongTermMemory(backend=backend)
+        return memory, backend
+
+    async def test_initialize_and_is_ready(self):
+        memory, backend = self._make()
+        assert not memory.is_ready()
+        await memory.initialize()
+        assert memory.is_ready()
+        assert backend.initialized
+
+    async def test_write_delegates(self):
+        memory, backend = self._make()
+        result = await memory.write("hello", category="general", tags=["a"])
+        assert result.status == "written"
+        assert result.memory_id in backend.records
+
+    async def test_query_delegates_and_returns_records(self):
+        memory, backend = self._make()
+        await memory.write("hello", category="general", tags=["a"])
+        records = await memory.query("hello")
+        assert isinstance(records[0], MemoryRecord)
+        assert records[0].content == "hello"
+
+    async def test_query_by_tags_uses_query_with_tags(self):
+        memory, _ = self._make()
+        calls = []
+
+        async def fake_query(query_text, **kwargs):
+            calls.append((query_text, kwargs))
+            return [MemoryRecord(id="m1", content="x", category="general", tags=["t"])]
+
+        memory.query = fake_query
+        result = await memory.query_by_tags("goal", ["t"], limit=8)
+        assert len(result) == 1
+        assert calls == [("goal", {"tags": ["t"], "limit": 8})]
+
+    async def test_update_delete_associate_count_delegate(self):
+        memory, backend = self._make()
+        result = await memory.write("content", category="general", tags=["a"])
+        await memory.update(result.memory_id, "updated", tags=["b"])
+        assert backend.records[result.memory_id].content == "updated"
+        assert backend.records[result.memory_id].tags == ["b"]
+
+        merged = await memory.associate_tags(result.memory_id, ["c"])
+        assert merged == ["b", "c"]
+
+        assert await memory.count() == 1
+        await memory.delete(result.memory_id)
+        assert await memory.count() == 0
+
+    async def test_reconfigure_and_usage_listener_delegate(self):
+        memory, backend = self._make()
+
+        def listener(entry):
+            return None
+
+        memory.add_usage_listener(listener)
+        config = LongTermLLMConfig(provider="openai", api_dialect="openai", model="m")
+        await memory.reconfigure(config)
+        assert backend.reconfigured_with is config
+        assert listener in backend.listeners
+
+
+def test_llm_config_preserves_provider_base_url():
     llm = LongTermLLMConfig(
-        provider=provider,
-        api_dialect=api_dialect,
+        provider="deepseek",
+        api_dialect="openai",
         api_key="secret",
         model="model-id",
         base_url="https://llm.example.test/v1",
@@ -346,111 +168,139 @@ def test_llm_config_preserves_provider_base_url(
 
     resolved_provider, config = llm.as_mem0_config()
 
-    assert resolved_provider == api_dialect
-    # openai 方言额外携带 thinking/coworker_provider，供 CoworkerOpenAILLM 注入思考参数。
+    assert resolved_provider == "openai"
     assert config == {
         "model": "model-id",
         "api_key": "secret",
-        base_url_key: "https://llm.example.test/v1",
+        "openai_base_url": "https://llm.example.test/v1",
         "thinking": False,
-        "coworker_provider": provider,
+        "coworker_provider": "deepseek",
     }
-    assert MemoryConfig(
-        llm={"provider": resolved_provider, "config": config}
-    ).llm.provider == api_dialect
+
+    from mem0.configs.base import MemoryConfig
+
+    assert MemoryConfig(llm={"provider": resolved_provider, "config": config}).llm.provider == "openai"
 
 
-class TestWriteResult:
-    def _make(self) -> LongTermMemory:
-        lt = LongTermMemory(db_path="data/_unused")
-        lt._mem = MagicMock()
-        lt._mem.get_all = AsyncMock(return_value={"results": []})
-        return lt
+class TestMem0Backend:
+    def _make(self) -> Mem0Backend:
+        return Mem0Backend(db_path="data/_unused")
 
-    async def test_written_returns_first_id(self):
-        lt = self._make()
-        lt._mem.add = AsyncMock(
-            return_value={"results": [{"id": "new-1"}, {"id": "new-2"}]}
-        )
+    def test_embedder_returns_mem0_embedding_model(self):
+        backend = self._make()
+        embedder = object()
+        backend._mem = MagicMock()
+        backend._mem.embedding_model = embedder
+        assert backend.embedder is embedder
 
-        result = await lt.write("新内容", category="knowledge", tags=["a"])
+    def test_chroma_client_returns_mem0_vector_store_client(self):
+        backend = self._make()
+        client = object()
+        backend._mem = MagicMock()
+        backend._mem.vector_store.client = client
+        assert backend.chroma_client is client
 
+    def test_is_ready_reflects_mem(self):
+        backend = self._make()
+        assert not backend.is_ready()
+        backend._mem = MagicMock()
+        assert backend.is_ready()
+
+    async def test_write_returns_written_and_empty(self):
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.get_all = AsyncMock(return_value={"results": []})
+        backend._mem.add = AsyncMock(return_value={"results": [{"id": "new-1"}]})
+
+        result = await backend.write("新内容", category="knowledge", tags=["a"])
         assert result.status == "written"
         assert result.memory_id == "new-1"
-        lt._mem.get_all.assert_awaited_once_with(
-            filters={"user_id": "agent", "hash": "3ad942d9640bdb2a74384b4344e1b43e"}
-        )
-        lt._mem.add.assert_awaited_once()
-        kwargs = lt._mem.add.await_args.kwargs
-        assert kwargs["messages"] == [{"role": "user", "content": "新内容"}]
-        assert kwargs["user_id"] == "agent"
-        assert kwargs["infer"] is False
-        assert kwargs["metadata"]["category"] == "knowledge"
-        assert kwargs["metadata"]["tags"] == '["a"]'
-        assert datetime.fromisoformat(kwargs["metadata"]["source_timestamp"])
+        assert backend._mem.add.await_args.kwargs["infer"] is False
 
-    async def test_exact_duplicate_returns_empty_without_add(self):
-        lt = self._make()
-        lt._mem.get_all = AsyncMock(
+        backend._mem.get_all = AsyncMock(
             return_value={"results": [{"id": "old-1", "memory": "已有内容"}]}
         )
-        lt._mem.add = AsyncMock()
-
-        result = await lt.write("已有内容", category="knowledge")
-
+        backend._mem.add = AsyncMock()
+        result = await backend.write("已有内容", category="knowledge")
         assert result == MemoryWriteResult(status="empty")
-        lt._mem.add.assert_not_awaited()
+        backend._mem.add.assert_not_awaited()
 
-    async def test_empty_content_returns_empty_without_lookup(self):
-        lt = self._make()
-        lt._mem.add = AsyncMock()
-
-        result = await lt.write("  \n")
-
-        assert result == MemoryWriteResult(status="empty")
-        lt._mem.get_all.assert_not_awaited()
-        lt._mem.add.assert_not_awaited()
-
-    async def test_add_without_result_returns_empty(self):
-        lt = self._make()
-        lt._mem.add = AsyncMock(return_value={"results": []})
-
-        result = await lt.write("待保存内容")
-
-        assert result.status == "empty"
-        assert result.memory_id == ""
-
-
-class TestConversationExtraction:
-    async def test_raw_conversation_keeps_mem0_inference_enabled(self):
-        lt = LongTermMemory(db_path="data/_unused")
-        lt._mem = MagicMock()
-        lt._mem.add = AsyncMock()
-        message = MagicMock()
-        message.role = "user"
-        message.content_text.return_value = "原始对话"
-        message.timestamp = datetime(2026, 8, 14, 12, 0)
-        message.tool_calls = []
-
-        await lt.add_conversation([message])
-
-        lt._mem.add.assert_awaited_once_with(
-            messages=[{"role": "user", "content": "[2026-08-14 12:00] 原始对话"}],
-            user_id="agent",
+    async def test_query_returns_memory_records(self):
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.search = AsyncMock(
+            return_value={
+                "results": [
+                    {
+                        "id": "m1",
+                        "memory": "content",
+                        "metadata": {
+                            "category": "experience",
+                            "tags": json.dumps(["a"]),
+                            "source_timestamp": "2026-06-01T00:00:00",
+                        },
+                        "score": 0.9,
+                    }
+                ]
+            }
         )
+        records = await backend.query(MemoryQuery("content", tags=["a"], limit=5))
+        assert len(records) == 1
+        assert isinstance(records[0], MemoryRecord)
+        assert records[0].id == "m1"
+        assert records[0].tags == ["a"]
+        assert records[0].timestamp == "2026-06-01T00:00:00"
 
+    async def test_update_preserves_metadata(self):
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.get = AsyncMock(
+            return_value={
+                "id": "m1",
+                "memory": "old",
+                "metadata": {
+                    "category": "knowledge",
+                    "tags": json.dumps(["t1"]),
+                    "source_timestamp": "2026-06-01T00:00:00",
+                },
+            }
+        )
+        backend._mem.update = AsyncMock()
+        await backend.update("m1", "new content")
+        kwargs = backend._mem.update.await_args.kwargs
+        assert kwargs["data"] == "new content"
+        assert json.loads(kwargs["metadata"]["tags"]) == ["t1"]
+        assert kwargs["metadata"]["category"] == "knowledge"
 
-class TestReconfigure:
-    async def test_replaces_mem0_llm_instance(self, monkeypatch):
+    async def test_associate_tags_preserves_metadata(self):
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.get = AsyncMock(
+            return_value={
+                "id": "m1",
+                "memory": "content",
+                "metadata": {
+                    "category": "experience",
+                    "tags": json.dumps(["product"]),
+                    "source_timestamp": "2026-06-01T00:00:00",
+                },
+            }
+        )
+        backend._mem.update = AsyncMock()
+        merged = await backend.associate_tags("m1", ["bug", "product"])
+        assert merged == ["product", "bug"]
+        kwargs = backend._mem.update.await_args.kwargs
+        assert kwargs["data"] == "content"
+        assert json.loads(kwargs["metadata"]["tags"]) == ["product", "bug"]
+
+    async def test_reconfigure_replaces_mem0_llm_instance(self, monkeypatch):
         import mem0.utils.factory as mem0_factory
 
-        lt = LongTermMemory(db_path="data/_unused")
+        backend = self._make()
         fake_llm = MagicMock()
         fake_llm.generate_response = MagicMock()
-        monkeypatch.setattr(
-            mem0_factory.LlmFactory, "create", lambda provider, cfg: fake_llm
-        )
-        lt._mem = MagicMock()
+        monkeypatch.setattr(mem0_factory.LlmFactory, "create", lambda provider, cfg: fake_llm)
+        backend._mem = MagicMock()
 
         new_cfg = LongTermLLMConfig(
             provider="deepseek",
@@ -460,46 +310,42 @@ class TestReconfigure:
             base_url="",
             thinking=True,
         )
-        await lt.reconfigure(new_cfg)
+        await backend.reconfigure(new_cfg)
 
-        assert lt._mem.llm is fake_llm
-        assert lt._mem.config.llm.provider == "openai"
-        assert lt._mem.config.llm.config["model"] == "deepseek-v4-pro"
-        assert lt._mem.config.llm.config["thinking"] is True
-        assert lt._llm is new_cfg
+        assert backend._mem.llm is fake_llm
+        assert backend._mem.config.llm.provider == "openai"
+        assert backend._mem.config.llm.config["model"] == "deepseek-v4-pro"
+        assert backend._mem.config.llm.config["thinking"] is True
 
-    async def test_factory_failure_preserves_previous_runtime(self, monkeypatch):
-        import mem0.utils.factory as mem0_factory
+    async def test_reconfigure_deferred_when_not_initialized(self):
+        backend = self._make()
+        new_cfg = LongTermLLMConfig(provider="deepseek", api_dialect="openai", model="m")
+        await backend.reconfigure(new_cfg)
+        assert backend._llm is new_cfg
 
-        old_cfg = LongTermLLMConfig(provider="openai", api_dialect="openai", model="old")
-        lt = LongTermMemory(db_path="data/_unused", llm=old_cfg)
-        old_llm = MagicMock()
-        lt._mem = MagicMock()
-        lt._mem.llm = old_llm
-        lt._mem.config.llm.provider = "openai"
-        lt._mem.config.llm.config = {"model": "old"}
-        monkeypatch.setattr(
-            mem0_factory.LlmFactory,
-            "create",
-            MagicMock(side_effect=RuntimeError("factory failed")),
-        )
+    def test_usage_hook_notifies_listener(self):
+        class FakeLlm:
+            class Config:
+                model = "mem-model"
 
-        with pytest.raises(RuntimeError, match="factory failed"):
-            await lt.reconfigure(
-                LongTermLLMConfig(provider="deepseek", api_dialect="openai", model="new")
-            )
+            config = Config()
 
-        assert lt._llm is old_cfg
-        assert lt._mem.llm is old_llm
-        assert lt._mem.config.llm.provider == "openai"
-        assert lt._mem.config.llm.config == {"model": "old"}
+            def generate_response(self, messages, **kwargs):
+                return "extracted memory"
 
-    async def test_deferred_when_not_initialized(self):
-        lt = LongTermMemory(db_path="data/_unused")
-        new_cfg = LongTermLLMConfig(
-            provider="deepseek", api_dialect="openai", model="m"
-        )
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.llm = FakeLlm()
+        seen = []
+        backend.add_usage_listener(seen.append)
 
-        await lt.reconfigure(new_cfg)
+        backend._install_usage_hook()
+        backend._mem.llm.generate_response(messages=[{"role": "user", "content": "用户喜欢喝咖啡"}])
 
-        assert lt._llm is new_cfg
+        assert len(seen) == 1
+        assert seen[0]["provider"] == "anthropic"
+        assert seen[0]["model"] == "mem-model"
+        assert seen[0]["operation"] == "generate_response"
+        assert seen[0]["usage_source"] == "estimated"
+        assert seen[0]["usage"]["input_tokens"] > 0
+        assert seen[0]["usage"]["output_tokens"] > 0

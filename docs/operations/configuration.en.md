@@ -120,7 +120,9 @@ as codes.
 
 | Variable | Default | Description |
 |---|---|---|
-| `MEMORY__DB_PATH` | `data/memory` | Long-term memory database directory |
+| `MEMORY__DB_PATH` | `data/memory` | Coworker memory data directory (short-term snapshots, state files, and the default mem0 backend data) |
+| `MEMORY__BACKEND` | `mem0` (when `MEMORY_DEFAULT_BACKEND` is unset) | Long-term memory backend: `mem0` (default) or `file` (minimal file-backed backend). `mem0` requires the optional dependencies installed (`uv sync --extra mem0`); `file` works with a plain install. To keep `mem0`, keep passing `--extra mem0` on subsequent `uv sync` / `uv run --sync`, otherwise the extra is pruned from the environment |
+| `MEMORY_DEFAULT_BACKEND` | `mem0` | Default memory backend (`mem0` or `file`) used when `MEMORY__BACKEND` is not explicitly set. Intended for slim images such as `lite-offline` to change the default at build time, so they can default to the `file` backend that needs no optional dependency; an explicitly configured `MEMORY__BACKEND` always wins |
 | `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | Triggers one short-term-memory compression pass after the latest complete model input reaches this budget; temporary overshoot is allowed |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | Fraction of the oldest primary-message tokens processed by each compression pass; shared by tree and legacy modes |
 | `MEMORY__TREE_ENABLED` | `true` | Enable the multiresolution memory tree; disabling it restores the legacy single-anchor compression behavior |
@@ -248,6 +250,8 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 
 | Variable | Default | Description |
 |---|---|---|
+| `COWORKER_BUILD_TARGET` | `offline` | Dockerfile target selected when building the image with Compose: `offline` (default), `runtime`, `with-embedder`, or `lite-offline` |
+| `COWORKER_WITH_MEM0` | `true` | Whether to install the mem0 optional dependency when building the image with Compose; set it to `false` when building the `lite-offline` target |
 | `COWORKER_BUNDLE_REPOSITORY_URL` | Official Coworker repository | Compatible repository converted to a Git bundle while building the image |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
 | `COWORKER_WORKSPACE_PATH` | `/app` | In-container Git workspace shared by the running source and the Agent |

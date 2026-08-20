@@ -569,13 +569,13 @@ class BubbleMiniLoop:
     async def _write_back_to_palaces(self) -> None:
         """挂宫殿的泡泡成功收尾时，把结论按宫殿 memory_tags 写回长期记忆。
 
-        确定性钩子，不依赖模型自觉，也不改宫殿卡片正文——写回落到 mem0，
+        确定性钩子，不依赖模型自觉，也不改宫殿卡片正文——写回落到长期记忆后端，
         靠 bubble_spawn 的标签召回在下次挂同一宫殿时自动捞回。
         """
         bubble = self._bubble
         if bubble.status != "done" or not bubble.palace_tags or not bubble.result.strip():
             return
-        if self._long_term is None or self._long_term._mem is None:
+        if self._long_term is None or not self._long_term.is_ready():
             return
         try:
             await self._long_term.write(

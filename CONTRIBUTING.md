@@ -22,6 +22,12 @@
 uv sync --dev
 ```
 
+开发涉及默认配置的 `mem0` 记忆后端时，额外安装其可选依赖：
+
+```bash
+uv sync --dev --extra mem0
+```
+
 如果要修改浏览器工具或运行浏览器集成测试，需要安装一次 Chromium：
 
 ```bash

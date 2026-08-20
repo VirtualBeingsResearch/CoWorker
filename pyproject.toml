@@ -12,9 +12,6 @@ requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.122.0",
     "openai>=3.1.0",
-    "chromadb>=0.5",
-    "sentence-transformers>=5.7.0",
-    "torch==2.13.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.15.0",
     "ddgs>=9.14.4",
@@ -26,7 +23,6 @@ dependencies = [
     "psutil>=6.0",
     "wecom-aibot-sdk==1.0.8",
     "pyyaml>=6.0",
-    "mem0ai[nlp]>=2.0.18",
     "mcp2cli>=3.3.1",
     "pillow>=12.3.0",
     "requests>=2.34.2",
@@ -34,9 +30,20 @@ dependencies = [
     "python-multipart>=0.0.32",
     "python-telegram-bot>=22.8,<23",
     "websockets>=17.0.1",
+    "qrcode[pil]>=8.2",
+]
+
+[project.optional-dependencies]
+# mem0 语义记忆后端（默认后端配置）所需的重依赖栈。默认 `uv sync` 为精简安装，
+# 使用 `file` 后端即可运行；要启用 mem0 后端需显式安装本 extra：
+#   uv sync --extra mem0
+mem0 = [
+    "mem0ai[nlp]>=2.0.18",
+    "chromadb>=0.5",
+    "sentence-transformers>=5.7.0",
+    "torch==2.13.0",
     "spacy==3.8.13",
     "en-core-web-sm>=3.8.0",
-    "qrcode[pil]>=8.2",
 ]
 
 [dependency-groups]

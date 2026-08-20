@@ -40,7 +40,7 @@ paths. A health probe should never call endpoints that incur model cost or mutat
 ## Usage and cost
 
 When a communication token is configured, the `usage_stats` field returned by an authenticated `GET /status` exposes today, last_7_days, and lifetime
-windows, split by model, Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and mem0. This
+windows, split by model, Provider/model, and scopes such as main, summary, vision, bubble, subconscious, and long_term. This
 ordinary status interface returns usage only, never monetary amounts.
 
 The authenticated `GET /api/admin/usage` endpoint and Runtime analytics calculate local spend

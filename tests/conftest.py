@@ -55,5 +55,5 @@ def mock_long_term():
     lt = MagicMock()
     lt.write = AsyncMock()
     lt.query = AsyncMock(return_value=[])
-    lt.add_conversation = AsyncMock()
+    lt.is_ready = MagicMock(return_value=True)
     return lt

@@ -28,10 +28,8 @@ resummarize_hint = "重新压缩这段已有短期记忆节点，目标约 {{tar
 summary_only = " · 仅摘要"
 header = "[记忆 {{span}} · {{count}}条{{flag}}]"
 
-[mem0]
+[long_term]
 custom_instructions = "保持每条源消息的语言，不翻译用户文本或第三方原文。只提炼可持久复用的事实、偏好、关系、决定和经历；保留人名、项目名、ID、URL、工具名及参数名原样。"
-tool_call = "[调用工具] {{name}}({{arguments}})"
-tool_result = "[工具结果] {{content}}"
 
 [log_digest]
 truncated = "…(截断)"
@@ -56,7 +54,6 @@ filter_needs_query = "按 category/tags 检索长期记忆时需要提供 query�
 needs_input = "query_memory 需要提供 query 或同时提供 start/end。"
 time_parse_failed = "时间解析失败：{{error}}"
 none = "没有找到相关记忆。"
-relevance = "相关度: {{value}}"
 query_failed = "{{source}} 查询失败：{{error}}"
 combined_none = "没有找到相关时间窗记录或长期记忆。"
 hint = "[提示] {{message}}"

@@ -210,7 +210,7 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Sync Python workspace
-        run: uv sync --locked --dev --python 3.13
+        run: uv sync --locked --dev --extra mem0 --python 3.13
       - name: Cache mypy state
         uses: actions/cache@v6
         with:
@@ -241,7 +241,7 @@ jobs:
           python-version: "3.14"
           enable-cache: true
       - name: Sync Python workspace
-        run: uv sync --locked --dev --python 3.14
+        run: uv sync --locked --dev --extra mem0 --python 3.14
 
   rust:
     name: Rust

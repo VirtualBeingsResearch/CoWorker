@@ -10,6 +10,8 @@
 ```bash
 # 安装开发依赖
 uv sync --dev
+# 使用默认配置的 mem0 记忆后端时，需额外安装其可选依赖：uv sync --dev --extra mem0
+# 之后每次同步也请带 --extra mem0（uv sync --dev --extra mem0 / uv run --extra mem0），否则 uv sync 会把 mem0 从环境摘除
 
 # 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium
@@ -75,6 +77,16 @@ docker compose up --pull always --no-build
 embedding 模型，以及 `vim-tiny`、`nano`、`less`、`jq` 和 `ripgrep` 等轻量命令行工具；
 源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，使用
 `docker compose up --build` 重新构建依赖环境。
+
+如需更精简、不含 mem0 依赖与预置 embedding 模型、默认使用 `file` 记忆后端的镜像，可
+本地构建 `lite-offline` target：
+
+```bash
+docker build --target lite-offline --build-arg WITH_MEM0=false -t coworker:lite-offline .
+# 或通过 Compose 使用发布镜像
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:lite-offline \
+docker compose up --pull always --no-build
+```
 
 清理运行时缓存和数据可参考：
 

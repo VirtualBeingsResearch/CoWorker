@@ -13,6 +13,7 @@ from loguru import logger
 from coworker.core.ids import new_compact_id
 from coworker.core.types import Message, SummaryResult, ToolResult
 from coworker.i18n import tr
+from coworker.memory.base import MemoryRecord
 from coworker.memory.long_term import LongTermMemory
 from coworker.tools.base import PAGE_CHAR_LIMIT, PAGE_CHAR_MAX, Tool, ToolDefinition, paginate_text
 
@@ -197,10 +198,9 @@ class QueryMemoryTool(Tool):
             return ToolResult(tool_call_id="", content=tr("memory.query.none"))
         lines = []
         for i, r in enumerate(results):
-            tag_str = f" #{' #'.join(r['tags'])}" if r.get("tags") else ""
+            tag_str = f" #{' #'.join(r.tags)}" if r.tags else ""
             lines.append(
-                f"[{i + 1}] id={r['id']} [{r['category']}]{tag_str} {r['content']} "
-                f"({tr('memory.query.relevance', value=r['relevance'])})"
+                f"[{i + 1}] id={r.id} [{r.category}]{tag_str} {r.content}"
             )
         return ToolResult(tool_call_id="", content="\n".join(lines))
 
@@ -236,7 +236,7 @@ class QueryMemoryTool(Tool):
             task_names.append("time")
 
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-        long_term: list[dict] = []
+        long_term: list[MemoryRecord] = []
         focus: str = ""
         warnings: list[str] = []
         for name, value in zip(task_names, raw_results, strict=True):
@@ -244,7 +244,7 @@ class QueryMemoryTool(Tool):
                 warnings.append(tr("memory.query.query_failed", source=name, error=value))
                 continue
             if name == "long":
-                long_term = cast(list[dict], value)
+                long_term = cast(list[MemoryRecord], value)
             elif name == "time":
                 focus = str(value or "")
 
@@ -283,18 +283,16 @@ class QueryMemoryTool(Tool):
         if long_term:
             compact_lines.append(tr("memory.query.long_title"))
             for i, r in enumerate(long_term, 1):
-                tag_str = f" #{' #'.join(r['tags'])}" if r.get("tags") else ""
+                tag_str = f" #{' #'.join(r.tags)}" if r.tags else ""
                 compact_lines.append(
-                    f"L{i}. id={r['id']} [{r['category']}]{tag_str} "
-                    f"{self._compact_text(str(r['content']))} "
-                    f"({tr('memory.query.relevance', value=r['relevance'])})"
+                    f"L{i}. id={r.id} [{r.category}]{tag_str} "
+                    f"{self._compact_text(str(r.content))}"
                 )
                 snapshot_sections.append(
                     (
                         f"L{i}",
                         tr("memory.query.long_snapshot_title", id=f"L{i}") + "\n"
-                        f"id={r['id']} [{r['category']}]{tag_str}\n"
-                        f"{tr('memory.query.relevance', value=r['relevance'])}\n{r['content']}",
+                        f"id={r.id} [{r.category}]{tag_str}\n{r.content}",
                     )
                 )
 
@@ -420,7 +418,7 @@ class QueryMemoryTool(Tool):
         limit: int,
         start_dt: datetime | None = None,
         end_dt: datetime | None = None,
-    ) -> list[dict]:
+    ) -> list[MemoryRecord]:
         if start_dt is None and end_dt is None:
             return await self._memory.query(
                 query,

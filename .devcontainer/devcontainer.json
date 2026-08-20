@@ -14,7 +14,7 @@
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
-  "postCreateCommand": "uv sync --frozen --dev",
+  "postCreateCommand": "uv sync --frozen --dev --extra mem0",
   "customizations": {
     "vscode": {
       "settings": {

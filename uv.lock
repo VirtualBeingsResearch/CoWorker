@@ -479,14 +479,11 @@ version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
-    { name = "chromadb" },
     { name = "ddgs" },
-    { name = "en-core-web-sm" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "loguru" },
     { name = "mcp2cli" },
-    { name = "mem0ai", extra = ["nlp"] },
     { name = "openai" },
     { name = "pillow" },
     { name = "playwright" },
@@ -499,13 +496,20 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qrcode", extra = ["pil"] },
     { name = "requests" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
+    { name = "wecom-aibot-sdk" },
+]
+
+[package.optional-dependencies]
+mem0 = [
+    { name = "chromadb" },
+    { name = "en-core-web-sm" },
+    { name = "mem0ai", extra = ["nlp"] },
     { name = "sentence-transformers" },
     { name = "spacy" },
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version >= '3.15' or sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "websockets" },
-    { name = "wecom-aibot-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -520,14 +524,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.122.0" },
-    { name = "chromadb", specifier = ">=0.5" },
+    { name = "chromadb", marker = "extra == 'mem0'", specifier = ">=0.5" },
     { name = "ddgs", specifier = ">=9.14.4" },
-    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
+    { name = "en-core-web-sm", marker = "extra == 'mem0'", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "mcp2cli", specifier = ">=3.3.1" },
-    { name = "mem0ai", extras = ["nlp"], specifier = ">=2.0.18" },
+    { name = "mem0ai", extras = ["nlp"], marker = "extra == 'mem0'", specifier = ">=2.0.18" },
     { name = "openai", specifier = ">=3.1.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "playwright", specifier = ">=1.62.0" },
@@ -540,13 +544,14 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
     { name = "requests", specifier = ">=2.34.2" },
-    { name = "sentence-transformers", specifier = ">=5.7.0" },
-    { name = "spacy", specifier = "==3.8.13" },
-    { name = "torch", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "sentence-transformers", marker = "extra == 'mem0'", specifier = ">=5.7.0" },
+    { name = "spacy", marker = "extra == 'mem0'", specifier = "==3.8.13" },
+    { name = "torch", marker = "extra == 'mem0'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3" },
     { name = "websockets", specifier = ">=17.0.1" },
     { name = "wecom-aibot-sdk", specifier = "==1.0.8" },
 ]
+provides-extras = ["mem0"]
 
 [package.metadata.requires-dev]
 dev = [

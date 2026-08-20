@@ -23,6 +23,13 @@ Install the Python workspace and development dependencies:
 uv sync --dev
 ```
 
+When developing against the default `mem0` memory backend, additionally install its
+optional dependencies:
+
+```bash
+uv sync --dev --extra mem0
+```
+
 Install Chromium once if you work on the browser tool or run browser integration tests:
 
 ```bash

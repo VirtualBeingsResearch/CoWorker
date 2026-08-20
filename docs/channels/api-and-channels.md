@@ -126,10 +126,10 @@ curl http://localhost:8000/backfill_tree
 
 携带有效 Bearer 时，`/status` 响应中的 `usage_stats` 会返回 today / last_7_days / lifetime 三个窗口。每个窗口同时提供
 `by_model`（按模型名合并）和 `by_provider_model`（按 `provider/model` 精确区分）；
-同时在 `by_scope` 中拆出 `main` / `summary` / `vision` / `bubble` / `subconscious` / `mem0`
+同时在 `by_scope` 中拆出 `main` / `summary` / `vision` / `bubble` / `subconscious` / `long_term`
 六类来源统计，结构与窗口总账一致。窗口总账与 `by_scope` 均包含 `thinking_calls`、
 `thinking_seconds`、`avg_thinking_seconds`，用于展示有 `thinking_start -> llm_response`
-生命周期的平均思考耗时；summary / vision / mem0 等无起点事件的辅助调用不计入该均值。
+生命周期的平均思考耗时；summary / vision / long_term 等无起点事件的辅助调用不计入该均值。
 升级前的历史日志缺少 provider 时会归入 `unknown/<model>`；升级到来源拆分统计时会优先从日志重建，
 若原始日志已丢失则无法恢复旧聚合数据的来源归属。
 

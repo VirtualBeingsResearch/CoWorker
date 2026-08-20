@@ -8,6 +8,7 @@ services:
         COWORKER_BUNDLE_REPOSITORY_URL: ${COWORKER_BUNDLE_REPOSITORY_URL:-https://github.com/VirtualBeingsResearch/CoWorker.git}
         COWORKER_BUNDLE_REPOSITORY_REF: ${COWORKER_BUNDLE_REPOSITORY_REF:-}
         COWORKER_IMAGE_REVISION: ${COWORKER_IMAGE_REVISION:-}
+        WITH_MEM0: ${COWORKER_WITH_MEM0:-true}
     image: ${COWORKER_IMAGE:-ghcr.io/virtualbeingsresearch/coworker:offline}
     container_name: coworker
     restart: unless-stopped

@@ -167,6 +167,14 @@ uv run coworker
 需要 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)。
 `uv run python -m coworker` 与最后一条命令等价；首次运行不需要提前创建 `.env`。
 
+默认 `uv sync` 依赖已足够运行 **`file` 记忆后端**。要启用默认配置的 **`mem0` 语义记忆后端**，需安装其可选依赖：
+
+```bash
+uv sync --extra mem0
+```
+
+使用 `mem0` 时，后续每次同步也要带 `--extra mem0`（`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`），否则 `uv sync` 会把该 extra 从环境摘除。
+
 </details>
 
 <details>
@@ -187,6 +195,12 @@ docker compose up --pull always --no-build
 `offline` 镜像会阻止自动下载缺失的 Hugging Face 内容，并拒绝启动初始化器从 Git
 远端克隆工作区，但它不是网络沙箱：你配置的模型服务，以及你明确让 Agent 执行的 Git、搜索、
 浏览器或集成任务仍可能联网。
+
+> [!TIP]
+> 另提供更精简的 `lite-offline` 镜像（`ghcr.io/virtualbeingsresearch/coworker:lite-offline`）：
+> 它不包含 mem0 可选依赖或预置 embedding 模型，默认使用 `file` 记忆后端，适合无需语义检索、
+> 追求更小体积的场景。章节 [配置参考](docs/operations/configuration.md) 中的
+> `MEMORY_DEFAULT_BACKEND` 用于在镜像中变更默认记忆后端。
 
 > [!NOTE]
 > Intel macOS 无法安装当前版本的 PyTorch wheel，请通过

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from coworker.brain.brain import Brain
     from coworker.channels.stream import StreamRuntime
     from coworker.core.types import Message
+    from coworker.memory.base import MemoryRecord
     from coworker.memory.long_term import LongTermMemory
     from coworker.memory.short_term import ShortTermMemory
     from coworker.palaces.loader import Palace, PalaceLoader
@@ -537,8 +538,8 @@ class BubbleSpawnTool(Tool):
         bubble.palace_tags = all_tags
 
         # 3. 按标签过滤召回长期记忆
-        recalled: list[dict] = []
-        if all_tags and self._long_term is not None and self._long_term._mem is not None:
+        recalled: list[MemoryRecord] = []
+        if all_tags and self._long_term is not None and self._long_term.is_ready():
             recall_msg, recalled = await self._recall_by_tags(goal, all_tags)
             if recall_msg:
                 bubble.forked_context.append(recall_msg)
@@ -554,16 +555,16 @@ class BubbleSpawnTool(Tool):
 
     async def _recall_by_tags(
         self, goal: str, tags: list[str]
-    ) -> tuple[Message | None, list[dict]]:
-        """语义召回 goal 相关记忆，后置过滤保留 tags 有交集者。
+    ) -> tuple[Message | None, list[MemoryRecord]]:
+        """语义召回 goal 相关记忆，按标签过滤。
 
-        返回 ([宫殿记忆] 消息, 匹配到的记忆 dict 列表)；无匹配返回 (None, [])。
+        返回 ([宫殿记忆] 消息, 匹配到的记忆列表)；无匹配返回 (None, [])。
         匹配集同时用于写注入日志。
         """
         from coworker.core.types import Message as _Msg
 
         lt = self._long_term
-        if lt is None or lt._mem is None:
+        if lt is None or not lt.is_ready():
             return None, []
         try:
             matched = await lt.query_by_tags(goal, tags, limit=8)
@@ -577,16 +578,15 @@ class BubbleSpawnTool(Tool):
                 tr(
                     "tool_result.bubble.memory_item",
                     index=i,
-                    id=m["id"],
-                    category=m["category"],
-                    content=m["content"],
-                    relevance=f"{m['relevance']:.2f}",
+                    id=m.id,
+                    category=m.category,
+                    content=m.content,
                 )
             )
         msg = _Msg(
             role="system",
             content="\n".join(lines),
-            recalled_memory_ids=[m["id"] for m in matched],
+            recalled_memory_ids=[m.id for m in matched],
         )
         return msg, matched
 

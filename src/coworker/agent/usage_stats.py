@@ -113,7 +113,7 @@ _SUMMARY_SCOPE = "summary"
 _VISION_SCOPE = "vision"
 _BUBBLE_SCOPE = "bubble"
 _SUBCONSCIOUS_SCOPE = "subconscious"
-_MEM0_SCOPE = "mem0"
+_LONG_TERM_SCOPE = "long_term"
 _UNKNOWN_SCOPE = "unknown"
 _DEFAULT_SCOPES = (
     _MAIN_SCOPE,
@@ -121,7 +121,7 @@ _DEFAULT_SCOPES = (
     _VISION_SCOPE,
     _BUBBLE_SCOPE,
     _SUBCONSCIOUS_SCOPE,
-    _MEM0_SCOPE,
+    _LONG_TERM_SCOPE,
 )
 _UNKNOWN_PROVIDER = "unknown"
 _UNKNOWN_MODEL = "unknown"
@@ -1000,7 +1000,7 @@ class UsageStatsCollector:
                 str(entry.get("usage_source") or ""),
             )
             self._record_thinking_finish(entry, stream_id)
-        elif t in ("summary_llm_response", "vision_llm_response", "mem0_llm_response"):
+        elif t in ("summary_llm_response", "vision_llm_response", "long_term_llm_response"):
             usage = entry.get("usage")
             if not isinstance(usage, dict):
                 usage = {}
@@ -1014,7 +1014,7 @@ class UsageStatsCollector:
             elif t == "vision_llm_response":
                 scope = _VISION_SCOPE
             else:
-                scope = _MEM0_SCOPE
+                scope = _LONG_TERM_SCOPE
             self._record_usage_with_scope(
                 self._entry_date(entry),
                 self._entry_hour(entry),

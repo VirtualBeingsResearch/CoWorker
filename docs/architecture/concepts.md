@@ -120,7 +120,7 @@ coworker/
 
 **Pin 消息**：通过 `manage_pinned_context` 工具，模型可以将重要文本或文件内容"pin"住。Pin 的消息以真实消息形式存在于对话流中；当短期记忆压缩将其压掉后，下一个 cycle 会自动检测到缺失，把它重新 append 到 primary 末尾作为最新输入，起到保留缓存命中和定期强调的作用。文件 pin 在每次重注入时重新读取文件，始终保持最新内容。Pin 状态随快照持久化，重启后自动恢复。
 
-长期记忆由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。原始对话通过批量入口交给 mem0 调用 LLM 提炼并语义合并；`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接建立向量并保存。显式写入会先检索并跳过正文完全相同的已有记忆；语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
+长期记忆默认由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。长期记忆后端可通过 `MEMORY__BACKEND` 选择；`mem0` 为默认后端，`file` 为最简文件存储后端（每个记忆一个可读 JSON 文件，位于 `data/memory/long_term/`）。`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接保存；显式写入会先检索并跳过正文完全相同的已有记忆。语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
 
 **自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `manage_memory(action="write")` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。
 

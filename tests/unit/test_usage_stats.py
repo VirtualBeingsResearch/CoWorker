@@ -58,12 +58,12 @@ def test_empty_snapshot_returns_zeroes():
         "vision",
         "bubble",
         "subconscious",
-        "mem0",
+        "long_term",
     }
     assert stats["lifetime"]["by_scope"]["main"]["total_tokens"] == 0
     assert stats["lifetime"]["by_scope"]["summary"]["total_tokens"] == 0
     assert stats["lifetime"]["by_scope"]["vision"]["total_tokens"] == 0
-    assert stats["lifetime"]["by_scope"]["mem0"]["total_tokens"] == 0
+    assert stats["lifetime"]["by_scope"]["long_term"]["total_tokens"] == 0
 
 
 def test_snapshot_is_cached_until_usage_or_date_changes():
@@ -259,7 +259,7 @@ def test_admin_report_reprices_history_clamps_cache_and_accepts_zero_price(tmp_p
         state_path=state_path,
     )
     collector.on_entry({
-        "type": "mem0_llm_response",
+        "type": "long_term_llm_response",
         "ts": "2026-06-29T09:00:00",
         "provider": "openai",
         "model": "gpt-5.2",
@@ -444,7 +444,7 @@ def test_admin_report_adds_30_day_trend_previous_periods_and_tracking_metadata()
             "usage": {"input_tokens": 100, "output_tokens": 20, "cached_tokens": 10},
         },
         {
-            "type": "mem0_llm_response",
+            "type": "long_term_llm_response",
             "ts": "2026-06-29T09:00:00",
             "provider": "openai",
             "model": "gpt-4o-mini",
@@ -474,7 +474,7 @@ def test_admin_report_adds_30_day_trend_previous_periods_and_tracking_metadata()
     assert report["daily"][-1]["date"] == "2026-06-29"
     assert report["daily"][-1]["total_tokens"] == 155
     assert report["daily"][-1]["by_scope"]["main"]["total_tokens"] == 120
-    assert report["daily"][-1]["by_scope"]["mem0"]["total_tokens"] == 35
+    assert report["daily"][-1]["by_scope"]["long_term"]["total_tokens"] == 35
     assert report["daily"][-1]["estimated_calls"] == 1
     assert report["tracking_since"] == "2026-05-30"
     assert report["generated_at"] == "2026-06-29T12:00:00"
@@ -1114,10 +1114,10 @@ def test_bubble_summary_and_vision_usage_stays_in_originating_scope():
     assert today["by_scope"]["vision"]["total_tokens"] == 0
 
 
-def test_mem0_llm_responses_are_scoped():
+def test_long_term_llm_responses_are_scoped():
     collector = _collector()
     collector.on_entry({
-        "type": "mem0_llm_response",
+        "type": "long_term_llm_response",
         "ts": "2026-06-29T08:00:00",
         "provider": "anthropic",
         "model": "claude-haiku",
@@ -1128,10 +1128,10 @@ def test_mem0_llm_responses_are_scoped():
 
     assert today["total_tokens"] == 37
     assert today["llm_calls"] == 1
-    assert today["by_scope"]["mem0"]["total_tokens"] == 37
-    assert today["by_scope"]["mem0"]["llm_calls"] == 1
+    assert today["by_scope"]["long_term"]["total_tokens"] == 37
+    assert today["by_scope"]["long_term"]["llm_calls"] == 1
     assert today["by_scope"]["main"]["total_tokens"] == 0
-    assert today["by_scope"]["mem0"]["by_provider_model"]["anthropic/claude-haiku"]["total_tokens"] == 37
+    assert today["by_scope"]["long_term"]["by_provider_model"]["anthropic/claude-haiku"]["total_tokens"] == 37
 
 
 def test_summary_and_vision_usage_rebuilds_from_interaction_log(tmp_path):
