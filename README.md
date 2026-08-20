@@ -173,7 +173,7 @@ uv run coworker
 uv sync --extra mem0
 ```
 
-保持 `mem0` 时，后续每次同步也要带 `--extra mem0`（`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`），否则 `uv sync` 会把该 extra 从环境摘除。
+使用 `mem0` 时，后续每次同步也要带 `--extra mem0`（`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`），否则 `uv sync` 会把该 extra 从环境摘除。
 
 </details>
 
