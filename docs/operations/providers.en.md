@@ -155,7 +155,7 @@ usage; it neither changes `usage_stats.json` nor preserves the price that applie
 - main: conversation, tool planning, and persistent tasks;
 - summary: compression and summarization, usually without thinking to reduce cost;
 - vision: image/video analysis, requiring declared Provider capability;
-- long-term: long-term-memory extraction (run by the mem0 backend by default);
+- long_term: long-term-memory extraction (run by the mem0 backend by default);
 - fallback: ordered takeover after main-model failure.
 
 Validate each specialist before adding fallback. Do not leave a dead Provider first in the chain.
@@ -169,7 +169,7 @@ Validate each specialist before adding fallback. Do not leave a dead Provider fi
 - **Thinking parameter fails**: disable thinking for that role, or set a `thinking_effort` the
   model supports; unsupported levels are rejected with a 400 by the Provider.
 - **High latency/cost**: in Runtime analytics, split main, summary, vision, bubble, subconscious,
-  and long-term, then consider pricing coverage and the Provider bill before changing role assignments.
+  and long_term, then consider pricing coverage and the Provider bill before changing role assignments.
 
 See [Configuration and Models](configuration.en.md) for every variable and
 [Data and Trust Boundaries](../architecture/data-boundaries.en.md) for outbound data.
