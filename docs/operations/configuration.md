@@ -106,7 +106,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Coworker 记忆数据目录（短期快照、状态文件，以及默认 mem0 后端数据） |
-| `MEMORY__BACKEND` | `mem0` | 长期记忆后端：`mem0`（默认）或 `file`（最简文件存储后端）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）；`file` 为默认精简安装可用的后端 |
+| `MEMORY__BACKEND` | `mem0` | 长期记忆后端：`mem0`（默认）或 `file`（最简文件存储后端）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）；`file` 为默认精简安装可用的后端。若需保持 `mem0`，日常 `uv sync` / `uv run --sync` 也要带 `--extra mem0`，否则该 extra 会被从环境摘除 |
 | `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |

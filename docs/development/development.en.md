@@ -10,6 +10,7 @@ Read the [contributing guide](../../CONTRIBUTING.en.md) before submitting code. 
 # Install development dependencies
 uv sync --dev
 # When using the default mem0 memory backend, also install its optional deps: uv sync --dev --extra mem0
+# Keep passing --extra mem0 on every later sync (uv sync --dev --extra mem0 / uv run --extra mem0), otherwise uv sync prunes mem0 from the environment
 
 # Install Chromium for the browser tool (once)
 uv run playwright install chromium

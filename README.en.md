@@ -177,6 +177,10 @@ optional dependencies:
 uv sync --extra mem0
 ```
 
+To keep `mem0`, keep passing `--extra mem0` on every subsequent sync
+(`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`);
+otherwise `uv sync` will prune the extra from the environment.
+
 </details>
 
 <details>
