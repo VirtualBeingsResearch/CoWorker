@@ -196,6 +196,12 @@ docker compose up --pull always --no-build
 远端克隆工作区，但它不是网络沙箱：你配置的模型服务，以及你明确让 Agent 执行的 Git、搜索、
 浏览器或集成任务仍可能联网。
 
+> [!TIP]
+> 另提供更精简的 `lite-offline` 镜像（`ghcr.io/virtualbeingsresearch/coworker:lite-offline`）：
+> 它不包含 mem0 可选依赖或预置 embedding 模型，默认使用 `file` 记忆后端，适合无需语义检索、
+> 追求更小体积的场景。章节 [配置参考](docs/operations/configuration.md) 中的
+> `MEMORY_DEFAULT_BACKEND` 用于在镜像中变更默认记忆后端。
+
 > [!NOTE]
 > Intel macOS 无法安装当前版本的 PyTorch wheel，请通过
 > [Dev Container](docs/development/development.md#dev-container) 或 Docker 运行服务。

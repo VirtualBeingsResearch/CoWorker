@@ -204,6 +204,15 @@ startup initializer from cloning a workspace from a Git remote, but it is not a 
 Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
 integrations may still access the network.
 
+> [!TIP]
+> A leaner `lite-offline` image is also published
+> (`ghcr.io/virtualbeingsresearch/coworker:lite-offline`): it ships without the mem0 optional
+> dependency or a preloaded embedding model and defaults to the `file` memory backend, which is
+> convenient when you do not need semantic retrieval and prefer a smaller footprint. The
+> `MEMORY_DEFAULT_BACKEND` variable described in the
+> [configuration reference](docs/operations/configuration.en.md) lets an image change the default
+> memory backend.
+
 > [!NOTE]
 > Intel macOS cannot install the current PyTorch wheel. Run the service through the
 > [Dev Container](docs/development/development.en.md#dev-container) or Docker.

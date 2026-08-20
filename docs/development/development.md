@@ -78,6 +78,16 @@ embedding 模型，以及 `vim-tiny`、`nano`、`less`、`jq` 和 `ripgrep` 等�
 源码修改后重启容器即可。若修改了 `pyproject.toml` 或 `uv.lock`，使用
 `docker compose up --build` 重新构建依赖环境。
 
+如需更精简、不含 mem0 依赖与预置 embedding 模型、默认使用 `file` 记忆后端的镜像，可
+本地构建 `lite-offline` target：
+
+```bash
+docker build --target lite-offline --build-arg WITH_MEM0=false -t coworker:lite-offline .
+# 或通过 Compose 使用发布镜像
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:lite-offline \
+docker compose up --pull always --no-build
+```
+
 清理运行时缓存和数据可参考：
 
 ```bash

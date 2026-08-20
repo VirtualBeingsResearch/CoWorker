@@ -1,6 +1,9 @@
 ARG COWORKER_BUNDLE_REPOSITORY_URL=https://github.com/VirtualBeingsResearch/CoWorker.git
 ARG COWORKER_BUNDLE_REPOSITORY_REF=
 ARG COWORKER_IMAGE_REVISION=
+# Standard images install the mem0 optional dependency; the lite-offline image
+# builds with WITH_MEM0=false so it only ships the file memory backend.
+ARG WITH_MEM0=true
 
 FROM python:3.14-bookworm AS repository-bundle
 
@@ -29,6 +32,7 @@ FROM python:3.14-bookworm AS base
 
 ARG COWORKER_BUNDLE_REPOSITORY_URL
 ARG COWORKER_BUNDLE_REPOSITORY_REF
+ARG WITH_MEM0=true
 
 # Install system deps, lightweight workspace tools, and Node.js 24 via NodeSource.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -58,7 +62,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 # Install dependencies only (cached unless pyproject.toml or uv.lock changes)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --extra mem0
+RUN if [ "$WITH_MEM0" = "true" ]; then \
+      uv sync --frozen --no-install-project --extra mem0; \
+    else \
+      uv sync --frozen --no-install-project; \
+    fi
 
 # Install Playwright Chromium + system dependencies (cached, runs before source copy).
 # Invoke the installed CLI directly so uv does not try to package source that has
@@ -67,7 +75,11 @@ RUN /opt/venv/bin/playwright install --with-deps chromium
 
 # Copy source and install local package (fast, deps already cached)
 COPY . .
-RUN uv sync --frozen --dev --extra mem0
+RUN if [ "$WITH_MEM0" = "true" ]; then \
+      uv sync --frozen --dev --extra mem0; \
+    else \
+      uv sync --frozen --dev; \
+    fi
 COPY --from=repository-bundle /repository.bundle /opt/coworker/repository.bundle
 COPY --from=repository-bundle /repository.revision /opt/coworker/repository.revision
 COPY --from=repository-bundle /repository.branch /opt/coworker/repository.branch
@@ -101,6 +113,17 @@ VOLUME ["/app", "/var/lib/coworker", "/opt/huggingface"]
 FROM with-embedder AS offline
 ENV HF_HUB_OFFLINE=1 \
     COWORKER_REPOSITORY_OFFLINE=1
+
+# Lightweight strict-offline variant: no mem0 extra (file backend only) and no
+# preloaded embedding model. Build it with `--build-arg WITH_MEM0=false` so the
+# base stage skips the mem0 optional dependency. The default memory backend is
+# switched to file via MEMORY_DEFAULT_BACKEND so a fresh startup needs no model
+# provider download and still passes --check without the mem0 dependency installed.
+FROM base AS lite-offline
+ENV HF_HUB_OFFLINE=1 \
+    COWORKER_REPOSITORY_OFFLINE=1 \
+    MEMORY_DEFAULT_BACKEND=file
+VOLUME ["/app", "/var/lib/coworker", "/opt/huggingface"]
 
 # Keep the standard image as Docker's default build target.
 FROM base AS runtime

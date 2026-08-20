@@ -68,6 +68,7 @@ jobs:
           runtime_tags=("$image:$version")
           embedder_tags=("$image:${version}-with-embedder")
           offline_tags=("$image:${version}-offline")
+          lite_offline_tags=("$image:${version}-lite-offline")
           relay_tags=("$relay_image:$version")
 
           # Prereleases never replace the moving stable aliases.
@@ -75,6 +76,7 @@ jobs:
             runtime_tags+=("$image:latest")
             embedder_tags+=("$image:with-embedder")
             offline_tags+=("$image:offline")
+            lite_offline_tags+=("$image:lite-offline")
             relay_tags+=("$relay_image:latest")
           fi
 
@@ -91,6 +93,7 @@ jobs:
           write_tags runtime_tags "${runtime_tags[@]}"
           write_tags embedder_tags "${embedder_tags[@]}"
           write_tags offline_tags "${offline_tags[@]}"
+          write_tags lite_offline_tags "${lite_offline_tags[@]}"
           write_tags relay_tags "${relay_tags[@]}"
           {
             echo "image=$image"
@@ -152,6 +155,23 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.release.outputs.offline_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+
+      - name: Build and push lightweight offline image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          target: lite-offline
+          build-args: |
+            COWORKER_IMAGE_REVISION=${{ github.sha }}
+            WITH_MEM0=false
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.release.outputs.lite_offline_tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

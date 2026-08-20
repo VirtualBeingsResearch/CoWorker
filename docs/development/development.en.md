@@ -78,6 +78,16 @@ including `vim-tiny`, `nano`, `less`, `jq`, and `ripgrep`. Restart the container
 changes. If `pyproject.toml` or `uv.lock` changes, rebuild the dependency environment with
 `docker compose up --build`.
 
+For a leaner image without the mem0 dependency or a preloaded embedding model that defaults to
+the `file` memory backend, build or use the `lite-offline` target:
+
+```bash
+docker build --target lite-offline --build-arg WITH_MEM0=false -t coworker:lite-offline .
+# or use the published image via Compose
+COWORKER_IMAGE=ghcr.io/virtualbeingsresearch/coworker:lite-offline \
+docker compose up --pull always --no-build
+```
+
 To clean runtime caches and data, see:
 
 ```bash

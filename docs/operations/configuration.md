@@ -106,7 +106,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Coworker 记忆数据目录（短期快照、状态文件，以及默认 mem0 后端数据） |
-| `MEMORY__BACKEND` | `mem0` | 长期记忆后端：`mem0`（默认）或 `file`（最简文件存储后端）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）；`file` 为默认精简安装可用的后端。若使用 `mem0`，日常 `uv sync` / `uv run --sync` 也要带 `--extra mem0`，否则该 extra 会被从环境摘除 |
+| `MEMORY__BACKEND` | `mem0`（未设置 `MEMORY_DEFAULT_BACKEND` 时） | 长期记忆后端：`mem0`（默认）或 `file`（最简文件存储后端）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）；`file` 为默认精简安装可用的后端。若使用 `mem0`，日常 `uv sync` / `uv run --sync` 也要带 `--extra mem0`，否则该 extra 会被从环境摘除 |
+| `MEMORY_DEFAULT_BACKEND` | `mem0` | 未显式设置 `MEMORY__BACKEND` 时采用的默认记忆后端（`mem0` 或 `file`）。仅供如 `lite-offline` 之类精简镜像在构建时变更默认值，便于它们默认使用无需可选依赖的 `file` 后端；显式配置的 `MEMORY__BACKEND` 永远优先 |
 | `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |
@@ -220,6 +221,8 @@ participant ID 为
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
+| `COWORKER_BUILD_TARGET` | `offline` | 使用 Compose 构建镜像时选择的 Dockerfile target：`offline`（默认）、`runtime`、`with-embedder` 或 `lite-offline` |
+| `COWORKER_WITH_MEM0` | `true` | 使用 Compose 构建镜像时是否安装 mem0 可选依赖；构建 `lite-offline` target 时请设为 `false` |
 | `COWORKER_BUNDLE_REPOSITORY_URL` | 官方 Coworker 仓库 | 构建镜像时转换为 Git bundle 的兼容仓库 |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
 | `COWORKER_WORKSPACE_PATH` | `/app` | 容器内实际运行源码与 Agent 共用的 Git 工作区 |

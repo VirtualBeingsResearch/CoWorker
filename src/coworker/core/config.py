@@ -333,12 +333,28 @@ class LLMConfig(_EnvSettings):
         return specs
 
 
+MemoryBackend = Literal["mem0", "file"]
+
+
+def _default_memory_backend() -> MemoryBackend:
+    """长期记忆后端的兜底默认值，可被 MEMORY_DEFAULT_BACKEND 覆盖。
+
+    仅在变量取值为合法后端时生效；否则回退到 mem0，避免无效镜像默认值破坏启动。
+    """
+    value = os.getenv("MEMORY_DEFAULT_BACKEND", "mem0")
+    if value == "file":
+        return "file"
+    return "mem0"
+
+
 class MemoryConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="MEMORY__", env_file=".env", extra="ignore")
 
     db_path: str = "data/memory"
     # 长期记忆后端：mem0 为默认后端，file 为最简文件存储后端。
-    backend: Literal["mem0", "file"] = "mem0"
+    # 默认值可被 MEMORY_DEFAULT_BACKEND 覆盖（例如 lite-offline 镜像默认使用 file）；
+    # 显式设置 MEMORY__BACKEND（.env 或环境变量）时仍以其为准。
+    backend: MemoryBackend = Field(default_factory=_default_memory_backend)
     short_term_max_tokens: int = Field(default=120_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。
     compress_ratio: float = Field(default=0.30, gt=0, lt=1)
