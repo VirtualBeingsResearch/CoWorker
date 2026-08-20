@@ -9,6 +9,7 @@ from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.core.config import WeComConfig
+from coworker.i18n import tr
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,7 @@ class WeComSettings:
 
     async def apply(self, config: object) -> None:
         if not isinstance(config, WeComConfig):
-            raise TypeError("WeCom settings require WeComConfig")
+            raise TypeError(tr("channel.wecom.config_type_invalid"))
         await self._runtime.reconfigure(config)
 
 
@@ -50,12 +51,9 @@ def create_wecom_module(
         contacts_path=resources.contacts_path,
         activity=resources.activity,
     )
-    if config.enabled and not (config.bot_id and config.secret):
-        logger.warning(
-            "WeCom enabled but bot_id/secret missing; runtime is waiting for configuration"
-        )
-    elif config.enabled:
-        logger.info(f"WeCom runner prepared, bot_id={config.bot_id}")
+    ready = sum(1 for bot in config.bots.values() if bot.enabled and bot.bot_id and bot.secret)
+    if ready:
+        logger.info(tr("channel.wecom.prepared", count=ready))
     return WeComModule(
         channel=WeComChannel(runtime),
         runtime=runtime,

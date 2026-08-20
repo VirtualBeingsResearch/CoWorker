@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -46,13 +47,21 @@ class _AttachmentCollection:
     failure_notices: list[str]
 
 
-def participant_id_for(frame: dict[str, Any]) -> str:
+DEFAULT_INSTANCE = "default"
+_INSTANCE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def participant_id_for(frame: dict[str, Any], instance: str = DEFAULT_INSTANCE) -> str:
+    """Produce the canonical 4-segment participant ID for a WeCom frame.
+
+    ``wecom:<instance>:single:<userid>`` or ``wecom:<instance>:group:<chatid>``.
+    """
     body = frame["body"]
     chattype = body.get("chattype", "single")
     if chattype == "group":
         chatid = body.get("chatid") or body["from"]["userid"]
-        return f"wecom:group:{chatid}"
-    return f"wecom:single:{body['from']['userid']}"
+        return f"wecom:{instance}:group:{chatid}"
+    return f"wecom:{instance}:single:{body['from']['userid']}"
 
 
 def conversation_id_for(frame: dict[str, Any]) -> str | None:
@@ -67,17 +76,31 @@ def conversation_id_for(frame: dict[str, Any]) -> str | None:
     return None
 
 
-def parse_participant(participant_id: str) -> tuple[str, str]:
-    """wecom:single:<userid>  → ("single", userid)
-    wecom:group:<chatid>      → ("group", chatid)
+def parse_participant(participant_id: str) -> tuple[str, str, str]:
+    """Parse a WeCom participant_id into ``(instance, chat_type, chatid)``.
+
+    Accepts both the canonical 4-segment form ``wecom:<instance>:single|group:<id>``
+    and the legacy 3-segment form ``wecom:single|<group>:<id>`` (which normalizes
+    to the ``default`` instance).
     """
-    parts = participant_id.split(":", 2)
-    if len(parts) != 3 or parts[0] != "wecom":
+    parts = participant_id.split(":")
+    if not parts or parts[0] != "wecom":
         raise ValueError(f"not a wecom participant_id: {participant_id}")
-    chat_type = parts[1]
-    if chat_type not in {"single", "group"}:
-        raise ValueError(f"invalid wecom chat type: {participant_id}")
-    return chat_type, parts[2]
+    if len(parts) == 3:
+        chat_type = parts[1]
+        if chat_type not in {"single", "group"}:
+            raise ValueError(f"invalid wecom chat type: {participant_id}")
+        return DEFAULT_INSTANCE, chat_type, parts[2]
+    if len(parts) == 4:
+        instance, chat_type, chatid = parts[1], parts[2], parts[3]
+        if not _INSTANCE_RE.fullmatch(instance):
+            raise ValueError(f"invalid wecom instance: {participant_id}")
+        if chat_type not in {"single", "group"}:
+            raise ValueError(f"invalid wecom chat type: {participant_id}")
+        if not chatid:
+            raise ValueError(f"invalid wecom chat id: {participant_id}")
+        return instance, chat_type, chatid
+    raise ValueError(f"invalid wecom participant_id: {participant_id}")
 
 
 def _sender_prefix(frame: dict[str, Any]) -> str:
@@ -355,8 +378,9 @@ def frame_to_event(
     frame: dict[str, Any],
     attachments: list[AttachmentData],
     attachment_failure_notices: list[str] | None = None,
+    instance: str = DEFAULT_INSTANCE,
 ) -> IncomingEvent:
-    pid = participant_id_for(frame)
+    pid = participant_id_for(frame, instance)
     raw = _content_for(frame)
     content = _sender_prefix(frame) + raw
     if attachment_failure_notices:

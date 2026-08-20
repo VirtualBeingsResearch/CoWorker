@@ -713,7 +713,7 @@ class ChannelAccessConfig(RootModel[dict[str, ChannelAccessRuleConfig]]):
 
     A root model keeps the persisted shape compact::
 
-        {"wecom": {"inbound_allow": ["wecom:single:*"]}}
+        {"wecom": {"inbound_allow": ["wecom:*"]}}
     """
 
     root: dict[str, ChannelAccessRuleConfig] = Field(default_factory=dict)
@@ -740,13 +740,73 @@ class ChannelAccessConfig(RootModel[dict[str, ChannelAccessRuleConfig]]):
         return normalized
 
 
+class WeComBotConfig(BaseModel):
+    """Configuration for one independently connected WeCom (企业微信) bot identity."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    bot_id: str = ""
+    secret: str = Field(default="", repr=False)
+    ws_url: str = ""
+
+    @field_validator("bot_id")
+    @classmethod
+    def _strip_bot_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ws_url")
+    @classmethod
+    def _strip_ws_url(cls, value: str) -> str:
+        return value.strip()
+
+
 class WeComConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="WECOM__", env_file=".env", extra="ignore")
 
+    # 兼容旧版单实例扁平写法（WECOM__ENABLED / BOT_ID / SECRET / WS_URL）。
+    # 当没有显式 bots 时，这些扁平字段被折叠成一个名为 "default" 的实例，
+    # 以便老配置无需修改即可继续使用；只有 bots 时才使用新结构。
     enabled: bool = False
     bot_id: str = ""
-    secret: str = ""
+    secret: str = Field(default="", repr=False)
     ws_url: str = ""
+    bots: dict[str, WeComBotConfig] = Field(default_factory=dict)
+
+    @field_validator("bots", mode="before")
+    @classmethod
+    def _normalize_bot_ids(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(tr("config.wecom.bots_must_be_object"))
+        for instance_id in value:
+            if not isinstance(instance_id, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,31}", instance_id
+            ):
+                raise ValueError(
+                    tr("config.wecom.instance_id_invalid", instance=instance_id)
+                )
+        return value
+
+    @model_validator(mode="after")
+    def _fold_legacy_singleton(self) -> WeComConfig:
+        legacy_given = bool(self.bot_id or self.secret or self.ws_url)
+        if self.bots:
+            if legacy_given:
+                raise ValueError(tr("config.wecom.legacy_and_bots_conflict"))
+            return self
+        # 没有显式实例时，把旧版扁平字段折叠成一个默认实例，保持老配置可用。
+        if legacy_given or self.enabled:
+            self.bots = {
+                "default": WeComBotConfig(
+                    enabled=self.enabled,
+                    bot_id=self.bot_id,
+                    secret=self.secret,
+                    ws_url=self.ws_url,
+                )
+            }
+        return self
 
 
 class WeixinConfig(_EnvSettings):

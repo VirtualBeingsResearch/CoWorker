@@ -85,6 +85,8 @@ When an inbound WeCom message quotes an image, file, video, or mixed message con
 
 WeCom AI Bots currently do not support mentioning group members through the API, so the WeCom Channel does not provide member mentions.
 
+WeCom supports connecting multiple Bot instances at once (see `wecom.bots.<instance_id>` in configuration). Each instance's canonical participant IDs are `wecom:<instance_id>:single:<userid>` and `wecom:<instance_id>:group:<chatid>`. `wecom:*` prefix wildcards still match every instance; the legacy instance-less forms `wecom:single:<userid>` and `wecom:group:<chatid>` are still parsed and folded into the `default` instance, but old rules that put a concrete value in the second segment must be rewritten to the new format.
+
 Telegram uses `tg:<instance_id>:<chat_id>` to distinguish known chats reached through multiple Bots,
 and maps a forum topic's `message_thread_id` to `conversation_id`. It supports text and attachments
 and sends only to chats discovered through inbound messages. See [Telegram](telegram.en.md) for the

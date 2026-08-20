@@ -68,7 +68,7 @@ class WeComSender:
         client = self._get_client()
         if client is None:
             raise RuntimeError("WeCom client not started")
-        chat_type, chat_id = adapter.parse_participant(participant_id)
+        _instance, chat_type, chat_id = adapter.parse_participant(participant_id)
         frame = (
             self._take_frame(chat_id, conversation_id)
             if chat_type == "single" or conversation_id is not None

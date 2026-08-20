@@ -304,5 +304,8 @@ class AgentState:
         for wid, name in self._wecom_names.items():
             if wid in text:
                 text = text.replace(wid, name)
-        text = text.replace("wecom:single:", "").replace("wecom:group:", "")
+        import re
+
+        # 兼容新格式 wecom:<instance>:single|group:<id> 与旧格式 wecom:single|group:<id>
+        text = re.sub(r"wecom:(?:[a-z0-9_-]*:)?(?:single|group):", "", text)
         return text

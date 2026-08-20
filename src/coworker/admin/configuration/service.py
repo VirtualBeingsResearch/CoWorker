@@ -44,7 +44,6 @@ SECRET_PATHS = {
     "llm.qwen_api_key",
     "llm.zhipu_api_key",
     "llm.minimax_api_key",
-    "wecom.secret",
 }
 
 MEM0_LLM_CONFIG_PATHS = {
@@ -73,6 +72,9 @@ _SOURCE_TOKEN_PATH_RE = re.compile(
 _MANAGED_PROVIDER_SECRET_RE = re.compile(r"llm\.managed_providers\.\d+\.api_key")
 _TELEGRAM_BOT_SECRET_RE = re.compile(
     r"telegram\.bots\.([a-z][a-z0-9_-]{0,31})\.bot_token"
+)
+_WECOM_BOT_SECRET_RE = re.compile(
+    r"wecom\.bots\.([a-z][a-z0-9_-]{0,31})\.secret"
 )
 _PROVIDER_REMOVAL_REASON = "llm.managed_providers.removed"
 
@@ -251,6 +253,8 @@ class AdminConfigService:
         _remove_source_tokens(safe_changes)
         _remove_telegram_bot_tokens(safe_changes)
         _preserve_telegram_bot_tokens(safe_changes, current_overrides)
+        _remove_wecom_bot_secrets(safe_changes)
+        _preserve_wecom_bot_secrets(safe_changes, current_overrides)
 
         # Deep-copy so secret merging below cannot mutate ``current_overrides``
         # before it is used to compute the pre-update running config.
@@ -288,6 +292,7 @@ class AdminConfigService:
                 secret_path not in SECRET_PATHS
                 and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(secret_path)
                 and not _TELEGRAM_BOT_SECRET_RE.fullmatch(secret_path)
+                and not _WECOM_BOT_SECRET_RE.fullmatch(secret_path)
             ):
                 raise ConfigUpdateError(
                     400,
@@ -375,6 +380,7 @@ class AdminConfigService:
         # running Config.
         desired_base["channel_access"] = inherited["channel_access"]
         desired_base["telegram"] = inherited["telegram"]
+        desired_base["wecom"] = inherited["wecom"]
         try:
             before = Config.model_validate(_deep_merge(effective, current_overrides))
             desired = Config.model_validate(_deep_merge(desired_base, next_overrides))
@@ -687,6 +693,18 @@ def _mask_config_secrets(data: JsonObject) -> dict[str, SecretStatus]:
                     statuses,
                     f"telegram.bots.{instance_id}.bot_token",
                 )
+
+    wecom = data.get("wecom")
+    wecom_bots = wecom.get("bots", {}) if isinstance(wecom, dict) else {}
+    if isinstance(wecom_bots, dict):
+        for instance_id, bot in wecom_bots.items():
+            if isinstance(bot, dict):
+                _mask_secret(
+                    bot,
+                    "secret",
+                    statuses,
+                    f"wecom.bots.{instance_id}.secret",
+                )
     return statuses
 
 
@@ -841,6 +859,38 @@ def _preserve_telegram_bot_tokens(
         token = current_bot.get("bot_token")
         if isinstance(token, str) and token:
             changed_bot["bot_token"] = token
+
+
+def _remove_wecom_bot_secrets(data: JsonObject) -> None:
+    bots = _get_path(data, "wecom.bots")
+    if not isinstance(bots, dict):
+        return
+    for bot in bots.values():
+        if isinstance(bot, dict):
+            bot.pop("secret", None)
+
+
+def _preserve_wecom_bot_secrets(
+    changes: JsonObject,
+    current_overrides: JsonObject,
+) -> None:
+    """Retain only secrets already owned by the admin override file.
+
+    Secrets inherited from ``.env`` remain inherited instead of being copied
+    into ``admin_config.json`` when an administrator edits another Bot field.
+    """
+
+    changed_bots = _get_path(changes, "wecom.bots")
+    current_bots = _get_path(current_overrides, "wecom.bots")
+    if not isinstance(changed_bots, dict) or not isinstance(current_bots, dict):
+        return
+    for instance_id, changed_bot in changed_bots.items():
+        current_bot = current_bots.get(instance_id)
+        if not isinstance(changed_bot, dict) or not isinstance(current_bot, dict):
+            continue
+        secret = current_bot.get("secret")
+        if isinstance(secret, str) and secret:
+            changed_bot["secret"] = secret
 
 
 def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:

@@ -351,7 +351,7 @@ const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   api: '公开访问地址、内部监听地址、端口、跨域来源与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
   channel_access: '所有信道的入站和出站 participant 匹配规则。',
-  wecom: '企业微信长连接的启用状态、Bot 身份、密钥与地址。',
+  wecom: '每个实例独立保存 Bot ID、Secret 与 WebSocket 地址，可同时连接多个企业微信 Bot。',
   weixin: '个人微信 ClawBot 的全局启用状态；账号配对需初始化后完成。',
   telegram: '每个实例独立保存 Token、长轮询 offset 与已知 chat；同一 chat 可通过多个实例接入。',
   desktop_updates: '桌面发布目录、同步来源、周期、容量限制和 Feed 凭据。',
@@ -411,7 +411,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     replaceGroup(group, structuredClone(baseline[group] || {}));
     setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => !path.startsWith(`${group}.`))));
   };
-  const CustomSettingsPanel = ['channel_access', 'telegram'].includes(group)
+  const CustomSettingsPanel = ['channel_access', 'telegram', 'wecom'].includes(group)
     ? settingsPanelRegistration(group)?.component
     : undefined;
   const setDesktopValidation = useCallback(
