@@ -136,7 +136,8 @@ class TestSystemPromptBuilder:
     def test_build_guidelines_require_tool_action_every_cycle(self, tmp_path):
         builder = make_builder(tmp_path)
         prompt = builder.build()
-        assert "每轮思考结束后必须至少调用一个工具" in prompt
+        assert "每一轮都必须调用工具" in prompt
+        assert "没有只输出正文便结束一轮的例外" in prompt
         assert "content" in prompt
         assert "communicate" in prompt
         assert "sleep" in prompt
@@ -145,7 +146,8 @@ class TestSystemPromptBuilder:
         with locale_context("en"):
             builder = make_builder(tmp_path)
             prompt = builder.build()
-        assert "After each cycle of thinking, you must call at least one tool" in prompt
+        assert "You must call a tool in every cycle" in prompt
+        assert "no exception for ending a cycle with assistant text alone" in prompt
         assert "content" in prompt
         assert "communicate" in prompt
         assert "sleep" in prompt
