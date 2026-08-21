@@ -212,8 +212,6 @@ class LLMConfig(_EnvSettings):
     default_provider: str = "deepseek"
     default_model: str = "deepseek-v4-pro"
     max_tokens: int = Field(DEFAULT_LLM_MAX_TOKENS, gt=0)
-    # 主线与子任务在存在工具时默认要求模型至少调用一个工具；可为兼容性关闭。
-    tool_choice_required: bool = True
     # 主线思考强度。空字符串沿用 provider 默认请求形状（历史行为），
     # 否则取值 none/minimal/low/medium/high/xhigh/max，由各 provider 映射。
     thinking_effort: str = ""

@@ -19,16 +19,7 @@ class _CatalogProvider(BaseLLMProvider):
     def __init__(self) -> None:
         super().__init__()
 
-    async def complete(
-        self,
-        messages,
-        system_prompt,
-        tools,
-        max_tokens=4096,
-        thinking=True,
-        thinking_effort=None,
-        tool_choice_required=True,
-    ):
+    async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
         raise NotImplementedError
 
     def set_model(self, model_id: str) -> None:

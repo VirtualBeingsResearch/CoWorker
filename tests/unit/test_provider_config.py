@@ -33,11 +33,6 @@ def _llm(**kwargs) -> LLMConfig:
     return LLMConfig(_env_file=None, **kwargs)
 
 
-def test_tool_choice_required_defaults_on_and_can_be_disabled():
-    assert _llm().tool_choice_required is True
-    assert _llm(tool_choice_required=False).tool_choice_required is False
-
-
 @pytest.fixture(autouse=True)
 def stub_zhipu_sdk_client(monkeypatch):
     monkeypatch.setattr("coworker.brain.openai_chat.openai.AsyncOpenAI", lambda **_: object())

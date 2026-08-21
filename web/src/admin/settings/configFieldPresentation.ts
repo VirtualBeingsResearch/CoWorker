@@ -63,12 +63,6 @@ export function configFieldPresentation(
       placeholder: 'provider/model',
     };
   }
-  if (path === 'llm.tool_choice_required') {
-    return {
-      editor: 'default',
-      hint: '有工具可用时要求模型至少调用一个；关闭仅用于兼容不支持 required 工具选择的 API。未调用时会立即提醒，连续 5 次后进入休息。',
-    };
-  }
   if (path === 'api.cors_origins') {
     return {
       editor: 'cors-list',

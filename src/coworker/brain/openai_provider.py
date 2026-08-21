@@ -277,7 +277,6 @@ class OpenAIProvider(BaseLLMProvider):
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
         thinking_effort: str | None = None,
-        tool_choice_required: bool = True,
     ) -> LLMResponse:
         effort = resolve_effort(thinking, thinking_effort)
         try:
@@ -291,8 +290,6 @@ class OpenAIProvider(BaseLLMProvider):
             }
             if tools:
                 kwargs["tools"] = self._to_responses_tools(tools)
-                if tool_choice_required:
-                    kwargs["tool_choice"] = "required"
             if effort == "none":
                 kwargs["reasoning"] = {"effort": "none"}
             elif self._current_model in _REASONING_MODELS:
