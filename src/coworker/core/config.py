@@ -807,20 +807,24 @@ class WeComConfig(_EnvSettings):
                     and default_bot.ws_url == self.ws_url
                 ):
                     return self
-            # 显式 bots 优先。旧式扁平字段可能来自升级前残留的 .env 或
-            # admin_config.json；同时存在时忽略它们，避免旧实例升级后无法启动。
-            # 如果 legacy 已被折叠成 default，且同时存在其他显式实例，则把
-            # 这个自动生成的 default 一并移除，避免旧实例和显式实例重复运行。
-            if len(self.bots) > 1:
-                legacy_default_bot = self.bots.get("default")
-                if (
-                    legacy_default_bot is not None
-                    and legacy_default_bot.enabled == self.enabled
-                    and legacy_default_bot.bot_id == self.bot_id
-                    and legacy_default_bot.secret == self.secret
-                    and legacy_default_bot.ws_url == self.ws_url
-                ):
-                    del self.bots["default"]
+            # 显式 bots 优先。旧式扁平字段只是 default 实例的旧写法：先把扁平
+            # 值并入显式列出的 default（条目自身字段优先），避免只有扁平层保存
+            # 的 secret 在清空扁平字段时丢失；但绝不删除 bots 里显式列出的
+            # default，它可能是管理员正在使用的原始 Bot（例如在旧版扁平配置
+            # 基础上新增第二个实例）。被折叠出的 default 是否要在层合并时移除，
+            # 由 merge_config_layers 依据管理端是否显式列出 default 来决定，
+            # 见 _reconcile_wecom_layers。
+            explicit_default = self.bots.get("default")
+            if explicit_default is not None:
+                flat = {
+                    "enabled": self.enabled,
+                    "bot_id": self.bot_id,
+                    "secret": self.secret,
+                    "ws_url": self.ws_url,
+                }
+                self.bots["default"] = WeComBotConfig.model_validate(
+                    _merge_legacy_default(flat, explicit_default.model_dump(mode="json"))
+                )
             self.bot_id = ""
             self.secret = ""
             self.ws_url = ""
@@ -934,6 +938,80 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+_LEGACY_WECOM_FLAT_FIELDS = ("enabled", "bot_id", "secret", "ws_url")
+
+
+def _merge_legacy_default(flat: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    """Fold legacy flat fields into an explicit ``default`` bot entry.
+
+    Non-empty entry fields win; empty (``""``) entry fields fall back to the
+    flat values, because the admin UI cannot distinguish "left unchanged" (a
+    masked secret / untouched input) from "cleared to empty", and the flat
+    layer may be the only remaining copy of values such as the secret.
+    """
+    merged = dict(flat)
+    for key, value in entry.items():
+        if key in _LEGACY_WECOM_FLAT_FIELDS and value in ("", None):
+            continue
+        merged[key] = value
+    return merged
+
+
+def _reconcile_wecom_layers(
+    merged: dict[str, Any],
+    overrides: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve the legacy flat-field / explicit-bots ambiguity after a layer merge.
+
+    ``merged`` is the deep-merged ``wecom`` section of a base config and an
+    admin override layer; ``overrides`` is that override layer's ``wecom``
+    section. The legacy flat fields (``WECOM__BOT_ID`` etc.) are sugar for the
+    ``default`` instance. When the admin layer manages an explicit ``bots``
+    map:
+
+    - the flat fields are superseded: they are folded into the merged
+      ``default`` entry (see :func:`_merge_legacy_default`) so a secret that
+      only exists in the flat layer -- e.g. written by the pre-multi-bot admin
+      console as ``wecom.secret`` -- is not destroyed;
+    - a ``default`` instance that exists only because the base layer folded
+      those flat fields is removed as well -- unless the admin layer itself
+      lists ``default``, in which case the administrator explicitly owns that
+      instance and it must survive (e.g. adding a second bot to a deployment
+      that started from legacy flat config must not kill the original bot).
+    """
+    if not isinstance(merged, dict):
+        return merged
+    merged_bots = merged.get("bots")
+    override_bots = overrides.get("bots") if isinstance(overrides, dict) else None
+    if not isinstance(merged_bots, dict) or not isinstance(override_bots, dict):
+        return merged
+    flat = {
+        key: merged.pop(key)
+        for key in _LEGACY_WECOM_FLAT_FIELDS
+        if key in merged
+    }
+    if "default" not in override_bots:
+        merged_bots.pop("default", None)
+    elif flat:
+        default_entry = merged_bots.get("default")
+        if isinstance(default_entry, dict):
+            merged_bots["default"] = _merge_legacy_default(flat, default_entry)
+    return merged
+
+
+def merge_config_layers(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge a base config dict with an admin override layer.
+
+    The ``wecom`` section gets extra reconciliation (see
+    :func:`_reconcile_wecom_layers`) so legacy flat fields never silently
+    delete an explicitly managed ``default`` bot instance.
+    """
+    merged = _deep_merge(base, overrides)
+    if isinstance(merged.get("wecom"), dict) and isinstance(overrides.get("wecom"), dict):
+        merged["wecom"] = _reconcile_wecom_layers(merged["wecom"], overrides["wecom"])
+    return merged
+
+
 def load_admin_overrides(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
@@ -963,15 +1041,28 @@ def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]
     return evolved
 
 
+# Bot maps are managed as a whole by the admin UI: it always submits the full
+# list, so per-key diffing against the inherited layer would erase entries whose
+# secret was masked (a bot that otherwise matches the inherited config would be
+# treated as fully inherited and dropped, making the persisted list incomplete).
+_BOT_MAP_PATHS = frozenset({"wecom.bots", "telegram.bots"})
+
+
 def _remove_inherited_values(
     overrides: dict[str, Any],
     inherited: dict[str, Any],
+    prefix: str = "",
 ) -> dict[str, Any]:
     sparse: dict[str, Any] = {}
     for key, value in overrides.items():
+        path = f"{prefix}.{key}" if prefix else key
         inherited_value = inherited.get(key)
-        if isinstance(value, dict) and isinstance(inherited_value, dict):
-            nested = _remove_inherited_values(value, inherited_value)
+        if (
+            isinstance(value, dict)
+            and isinstance(inherited_value, dict)
+            and path not in _BOT_MAP_PATHS
+        ):
+            nested = _remove_inherited_values(value, inherited_value, prefix=path)
             if nested:
                 sparse[key] = nested
         elif key not in inherited or value != inherited_value:
@@ -1015,7 +1106,7 @@ def apply_admin_config_file(config: Config) -> Config:
     overrides = load_admin_overrides(config.admin.config_file)
     if not overrides:
         return config
-    merged = _deep_merge(config.model_dump(), overrides)
+    merged = merge_config_layers(config.model_dump(), overrides)
     # config_file 的位置由启动环境决定，禁止覆盖文件把自身重定向到其他路径。
     merged.setdefault("admin", {})["config_file"] = config.admin.config_file
     return Config.model_validate(merged)

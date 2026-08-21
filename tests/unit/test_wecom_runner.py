@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -14,7 +15,13 @@ from coworker.channels.registry import ChannelRegistry
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.channels.wecom.sender import split_markdown as _split_markdown
-from coworker.core.config import ChannelAccessConfig, Config, WeComConfig
+from coworker.core.config import (
+    ChannelAccessConfig,
+    Config,
+    WeComConfig,
+    apply_admin_config_file,
+    merge_config_layers,
+)
 from coworker.core.types import CommunicateRequest
 from coworker.i18n import locale_context
 
@@ -296,6 +303,181 @@ def test_config_prefers_explicit_wecom_bots_over_legacy_flat_in_merged_dict():
     assert set(cfg.wecom.bots) == {"main"}
     assert cfg.wecom.bots["main"].bot_id == "new"
     assert cfg.wecom.bot_id == ""
+
+
+def test_wecom_config_keeps_default_when_adding_second_bot():
+    # 旧版扁平配置 + 显式列出的 default + 新增实例：default 是用户正在使用的
+    # 原始 Bot，不能因为与遗留扁平字段一致就被当成重复实例删除。
+    cfg = WeComConfig(
+        enabled=True,
+        bot_id="BID",
+        secret="SEC",
+        ws_url="wss://x/ws",
+        bots={
+            "default": {
+                "enabled": True,
+                "bot_id": "BID",
+                "secret": "SEC",
+                "ws_url": "wss://x/ws",
+            },
+            "work": {"enabled": True, "bot_id": "WBID", "secret": "WSEC"},
+        },
+    )
+
+    assert set(cfg.bots) == {"default", "work"}
+    assert cfg.bots["default"].bot_id == "BID"
+    assert cfg.bots["work"].bot_id == "WBID"
+    assert cfg.bot_id == ""
+
+
+def _folded_legacy_base() -> dict:
+    return Config.model_validate(
+        {
+            "wecom": {
+                "enabled": True,
+                "bot_id": "BID",
+                "secret": "SEC",
+                "ws_url": "wss://x/ws",
+            }
+        }
+    ).model_dump(mode="json")
+
+
+def test_merge_config_layers_keeps_default_when_admin_lists_it():
+    # 管理端显式列出 default 时（旧版扁平部署新增第二个 Bot），default 必须保留。
+    overrides = {
+        "wecom": {
+            "bots": {
+                "default": {"enabled": True, "bot_id": "BID", "ws_url": "wss://x/ws"},
+                "work": {"enabled": True, "bot_id": "WBID", "secret": "WSEC"},
+            }
+        }
+    }
+    cfg = Config.model_validate(merge_config_layers(_folded_legacy_base(), overrides))
+
+    assert set(cfg.wecom.bots) == {"default", "work"}
+    assert cfg.wecom.bots["default"].secret == "SEC"
+    assert cfg.wecom.bot_id == ""
+
+
+def test_merge_config_layers_drops_folded_default_when_admin_manages_other_bots():
+    # 管理端 bots 不包含 default 时，base 层折叠出的 default 视为已移除的旧实例。
+    overrides = {
+        "wecom": {
+            "bots": {"main": {"enabled": True, "bot_id": "M", "secret": "MS"}}
+        }
+    }
+    cfg = Config.model_validate(merge_config_layers(_folded_legacy_base(), overrides))
+
+    assert set(cfg.wecom.bots) == {"main"}
+
+
+def test_apply_admin_config_file_keeps_default_after_adding_bot(tmp_path):
+    # 模拟重启：.env 仍是旧版扁平配置，admin_config.json 已保存 default + work。
+    admin_file = tmp_path / "admin_config.json"
+    admin_file.write_text(
+        json.dumps(
+            {
+                "wecom": {
+                    "bots": {
+                        "default": {
+                            "enabled": True,
+                            "bot_id": "BID",
+                            "ws_url": "wss://x/ws",
+                        },
+                        "work": {"enabled": True, "bot_id": "WBID", "secret": "WSEC"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = Config(
+        admin={"config_file": str(admin_file)},
+        wecom={
+            "enabled": True,
+            "bot_id": "BID",
+            "secret": "SEC",
+            "ws_url": "wss://x/ws",
+        },
+    )
+
+    applied = apply_admin_config_file(cfg)
+
+    assert set(applied.wecom.bots) == {"default", "work"}
+    # default 的 secret 继续来自 .env 扁平字段
+    assert applied.wecom.bots["default"].secret == "SEC"
+    assert applied.wecom.bots["work"].secret == "WSEC"
+
+
+def test_wecom_config_folds_flat_secret_into_explicit_default():
+    # 直接构造：显式 default 条目未携带 secret 时，扁平字段的 secret 必须并入，
+    # 不能随扁平字段清空而丢失。
+    cfg = WeComConfig(
+        enabled=True,
+        bot_id="X",
+        secret="S",
+        ws_url="wss://x/ws",
+        bots={
+            "default": {"enabled": True, "bot_id": "X"},
+            "work": {"enabled": True, "bot_id": "WB", "secret": "WS"},
+        },
+    )
+
+    assert cfg.bots["default"].secret == "S"
+    assert cfg.bots["default"].ws_url == "wss://x/ws"
+    assert cfg.bot_id == ""
+
+
+def test_merge_config_layers_folds_flat_secret_into_default():
+    # 旧版管理端把企业微信配置写成 wecom 层扁平字段（wecom.secret 等）；升级后
+    # 新增 Bot 时，扁平 secret 必须并入显式列出的 default，而不是被丢弃。
+    inherited = Config.model_validate({"wecom": {}}).model_dump(mode="json")
+    overrides = {
+        "wecom": {
+            "enabled": True,
+            "bot_id": "X",
+            "secret": "OLD-SECRET",
+            "ws_url": "wss://x/ws",
+            "bots": {
+                "default": {"enabled": True, "bot_id": "X", "ws_url": "wss://x/ws"},
+                "work": {"enabled": True, "bot_id": "WB", "secret": "WS"},
+            },
+        }
+    }
+    cfg = Config.model_validate(merge_config_layers(inherited, overrides))
+
+    assert set(cfg.wecom.bots) == {"default", "work"}
+    assert cfg.wecom.bots["default"].secret == "OLD-SECRET"
+    assert cfg.wecom.bot_id == ""
+
+
+def test_apply_admin_config_file_folds_flat_secret_into_default(tmp_path):
+    # 重启路径：admin_config.json 同时含扁平字段与 bots，扁平 secret 是唯一副本。
+    admin_file = tmp_path / "admin_config.json"
+    admin_file.write_text(
+        json.dumps(
+            {
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "X",
+                    "secret": "OLD-SECRET",
+                    "ws_url": "wss://x/ws",
+                    "bots": {
+                        "default": {"enabled": True, "bot_id": "X", "ws_url": "wss://x/ws"},
+                        "work": {"enabled": True, "bot_id": "WB", "secret": "WS"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = Config(admin={"config_file": str(admin_file)}, wecom={})
+
+    applied = apply_admin_config_file(cfg)
+
+    assert applied.wecom.bots["default"].secret == "OLD-SECRET"
+    assert applied.wecom.bots["work"].secret == "WS"
 
 
 def test_wecom_config_rejects_invalid_instance_id():

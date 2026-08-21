@@ -1280,6 +1280,184 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     assert set(saved["wecom"]["bots"]) == {"main"}
 
 
+def test_wecom_add_bot_keeps_legacy_default_instance(tmp_path):
+    # 旧版扁平配置（WECOM__BOT_ID 等）折叠成 default 实例后，在管理端新增
+    # 第二个 Bot 必须保留原 default 实例；否则原 Bot 停止接收消息。
+    runner = SimpleNamespace(reconfigure=AsyncMock())
+    modules = ChannelModuleRegistry()
+    modules.register(
+        WeComModule(
+            channel=WeComChannel(runner),
+            runtime=runner,
+            settings=WeComSettings(runner),
+        )
+    )
+    client, config = _client(
+        tmp_path,
+        wecom={
+            "enabled": True,
+            "bot_id": "legacy-bot",
+            "secret": "legacy-secret",
+            "ws_url": "wss://legacy.example/ws",
+        },
+        channel_modules=modules,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert set(body["config"]["wecom"]["bots"]) == {"default"}
+    assert body["config"]["wecom"]["bots"]["default"]["bot_id"] == "legacy-bot"
+    assert body["secret_status"]["wecom.bots.default.secret"]["last4"] == "cret"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "wecom": {
+                    "bots": {
+                        "default": {
+                            "enabled": True,
+                            "bot_id": "legacy-bot",
+                            "secret": "",
+                            "ws_url": "wss://legacy.example/ws",
+                        },
+                        "work": {
+                            "enabled": True,
+                            "bot_id": "work-bot",
+                            "secret": "",
+                            "ws_url": "",
+                        },
+                    }
+                }
+            },
+            "secrets": {"wecom.bots.work.secret": "work-secret"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["wecom"]
+    assert set(config.wecom.bots) == {"default", "work"}
+    assert config.wecom.bots["default"].bot_id == "legacy-bot"
+    assert config.wecom.bots["default"].secret == "legacy-secret"
+    assert config.wecom.bots["work"].secret == "work-secret"
+    applied = runner.reconfigure.await_args.args[0]
+    assert set(applied.bots) == {"default", "work"}
+    assert applied.bots["default"].bot_id == "legacy-bot"
+    assert applied.bots["work"].bot_id == "work-bot"
+
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert set(saved["wecom"]["bots"]) == {"default", "work"}
+
+    # 重启后（.env 扁平 + admin_config.json）两个实例仍然都在
+    restarted = apply_admin_config_file(
+        Config.model_validate(
+            {
+                "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "legacy-bot",
+                    "secret": "legacy-secret",
+                    "ws_url": "wss://legacy.example/ws",
+                },
+            }
+        )
+    )
+    assert set(restarted.wecom.bots) == {"default", "work"}
+    assert restarted.wecom.bots["default"].secret == "legacy-secret"
+    assert restarted.wecom.bots["work"].secret == "work-secret"
+
+
+def test_wecom_add_bot_preserves_legacy_flat_secret(tmp_path):
+    # 旧版管理控制台把企业微信配置写成 wecom 层扁平字段（wecom.secret 等），
+    # 而不是 wecom.bots.*。这类部署在新增第二个 Bot 时，扁平 secret 是 default
+    # 实例 secret 的唯一副本，必须保留。
+    admin_file = tmp_path / "admin_config.json"
+    admin_file.write_text(
+        json.dumps(
+            {
+                "wecom": {
+                    "enabled": True,
+                    "bot_id": "legacy-bot",
+                    "secret": "legacy-secret",
+                    "ws_url": "wss://legacy.example/ws",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner = SimpleNamespace(reconfigure=AsyncMock())
+    modules = ChannelModuleRegistry()
+    modules.register(
+        WeComModule(
+            channel=WeComChannel(runner),
+            runtime=runner,
+            settings=WeComSettings(runner),
+        )
+    )
+    # .env 里没有任何 wecom 配置（旧配置全部来自 admin_config.json）
+    client, config = _client(
+        tmp_path,
+        wecom={},
+        channel_modules=modules,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert set(body["config"]["wecom"]["bots"]) == {"default"}
+    assert body["secret_status"]["wecom.bots.default.secret"]["last4"] == "cret"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "wecom": {
+                    "bots": {
+                        "default": {
+                            "enabled": True,
+                            "bot_id": "legacy-bot",
+                            "secret": "",
+                            "ws_url": "wss://legacy.example/ws",
+                        },
+                        "work": {
+                            "enabled": True,
+                            "bot_id": "work-bot",
+                            "secret": "",
+                            "ws_url": "",
+                        },
+                    }
+                }
+            },
+            "secrets": {"wecom.bots.work.secret": "work-secret"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["wecom"]
+    # default 的 secret 从扁平字段并入，没有丢失
+    assert config.wecom.bots["default"].secret == "legacy-secret"
+    assert config.wecom.bots["work"].secret == "work-secret"
+    applied = runner.reconfigure.await_args.args[0]
+    assert applied.bots["default"].secret == "legacy-secret"
+    assert applied.bots["work"].secret == "work-secret"
+
+    # 持久化文件保留扁平 secret（default 的唯一副本），重启后仍可恢复
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["wecom"]["secret"] == "legacy-secret"
+    restarted = apply_admin_config_file(
+        Config.model_validate(
+            {
+                "admin": {"token": "secret", "config_file": str(tmp_path / "admin_config.json")},
+                "wecom": {},
+            }
+        )
+    )
+    assert set(restarted.wecom.bots) == {"default", "work"}
+    assert restarted.wecom.bots["default"].secret == "legacy-secret"
+    assert restarted.wecom.bots["work"].secret == "work-secret"
+
+
 def test_telegram_config_hot_applies_multiple_bots_and_masks_tokens(tmp_path):
     runner = SimpleNamespace(
         name="telegram",
