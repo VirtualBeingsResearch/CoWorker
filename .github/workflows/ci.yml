@@ -209,10 +209,14 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
+          # Merge-group refs are short-lived. Restore the shared cache from
+          # main without uploading another copy to the temporary queue ref.
+          save-cache: ${{ github.event_name != 'merge_group' }}
       - name: Sync Python workspace
         run: uv sync --locked --dev --extra mem0 --python 3.13
-      - name: Cache mypy state
-        uses: actions/cache@v6
+      - name: Restore mypy state
+        id: mypy-cache
+        uses: actions/cache/restore@v6
         with:
           path: .mypy_cache
           key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
@@ -228,6 +232,14 @@ jobs:
         run: uv run --frozen playwright install --with-deps chromium
       - name: Test Coworker
         run: uv run --frozen pytest -q
+      - name: Save mypy state
+        if: >-
+          github.event_name != 'merge_group' &&
+          steps.mypy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
 
   python_latest:
     name: Python install (3.14)
@@ -240,6 +252,7 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
+          save-cache: ${{ github.event_name != 'merge_group' }}
       - name: Sync Python workspace
         run: uv sync --locked --dev --extra mem0 --python 3.14
 
@@ -254,6 +267,10 @@ jobs:
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The main-branch warmer owns the shared baseline. Avoid uploading
+          # the large target cache to a short-lived merge queue ref.
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
       - name: Install Linux dependencies
@@ -291,9 +308,17 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: Build Relay binary
         run: go build ./cmd/coworker-relay
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
       - name: Build Relay container
-        working-directory: ${{ github.workspace }}
-        run: docker build --tag coworker-relay:ci --file apps/coworker-relay/Dockerfile apps/coworker-relay
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/coworker-relay
+          file: apps/coworker-relay/Dockerfile
+          load: true
+          tags: coworker-relay:ci
+          cache-from: type=gha,scope=coworker-relay
+          cache-to: ${{ github.event_name != 'merge_group' && 'type=gha,mode=max,scope=coworker-relay' || '' }}
       - name: Scan Relay container
         uses: aquasecurity/trivy-action@v0.36.0
         with:
