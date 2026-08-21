@@ -10,6 +10,7 @@ import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
 from coworker.core.constants import TICK_TAG
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
+from coworker.i18n import locale_context
 from coworker.memory.base import MemoryRecord
 from coworker.memory.short_term import ShortTermMemory
 
@@ -243,20 +244,37 @@ async def test_user_event_appended_to_primary():
 
 
 @pytest.mark.asyncio
-async def test_no_tool_call_with_event_injects_immediate_system_reminder_without_rest():
+@pytest.mark.parametrize(
+    ("locale", "expected_reminder"),
+    [
+        (
+            "zh-CN",
+            "[系统提醒] 没有调用工具，请调用工具来完成你的目的。如需向用户发送消息，必须通过 communicate 工具发送。",
+        ),
+        (
+            "en",
+            "[System reminder] No tool was called. Please call a tool to accomplish your goal. "
+            "Messages to the user must be sent through the communicate tool.",
+        ),
+    ],
+)
+async def test_no_tool_call_with_event_injects_immediate_system_reminder_without_rest(
+    locale: str, expected_reminder: str
+):
     mem = ShortTermMemory()
     brain = _make_brain(content="I will answer here")
     event = IncomingEvent(participant_id="alice", content="hello")
     loop = _make_loop(brain, mem, events=[event])
     loop._rest = AsyncMock()
 
-    await loop._cycle()
+    with locale_context(locale):
+        await loop._cycle()
 
     assert mem.primary[-2].role == "assistant"
     assert mem.primary[-2].content == "I will answer here"
     assert mem.primary[-1].role == "user"
     assert mem.primary[-1].source == "system_reminder"
-    assert mem.primary[-1].content == "[系统提醒] 没有调用工具，请调用工具来完成你的目的。"
+    assert mem.primary[-1].content == expected_reminder
     loop._rest.assert_not_awaited()
 
 

@@ -304,7 +304,7 @@ recovery = '''[system recovery] The previous cycle stopped after {{count}} conse
 The current context has been cleared and reset.
 Most recent error: {{error}}.'''
 system_error = "[system error] {{error}}"
-tool_required = "[System reminder] No tool was called. Please call a tool to accomplish your goal."
+tool_required = "[System reminder] No tool was called. Please call a tool to accomplish your goal. Messages to the user must be sent through the communicate tool."
 skill_warning_title = "[skill loading warning] The following skills failed to load or are unavailable:"
 skill_warning_tail = "Do not assume these skills are available. If the current task depends on them, repair the skill files first or use other tools."
 model_fallback = "[system notice] The primary model failed and automatically fell back to {{provider}}/{{model}}. When the primary model recovers, use switch_model to switch back manually."
