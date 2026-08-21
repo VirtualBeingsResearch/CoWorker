@@ -243,10 +243,11 @@ async def test_user_event_appended_to_primary():
 
 
 @pytest.mark.asyncio
-async def test_no_tool_call_injects_immediate_system_reminder_without_rest():
+async def test_no_tool_call_with_event_injects_immediate_system_reminder_without_rest():
     mem = ShortTermMemory()
     brain = _make_brain(content="I will answer here")
-    loop = _make_loop(brain, mem, events=[])
+    event = IncomingEvent(participant_id="alice", content="hello")
+    loop = _make_loop(brain, mem, events=[event])
     loop._rest = AsyncMock()
 
     await loop._cycle()
@@ -260,6 +261,18 @@ async def test_no_tool_call_injects_immediate_system_reminder_without_rest():
 
 
 @pytest.mark.asyncio
+async def test_no_tool_call_without_event_keeps_original_rest_behavior():
+    mem = ShortTermMemory()
+    brain = _make_brain(content="no tool")
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+
+    await loop._cycle()
+
+    loop._rest.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_fifth_consecutive_no_tool_call_enters_rest_and_resets_streak():
     mem = ShortTermMemory()
     brain = _make_brain(content="still no tool")
@@ -268,19 +281,19 @@ async def test_fifth_consecutive_no_tool_call_enters_rest_and_resets_streak():
 
     for _ in range(4):
         await loop._cycle()
-    loop._rest.assert_not_awaited()
+    assert loop._rest.await_count == 4
 
     await loop._cycle()
 
     reminders = [m for m in mem.primary if m.source == "system_reminder"]
     assert len(reminders) == 5
     assert brain.think.await_count == 5
-    loop._rest.assert_awaited_once()
+    assert loop._rest.await_count == 5
     assert loop._consecutive_no_tool_responses == 0
 
 
 @pytest.mark.asyncio
-async def test_fifth_no_tool_call_does_not_rest_while_processing_event():
+async def test_fifth_no_tool_call_rests_while_processing_event():
     mem = ShortTermMemory()
     brain = _make_brain(content="still no tool")
     event = IncomingEvent(participant_id="alice", content="new work")
@@ -290,8 +303,8 @@ async def test_fifth_no_tool_call_does_not_rest_while_processing_event():
 
     await loop._cycle()
 
-    assert loop._consecutive_no_tool_responses == 5
-    loop._rest.assert_not_awaited()
+    assert loop._consecutive_no_tool_responses == 0
+    loop._rest.assert_awaited_once()
 
 
 @pytest.mark.asyncio
