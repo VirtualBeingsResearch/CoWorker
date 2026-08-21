@@ -443,7 +443,11 @@ class AgentLoop:
 
         await self._compress_after_budget_reached(input_tokens, system_prompt)
 
-        if self._consecutive_no_tool_responses >= _MAX_CONSECUTIVE_NO_TOOL_RESPONSES:
+        if (
+            not response.tool_calls
+            and not events
+            and self._consecutive_no_tool_responses >= _MAX_CONSECUTIVE_NO_TOOL_RESPONSES
+        ):
             logger.warning(
                 "Model returned no tool call after 5 consecutive corrections; entering rest"
             )

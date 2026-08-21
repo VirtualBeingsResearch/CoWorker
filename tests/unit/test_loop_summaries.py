@@ -280,6 +280,21 @@ async def test_fifth_consecutive_no_tool_call_enters_rest_and_resets_streak():
 
 
 @pytest.mark.asyncio
+async def test_fifth_no_tool_call_does_not_rest_while_processing_event():
+    mem = ShortTermMemory()
+    brain = _make_brain(content="still no tool")
+    event = IncomingEvent(participant_id="alice", content="new work")
+    loop = _make_loop(brain, mem, events=[event])
+    loop._consecutive_no_tool_responses = 4
+    loop._rest = AsyncMock()
+
+    await loop._cycle()
+
+    assert loop._consecutive_no_tool_responses == 5
+    loop._rest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_prompt_refreshed_only_after_compression():
     mem = ShortTermMemory()
     brain = _make_brain()
