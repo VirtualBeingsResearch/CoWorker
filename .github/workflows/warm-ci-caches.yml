@@ -1,0 +1,137 @@
+name: Warm CI caches
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-ci-caches-${{ github.ref }}
+  # A rapid sequence of merges must not repeatedly cancel the expensive Rust
+  # build before its cache can be saved.
+  cancel-in-progress: false
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.13"
+            mypy: true
+          - python: "3.14"
+            mypy: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Sync Python workspace
+        run: uv sync --locked --dev --extra mem0 --python ${{ matrix.python }}
+      # Pull request and merge queue caches are isolated by ref. A cache
+      # created on main provides the shared baseline both can restore.
+      - name: Restore mypy state
+        if: matrix.mypy
+        uses: actions/cache@v6
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+      - name: Type-check Python
+        if: matrix.mypy
+        run: uv run --frozen mypy src
+
+  node:
+    name: Node cache (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Web
+            directory: web
+          - name: Desktop
+            directory: apps/coworker-desktop/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - name: Populate npm cache
+        run: npm ci
+        working-directory: ${{ matrix.directory }}
+
+  rust:
+    name: Rust cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config
+      - name: Populate Cargo build cache
+        run: cargo test --workspace --locked --no-run
+
+  go_relay:
+    name: Go Relay and container cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/coworker-relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/coworker-relay/go.mod
+          cache-dependency-path: apps/coworker-relay/go.sum
+      - name: Populate Go module and race build caches
+        run: go test -race -run '^$' ./...
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Populate Relay container build cache
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/coworker-relay
+          file: apps/coworker-relay/Dockerfile
+          cache-from: type=gha,scope=coworker-relay
+          cache-to: type=gha,mode=max,scope=coworker-relay
+
+  trivy:
+    name: Trivy database cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Refresh vulnerability database
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: apps/coworker-relay
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          # Cache refreshes must not be blocked by findings; enforcement stays
+          # in CI's image scan.
+          exit-code: "0"
