@@ -13,9 +13,9 @@ from pydantic import ValidationError
 
 from coworker.core.config import (
     Config,
-    _deep_merge,
     effective_communication_token,
     load_admin_overrides,
+    merge_config_layers,
     sparse_admin_overrides,
     write_admin_overrides,
 )
@@ -382,8 +382,8 @@ class AdminConfigService:
         desired_base["telegram"] = inherited["telegram"]
         desired_base["wecom"] = inherited["wecom"]
         try:
-            before = Config.model_validate(_deep_merge(effective, current_overrides))
-            desired = Config.model_validate(_deep_merge(desired_base, next_overrides))
+            before = Config.model_validate(merge_config_layers(effective, current_overrides))
+            desired = Config.model_validate(merge_config_layers(desired_base, next_overrides))
         except ValidationError as error:
             raise ConfigUpdateError(422, json.loads(error.json())) from error
         return before, desired
@@ -629,7 +629,7 @@ class AdminConfigService:
     def _masked_config(
         self,
     ) -> tuple[JsonObject, dict[str, SecretStatus], list[JsonObject]]:
-        desired_data = _deep_merge(
+        desired_data = merge_config_layers(
             self._dependencies.inherited_config.model_dump(mode="json"),
             load_admin_overrides(self._dependencies.config.admin.config_file),
         )
