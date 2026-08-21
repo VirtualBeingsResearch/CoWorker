@@ -812,13 +812,13 @@ class WeComConfig(_EnvSettings):
             # 如果 legacy 已被折叠成 default，且同时存在其他显式实例，则把
             # 这个自动生成的 default 一并移除，避免旧实例和显式实例重复运行。
             if len(self.bots) > 1:
-                default_bot = self.bots.get("default")
+                legacy_default_bot = self.bots.get("default")
                 if (
-                    default_bot is not None
-                    and default_bot.enabled == self.enabled
-                    and default_bot.bot_id == self.bot_id
-                    and default_bot.secret == self.secret
-                    and default_bot.ws_url == self.ws_url
+                    legacy_default_bot is not None
+                    and legacy_default_bot.enabled == self.enabled
+                    and legacy_default_bot.bot_id == self.bot_id
+                    and legacy_default_bot.secret == self.secret
+                    and legacy_default_bot.ws_url == self.ws_url
                 ):
                     del self.bots["default"]
             self.bot_id = ""
