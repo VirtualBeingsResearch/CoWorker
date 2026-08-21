@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.1 - Unreleased
+## 0.4.1 - 2026-08-21
 
 - docs(release): finalize v0.4.0 changelog (#188)
 - chore(deps): bump the all-dependencies group across 1 directory with 8 updates (#185)
