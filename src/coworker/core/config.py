@@ -791,13 +791,44 @@ class WeComConfig(_EnvSettings):
 
     @model_validator(mode="after")
     def _fold_legacy_singleton(self) -> WeComConfig:
-        legacy_given = bool(self.bot_id or self.secret or self.ws_url)
         if self.bots:
-            if legacy_given:
-                raise ValueError(tr("config.wecom.legacy_and_bots_conflict"))
+            legacy_given = bool(self.bot_id or self.secret or self.ws_url)
+            if not legacy_given:
+                return self
+            # pydantic-settings 在把 WeComConfig 作为 Config 的嵌套字段读取时，
+            # 会对已经折叠过一次的实例再做一次校验；如果只有一个与扁平字段
+            # 等价的 default 实例，保留扁平字段以便后续 admin 覆盖仍能识别它。
+            if len(self.bots) == 1 and set(self.bots) == {"default"}:
+                default_bot = self.bots["default"]
+                if (
+                    default_bot.enabled == self.enabled
+                    and default_bot.bot_id == self.bot_id
+                    and default_bot.secret == self.secret
+                    and default_bot.ws_url == self.ws_url
+                ):
+                    return self
+            # 显式 bots 优先。旧式扁平字段可能来自升级前残留的 .env 或
+            # admin_config.json；同时存在时忽略它们，避免旧实例升级后无法启动。
+            # 如果 legacy 已被折叠成 default，且同时存在其他显式实例，则把
+            # 这个自动生成的 default 一并移除，避免旧实例和显式实例重复运行。
+            if len(self.bots) > 1:
+                default_bot = self.bots.get("default")
+                if (
+                    default_bot is not None
+                    and default_bot.enabled == self.enabled
+                    and default_bot.bot_id == self.bot_id
+                    and default_bot.secret == self.secret
+                    and default_bot.ws_url == self.ws_url
+                ):
+                    del self.bots["default"]
+            self.bot_id = ""
+            self.secret = ""
+            self.ws_url = ""
             return self
         # 没有显式实例时，把旧版扁平字段折叠成一个默认实例，保持老配置可用。
-        if legacy_given or self.enabled:
+        # 这里不清理扁平字段：后续 admin 覆盖若添加显式 bots，仍能据此识别并
+        # 替换这个自动生成的 default，而不是新旧两套实例同时运行。
+        if self.bot_id or self.secret or self.ws_url or self.enabled:
             self.bots = {
                 "default": WeComBotConfig(
                     enabled=self.enabled,

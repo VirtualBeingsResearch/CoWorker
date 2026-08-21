@@ -14,7 +14,7 @@ from coworker.channels.registry import ChannelRegistry
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.channels.wecom.sender import split_markdown as _split_markdown
-from coworker.core.config import ChannelAccessConfig, WeComConfig
+from coworker.core.config import ChannelAccessConfig, Config, WeComConfig
 from coworker.core.types import CommunicateRequest
 from coworker.i18n import locale_context
 
@@ -251,9 +251,51 @@ def test_wecom_config_empty_has_no_bots():
     assert WeComConfig().bots == {}
 
 
-def test_wecom_config_rejects_legacy_and_bots_conflict():
-    with pytest.raises(ValidationError):
-        WeComConfig(bot_id="x", bots={"main": {"bot_id": "y"}})
+def test_wecom_config_prefers_explicit_bots_over_legacy_flat():
+    cfg = WeComConfig(bot_id="x", bots={"main": {"bot_id": "y"}})
+
+    assert set(cfg.bots) == {"main"}
+    assert cfg.bots["main"].bot_id == "y"
+    assert cfg.bot_id == ""
+
+
+def test_config_loads_legacy_wecom_flat_env_without_conflict(monkeypatch):
+    monkeypatch.setenv("WECOM__ENABLED", "true")
+    monkeypatch.setenv("WECOM__BOT_ID", "BID")
+    monkeypatch.setenv("WECOM__SECRET", "SEC")
+    monkeypatch.setenv("WECOM__WS_URL", "wss://x/ws")
+
+    cfg = Config()
+
+    assert set(cfg.wecom.bots) == {"default"}
+    assert cfg.wecom.bots["default"].bot_id == "BID"
+    assert cfg.wecom.bots["default"].secret == "SEC"
+    assert cfg.wecom.bots["default"].ws_url == "wss://x/ws"
+
+
+def test_config_prefers_explicit_wecom_bots_over_legacy_flat_in_merged_dict():
+    cfg = Config.model_validate(
+        {
+            "wecom": {
+                "enabled": True,
+                "bot_id": "old",
+                "secret": "old-secret",
+                "ws_url": "wss://old/ws",
+                "bots": {
+                    "main": {
+                        "enabled": True,
+                        "bot_id": "new",
+                        "secret": "new-secret",
+                        "ws_url": "",
+                    }
+                },
+            }
+        }
+    )
+
+    assert set(cfg.wecom.bots) == {"main"}
+    assert cfg.wecom.bots["main"].bot_id == "new"
+    assert cfg.wecom.bot_id == ""
 
 
 def test_wecom_config_rejects_invalid_instance_id():

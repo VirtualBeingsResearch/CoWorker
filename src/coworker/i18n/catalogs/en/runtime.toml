@@ -186,7 +186,7 @@ instance_id_invalid = "Invalid Telegram Bot instance_id '{{instance}}'; use 1-32
 [config.wecom]
 bots_must_be_object = "WeCom bots must be an object keyed by instance_id"
 instance_id_invalid = "Invalid WeCom instance_id '{{instance}}'; use 1-32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
-legacy_and_bots_conflict = "WeCom legacy flat settings (WECOM__BOT_ID/SECRET/WS_URL) cannot be combined with explicit bots; use only one style"
+legacy_and_bots_conflict = "WeCom legacy flat settings (WECOM__BOT_ID/SECRET/WS_URL) are ignored when explicit bots are configured"
 
 [channel.management]
 command_unknown = "Unknown channel management command: {{command}}"

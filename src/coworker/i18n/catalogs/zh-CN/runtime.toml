@@ -186,7 +186,7 @@ instance_id_invalid = "Telegram Bot instance_id '{{instance}}' 无效；请使�
 [config.wecom]
 bots_must_be_object = "WeCom bots 必须是以 instance_id 为键的对象"
 instance_id_invalid = "WeCom instance_id '{{instance}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
-legacy_and_bots_conflict = "WeCom 旧式扁平配置（WECOM__BOT_ID/SECRET/WS_URL）不能与显式 bots 同时使用；请只使用其中一种写法"
+legacy_and_bots_conflict = "WeCom 旧式扁平配置（WECOM__BOT_ID/SECRET/WS_URL）在配置了显式 bots 时会被忽略"
 
 [channel.management]
 command_unknown = "未知信道管理命令：{{command}}"
