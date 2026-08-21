@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.4.1 - Unreleased
+
+- docs(release): finalize v0.4.0 changelog (#188)
+- chore(deps): bump the all-dependencies group across 1 directory with 8 updates (#185)
+- feat(memory): abstract long-term memory backend (#189)
+- feat(wecom): support multiple simultaneous WeCom bot channels (#190)
+- fix(wecom): keep existing default bot and secret when adding a new instance (#192)
+- chore(ci): warm merge queue caches from main (#193)
+- fix(agent): require tool action across active cycles (#191)
+
 ## 0.4.0 - 2026-08-18
 
 - docs(release): finalize v0.3.9 changelog (#180)

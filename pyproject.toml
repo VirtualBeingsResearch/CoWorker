@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coworker"
-version = "0.4.0"
+version = "0.4.1"
 description = "An autonomous AI coworker with memory, identity, and tools"
 readme = "README.md"
 license = "MIT"
