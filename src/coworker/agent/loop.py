@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 _MAX_CONSECUTIVE_ERRORS = 5
 # 恢复后的等待时间（秒），给 API 冷却时间
 _RECOVERY_COOLDOWN_SECONDS = 30
+# 模型连续未调用工具时，先立即纠偏；达到此次数后进入正常休息，避免持续空转。
+_MAX_CONSECUTIVE_NO_TOOL_RESPONSES = 5
 
 # 活动任务总览 pin：单一系统维护的 pin，内容为未完成任务紧凑列表，跨压缩保留。
 _TASK_BOARD_PIN_ID = "task_board"
@@ -74,6 +76,7 @@ class AgentLoop:
         self._stop_event = asyncio.Event()
         self._snapshot_path = snapshot_path
         self._consecutive_errors = 0
+        self._consecutive_no_tool_responses = 0
         self._task_store = task_store
         self._task_reminder_interval = task_reminder_interval
         self._task_reminder_seconds = task_reminder_seconds
@@ -416,6 +419,7 @@ class AgentLoop:
         self._short_term.primary.append(assistant_msg)
 
         if response.tool_calls:
+            self._consecutive_no_tool_responses = 0
             # 执行工具前先保存快照，使崩溃恢复时能检测到待处理的 tool_call
             if self._snapshot_path and not self.state.restart_requested:
                 self._short_term.save_to_file(self._snapshot_path)
@@ -423,8 +427,34 @@ class AgentLoop:
             recall_query = assistant_msg.reasoning_content or assistant_msg.content_text()
             await self._auto_recall(recall_query)
             await self._task_reminder()
+        else:
+            self._consecutive_no_tool_responses += 1
+            reminder = tr("loop.tool_required")
+            self._short_term.primary.append(
+                Message(role="user", content=reminder, source="system_reminder")
+            )
+            logger.warning("Model returned no tool call; injected an immediate correction")
+            if self._ilog:
+                self._ilog.log_message_in(
+                    participant_id="system",
+                    content=reminder,
+                    source="system_reminder",
+                )
 
         await self._compress_after_budget_reached(input_tokens, system_prompt)
+
+        repeated_no_tool_response = (
+            not response.tool_calls
+            and self._consecutive_no_tool_responses >= _MAX_CONSECUTIVE_NO_TOOL_RESPONSES
+        )
+        if repeated_no_tool_response:
+            logger.warning(
+                "Model returned no tool call after 5 consecutive corrections; entering rest"
+            )
+            self._consecutive_no_tool_responses = 0
+
+        if repeated_no_tool_response and events:
+            await self._rest()
 
         if not response.tool_calls and not events:
             await self._rest()
