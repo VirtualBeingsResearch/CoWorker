@@ -65,6 +65,7 @@ def _make_loop(brain, mem, events=None):
     loop._last_task_reminder_time = 0.0
     loop._bubble_store = None
     loop._subconscious = None
+    loop._consecutive_no_tool_responses = 0
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     return loop
 
@@ -259,20 +260,23 @@ async def test_no_tool_call_injects_immediate_system_reminder_without_rest():
 
 
 @pytest.mark.asyncio
-async def test_no_tool_call_keeps_correcting_on_every_cycle():
+async def test_fifth_consecutive_no_tool_call_enters_rest_and_resets_streak():
     mem = ShortTermMemory()
     brain = _make_brain(content="still no tool")
     loop = _make_loop(brain, mem, events=[])
     loop._rest = AsyncMock()
 
-    await loop._cycle()
-    await loop._cycle()
+    for _ in range(4):
+        await loop._cycle()
+    loop._rest.assert_not_awaited()
+
     await loop._cycle()
 
     reminders = [m for m in mem.primary if m.source == "system_reminder"]
-    assert len(reminders) == 3
-    assert brain.think.await_count == 3
-    loop._rest.assert_not_awaited()
+    assert len(reminders) == 5
+    assert brain.think.await_count == 5
+    loop._rest.assert_awaited_once()
+    assert loop._consecutive_no_tool_responses == 0
 
 
 @pytest.mark.asyncio
@@ -389,12 +393,14 @@ async def test_tool_results_appended_to_primary():
 
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="do it")])
     loop._tools = tools
+    loop._consecutive_no_tool_responses = 4
 
     await loop._cycle()
 
     tool_msgs = [m for m in mem.primary if m.role == "tool"]
     assert len(tool_msgs) == 1
     assert tool_msgs[0].content == "slept"
+    assert loop._consecutive_no_tool_responses == 0
 
 
 @pytest.mark.asyncio

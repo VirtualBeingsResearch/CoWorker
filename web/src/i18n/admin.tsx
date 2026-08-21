@@ -685,7 +685,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '启动时使用的模型': 'Model used at startup',
   '单次输出上限': 'Maximum output per call',
   '强制工具调用': 'Require tool calls',
-  '有工具可用时要求模型至少调用一个；关闭仅用于兼容不支持 required 工具选择的 API。': 'Require the model to call at least one tool when tools are available. Disable only for APIs that do not support required tool choice.',
+  '有工具可用时要求模型至少调用一个；关闭仅用于兼容不支持 required 工具选择的 API。未调用时会立即提醒，连续 5 次后进入休息。': 'Require the model to call at least one tool when tools are available. Disable only for APIs that do not support required tool choice. Missing calls trigger an immediate reminder, with rest after 5 consecutive reminders.',
   '透明接管对象': 'Handoff participants',
   '透明接管实时信道': 'Handoff live transports',
   '泡泡接管提示': 'Bubble handoff visibility',

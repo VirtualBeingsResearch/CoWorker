@@ -50,7 +50,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | 默认 LLM Provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | 默认模型 |
 | `LLM__MAX_TOKENS` | `8192` | 单次 LLM 响应的最大输出 token 数 |
-| `LLM__TOOL_CHOICE_REQUIRED` | `true` | 有工具可用时要求主线与子任务模型至少调用一个工具；不兼容 `required` 工具选择的 API 可设为 `false`，主循环仍会在模型未调用工具时立即提醒并继续纠偏 |
+| `LLM__TOOL_CHOICE_REQUIRED` | `true` | 有工具可用时要求主线与子任务模型至少调用一个工具；不兼容 `required` 工具选择的 API 可设为 `false`。主循环仍会在模型未调用工具时立即提醒，连续提醒 5 次后进入休息 |
 | `LLM__THINKING_EFFORT` | 空（Provider 默认） | 主线思考强度，取值 `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`；由各 Provider 映射到原生档位 |
 | `LLM__SUMMARY_PROVIDER` | 空 | 摘要/压缩专用 provider；留空则沿用当前主线 provider |
 | `LLM__SUMMARY_MODEL` | 空 | 摘要/压缩专用模型；只填它会复用当前 provider，留空且已配置 `SUMMARY_PROVIDER` 时使用该 provider 的 `default_model` |
