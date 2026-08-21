@@ -713,7 +713,7 @@ class ChannelAccessConfig(RootModel[dict[str, ChannelAccessRuleConfig]]):
 
     A root model keeps the persisted shape compact::
 
-        {"wecom": {"inbound_allow": ["wecom:single:*"]}}
+        {"wecom": {"inbound_allow": ["wecom:*"]}}
     """
 
     root: dict[str, ChannelAccessRuleConfig] = Field(default_factory=dict)
@@ -740,13 +740,104 @@ class ChannelAccessConfig(RootModel[dict[str, ChannelAccessRuleConfig]]):
         return normalized
 
 
+class WeComBotConfig(BaseModel):
+    """Configuration for one independently connected WeCom (企业微信) bot identity."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    bot_id: str = ""
+    secret: str = Field(default="", repr=False)
+    ws_url: str = ""
+
+    @field_validator("bot_id")
+    @classmethod
+    def _strip_bot_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ws_url")
+    @classmethod
+    def _strip_ws_url(cls, value: str) -> str:
+        return value.strip()
+
+
 class WeComConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="WECOM__", env_file=".env", extra="ignore")
 
+    # 兼容旧版单实例扁平写法（WECOM__ENABLED / BOT_ID / SECRET / WS_URL）。
+    # 当没有显式 bots 时，这些扁平字段被折叠成一个名为 "default" 的实例，
+    # 以便老配置无需修改即可继续使用；只有 bots 时才使用新结构。
     enabled: bool = False
     bot_id: str = ""
-    secret: str = ""
+    secret: str = Field(default="", repr=False)
     ws_url: str = ""
+    bots: dict[str, WeComBotConfig] = Field(default_factory=dict)
+
+    @field_validator("bots", mode="before")
+    @classmethod
+    def _normalize_bot_ids(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(tr("config.wecom.bots_must_be_object"))
+        for instance_id in value:
+            if not isinstance(instance_id, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,31}", instance_id
+            ):
+                raise ValueError(
+                    tr("config.wecom.instance_id_invalid", instance=instance_id)
+                )
+        return value
+
+    @model_validator(mode="after")
+    def _fold_legacy_singleton(self) -> WeComConfig:
+        if self.bots:
+            legacy_given = bool(self.bot_id or self.secret or self.ws_url)
+            if not legacy_given:
+                return self
+            # pydantic-settings 在把 WeComConfig 作为 Config 的嵌套字段读取时，
+            # 会对已经折叠过一次的实例再做一次校验；如果只有一个与扁平字段
+            # 等价的 default 实例，保留扁平字段以便后续 admin 覆盖仍能识别它。
+            if len(self.bots) == 1 and set(self.bots) == {"default"}:
+                default_bot = self.bots["default"]
+                if (
+                    default_bot.enabled == self.enabled
+                    and default_bot.bot_id == self.bot_id
+                    and default_bot.secret == self.secret
+                    and default_bot.ws_url == self.ws_url
+                ):
+                    return self
+            # 显式 bots 优先。旧式扁平字段可能来自升级前残留的 .env 或
+            # admin_config.json；同时存在时忽略它们，避免旧实例升级后无法启动。
+            # 如果 legacy 已被折叠成 default，且同时存在其他显式实例，则把
+            # 这个自动生成的 default 一并移除，避免旧实例和显式实例重复运行。
+            if len(self.bots) > 1:
+                legacy_default_bot = self.bots.get("default")
+                if (
+                    legacy_default_bot is not None
+                    and legacy_default_bot.enabled == self.enabled
+                    and legacy_default_bot.bot_id == self.bot_id
+                    and legacy_default_bot.secret == self.secret
+                    and legacy_default_bot.ws_url == self.ws_url
+                ):
+                    del self.bots["default"]
+            self.bot_id = ""
+            self.secret = ""
+            self.ws_url = ""
+            return self
+        # 没有显式实例时，把旧版扁平字段折叠成一个默认实例，保持老配置可用。
+        # 这里不清理扁平字段：后续 admin 覆盖若添加显式 bots，仍能据此识别并
+        # 替换这个自动生成的 default，而不是新旧两套实例同时运行。
+        if self.bot_id or self.secret or self.ws_url or self.enabled:
+            self.bots = {
+                "default": WeComBotConfig(
+                    enabled=self.enabled,
+                    bot_id=self.bot_id,
+                    secret=self.secret,
+                    ws_url=self.ws_url,
+                )
+            }
+        return self
 
 
 class WeixinConfig(_EnvSettings):

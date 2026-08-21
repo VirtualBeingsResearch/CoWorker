@@ -85,6 +85,12 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 企业微信智能机器人目前不支持通过 API @群成员，因此 WeCom Channel 不提供成员提醒能力。
 
+企业微信支持同时连接多个 Bot 实例（见配置中 `wecom.bots.<instance_id>`）。每个实例
+下的会话规范 participant ID 形如 `wecom:<instance_id>:single:<userid>` 或
+`wecom:<instance_id>:group:<chatid>`。`wecom:*` 前缀通配规则仍匹配所有实例；旧版无需
+实例段的 `wecom:single:<userid>` / `wecom:group:<chatid>` 仍会被解析并归入 `default`
+实例，但老规则中把具体值写在第二段的写法需按新格式调整。
+
 Telegram 使用 `tg:<instance_id>:<chat_id>` 区分多个 Bot 下的已知聊天，forum topic 的
 `message_thread_id` 作为 `conversation_id`。它支持文本与附件，并只会向已通过入站消息发现的
 chat 发送；完整行为与配置见 [Telegram](telegram.md)。

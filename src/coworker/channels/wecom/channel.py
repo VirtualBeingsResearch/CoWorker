@@ -8,7 +8,6 @@ into WeCom reachables), including the latest send and receive times.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
 from coworker.channels.access import ChannelAccessController
@@ -80,23 +79,4 @@ class WeComChannel(BaseChannel):
         self._runner.set_access_controller(access)
 
     def list_connections(self) -> list[ConnectionInfo]:
-        now = time.monotonic()
-        out: list[ConnectionInfo] = []
-        for chat_id, chat_type in self._runner._contacts.items():
-            active = any(
-                cached_chat_id == chat_id and now < expires
-                for (cached_chat_id, _), (_, expires) in self._runner._frame_cache.items()
-            )
-            participant_id = f"wecom:{chat_type}:{chat_id}"
-            last_sent_at, last_received_at = self._runner.activity_for(participant_id)
-            out.append(
-                ConnectionInfo(
-                    participant_id=participant_id,
-                    channel="wecom",
-                    kind=f"wecom:{chat_type}",
-                    active=active,
-                    last_sent_at=last_sent_at,
-                    last_received_at=last_received_at,
-                )
-            )
-        return out
+        return self._runner.list_connections()

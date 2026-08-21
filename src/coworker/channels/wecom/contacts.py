@@ -1,7 +1,9 @@
 """Persistent WeCom chat_id -> chat_type ("single"/"group") mapping.
 
 Extracted from ``WeComRunner``. The runner keeps the in-memory dict; this
-module owns loading/saving and legacy numeric chat_type normalization.
+module owns loading/saving, per-instance file naming, legacy numeric
+chat_type normalization, and the one-time migration of the legacy
+single-instance ``wecom_contacts.json`` into the ``default`` instance file.
 """
 
 from __future__ import annotations
@@ -11,6 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+DEFAULT_INSTANCE_FILE = "wecom_contacts_default.json"
+LEGACY_FILE = "wecom_contacts.json"
 
 
 def normalize_chat_type(chat_type: Any) -> str | None:
@@ -23,11 +28,37 @@ def normalize_chat_type(chat_type: Any) -> str | None:
     return None
 
 
+def _normalized(raw: dict[Any, Any]) -> dict[str, str]:
+    contacts: dict[str, str] = {}
+    for chat_id, chat_type in raw.items():
+        value = normalize_chat_type(chat_type)
+        if value is not None:
+            contacts[str(chat_id)] = value
+    return contacts
+
+
 class ContactsStore:
     """Load/save the chat_id -> chat_type mapping to a JSON file."""
 
     @staticmethod
     def load(path: Path | None) -> dict[str, str]:
+        if not path:
+            return {}
+        if path.exists():
+            return ContactsStore._read(path)
+        # 一次性迁移：旧版单实例 wecom_contacts.json → default 实例文件。
+        # 仅对 default 实例触发；迁移后旧文件保留作为备份，default 文件成为权威来源。
+        if path.name == DEFAULT_INSTANCE_FILE:
+            legacy = path.parent / LEGACY_FILE
+            if legacy.exists():
+                contacts = ContactsStore._read(legacy)
+                if contacts:
+                    ContactsStore.save(path, contacts)
+                    return contacts
+        return {}
+
+    @staticmethod
+    def _read(path: Path | None) -> dict[str, str]:
         if not path or not path.exists():
             return {}
         try:
@@ -37,12 +68,7 @@ class ContactsStore:
             return {}
         if not isinstance(raw, dict):
             return {}
-        contacts: dict[str, str] = {}
-        for chat_id, chat_type in raw.items():
-            normalized = normalize_chat_type(chat_type)
-            if normalized is not None:
-                contacts[str(chat_id)] = normalized
-        return contacts
+        return _normalized(raw)
 
     @staticmethod
     def save(path: Path | None, contacts: dict[str, str]) -> None:

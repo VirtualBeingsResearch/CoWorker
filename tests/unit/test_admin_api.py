@@ -1195,14 +1195,19 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     )
     client, config = _client(
         tmp_path,
-        wecom={"enabled": True, "bot_id": "old", "secret": "existing"},
+        wecom={
+            "bots": {
+                "main": {"enabled": True, "bot_id": "old", "secret": "existing"},
+            }
+        },
         channel_modules=modules,
     )
     headers = {"Authorization": "Bearer secret"}
 
     body = client.get("/api/admin/config", headers=headers).json()
     assert "wecom" in body["hot_reloadable"]
-    assert body["secret_status"]["wecom.secret"]["last4"] == "ting"
+    assert body["config"]["wecom"]["bots"]["main"]["secret"] == ""
+    assert body["secret_status"]["wecom.bots.main.secret"]["last4"] == "ting"
 
     response = client.patch(
         "/api/admin/config",
@@ -1210,13 +1215,23 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
         json={
             "changes": {
                 "wecom": {
-                    "enabled": True,
-                    "bot_id": "new",
-                    "secret": "",
-                    "ws_url": "wss://wecom.example/ws",
+                    "bots": {
+                        "main": {
+                            "enabled": True,
+                            "bot_id": "new",
+                            "secret": "",
+                            "ws_url": "wss://wecom.example/ws",
+                        },
+                        "work": {
+                            "enabled": True,
+                            "bot_id": "work-bot",
+                            "secret": "",
+                            "ws_url": "wss://work.example/ws",
+                        },
+                    }
                 }
             },
-            "secrets": {},
+            "secrets": {"wecom.bots.work.secret": "work-secret"},
         },
     )
 
@@ -1224,12 +1239,45 @@ def test_wecom_config_hot_reconnects_and_preserves_secret(tmp_path):
     assert response.json()["applied_now"] == ["wecom"]
     assert response.json()["requires_restart"] == []
     assert response.json()["pending_restart"] is False
-    assert config.wecom.bot_id == "new"
-    assert config.wecom.secret == "existing"
-    runner.reconfigure.assert_awaited_once()
+    assert config.wecom.bots["main"].bot_id == "new"
+    assert config.wecom.bots["main"].secret == "existing"
+    assert config.wecom.bots["work"].secret == "work-secret"
     applied = runner.reconfigure.await_args.args[0]
-    assert applied.ws_url == "wss://wecom.example/ws"
-    assert applied.secret == "existing"
+    assert applied.bots["main"].ws_url == "wss://wecom.example/ws"
+    assert applied.bots["main"].secret == "existing"
+    assert applied.bots["work"].secret == "work-secret"
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["wecom"]["bots"]["main"]["bot_id"] == "new"
+    assert "secret" not in saved["wecom"]["bots"]["main"]
+    assert saved["wecom"]["bots"]["work"]["secret"] == "work-secret"
+
+    runner.reconfigure.reset_mock()
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "wecom": {
+                    "bots": {
+                        "main": {
+                            "enabled": True,
+                            "bot_id": "new",
+                            "secret": "",
+                            "ws_url": "wss://wecom.example/ws",
+                        }
+                    }
+                }
+            },
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert set(config.wecom.bots) == {"main"}
+    runner.reconfigure.assert_awaited_once()
+    assert set(runner.reconfigure.await_args.args[0].bots) == {"main"}
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert set(saved["wecom"]["bots"]) == {"main"}
 
 
 def test_telegram_config_hot_applies_multiple_bots_and_masks_tokens(tmp_path):
@@ -2047,12 +2095,17 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
                     "auth_epoch": 2,
                 },
                 "channel_access": {
-                    "wecom": {"inbound_allow": ["wecom:single:*"]}
+                    "wecom": {"inbound_allow": ["wecom:first-run:single:*"]}
                 },
                 "wecom": {
-                    "enabled": True,
-                    "bot_id": "bot-first-run",
-                    "ws_url": "wss://wecom.example.test/ws",
+                    "bots": {
+                        "first-run": {
+                            "enabled": True,
+                            "bot_id": "bot-first-run",
+                            "secret": "",
+                            "ws_url": "wss://wecom.example.test/ws",
+                        }
+                    }
                 },
                 "weixin": {"enabled": False},
                 "desktop_updates": {
@@ -2063,7 +2116,7 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
             "secrets": {
                 "api.communication_token": "desktop-first-run",
                 "relay.instance_private_key": "relay-private",
-                "wecom.secret": "wecom-first-run",
+                "wecom.bots.first-run.secret": "wecom-first-run",
             },
         },
     )
@@ -2092,8 +2145,8 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
     assert saved["api"]["communication_token"] == "desktop-first-run"
     assert saved["relay"]["instance_id"] == "cw_abcdefgh"
     assert saved["relay"]["instance_private_key"] == "relay-private"
-    assert saved["channel_access"]["wecom"]["inbound_allow"] == ["wecom:single:*"]
-    assert saved["wecom"]["secret"] == "wecom-first-run"
+    assert saved["channel_access"]["wecom"]["inbound_allow"] == ["wecom:first-run:single:*"]
+    assert saved["wecom"]["bots"]["first-run"]["secret"] == "wecom-first-run"
     assert saved["weixin"]["enabled"] is False
     assert saved["desktop_updates"]["sync_interval_seconds"] == 600
     assert (tmp_path / "identity" / "name.txt").read_text(encoding="utf-8") == "Nova"

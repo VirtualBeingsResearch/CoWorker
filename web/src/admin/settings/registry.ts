@@ -1,5 +1,6 @@
 import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
 import { TelegramSettingsPanel } from './panels/TelegramSettingsPanel';
+import { WeComSettingsPanel } from './panels/WeComSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
 import type { SettingsPanelRegistration } from './types';
 
@@ -15,6 +16,10 @@ const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
   telegram: {
     label: 'Telegram',
     component: TelegramSettingsPanel,
+  },
+  wecom: {
+    label: '企业微信',
+    component: WeComSettingsPanel,
   },
 };
 

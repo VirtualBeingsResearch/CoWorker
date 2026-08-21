@@ -92,48 +92,61 @@ def _mixed_group() -> dict:
     }
 
 
-def test_parse_participant_single():
-    assert adapter.parse_participant("wecom:single:U123") == ("single", "U123")
+def test_parse_participant_legacy_single_normalizes_to_default():
+    assert adapter.parse_participant("wecom:single:U123") == ("default", "single", "U123")
 
 
-def test_parse_participant_group():
-    assert adapter.parse_participant("wecom:group:CHATX") == ("group", "CHATX")
+def test_parse_participant_legacy_group_normalizes_to_default():
+    assert adapter.parse_participant("wecom:group:CHATX") == ("default", "group", "CHATX")
+
+
+def test_parse_participant_explicit_instance():
+    assert adapter.parse_participant("wecom:main:single:U1") == ("main", "single", "U1")
+    assert adapter.parse_participant("wecom:work:group:G1") == ("work", "group", "G1")
 
 
 def test_parse_participant_invalid():
     with pytest.raises(ValueError):
         adapter.parse_participant("rest:alice")
+    with pytest.raises(ValueError):
+        adapter.parse_participant("wecom:single")
+    with pytest.raises(ValueError):
+        adapter.parse_participant("wecom:Bad!:single:U1")
+    with pytest.raises(ValueError):
+        adapter.parse_participant("wecom:main:chat:U1")
 
 
-def test_participant_id_for_single():
-    assert adapter.participant_id_for(_text_single()) == "wecom:single:U123"
+def test_participant_id_for_default_instance():
+    assert adapter.participant_id_for(_text_single()) == "wecom:default:single:U123"
+    assert adapter.participant_id_for(_text_group()) == "wecom:default:group:CHATX"
 
 
-def test_participant_id_for_group():
-    assert adapter.participant_id_for(_text_group()) == "wecom:group:CHATX"
+def test_participant_id_for_explicit_instance():
+    assert adapter.participant_id_for(_text_single(), "main") == "wecom:main:single:U123"
+    assert adapter.participant_id_for(_text_group(), "work") == "wecom:work:group:CHATX"
 
 
 def test_roundtrip_single():
     frame = _text_single()
     pid = adapter.participant_id_for(frame)
-    chat_type, chat_id = adapter.parse_participant(pid)
-    assert chat_type == "single" and chat_id == "U123"
+    instance, chat_type, chat_id = adapter.parse_participant(pid)
+    assert (instance, chat_type, chat_id) == ("default", "single", "U123")
 
 
 def test_roundtrip_group():
     frame = _text_group()
     pid = adapter.participant_id_for(frame)
-    chat_type, chat_id = adapter.parse_participant(pid)
-    assert chat_type == "group" and chat_id == "CHATX"
+    instance, chat_type, chat_id = adapter.parse_participant(pid)
+    assert (instance, chat_type, chat_id) == ("default", "group", "CHATX")
 
 
 def test_frame_to_event_text_single():
     event = adapter.frame_to_event(_text_single(), attachments=[])
-    assert event.participant_id == "wecom:single:U123"
+    assert event.participant_id == "wecom:default:single:U123"
     assert event.conversation_id is None
     assert event.source == "wecom"
     assert event.content == "你好"
-    assert format_event_text(event) == "[来自企业微信][wecom:single:U123]的消息:\n你好"
+    assert format_event_text(event) == "[来自企业微信][wecom:default:single:U123]的消息:\n你好"
 
 
 def test_frame_to_event_voice_uses_transcript():
@@ -143,13 +156,18 @@ def test_frame_to_event_voice_uses_transcript():
 
 def test_frame_to_event_group_includes_chatid_and_userid():
     event = adapter.frame_to_event(_text_group(), attachments=[])
-    assert event.participant_id == "wecom:group:CHATX"
+    assert event.participant_id == "wecom:default:group:CHATX"
     assert event.conversation_id == "r2"
     assert event.content == "[发送者 userid=Ualice]\n@robot 帮忙"
     assert format_event_text(event) == (
-        "[来自企业微信][wecom:group:CHATX][conversation:r2]的消息:\n"
+        "[来自企业微信][wecom:default:group:CHATX][conversation:r2]的消息:\n"
         "[发送者 userid=Ualice]\n@robot 帮忙"
     )
+
+
+def test_frame_to_event_explicit_instance():
+    event = adapter.frame_to_event(_text_single(), attachments=[], instance="main")
+    assert event.participant_id == "wecom:main:single:U123"
 
 
 def test_frame_to_event_mixed_concats_text_items():

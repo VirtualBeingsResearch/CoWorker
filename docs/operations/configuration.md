@@ -181,10 +181,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `DESKTOP_UPDATES__SYNC_ON_START` | `true` | 服务启动后是否立即检测一次 |
 | `DESKTOP_UPDATES__SYNC_MAX_ASSET_BYTES` | `2147483648` | 单个制品允许下载的最大字节数 |
 | `DESKTOP_UPDATES__SYNC_MAX_RUN_BYTES` | `4294967296` | 单次同步允许下载的最大总字节数 |
-| `WECOM__ENABLED` | `false` | 是否启用企业微信智能机器人长连接 |
-| `WECOM__BOT_ID` | 空 | 企业微信机器人 ID |
-| `WECOM__SECRET` | 空 | 企业微信机器人 Secret |
-| `WECOM__WS_URL` | 空 | 可选的企业微信 WebSocket 地址；留空使用 SDK 默认地址 |
+| `WECOM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个企业微信 Bot 的 JSON 对象；每项支持 `enabled`、`bot_id`、`secret` 和 `ws_url`（`ws_url` 留空使用 SDK 默认地址）。仍兼容旧版扁平写法（`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`，会自动归为 `default` 实例） |
 | `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode` 和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 

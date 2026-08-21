@@ -100,6 +100,9 @@ quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}} {{type}} 消息（无法预览）]
 '''
+config_type_invalid = "WeCom 设置需要 WeComConfig"
+prepared = "企业微信运行时已准备好 {{count}} 个启用的 Bot 实例"
+instance_unknown = "企业微信 Bot 实例不存在：{{instance}}"
 
 [channel.weixin]
 image = "[图片]"
@@ -179,6 +182,11 @@ forwarded_from = "[转发自：{{sender}}]\n"
 display_name_too_long = "Telegram Bot display_name 不能超过 80 个字符"
 bots_must_be_object = "Telegram bots 必须是以 instance_id 为键的对象"
 instance_id_invalid = "Telegram Bot instance_id '{{instance}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
+
+[config.wecom]
+bots_must_be_object = "WeCom bots 必须是以 instance_id 为键的对象"
+instance_id_invalid = "WeCom instance_id '{{instance}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
+legacy_and_bots_conflict = "WeCom 旧式扁平配置（WECOM__BOT_ID/SECRET/WS_URL）在配置了显式 bots 时会被忽略"
 
 [channel.management]
 command_unknown = "未知信道管理命令：{{command}}"

@@ -100,6 +100,9 @@ quote_media = '''[{{possessive}}{{label}}{{suffix}}]
 '''
 quote_unavailable = '''[{{possessive}}{{type}} message (preview unavailable)]
 '''
+config_type_invalid = "WeCom settings require WeComConfig"
+prepared = "WeCom runtime prepared with {{count}} enabled Bot instances"
+instance_unknown = "WeCom Bot instance does not exist: {{instance}}"
 
 [channel.weixin]
 image = "[image]"
@@ -179,6 +182,11 @@ forwarded_from = "[Forwarded from: {{sender}}]\n"
 display_name_too_long = "Telegram Bot display_name must not exceed 80 characters"
 bots_must_be_object = "Telegram bots must be an object keyed by instance_id"
 instance_id_invalid = "Invalid Telegram Bot instance_id '{{instance}}'; use 1-32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
+
+[config.wecom]
+bots_must_be_object = "WeCom bots must be an object keyed by instance_id"
+instance_id_invalid = "Invalid WeCom instance_id '{{instance}}'; use 1-32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
+legacy_and_bots_conflict = "WeCom legacy flat settings (WECOM__BOT_ID/SECRET/WS_URL) are ignored when explicit bots are configured"
 
 [channel.management]
 command_unknown = "Unknown channel management command: {{command}}"
