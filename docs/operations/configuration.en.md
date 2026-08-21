@@ -62,6 +62,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__DEFAULT_PROVIDER` | `deepseek` | Default LLM provider |
 | `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | Default model |
 | `LLM__MAX_TOKENS` | `8192` | Maximum output tokens for one LLM response |
+| `LLM__TOOL_CHOICE_REQUIRED` | `true` | Require main-line and bubble models to call at least one tool when tools are available; set to `false` for APIs incompatible with required tool choice, while the main loop still immediately reminds and retries when no tool is called |
 | `LLM__THINKING_EFFORT` | Empty (provider default) | Main thinking effort: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`, mapped by each provider to its native levels |
 | `LLM__SUMMARY_PROVIDER` | Empty | Provider dedicated to summarization/compression; when empty, use the current main provider |
 | `LLM__SUMMARY_MODEL` | Empty | Model dedicated to summarization/compression; setting only this field reuses the current provider, while leaving it empty with `SUMMARY_PROVIDER` configured uses that provider's `default_model` |

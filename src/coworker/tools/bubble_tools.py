@@ -43,6 +43,7 @@ def _create_bubble_brain(
         default_model=model,
         message_time_prefix=parent_brain.message_time_prefix,
         max_tokens=parent_brain.max_tokens,
+        tool_choice_required=parent_brain.tool_choice_required,
         fallbacks=parent_brain._fallbacks,
         thinking=thinking,
         thinking_effort=parent_brain.thinking_effort if inherits_effort else "",

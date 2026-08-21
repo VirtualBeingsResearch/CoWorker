@@ -67,7 +67,35 @@ class TestOpenAIProvider:
         assert kwargs["max_output_tokens"] == DEFAULT_LLM_MAX_TOKENS
         assert kwargs["instructions"] == "You are helpful."
         assert kwargs["tools"] == [{"type": "function", **tools[0]}]
+        assert kwargs["tool_choice"] == "required"
         assert kwargs["reasoning"] == {"effort": "high", "summary": "auto"}
+
+    @pytest.mark.asyncio
+    async def test_complete_can_disable_required_tool_choice(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[{"name": "sleep", "parameters": {"type": "object"}}],
+            tool_choice_required=False,
+        )
+
+        assert "tool_choice" not in create.await_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_complete_omits_tool_choice_without_tools(self):
+        provider, create = _make_provider("gpt-5.4")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+        )
+
+        assert "tool_choice" not in create.await_args.kwargs
 
     @pytest.mark.asyncio
     async def test_complete_passes_configured_thinking_effort(self):
@@ -205,5 +233,4 @@ class TestOpenAIProvider:
         assert len(response.tool_calls) == 1
         assert "__parse_error__" in response.tool_calls[0].arguments
         assert response.tool_calls[0].arguments["__raw_arguments__"] == "not valid json{{{"
-
 

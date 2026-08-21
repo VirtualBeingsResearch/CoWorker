@@ -56,6 +56,7 @@ class Brain:
         default_model: str,
         message_time_prefix: bool = True,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+        tool_choice_required: bool = True,
         fallbacks: list[str] | None = None,
         thinking: bool = True,
         thinking_effort: str = "",
@@ -81,6 +82,7 @@ class Brain:
         self._vision_thinking_effort = normalize_thinking_effort(vision_thinking_effort) or ""
         self._message_time_prefix = message_time_prefix
         self._max_tokens = max_tokens
+        self._tool_choice_required = tool_choice_required
         self._thinking = thinking
         self._thinking_effort = normalize_thinking_effort(thinking_effort) or ""
         self._lock = asyncio.Lock()
@@ -100,6 +102,10 @@ class Brain:
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
+
+    @property
+    def tool_choice_required(self) -> bool:
+        return self._tool_choice_required
 
     @property
     def thinking(self) -> bool:
@@ -498,6 +504,7 @@ class Brain:
                     max_tokens,
                     thinking=thinking,
                     thinking_effort=thinking_effort,
+                    tool_choice_required=self._tool_choice_required,
                 )
             except (ProviderNotFoundError, ModelNotSupportedError):
                 raise

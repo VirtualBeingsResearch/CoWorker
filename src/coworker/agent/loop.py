@@ -423,11 +423,20 @@ class AgentLoop:
             recall_query = assistant_msg.reasoning_content or assistant_msg.content_text()
             await self._auto_recall(recall_query)
             await self._task_reminder()
+        else:
+            reminder = tr("loop.tool_required")
+            self._short_term.primary.append(
+                Message(role="user", content=reminder, source="system_reminder")
+            )
+            logger.warning("Model returned no tool call; injected an immediate correction")
+            if self._ilog:
+                self._ilog.log_message_in(
+                    participant_id="system",
+                    content=reminder,
+                    source="system_reminder",
+                )
 
         await self._compress_after_budget_reached(input_tokens, system_prompt)
-
-        if not response.tool_calls and not events:
-            await self._rest()
 
         self.state.cycle_count += 1
         self.state.current_provider = self._brain.current_provider_name

@@ -223,7 +223,16 @@ class TestBrain:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
+            async def complete(
+                self,
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=4096,
+                thinking=True,
+                thinking_effort=None,
+                tool_choice_required=True,
+            ):
                 self.seen_thinking = thinking
                 return await super().complete(messages, system_prompt, tools, max_tokens, thinking)
 
@@ -242,7 +251,16 @@ class TestBrain:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
+            async def complete(
+                self,
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=4096,
+                thinking=True,
+                thinking_effort=None,
+                tool_choice_required=True,
+            ):
                 self.seen_thinking = thinking
                 return await super().complete(messages, system_prompt, tools, max_tokens, thinking)
 
@@ -698,7 +716,16 @@ class TestBrainModelConfig:
                 super().__init__()
                 self.seen_thinking: bool | None = None
 
-            async def complete(self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None):
+            async def complete(
+                self,
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=4096,
+                thinking=True,
+                thinking_effort=None,
+                tool_choice_required=True,
+            ):
                 self.seen_thinking = thinking
                 return LLMResponse(
                     content=f"summary via {self._current_model}",
@@ -739,6 +766,7 @@ class TestBrainModelConfig:
                 max_tokens=4096,
                 thinking=True,
                 thinking_effort=None,
+                tool_choice_required=True,
             ):
                 self.seen_effort = thinking_effort
                 return await super().complete(

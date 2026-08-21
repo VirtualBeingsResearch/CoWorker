@@ -304,6 +304,7 @@ recovery = '''[系统恢复] 上一轮因连续 {{count}} 次执行错误而中�
 当前上下文已经清空重置。
 最近错误：{{error}}。'''
 system_error = "[系统错误] {{error}}"
+tool_required = "[系统提醒] 没有调用工具，请调用工具来完成你的目的。"
 skill_warning_title = "[技能加载异常] 以下 skill 加载失败或不可用："
 skill_warning_tail = "请不要假设这些 skill 可用；如果当前任务依赖它们，请先修复 skill 文件或改用其他工具。"
 model_fallback = "[系统通知] 主模型调用失败，已自动降级至 {{provider}}/{{model}}。主模型恢复后可用 switch_model 手动切回。"

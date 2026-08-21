@@ -130,6 +130,7 @@ class AnthropicProvider(BaseLLMProvider):
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
         thinking_effort: str | None = None,
+        tool_choice_required: bool = True,
     ) -> LLMResponse:
         effort = resolve_effort(thinking, thinking_effort)
         api_messages = self._build_api_messages(messages)
@@ -142,6 +143,8 @@ class AnthropicProvider(BaseLLMProvider):
             }
             if tools:
                 kwargs["tools"] = tools
+                if tool_choice_required:
+                    kwargs["tool_choice"] = {"type": "any"}
             self._apply_thinking(kwargs, effort)
             response = await self._client.messages.create(**kwargs)
         except anthropic.APIError as e:

@@ -20,7 +20,14 @@ class _CapturingProvider(BaseLLMProvider):
         self.seen: list[Message] = []
 
     async def complete(
-        self, messages, system_prompt, tools, max_tokens=4096, thinking=True, thinking_effort=None
+        self,
+        messages,
+        system_prompt,
+        tools,
+        max_tokens=4096,
+        thinking=True,
+        thinking_effort=None,
+        tool_choice_required=True,
     ) -> LLMResponse:
         self.seen = messages
         return LLMResponse(

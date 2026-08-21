@@ -193,6 +193,7 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
         thinking_effort: str | None = None,
+        tool_choice_required: bool = True,
     ) -> LLMResponse:
         effort = resolve_effort(thinking, thinking_effort)
         api_messages = self._build_api_messages(messages, system_prompt, self._current_model)
@@ -203,6 +204,8 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
         }
         if tools:
             kwargs["tools"] = self._build_tools(tools)
+            if tool_choice_required:
+                kwargs["tool_choice"] = "required"
         self._apply_thinking(kwargs, effort, self._current_model)
 
         try:

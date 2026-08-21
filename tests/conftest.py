@@ -29,6 +29,7 @@ class MockProvider(BaseLLMProvider):
         max_tokens=4096,
         thinking=True,
         thinking_effort=None,
+        tool_choice_required=True,
     ):
         return self._response
 

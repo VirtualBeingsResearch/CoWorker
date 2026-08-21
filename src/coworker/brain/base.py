@@ -126,6 +126,7 @@ class BaseLLMProvider(ABC):
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         thinking: bool = True,
         thinking_effort: str | None = None,
+        tool_choice_required: bool = True,
     ) -> LLMResponse: ...
 
     @staticmethod

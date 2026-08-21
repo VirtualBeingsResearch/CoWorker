@@ -8,6 +8,7 @@ from loguru import logger
 
 import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
+from coworker.core.constants import TICK_TAG
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.memory.base import MemoryRecord
 from coworker.memory.short_term import ShortTermMemory
@@ -221,7 +222,8 @@ async def test_cycle_records_latest_main_response_input_tokens():
     assert loop.state.last_main_response_usage["provider"] == "mock"
     assert loop.state.last_main_response_usage["model"] == "mock-model"
     assert loop.state.last_main_response_usage["measured_at"]
-    assert mem.primary[-1].usage == {"input_tokens": 321, "output_tokens": 12}
+    assistant = next(m for m in reversed(mem.primary) if m.role == "assistant")
+    assert assistant.usage == {"input_tokens": 321, "output_tokens": 12}
 
 
 @pytest.mark.asyncio
@@ -233,10 +235,44 @@ async def test_user_event_appended_to_primary():
 
     await loop._cycle()
 
-    user_msgs = [m for m in mem.primary if m.role == "user"]
+    user_msgs = [m for m in mem.primary if m.role == "user" and m.source != "system_reminder"]
     assert len(user_msgs) == 1
     assert user_msgs[0].content == "[来自企业微信][alice]的消息:\nhello"
     assert user_msgs[0].source == "wecom"
+
+
+@pytest.mark.asyncio
+async def test_no_tool_call_injects_immediate_system_reminder_without_rest():
+    mem = ShortTermMemory()
+    brain = _make_brain(content="I will answer here")
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+
+    await loop._cycle()
+
+    assert mem.primary[-2].role == "assistant"
+    assert mem.primary[-2].content == "I will answer here"
+    assert mem.primary[-1].role == "user"
+    assert mem.primary[-1].source == "system_reminder"
+    assert mem.primary[-1].content == "[系统提醒] 没有调用工具，请调用工具来完成你的目的。"
+    loop._rest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_no_tool_call_keeps_correcting_on_every_cycle():
+    mem = ShortTermMemory()
+    brain = _make_brain(content="still no tool")
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+
+    await loop._cycle()
+    await loop._cycle()
+    await loop._cycle()
+
+    reminders = [m for m in mem.primary if m.source == "system_reminder"]
+    assert len(reminders) == 3
+    assert brain.think.await_count == 3
+    loop._rest.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -448,7 +484,7 @@ async def test_extra_events_pushed_back():
 
     loop._inbox.push.assert_awaited_once_with(ev2)
     # only first event's message in primary
-    user_msgs = [m for m in mem.primary if m.role == "user"]
+    user_msgs = [m for m in mem.primary if m.role == "user" and m.source != "system_reminder"]
     assert len(user_msgs) == 1
     assert "alice" in user_msgs[0].content
 
@@ -465,7 +501,7 @@ async def test_tick_not_injected_after_tool_use():
 
     await loop._cycle()
 
-    tick_msgs = [m for m in mem.primary if m.role == "user"]
+    tick_msgs = [m for m in mem.primary if m.role == "user" and TICK_TAG in str(m.content)]
     assert not tick_msgs
 
 
@@ -586,7 +622,7 @@ async def test_same_user_events_batched_into_one_message():
     # 两条同用户消息不应再入队
     inbox.push.assert_not_awaited()
 
-    user_msgs = [m for m in mem.primary if m.role == "user"]
+    user_msgs = [m for m in mem.primary if m.role == "user" and m.source != "system_reminder"]
     assert len(user_msgs) == 1
     content = user_msgs[0].content
     # 合并后是 blocks 格式
@@ -618,7 +654,7 @@ async def test_mixed_users_batched_together():
     # 都在 batch 上限内，无需重新入队
     inbox.push.assert_not_awaited()
 
-    user_msgs = [m for m in mem.primary if m.role == "user"]
+    user_msgs = [m for m in mem.primary if m.role == "user" and m.source != "system_reminder"]
     assert len(user_msgs) == 1
     content = user_msgs[0].content
     # 三条消息（含 bob）都被合并进同一条 user message
