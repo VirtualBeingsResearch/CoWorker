@@ -30,7 +30,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.122.0"
+version = "0.123.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -42,9 +42,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/23/9987d70b74e3481d5bc5d2021d3e10fd5f60c1f7b54088ea86506d9b7f2b/anthropic-0.122.0.tar.gz", hash = "sha256:ffec56ae96657c8d19fa575ec96f140f380c353a07ab7d61b92eb18ee6536601", size = 1021535, upload-time = "2026-08-13T18:36:00.307Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/b0/ec9d0bc45a71a223d88b94da25061e361efc4403eb2a33ee762031ce8dd9/anthropic-0.123.0.tar.gz", hash = "sha256:5b69bebe20ca0123d1ef36c8dc7c52007d96fcfb6ab2cfd0193c486a0abea909", size = 1025318, upload-time = "2026-08-19T13:32:08.658Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/5b/f5c87e71097a9f89f1b414d1ef7ae8439051fae57d5e4ee90946082982b8/anthropic-0.122.0-py3-none-any.whl", hash = "sha256:45ec906452ffae6b5f7f0c53d01f50bfb7e4ce878d7ae8e4309d13171e557e67", size = 1041853, upload-time = "2026-08-13T18:36:01.831Z" },
+    { url = "https://files.pythonhosted.org/packages/96/33/cd7a2e9980d4b9dceb674120a07643b2d7243a70ced6b3018b708f151a73/anthropic-0.123.0-py3-none-any.whl", hash = "sha256:88da3376fff0b467e7394d7b8296a0234570f6af44d0a21d956c139255656ab4", size = 1042948, upload-time = "2026-08-19T13:32:06.756Z" },
 ]
 
 [[package]]
@@ -523,16 +523,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.122.0" },
+    { name = "anthropic", specifier = ">=0.123.0" },
     { name = "chromadb", marker = "extra == 'mem0'", specifier = ">=0.5" },
-    { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "ddgs", specifier = ">=9.15.0" },
     { name = "en-core-web-sm", marker = "extra == 'mem0'", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "loguru", specifier = ">=0.7" },
-    { name = "mcp2cli", specifier = ">=3.3.1" },
+    { name = "mcp2cli", specifier = ">=3.6.0" },
     { name = "mem0ai", extras = ["nlp"], marker = "extra == 'mem0'", specifier = ">=2.0.18" },
-    { name = "openai", specifier = ">=3.1.0" },
+    { name = "openai", specifier = ">=3.3.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "playwright", specifier = ">=1.62.0" },
     { name = "psutil", specifier = ">=6.0" },
@@ -544,10 +544,10 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
     { name = "requests", specifier = ">=2.34.2" },
-    { name = "sentence-transformers", marker = "extra == 'mem0'", specifier = ">=5.7.0" },
+    { name = "sentence-transformers", marker = "extra == 'mem0'", specifier = ">=6.0.0" },
     { name = "spacy", marker = "extra == 'mem0'", specifier = "==3.8.13" },
     { name = "torch", marker = "extra == 'mem0'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
     { name = "websockets", specifier = ">=17.0.1" },
     { name = "wecom-aibot-sdk", specifier = "==1.0.8" },
 ]
@@ -657,7 +657,7 @@ wheels = [
 
 [[package]]
 name = "ddgs"
-version = "9.14.4"
+version = "9.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -666,9 +666,9 @@ dependencies = [
     { name = "lxml" },
     { name = "primp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/24/9d29eeb7dd4852c27c3673adcaf30c4dc55ced76b303c1fbb792ce7cae52/ddgs-9.14.4.tar.gz", hash = "sha256:f7b118a2b709a9e9c04a1dca6e96b98c25d4dfaca1a4b0a244d74454fcca48ef", size = 59742, upload-time = "2026-05-15T06:53:45.946Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/b6/b7f3118a3b0a285f54fb4e1289c39e3cba1944066828aa04af9cf80f878e/ddgs-9.15.0.tar.gz", hash = "sha256:12c4148da66525031214279d3ecb5170778a484f2616cac12667d0824818d07d", size = 40040, upload-time = "2026-08-16T05:20:55.574Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/5f/32de4d99220eb559b7b1cd1c529a1856efa8097f7a3e10b6c207aa95e36c/ddgs-9.14.4-py3-none-any.whl", hash = "sha256:acb084c34bf1110c974caf7e5e5a2c1973beb4bd9e170bfd191fe5ed2d2b2d6c", size = 70638, upload-time = "2026-05-15T06:53:44.761Z" },
+    { url = "https://files.pythonhosted.org/packages/66/00/401852478e2a6fff87fbcafe8c33d8e623643bba67905188b40581dcdbdd/ddgs-9.15.0-py3-none-any.whl", hash = "sha256:2c6cce11d8625a030ed471265230dd6d1f5e12a6efecde5dfa3a1b33882888e0", size = 50159, upload-time = "2026-08-16T05:20:54.359Z" },
 ]
 
 [[package]]
@@ -1421,16 +1421,16 @@ wheels = [
 
 [[package]]
 name = "mcp2cli"
-version = "3.3.1"
+version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/97/53/fdc3d016a5e6673f2e8688cf052029c6e6055ef43f30c577a95b99ce6b21/mcp2cli-3.3.1.tar.gz", hash = "sha256:d64917ce080f4d9d264bd9bcf87a65b13363520d86a06c787b994aab13252493", size = 38430, upload-time = "2026-06-30T22:45:39.027Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/d2/5878e65afe78efe1ffbec117fb4729dd0e29ddcb7217d9724f93b64f4487/mcp2cli-3.6.0.tar.gz", hash = "sha256:c62cee41beeb82d0ea4a85559bced431f13624434de8b7e6a9277dcbddc4f206", size = 45708, upload-time = "2026-08-19T07:42:42.131Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/6c/b99e700edc7ad2b2533ec1caf1f1ebe9b8d6c4adf49ca7a02d43f389c46a/mcp2cli-3.3.1-py3-none-any.whl", hash = "sha256:111072553fed6d7c399a1b9441f8c2f9b57a39bc39a0e2123da8bc471f4dc31b", size = 39516, upload-time = "2026-06-30T22:45:38.027Z" },
+    { url = "https://files.pythonhosted.org/packages/70/31/129d0629b7cb4e9deaf932576adbcbaaaaf847b6a9ad66183b30f209f0ad/mcp2cli-3.6.0-py3-none-any.whl", hash = "sha256:ee232ea402c5b424d810dda9d5a6dc6ce3d3396930a5044136f66fa5fc4755ef", size = 46612, upload-time = "2026-08-19T07:42:41.129Z" },
 ]
 
 [[package]]
@@ -1741,7 +1741,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "3.1.0"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1750,12 +1750,11 @@ dependencies = [
     { name = "jiter" },
     { name = "pydantic" },
     { name = "sniffio" },
-    { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/9b/d45911bf9abfc5a754d800d79fe56e4dcf6e7b679d6ff4b7e9689b56bc02/openai-3.1.0.tar.gz", hash = "sha256:3ae7190da63f718727f9c525740d3f713e85553d2bf1d0cc9247346bd9063a4d", size = 1131016, upload-time = "2026-08-14T23:49:46.325Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/6c/670271205379061112bf5ed900b78a68e21bf11733de829772c5322f92aa/openai-3.3.0.tar.gz", hash = "sha256:28f904a9fbff15288e9dd67bc0f7020d4f576d37786383a480db02fe5d8139d3", size = 1166178, upload-time = "2026-08-18T21:17:53.419Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/45/84b9e909968c0f4c3112a828bba9aa8be6a5ee322fcb3d781145ee53d88e/openai-3.1.0-py3-none-any.whl", hash = "sha256:f06d5a5c8d06a0aead3a67d33fe5a3c3c31540a0f7a8017b02ba8cd99bc5c736", size = 1670762, upload-time = "2026-08-14T23:49:43.998Z" },
+    { url = "https://files.pythonhosted.org/packages/82/83/d44980712bf51dddaca090cd772b3102e75377ddac877eaa4b2cb58d886a/openai-3.3.0-py3-none-any.whl", hash = "sha256:ded6b2112e6d299c7a2573ff6f165dc92fb64ceaa4d7daa42345f091157bd373", size = 1690265, upload-time = "2026-08-18T21:17:51.351Z" },
 ]
 
 [[package]]
@@ -2912,7 +2911,7 @@ wheels = [
 
 [[package]]
 name = "sentence-transformers"
-version = "5.7.0"
+version = "6.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -2926,9 +2925,9 @@ dependencies = [
     { name = "transformers" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/59/867381b1414a975da6c9953f48a07c05cb0629305e2d37c9bcc9764367b2/sentence_transformers-5.7.0.tar.gz", hash = "sha256:fd8c8fc35e6323631dff9f3760969ebf7980dc3cfda0ab1354bc6a774cc0e5d8", size = 466382, upload-time = "2026-08-06T12:12:33.371Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e7/43/6b53e6a2098440ce21478742facbc058f1a66ba2cb80b24bdc64942e1e2c/sentence_transformers-6.0.0.tar.gz", hash = "sha256:9e8c2c24f3b1c7473cd5f519a3d3cff60daaeb95533b82d045ffb43ee5f2dac4", size = 575048, upload-time = "2026-08-18T13:33:49.919Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/c8/f63d99e354532f5b83e735dd1e001bda92495fbfde934f65d924abf2b071/sentence_transformers-5.7.0-py3-none-any.whl", hash = "sha256:b78141da3d8137e70d965866e2ca43190b9266f3d4d8752e250ded75e7136730", size = 611333, upload-time = "2026-08-06T12:12:31.881Z" },
+    { url = "https://files.pythonhosted.org/packages/04/fe/9d19b01fe87945f9455c617bf5d33dfbf29fe06ab6580bc0bea06080c788/sentence_transformers-6.0.0-py3-none-any.whl", hash = "sha256:b974ac67523ea2a955afa87b1024129305472bd884367dcc969261cb086790e9", size = 739640, upload-time = "2026-08-18T13:33:48.428Z" },
 ]
 
 [[package]]
@@ -3394,15 +3393,15 @@ wheels = [
 
 [[package]]
 name = "uvicorn"
-version = "0.52.3"
+version = "0.52.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/28/64ca011edf31c715b4fad359c587ea52391aaffa125065695590241ff617/uvicorn-0.52.3.tar.gz", hash = "sha256:18857b9e6579300be55c91c0a1cfd37d9a2cf0cabea33b88275f199eb73b8b58", size = 100621, upload-time = "2026-08-13T16:50:02.899Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/0f/3f86e61397dd33bf2ccf28188c40db6a740658aeebbbf6e7dbc101a1f487/uvicorn-0.52.4.tar.gz", hash = "sha256:73acfee47a0b133c5de13d219492d62d8a31e935f4fe6e41a232451a15379f86", size = 100627, upload-time = "2026-08-19T06:27:41.821Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/2b/ebd108734a8204c6b4b93c681c9a38c5273b3ccd5d129fee4ffc1d97772c/uvicorn-0.52.3-py3-none-any.whl", hash = "sha256:116af2710dbf47c80f463cd20ee4884b6662f4c9f227d797ddc7279d2fcc2c7c", size = 79859, upload-time = "2026-08-13T16:50:01.323Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/79/4a20b54ab0491485ccd8c077db2d39187c7f12b3e15485d38a7be37c81b4/uvicorn-0.52.4-py3-none-any.whl", hash = "sha256:f86e41a149d7d05a9969337e3946a9c171c06a5d42680896daaba624aeac8da1", size = 79871, upload-time = "2026-08-19T06:27:40.36Z" },
 ]
 
 [package.optional-dependencies]
