@@ -86,6 +86,7 @@ missing = "Backup file not found"
 read_failed = "Failed to read backup file: {{error}}"
 empty = "The backup is empty; refusing to restore it to avoid clearing the conversation"
 summary_failed = "Summarization failed: {{error}}"
+delete_failed = "Failed to delete backup file: {{error}}"
 
 [api.desktop]
 version_semver = "version must follow SemVer"

@@ -2515,7 +2515,23 @@ function DangerAction({ title, description, button, confirmationName, onConfirm 
 
 function Maintenance({ confirmationName }: { confirmationName: string }) {
   const backups = useLoad(() => api<Json>('/api/admin/backups'), []);
-  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? formatDateTime(backup.timestamp) : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} confirmationName={confirmationName} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel></div>;
+  return <div className="page-stack">
+    <Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。">
+      <div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}>
+        <div><b>{backup.filename}</b><small>{backup.timestamp ? formatDateTime(backup.timestamp) : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div>
+        <div className="row-actions">
+          <button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button>
+          <BackupFullRestore filename={backup.filename} confirmationName={confirmationName} />
+          <BackupDelete
+            filename={backup.filename}
+            confirmationName={confirmationName}
+            onDeleted={() => backups.setData(current => current ? { ...current, backups: current.backups.filter((item: Json) => item.filename !== backup.filename) } : current)}
+          />
+        </div>
+      </article>) : <Empty text="当前没有应急备份。" />}</div>
+    </Panel>
+    <Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel>
+  </div>;
 }
 
 function BackupFullRestore({ filename, confirmationName }: { filename: string; confirmationName: string }) {
@@ -2549,6 +2565,42 @@ function BackupFullRestore({ filename, confirmationName }: { filename: string; c
       <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
       {error && <div className="notice error">{error}</div>}
       <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void restore()}>{busy ? t('正在恢复…') : t('完整恢复')}</button></div>
+    </div></div>}
+  </>;
+}
+
+function BackupDelete({ filename, confirmationName, onDeleted }: { filename: string; confirmationName: string; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setTyped('');
+    setError('');
+  };
+  const remove = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE', body: JSON.stringify({ confirm_name: confirmationName }) });
+      onDeleted();
+      setOpen(false);
+      setTyped('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('请求失败'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <>
+    <button className="danger-outline" onClick={() => setOpen(true)}>{t('删除')}</button>
+    {open && <div className="modal-layer"><div className="confirm-modal">
+      <TriangleAlert size={28} /><h3>{t('删除应急备份')}</h3><p>{t('永久删除 {{filename}}；删除后无法再从这份备份恢复。', { filename })}</p>
+      <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
+      {error && <div className="notice error">{error}</div>}
+      <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void remove()}>{busy ? t('正在删除…') : t('删除')}</button></div>
     </div></div>}
   </>;
 }

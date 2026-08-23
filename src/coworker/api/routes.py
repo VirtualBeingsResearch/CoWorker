@@ -473,6 +473,22 @@ def _backup_dir() -> Path | None:
     return _agent._snapshot_path.parent
 
 
+def resolve_backup_path(backup_dir: Path, name: str) -> Path:
+    """Resolve one emergency backup without allowing traversal or other files."""
+    if (
+        "/" in name
+        or "\\" in name
+        or ".." in name
+        or not name.startswith(_BACKUP_PREFIX)
+        or not name.endswith(".json")
+    ):
+        raise HTTPException(status_code=400, detail=tr("api.backup.invalid_filename"))
+    path = backup_dir / name
+    if path.resolve().parent != backup_dir.resolve() or not path.is_file():
+        raise HTTPException(status_code=404, detail=tr("api.backup.missing"))
+    return path
+
+
 @router.get("/profile")
 async def get_profile(authorization: str | None = Header(default=None)):
     """Agent 基础信息：身份、最早记忆时间戳。"""
@@ -581,18 +597,7 @@ async def restore_backup(payload: RestoreBackupPayload) -> dict[str, object]:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
 
     name = payload.filename
-    # 路径穿越防护：必须是裸文件名、符合命名前后缀、解析后仍落在备份目录内。
-    if (
-        "/" in name
-        or "\\" in name
-        or ".." in name
-        or not name.startswith(_BACKUP_PREFIX)
-        or not name.endswith(".json")
-    ):
-        raise HTTPException(status_code=400, detail=tr("api.backup.invalid_filename"))
-    path = backup_dir / name
-    if path.resolve().parent != backup_dir.resolve() or not path.is_file():
-        raise HTTPException(status_code=404, detail=tr("api.backup.missing"))
+    path = resolve_backup_path(backup_dir, name)
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

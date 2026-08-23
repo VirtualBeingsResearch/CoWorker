@@ -86,6 +86,7 @@ missing = "备份文件不存在"
 read_failed = "备份文件读取失败：{{error}}"
 empty = "备份为空，拒绝恢复（避免清空会话）"
 summary_failed = "摘要失败：{{error}}"
+delete_failed = "备份文件删除失败：{{error}}"
 
 [api.desktop]
 version_semver = "version 必须符合 SemVer"

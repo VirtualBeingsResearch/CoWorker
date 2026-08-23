@@ -92,6 +92,8 @@ def _client(
     ]
     agent = SimpleNamespace(
         _identity=_Identity(),
+        _snapshot_path=tmp_path / "short_term_snapshot.json",
+        _short_term=ShortTermMemory(),
         state=SimpleNamespace(current_provider="", current_model=""),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
@@ -432,6 +434,63 @@ def test_admin_resume_wakes_rest_without_confirmation(tmp_path):
     assert response.status_code == 200
     assert response.json() == {"resumed": True}
     admin._agent.resume_from_rest.assert_called_once_with()
+
+
+def test_admin_can_delete_emergency_backup_with_confirmation(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    filename = "emergency_backup_20260823_010203.json"
+    backup = tmp_path / filename
+    backup.write_text('{"primary": []}', encoding="utf-8")
+
+    assert client.delete(f"/api/admin/backups/{filename}").status_code == 401
+    rejected = client.request(
+        "DELETE",
+        f"/api/admin/backups/{filename}",
+        headers=headers,
+        json={"confirm_name": "wrong"},
+    )
+    assert rejected.status_code == 400
+    assert backup.is_file()
+
+    deleted = client.request(
+        "DELETE",
+        f"/api/admin/backups/{filename}",
+        headers=headers,
+        json={"confirm_name": "Luna"},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "filename": filename}
+    assert not backup.exists()
+    audit = (tmp_path / "logs" / "admin_audit.jsonl").read_text(encoding="utf-8")
+    assert '"action": "backup.delete"' in audit
+    assert f'"target": "{filename}"' in audit
+
+
+def test_admin_backup_delete_rejects_invalid_or_missing_file(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    payload = {"confirm_name": "Luna"}
+    unrelated = tmp_path / "notes.json"
+    unrelated.write_text("{}", encoding="utf-8")
+
+    invalid = client.request(
+        "DELETE",
+        "/api/admin/backups/notes.json",
+        headers=headers,
+        json=payload,
+    )
+    missing = client.request(
+        "DELETE",
+        "/api/admin/backups/emergency_backup_20990101_000000.json",
+        headers=headers,
+        json=payload,
+    )
+
+    assert invalid.status_code == 400
+    assert unrelated.is_file()
+    assert missing.status_code == 404
 
 
 def test_admin_error_detail_follows_runtime_locale(tmp_path):

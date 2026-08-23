@@ -71,6 +71,8 @@ Emergency backups in Runtime Center are short-term-memory snapshots created afte
 
 - **Summary restore** calls the summary model and injects the result as new input without replacing current context.
 - **Full restore** replaces the main short-term context and trims incomplete tool-call chains.
+- **Delete** requires confirmation with the Coworker name, removes only the selected emergency
+  backup file, and cannot be undone.
 
 Prefer summary restore. Before full restore, record the current message count, backup filename, and
 time. Neither mode restores long-term memory, Skills, or configuration.

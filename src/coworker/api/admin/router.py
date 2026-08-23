@@ -2265,6 +2265,33 @@ async def restore_admin_backup(
     return result
 
 
+@router.delete("/backups/{filename}")
+async def delete_admin_backup(
+    filename: str,
+    payload: ConfirmPayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    from coworker.api.routes import resolve_backup_path
+
+    _require_name_confirmation(payload.confirm_name)
+    snapshot_path = getattr(_require_agent(), "_snapshot_path", None)
+    if snapshot_path is None:
+        raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
+    path = resolve_backup_path(Path(snapshot_path).parent, filename)
+    try:
+        path.unlink()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=tr("api.backup.missing")) from e
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=tr("api.backup.delete_failed", error=e),
+        ) from e
+    _audit(request, "backup.delete", filename)
+    return {"deleted": True, "filename": filename}
+
+
 @router.get("/alarms")
 async def list_alarms(_: None = Depends(require_admin)) -> ApiResponse:
     return {"alarms": _require_alarms().list()}
