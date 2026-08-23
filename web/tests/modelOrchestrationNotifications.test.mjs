@@ -12,3 +12,12 @@ test('model orchestration reports switch, save, and catalog refresh outcomes', (
   assert.match(adminApp, /failedProviders\.length/);
   assert.match(adminApp, /notice success/);
 });
+
+test('all model orchestration model fields use provider catalog comboboxes', () => {
+  assert.match(adminApp, /const summaryModelOptions = modelOptionsFor\(draft\.summary\.provider \|\| draft\.active\.provider\)/);
+  assert.match(adminApp, /const visionModelOptions = modelOptionsFor\(draft\.vision\.provider\)/);
+  assert.match(adminApp, /const mem0ModelOptions = modelOptionsFor\(draft\.mem0\.provider \|\| draft\.active\.provider\)/);
+  assert.match(adminApp, /<EditableCombobox id="summary-model-input"[^>]+options=\{summaryModelOptions\}/);
+  assert.match(adminApp, /<EditableCombobox id="vision-model-input"[^>]+options=\{visionModelOptions\}/);
+  assert.match(adminApp, /<EditableCombobox id="mem0-model-input"[^>]+options=\{mem0ModelOptions\}/);
+});
