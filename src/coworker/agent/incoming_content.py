@@ -58,6 +58,22 @@ def build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
         if event.content or event.attachments:
             blocks.append({"type": "text", "text": format_event_text(event)})
         for att in event.attachments:
+            attachment_kind = tr(
+                "incoming.video_attachment"
+                if att.media_type.startswith("video/")
+                else "incoming.attachment"
+            )
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": tr(
+                        "incoming.saved_attachment",
+                        kind=attachment_kind,
+                        filename=att.filename,
+                        path=att.saved_path,
+                    ),
+                }
+            )
             if att.media_type.startswith("image/") and att.data is not None:
                 blocks.append(
                     {
@@ -82,23 +98,6 @@ def build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
                         },
                         "_filename": att.filename,
                         "_saved_path": att.saved_path,
-                    }
-                )
-            else:
-                attachment_kind = tr(
-                    "incoming.video_attachment"
-                    if att.media_type.startswith("video/")
-                    else "incoming.attachment"
-                )
-                blocks.append(
-                    {
-                        "type": "text",
-                        "text": tr(
-                            "incoming.saved_attachment",
-                            kind=attachment_kind,
-                            filename=att.filename,
-                            path=att.saved_path,
-                        ),
                     }
                 )
 

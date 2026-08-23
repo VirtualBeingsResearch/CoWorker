@@ -381,10 +381,12 @@ async def test_inbound_document_exposes_file_details_to_the_model(tmp_path: Path
 
     assert client.downloads == ["report-file"]
     assert events[0].attachments[0].filename == "quarterly-report.pdf"
+    saved_path = events[0].attachments[0].saved_path
     assert isinstance(blocks, list)
     model_text = "\n".join(block["text"] for block in blocks if block.get("type") == "text")
     assert "[file] quarterly-report.pdf (application/pdf)" in model_text
     assert "Please review this report" in model_text
+    assert saved_path in model_text
 
 
 @pytest.mark.asyncio

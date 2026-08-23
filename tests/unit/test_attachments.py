@@ -75,15 +75,18 @@ class TestBuildContentBlocks:
         event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
         assert result[0]["text"] == "[来自文件投递][alice]的消息:\n"
+        assert any("data/attachments/x.jpg" in block.get("text", "") for block in result)
         img_block = next(b for b in result if b["type"] == "image")
         assert img_block["_saved_path"] == "data/attachments/x.jpg"
         assert img_block["_filename"] == "photo.jpg"
         assert img_block["source"]["data"] == "base64data"
 
     def test_pdf_attachment_returns_document_block(self):
-        event = IncomingEvent(participant_id="alice", content="", attachments=[_pdf_att()])
+        att = _pdf_att(path="data/attachments/report.pdf")
+        event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
         assert any(b["type"] == "document" for b in result)
+        assert any("data/attachments/report.pdf" in b.get("text", "") for b in result)
 
     def test_text_file_returns_path_reference(self):
         att = _file_att(path="data/attachments/notes.txt")
