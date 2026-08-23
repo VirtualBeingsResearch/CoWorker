@@ -2026,6 +2026,15 @@ html:has(.admin-login),
 .short-message-body pre,
 .pinned-context-list pre { overflow: auto; margin: 0; padding: 12px; border-radius: 8px; color: var(--admin-ink); background: var(--admin-paper); font: var(--admin-type-caption)/1.7 var(--admin-data); white-space: pre-wrap; overflow-wrap: anywhere; }
 .short-message-body > p { margin: 8px 0 0; color: var(--admin-muted); font: var(--admin-type-micro)/1.5 var(--admin-data); }
+.memory-image-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 220px)); gap: 9px; margin-top: 9px; }
+.memory-image-preview { overflow: hidden; margin: 0; border: 1px solid var(--admin-line); border-radius: 8px; background: var(--admin-paper); }
+.memory-image-preview a,
+.memory-image-preview > div { display: grid; place-items: center; min-height: 110px; }
+.memory-image-preview > div { color: var(--admin-muted); font-size: var(--admin-type-micro); }
+.memory-image-preview > div.failed { color: var(--admin-red); }
+.memory-image-preview img { display: block; width: 100%; max-height: 260px; object-fit: contain; background: var(--admin-surface); }
+.memory-image-preview figcaption { overflow: hidden; padding: 6px 8px; color: var(--admin-muted); font: var(--admin-type-micro) var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
+.tool-exchange > div > .memory-image-gallery { grid-column: 2; width: 100%; }
 .message-reasoning,
 .message-tool-section { margin-top: 9px; }
 .message-reasoning > b,

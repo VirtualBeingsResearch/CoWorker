@@ -1725,6 +1725,53 @@ function memoryDetailText(value: unknown) {
   return String(value ?? '');
 }
 
+function memoryImageBlocks(content: unknown): Json[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter((block): block is Json => Boolean(
+    block
+    && typeof block === 'object'
+    && !Array.isArray(block)
+    && (block as Json).type === 'image'
+    && typeof (block as Json).preview_url === 'string',
+  ));
+}
+
+function MemoryImagePreview({ image }: { image: Json }) {
+  const [source, setSource] = useState('');
+  const [failed, setFailed] = useState(false);
+  const url = String(image.preview_url || '');
+  const filename = String(image.filename || t('图片'));
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl = '';
+    setSource('');
+    setFailed(false);
+    void fetch(url, {
+      headers: { Authorization: `Bearer ${storedToken()}` },
+      signal: controller.signal,
+    }).then(async response => {
+      if (!response.ok) throw new Error(String(response.status));
+      objectUrl = URL.createObjectURL(await response.blob());
+      if (!controller.signal.aborted) setSource(objectUrl);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+  return <figure className="memory-image-preview">
+    {source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt={filename} loading="lazy" /></a> : <div className={failed ? 'failed' : ''}>{t(failed ? '加载失败' : '正在加载…')}</div>}
+    <figcaption>{filename}</figcaption>
+  </figure>;
+}
+
+function MemoryImageGallery({ content }: { content: unknown }) {
+  const images = memoryImageBlocks(content);
+  return images.length ? <div className="memory-image-gallery">{images.map((image, index) => <MemoryImagePreview image={image} key={String(image.preview_url) + '-' + index} />)}</div> : null;
+}
+
 function memoryPreview(message: Json) {
   const toolCalls = message.tool_calls || [];
   const fallback = toolCalls.length
@@ -1734,6 +1781,7 @@ function memoryPreview(message: Json) {
 }
 
 function MemoryMessage({ message, index, defaultOpen = false, coworkerName = '' }: { message: Json; index: number; defaultOpen?: boolean; coworkerName?: string }) {
+  const [open, setOpen] = useState(defaultOpen);
   const role = message.role === 'assistant' && coworkerName && coworkerName.toLowerCase() !== 'coworker'
     ? coworkerName
     : message.role === 'user' ? memorySourceName(message.source) : t(MEMORY_ROLE[message.role] || message.role);
@@ -1746,9 +1794,9 @@ function MemoryMessage({ message, index, defaultOpen = false, coworkerName = '' 
     : message.tool_calls?.length
       ? t('{{count}} 个工具调用', { count: message.tool_calls.length })
       : message.stop_reason || '';
-  return <details className={'short-message role-' + message.role} open={defaultOpen}>
+  return <details className={'short-message role-' + message.role} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary><span className="message-index">{String(index + 1).padStart(2, '0')}</span><span className="message-summary-copy"><b>{role}</b><small>{formatDateTime(message.timestamp)}{' · '}{sourceName}{usage}</small><em className="message-preview">{memoryPreview(message)}</em></span><i>{summaryState}</i></summary>
-    <div className="short-message-body"><pre>{memoryContentText(message.content)}</pre>{message.reasoning_content && <section className="message-reasoning"><b><Brain size={12} />{t('思考')}</b><pre>{message.reasoning_content}</pre></section>}{message.tool_calls?.length > 0 && <section className="message-tool-section"><b><Wrench size={12} />{t('工具调用')}</b><div className="message-tools">{message.tool_calls.map((call: Json) => <details className="tool-exchange" key={call.id || call.name} open><summary><span><Wrench size={11} />{call.name}</span><small>{'result' in call ? t('已返回') : t('等待结果')}</small></summary><div><label>{t('参数')}</label><pre>{memoryDetailText(call.arguments)}</pre><label>{t('结果')}</label><pre>{'result' in call ? memoryDetailText(call.result) : t('尚未返回结果')}</pre></div></details>)}</div></section>}{message.recalled_memory_ids?.length > 0 && <p>{t('召回长期记忆：')} {message.recalled_memory_ids.join(' · ')}</p>}{message.tool_call_id && <p>{t('工具调用 ID：')} {message.tool_call_id}</p>}</div>
+    <div className="short-message-body"><pre>{memoryContentText(message.content)}</pre>{open && <MemoryImageGallery content={message.content} />}{message.reasoning_content && <section className="message-reasoning"><b><Brain size={12} />{t('思考')}</b><pre>{message.reasoning_content}</pre></section>}{message.tool_calls?.length > 0 && <section className="message-tool-section"><b><Wrench size={12} />{t('工具调用')}</b><div className="message-tools">{message.tool_calls.map((call: Json) => <details className="tool-exchange" key={call.id || call.name} open><summary><span><Wrench size={11} />{call.name}</span><small>{'result' in call ? t('已返回') : t('等待结果')}</small></summary><div><label>{t('参数')}</label><pre>{memoryDetailText(call.arguments)}</pre><label>{t('结果')}</label><pre>{'result' in call ? memoryDetailText(call.result) : t('尚未返回结果')}</pre>{open && <MemoryImageGallery content={call.result} />}</div></details>)}</div></section>}{message.recalled_memory_ids?.length > 0 && <p>{t('召回长期记忆：')} {message.recalled_memory_ids.join(' · ')}</p>}{message.tool_call_id && <p>{t('工具调用 ID：')} {message.tool_call_id}</p>}</div>
   </details>;
 }
 

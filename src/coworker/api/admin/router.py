@@ -108,6 +108,9 @@ _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
 _SAFE_BUBBLE_ID = re.compile(r"^bbl_[A-Za-z0-9_-]{1,160}$")
+_ADMIN_PREVIEW_IMAGE_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/gif", "image/webp"}
+)
 _BOOTSTRAP_MANAGED_CONFIG_PATHS = {
     "admin.token",
     "admin.config_file",
@@ -430,14 +433,14 @@ def _require_bubble_store() -> BubbleStore:
     return store
 
 
-def _admin_message_content(content: object) -> object:
+def _admin_message_content(content: object, *, message_index: int | None = None) -> object:
     """Keep readable content blocks without returning embedded attachment bytes."""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return str(content)
     safe: list[object] = []
-    for block in content:
+    for block_index, block in enumerate(content):
         if not isinstance(block, dict):
             safe.append(str(block))
             continue
@@ -445,14 +448,30 @@ def _admin_message_content(content: object) -> object:
         if block_type in {"text", "input_text", "output_text"}:
             safe.append({"type": block_type, "text": str(block.get("text") or "")})
         else:
-            safe.append(
-                {
-                    key: block[key]
-                    for key in ("type", "media_type", "filename", "name")
-                    if key in block
-                }
-                or {"type": block_type}
-            )
+            item = {
+                key: block[key]
+                for key in ("type", "media_type", "filename", "name")
+                if key in block
+            } or {"type": block_type}
+            source = block.get("source")
+            if block_type == "image" and isinstance(source, dict):
+                media_type = str(source.get("media_type") or "")
+                if media_type in _ADMIN_PREVIEW_IMAGE_TYPES:
+                    item["media_type"] = media_type
+                filename = str(block.get("_filename") or item.get("filename") or "")
+                if filename:
+                    item["filename"] = filename
+                if (
+                    message_index is not None
+                    and source.get("type") == "base64"
+                    and isinstance(source.get("data"), str)
+                    and media_type in _ADMIN_PREVIEW_IMAGE_TYPES
+                ):
+                    item["preview_url"] = (
+                        f"/api/admin/memory/short-term/messages/{message_index}"
+                        f"/content/{block_index}"
+                    )
+            safe.append(item)
     return safe
 
 
@@ -470,7 +489,7 @@ def _admin_tool_arguments(value: object) -> object:
 
 
 def _admin_tool_calls(
-    tool_calls: list[dict], results: Mapping[str, object]
+    tool_calls: list[dict], results: Mapping[str, tuple[int, object]]
 ) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for call in tool_calls:
@@ -485,7 +504,10 @@ def _admin_tool_calls(
             ),
         }
         if call_id in results:
-            item["result"] = _admin_message_content(results[call_id])
+            result_index, result_content = results[call_id]
+            item["result"] = _admin_message_content(
+                result_content, message_index=result_index
+            )
         out.append(item)
     return out
 
@@ -2015,8 +2037,8 @@ def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
     pinned items on every refresh.
     """
     tool_results = {
-        message.tool_call_id: message.content
-        for message in stm.primary
+        message.tool_call_id: (index, message.content)
+        for index, message in enumerate(stm.primary)
         if message.role == "tool" and message.tool_call_id
     }
     paired_tool_ids = {
@@ -2032,7 +2054,7 @@ def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
         item: dict[str, object] = {
             "index": index,
             "role": message.role,
-            "content": _admin_message_content(message.content),
+            "content": _admin_message_content(message.content, message_index=index),
             "timestamp": message.timestamp.isoformat(),
             "tool_calls": _admin_tool_calls(message.tool_calls, tool_results),
             "recalled_memory_ids": list(message.recalled_memory_ids),
@@ -2120,6 +2142,44 @@ async def get_short_term_messages(_: None = Depends(require_admin)) -> ApiRespon
     """
     stm = _require_agent()._short_term
     return {"messages": _short_term_messages(stm)}
+
+
+@router.get("/memory/short-term/messages/{message_index}/content/{block_index}")
+async def get_short_term_message_content(
+    message_index: int,
+    block_index: int,
+    _: None = Depends(require_admin),
+) -> Response:
+    """Return one embedded short-term image without adding Base64 to polling JSON."""
+    missing = tr("api.admin.image_preview_missing")
+    messages = _require_agent()._short_term.primary
+    if message_index < 0 or message_index >= len(messages):
+        raise HTTPException(status_code=404, detail=missing)
+    content = messages[message_index].content
+    if not isinstance(content, list) or block_index < 0 or block_index >= len(content):
+        raise HTTPException(status_code=404, detail=missing)
+    block = content[block_index]
+    if not isinstance(block, dict) or block.get("type") != "image":
+        raise HTTPException(status_code=404, detail=missing)
+    source = block.get("source")
+    if not isinstance(source, dict) or source.get("type") != "base64":
+        raise HTTPException(status_code=404, detail=missing)
+    media_type = str(source.get("media_type") or "")
+    encoded = source.get("data")
+    if media_type not in _ADMIN_PREVIEW_IMAGE_TYPES or not isinstance(encoded, str):
+        raise HTTPException(status_code=404, detail=missing)
+    try:
+        image = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise HTTPException(status_code=404, detail=missing) from error
+    return Response(
+        content=image,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/memory/pinned", status_code=201)
