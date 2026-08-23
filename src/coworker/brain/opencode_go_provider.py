@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
+from coworker.brain.openai_provider import OpenAIProvider
 from coworker.brain.thinking import ThinkingEffort
+from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
+from coworker.core.types import LLMResponse, Message
 
-# Official OpenAI-compatible model catalog served by OpenCode Go's
-# https://opencode.ai/zen/go/v1 endpoint. MiniMax/Qwen 模型在该订阅里走
-# Anthropic 兼容端点，不列入这里的 chat.completions 目录。
-_OPENCODE_GO_MODELS = {
+# Official model catalog served by OpenCode Go's /v1 endpoint. MiniMax/Qwen
+# models use its Anthropic-compatible endpoint and are not exposed by this
+# provider; the sets below cover chat.completions and Responses separately.
+_CHAT_COMPLETIONS_MODELS = {
     "deepseek-v4-flash",
     "deepseek-v4-pro",
     "kimi-k2.5",
@@ -27,6 +30,16 @@ _OPENCODE_GO_MODELS = {
     "hy3-preview",
 }
 
+# These stable additions use the OpenAI Responses API on the same /v1 base URL.
+# Newly listed experimental, contributor/region-limited, and limited-time
+# entries intentionally remain dynamic-only rather than recommended here.
+_RESPONSES_MODELS = {
+    "gpt-5.6-luna",
+    "grok-4.5",
+}
+
+_OPENCODE_GO_MODELS = _CHAT_COMPLETIONS_MODELS | _RESPONSES_MODELS
+
 _VISION_MODELS = {
     "kimi-k3",
 }
@@ -41,10 +54,80 @@ _KIMI_MEDIUM_MODELS = {"kimi-k2.6", "kimi-k2.7-code"}
 _KIMI_MAX_MODELS = {"kimi-k3"}
 
 
+class _OpenCodeGoResponsesProvider(OpenAIProvider):
+    """Responses adapter without registering a second public provider type."""
+
+    provider_type = ""
+
+    def _apply_reasoning(self, kwargs: dict, effort) -> None:
+        # OpenCode documents Luna's standard Responses reasoning contract.
+        # Grok has no stable public effort contract through Go, so leave its
+        # request shape untouched and let the gateway select its default.
+        if self._current_model != "gpt-5.6-luna":
+            return
+        if effort == "none":
+            kwargs["reasoning"] = {"effort": "none"}
+        else:
+            kwargs["reasoning"] = {
+                "effort": effort if effort is not None else "high",
+                "summary": "auto",
+            }
+
+
 class OpenCodeGoProvider(OpenAIChatCompletionsProvider):
     provider_type = "opencode-go"
     default_base_url = "https://opencode.ai/zen/go/v1"
     _DEFAULT_MODEL = "deepseek-v4-flash"
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        name: str | None = None,
+    ) -> None:
+        resolved_base_url = self.resolve_base_url(base_url)
+        super().__init__(api_key, base_url=resolved_base_url, name=name)
+        self._responses_provider = _OpenCodeGoResponsesProvider(
+            api_key,
+            base_url=resolved_base_url,
+            name=self.provider_name,
+        )
+
+    async def complete(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+        thinking: bool = True,
+        thinking_effort: str | None = None,
+    ) -> LLMResponse:
+        if self._current_model in _RESPONSES_MODELS:
+            return await self._responses_provider.complete(
+                messages,
+                system_prompt,
+                tools,
+                max_tokens=max_tokens,
+                thinking=thinking,
+                thinking_effort=thinking_effort,
+            )
+        return await super().complete(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            thinking=thinking,
+            thinking_effort=thinking_effort,
+        )
+
+    def set_model(self, model_id: str) -> None:
+        super().set_model(model_id)
+        self._responses_provider.set_model(model_id)
+
+    async def count_tokens(self, messages: list[Message], model_id: str) -> int:
+        if model_id in _RESPONSES_MODELS:
+            return await self._responses_provider.count_tokens(messages, model_id)
+        return await super().count_tokens(messages, model_id)
 
     def _apply_thinking(
         self,

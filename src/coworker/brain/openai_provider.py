@@ -269,6 +269,18 @@ class OpenAIProvider(BaseLLMProvider):
             ),
         }
 
+    def _apply_reasoning(self, kwargs: dict, effort) -> None:
+        """Add Responses API reasoning fields supported by the selected model."""
+        if effort == "none":
+            kwargs["reasoning"] = {"effort": "none"}
+        elif self._current_model in _REASONING_MODELS:
+            # 未显式配置档位时保持历史默认 high；显式档位原样透传
+            # （none/minimal/low/medium/high/xhigh/max 均为官方档位）。
+            kwargs["reasoning"] = {
+                "effort": effort if effort is not None else "high",
+                "summary": "auto",
+            }
+
     async def complete(
         self,
         messages: list[Message],
@@ -290,15 +302,7 @@ class OpenAIProvider(BaseLLMProvider):
             }
             if tools:
                 kwargs["tools"] = self._to_responses_tools(tools)
-            if effort == "none":
-                kwargs["reasoning"] = {"effort": "none"}
-            elif self._current_model in _REASONING_MODELS:
-                # 未显式配置档位时保持历史默认 high；显式档位原样透传
-                # （none/minimal/low/medium/high/xhigh/max 均为官方档位）。
-                kwargs["reasoning"] = {
-                    "effort": effort if effort is not None else "high",
-                    "summary": "auto",
-                }
+            self._apply_reasoning(kwargs, effort)
             response = await self._client.responses.create(**kwargs)
         except openai.APIError as e:
             raise ProviderError(str(e)) from e
