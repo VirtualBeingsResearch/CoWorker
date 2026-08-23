@@ -1762,15 +1762,17 @@ async def switch_model(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     brain = _require_brain()
-    agent = _require_agent()
+    previous = (brain.current_provider_name, brain.current_model)
     try:
         await brain.switch_model(payload.provider, payload.model_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    agent.state.current_provider = brain.current_provider_name
-    agent.state.current_model = brain.current_model
     _audit(request, "model.switch", f"{brain.current_provider_name}/{brain.current_model}")
     snapshot = brain.model_config_snapshot()
+    snapshot["active_changed"] = previous != (
+        brain.current_provider_name,
+        brain.current_model,
+    )
     snapshot["mem0"] = _mem0_model_view(_require_config())
     return cast(ApiResponse, snapshot)
 

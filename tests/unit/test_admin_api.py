@@ -1745,6 +1745,42 @@ def test_model_switch_response_preserves_mem0_view(tmp_path):
         "model": "",
         "thinking": False,
     }
+    assert response.json()["active_changed"] is False
+
+
+def test_admin_model_switch_leaves_runtime_notice_pending_for_agent_loop(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    admin._agent.state.current_provider = "openai"
+    admin._agent.state.current_model = "gpt-5.2"
+    original_snapshot = admin._brain.model_config_snapshot()
+
+    async def switch(provider: str, model: str) -> None:
+        admin._brain.current_provider_name = provider
+        admin._brain.current_model = model
+
+    admin._brain.switch_model = AsyncMock(side_effect=switch)
+    admin._brain.model_config_snapshot = lambda: {
+        **original_snapshot,
+        "active": {
+            "provider": admin._brain.current_provider_name,
+            "model": admin._brain.current_model,
+        },
+    }
+
+    response = client.post(
+        "/api/admin/model/switch",
+        headers=headers,
+        json={"provider": "openai", "model_id": "gpt-5.4"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["active_changed"] is True
+    assert response.json()["active"] == {"provider": "openai", "model": "gpt-5.4"}
+    # AgentLoop compares these acknowledged values with Brain on its next cycle
+    # and injects the localized model-switch notice before the next inference.
+    assert admin._agent.state.current_provider == "openai"
+    assert admin._agent.state.current_model == "gpt-5.2"
 
 
 def test_model_catalog_lists_registered_providers(tmp_path):

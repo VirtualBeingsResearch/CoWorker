@@ -828,7 +828,9 @@ function Models() {
   const catalog = useLoad(() => api<Json>('/api/admin/model/catalog'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
   const [switchError, setSwitchError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
@@ -836,10 +838,18 @@ function Models() {
   const selectedCatalog = (catalog.data?.providers || []).find((item: Json) => item.name === switchTo.provider);
   const switchModels: string[] = selectedCatalog?.models || [];
   const refreshCatalog = async () => {
+    setSwitchError('');
+    setActionMessage('');
     setRefreshingCatalog(true);
     try {
       const next = await api<Json>('/api/admin/model/catalog/refresh', { method: 'POST', body: JSON.stringify({}) });
       catalog.setData(next);
+      const failedProviders = (next.providers || []).filter((provider: Json) => provider.error).map((provider: Json) => provider.name);
+      if (failedProviders.length) {
+        setSwitchError(t('模型目录刷新完成，但 {{count}} 个 Provider 拉取失败：{{providers}}', { count: failedProviders.length, providers: failedProviders.join(', ') }));
+      } else {
+        setActionMessage(t('模型目录已刷新。'));
+      }
     } catch (catalogError) {
       setSwitchError(catalogError instanceof Error ? catalogError.message : t('模型目录刷新失败'));
     } finally {
@@ -850,15 +860,28 @@ function Models() {
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
-    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
-    setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
+    setSwitchError('');
+    setActionMessage('');
+    setSaving(true);
+    try {
+      const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+      setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
+      setActionMessage(t('模型编排已保存并热更新。'));
+    } catch (saveError) {
+      setSwitchError(saveError instanceof Error ? saveError.message : t('模型编排更新失败'));
+    } finally {
+      setSaving(false);
+    }
   };
   const switchModel = async () => {
     setSwitchError('');
+    setActionMessage('');
     setSwitching(true);
     try {
       const next = await api<Json>('/api/admin/model/switch', { method: 'POST', body: JSON.stringify(switchTo) });
-      setData(next); setDraft(next); setSwitchTo({ provider: '', model_id: '' });
+      setData(next); setDraft(next);
+      setSwitchTo({ provider: next.active.provider || '', model_id: next.active.model || '' });
+      setActionMessage(t(next.active_changed ? '主线模型已切换至 {{provider}}/{{model}}。' : '主线模型未变化，当前仍为 {{provider}}/{{model}}。', { provider: next.active.provider, model: next.active.model }));
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : t('切换模型失败'));
     } finally {
@@ -866,13 +889,14 @@ function Models() {
     }
   };
   if (loading || !draft) return <Loading error={error} />;
-  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; });
+  const set = (path: string, value: any) => { setActionMessage(''); setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; }); };
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => setSwitchTo({ ...switchTo, model_id: next })} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
+      <div className="inline-form"><select value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
+      {actionMessage && <div className="notice success" role="status"><Check size={16} /><span>{actionMessage}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">
@@ -886,8 +910,8 @@ function Models() {
       <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.mem0.model} onChange={e => set('mem0.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
-      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
-      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => { setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
+      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
+      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
