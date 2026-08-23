@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.2 - Unreleased
+
+- docs(release): finalize v0.4.1 changelog (#195)
+- Bump the "all-dependencies" group with 2 updates across multiple ecosystems (#196)
+- feat(brain): support DeepSeek v4-flash-vision-exp model (#197)
+- feat: improve maintenance and multimodal messaging (#198)
+
 ## 0.4.1 - 2026-08-21
 
 - docs(release): finalize v0.4.0 changelog (#188)
