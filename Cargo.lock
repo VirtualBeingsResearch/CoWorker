@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "coworker-desktop-app"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "coworker-desktop-core",
@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "coworker-desktop-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
