@@ -128,6 +128,7 @@ def build_long_term_backend(
                 active_model=active_model,
             ),
             embedder_model=embedder_model or config.memory.mem0_embedder_model,
+            query_settings=config.memory,
         )
     if backend_id == "file":
         file_cls = cast("type[FileBackend]", cls)

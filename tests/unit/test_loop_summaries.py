@@ -730,6 +730,7 @@ async def test_auto_recall_injects_and_deduplicates():
         category="knowledge",
         tags=[],
         timestamp="",
+        extra={"score": 0.9},
     )
 
     loop = _make_loop(brain, mem, events=[IncomingEvent(participant_id="alice", content="Python")])
@@ -746,6 +747,7 @@ async def test_auto_recall_injects_and_deduplicates():
     assert len(recall_msgs) == 1
     assert "mem-001" in recall_msgs[0].recalled_memory_ids
     assert recall_msgs[0].source == "auto_recall"
+    assert "0.9" not in str(recall_msgs[0].content)
 
     # 第二轮：相同 ID 已在 primary，不应再注入
     brain2 = _make_brain()

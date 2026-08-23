@@ -76,3 +76,18 @@ def test_build_long_term_backend_raises_localized_error_when_unavailable(
     with pytest.raises(RuntimeError) as excinfo:
         build_long_term_backend(config)
     assert "uv sync --extra mem0" in str(excinfo.value)
+
+
+def test_build_mem0_backend_reads_relevance_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = Config.model_validate(
+        {"memory": {"backend": "mem0", "auto_recall_relevance_threshold": 0.72}}
+    )
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: True)
+
+    backend = build_long_term_backend(config)
+
+    assert isinstance(backend, Mem0Backend)
+    assert backend.relevance_threshold == 0.72
+
+    config.memory.auto_recall_relevance_threshold = 0.81
+    assert backend.relevance_threshold == 0.81

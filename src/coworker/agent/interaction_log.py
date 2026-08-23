@@ -13,6 +13,17 @@ if TYPE_CHECKING:
     from coworker.memory.base import MemoryRecord
 
 
+def _memory_log_payload(memory: MemoryRecord) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": memory.id,
+        "category": memory.category,
+        "content": memory.content,
+    }
+    if memory.extra:
+        payload["extra"] = memory.extra
+    return payload
+
+
 class InteractionLogger:
     """Append-only interaction logger with optional size-based shard rotation.
 
@@ -386,10 +397,7 @@ class InteractionLogger:
             "tags": tags,
             "critical_skills": critical_skills,
             "related_skills": related_skills,
-            "recalled": [
-                {"id": m.id, "category": m.category, "content": m.content}
-                for m in recalled
-            ],
+            "recalled": [_memory_log_payload(memory) for memory in recalled],
         })
 
     def log_auto_recall(self, query: str, memories: list[MemoryRecord]) -> None:
@@ -397,13 +405,6 @@ class InteractionLogger:
             {
                 "type": "auto_recall",
                 "query": query,
-                "memories": [
-                    {
-                        "id": m.id,
-                        "category": m.category,
-                        "content": m.content,
-                    }
-                    for m in memories
-                ],
+                "memories": [_memory_log_payload(memory) for memory in memories],
             }
         )

@@ -13,6 +13,7 @@ from loguru import logger
 from coworker.memory.base import (
     MemoryBackendConfig,
     MemoryQuery,
+    MemoryQuerySettings,
     MemoryRecord,
     MemoryWriteResult,
     UsageListener,
@@ -79,11 +80,13 @@ class Mem0Backend:
         db_path: str,
         llm: MemoryBackendConfig | None = None,
         embedder_model: str = _DEFAULT_EMBEDDER,
+        query_settings: MemoryQuerySettings | None = None,
     ) -> None:
         self._db_path = Path(db_path)
         self._mem: Any | None = None
         self._llm = llm or _EmptyMemoryConfig()
         self._embedder_model = embedder_model
+        self._query_settings = query_settings
         self._write_lock = asyncio.Lock()
         self._usage_listeners: list[UsageListener] = []
         self._usage_hook_installed = False
@@ -101,6 +104,12 @@ class Mem0Backend:
 
     def is_ready(self) -> bool:
         return self._mem is not None
+
+    @property
+    def relevance_threshold(self) -> float:
+        if self._query_settings is None:
+            return 0.5
+        return self._query_settings.auto_recall_relevance_threshold
 
     async def initialize(self) -> None:
         from mem0 import AsyncMemory
@@ -131,7 +140,8 @@ class Mem0Backend:
         device = getattr(encoder, "device", "unknown")
         logger.info(
             f"Long-term memory (mem0) initialized at {self._db_path}, "
-            f"embedder={self._embedder_model}, device={device}"
+            f"embedder={self._embedder_model}, device={device}, "
+            f"relevance_threshold={self.relevance_threshold}"
         )
 
     async def reconfigure(self, config: MemoryBackendConfig) -> None:
@@ -343,8 +353,17 @@ class Mem0Backend:
         )
         results = await self._mem.search(query=params.text, filters=filters, top_k=top_k)
         memories: list[MemoryRecord] = []
+        relevance_threshold = self.relevance_threshold
         for item in results.get("results", []):
             meta = item.get("metadata") or {}
+            raw_score = item.get("score")
+            score = (
+                float(raw_score)
+                if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool)
+                else None
+            )
+            if score is None or score < relevance_threshold:
+                continue
             raw_tags = meta.get("tags", "[]")
             try:
                 tags = json.loads(raw_tags) if isinstance(raw_tags, str) else list(raw_tags or [])
@@ -357,6 +376,7 @@ class Mem0Backend:
                     category=meta.get("category", "general"),
                     tags=tags,
                     timestamp=meta.get("source_timestamp") or item.get("created_at", "") or None,
+                    extra={"score": score},
                 )
             )
         if params.tags:

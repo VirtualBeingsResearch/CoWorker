@@ -1066,6 +1066,26 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_config_patch_hot_updates_memory_relevance_threshold(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"memory": {"auto_recall_relevance_threshold": 0.8}},
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == [
+        "memory.auto_recall_relevance_threshold"
+    ]
+    assert config.memory.auto_recall_relevance_threshold == 0.8
+
+
 def test_config_patch_marks_public_url_for_restart(tmp_path):
     client, _ = _client(tmp_path)
 
