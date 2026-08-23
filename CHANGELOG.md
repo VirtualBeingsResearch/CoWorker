@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.2 - Unreleased
+## 0.4.2 - 2026-08-23
 
 - docs(release): finalize v0.4.1 changelog (#195)
 - Bump the "all-dependencies" group with 2 updates across multiple ecosystems (#196)
