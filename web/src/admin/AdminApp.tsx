@@ -1780,14 +1780,30 @@ function memoryPreview(message: Json) {
   return (memoryContentText(message.content).trim() || String(message.reasoning_content || '').trim() || fallback).replace(/\s+/g, ' ');
 }
 
+function formatRequestDuration(durationMs: unknown) {
+  const milliseconds = Number(durationMs);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return '';
+  if (milliseconds < 1_000) return t('{{milliseconds}}毫秒', { milliseconds: Math.round(milliseconds) });
+  const seconds = milliseconds / 1_000;
+  return t('{{seconds}}秒', { seconds: seconds < 10 ? seconds.toFixed(1) : Math.round(seconds) });
+}
+
 function MemoryMessage({ message, index, defaultOpen = false, coworkerName = '' }: { message: Json; index: number; defaultOpen?: boolean; coworkerName?: string }) {
   const [open, setOpen] = useState(defaultOpen);
   const role = message.role === 'assistant' && coworkerName && coworkerName.toLowerCase() !== 'coworker'
     ? coworkerName
     : message.role === 'user' ? memorySourceName(message.source) : t(MEMORY_ROLE[message.role] || message.role);
-  const usage = message.role === 'assistant' && message.usage
-    ? t(' · 输入 {{input}} / 输出 {{output}} token', { input: Number(message.usage.input_tokens || 0).toLocaleString(), output: Number(message.usage.output_tokens || 0).toLocaleString() })
+  const requestMetrics = message.role === 'assistant' && message.usage
+    ? [
+      t('输入 {{input}} / 输出 {{output}} / 缓存 {{cached}} token', {
+        input: Number(message.usage.input_tokens || 0).toLocaleString(),
+        output: Number(message.usage.output_tokens || 0).toLocaleString(),
+        cached: Number(message.usage.cached_tokens || 0).toLocaleString(),
+      }),
+      message.duration_ms == null ? '' : t('耗时 {{duration}}', { duration: formatRequestDuration(message.duration_ms) }),
+    ].filter(Boolean).join(' · ')
     : '';
+  const usage = requestMetrics ? ` · ${requestMetrics}` : '';
   const sourceName = memorySourceName(message.source);
   const summaryState = message.pin_id
     ? t('固定')
@@ -1991,7 +2007,7 @@ function bubbleHistoryMessages(events: Json[]) {
     if (event.type === 'message_in') return [{ ...common, role: event.participant_id === 'system' ? 'system' : 'user', source: event.source || '并行思考', content: event.content }];
     if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : event.thinking_effort ? `（${event.thinking_effort}）` : '' }) }];
     if (event.type === 'llm_response') return [{
-      ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage,
+      ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage, duration_ms: event.duration_ms,
       stop_reason: event.stop_reason,
       tool_calls: (event.tool_calls || []).map((call: Json) => {
         const result = results.get(call.id);

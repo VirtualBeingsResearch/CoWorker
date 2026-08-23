@@ -196,6 +196,7 @@ class InteractionLogger:
         provider: str = "unknown",
         thinking: bool | None = None,
         thinking_effort: str | None = None,
+        duration_ms: int | None = None,
     ) -> None:
         entry: dict[str, Any] = {
             "type": "llm_response",
@@ -214,6 +215,8 @@ class InteractionLogger:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
             entry["thinking_effort"] = thinking_effort
+        if duration_ms is not None:
+            entry["duration_ms"] = max(0, duration_ms)
         self._write(entry)
 
     def log_summary_llm_response(

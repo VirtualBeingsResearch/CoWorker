@@ -979,12 +979,18 @@ class TestPinnedContext:
         mem.primary.append(Message(
             role="assistant",
             content="done",
-            usage={"input_tokens": 321, "output_tokens": 12},
+            usage={"input_tokens": 321, "output_tokens": 12, "cached_tokens": 200},
+            duration_ms=1_234,
         ))
 
         restored = ShortTermMemory.deserialize(mem.serialize())
 
-        assert restored.primary[0].usage == {"input_tokens": 321, "output_tokens": 12}
+        assert restored.primary[0].usage == {
+            "input_tokens": 321,
+            "output_tokens": 12,
+            "cached_tokens": 200,
+        }
+        assert restored.primary[0].duration_ms == 1_234
 
     def test_old_snapshot_without_pinned_items_loads_cleanly(self):
         # 旧快照不含 pinned_items 字段，应正常加载

@@ -1107,6 +1107,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '、': ', ',
   '无可预览内容': 'No preview available',
   ' · 输入 {{input}} / 输出 {{output}} token': ' · {{input}} input / {{output}} output tokens',
+  '输入 {{input}} / 输出 {{output}} / 缓存 {{cached}} token': '{{input}} input / {{output}} output / {{cached}} cached tokens',
+  '耗时 {{duration}}': '{{duration}} elapsed',
   '固定': 'Pinned',
   '{{count}} 个工具调用': '{{count}} tool calls',
   '思考': 'Reasoning',

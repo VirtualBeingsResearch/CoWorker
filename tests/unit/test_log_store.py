@@ -52,12 +52,14 @@ class TestInteractionLogSeq:
             provider="mock",
             thinking=True,
             thinking_effort="high",
+            duration_ms=1_234,
         )
 
         entries = [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
         assert entries[0]["thinking_effort"] == "high"
         assert entries[1]["thinking_effort"] == "high"
         assert entries[1]["thinking"] is True
+        assert entries[1]["duration_ms"] == 1_234
 
     def test_summary_and_vision_responses_record_thinking_effort(self, tmp_path):
         p = tmp_path / "interactions.jsonl"

@@ -3146,7 +3146,14 @@ def test_short_term_messages_tail_is_lightweight_and_matches_full_snapshot(tmp_p
     client, config = _client(tmp_path)
     short_term = ShortTermMemory(max_tokens=1_000)
     short_term.primary.append(Message(role="user", content="first"))
-    short_term.primary.append(Message(role="assistant", content="second"))
+    short_term.primary.append(
+        Message(
+            role="assistant",
+            content="second",
+            usage={"input_tokens": 100, "output_tokens": 20, "cached_tokens": 60},
+            duration_ms=1_250,
+        )
+    )
     agent = SimpleNamespace(
         _identity=_Identity(),
         _short_term=short_term,
@@ -3175,6 +3182,12 @@ def test_short_term_messages_tail_is_lightweight_and_matches_full_snapshot(tmp_p
     body = tail.json()
     assert set(body) == {"messages"}
     assert body["messages"] == full["messages"]
+    assert body["messages"][1]["usage"] == {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cached_tokens": 60,
+    }
+    assert body["messages"][1]["duration_ms"] == 1_250
 
 
 def test_content_registry_includes_parsed_metadata(tmp_path):

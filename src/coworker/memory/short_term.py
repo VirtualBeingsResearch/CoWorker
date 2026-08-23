@@ -1106,6 +1106,7 @@ class ShortTermMemory:
                     "timestamp": m.timestamp.isoformat(),
                     "source": m.source,
                     **({"usage": m.usage} if m.usage else {}),
+                    **({"duration_ms": m.duration_ms} if m.duration_ms is not None else {}),
                 }
                 for m in self.primary
             ],
@@ -1131,6 +1132,7 @@ class ShortTermMemory:
                 source=m.get("source"),
                 person_id=m.get("person_id"),
                 usage=m.get("usage", {}),
+                duration_ms=m.get("duration_ms"),
             )
             if "timestamp" in m:
                 msg.timestamp = datetime.fromisoformat(m["timestamp"])

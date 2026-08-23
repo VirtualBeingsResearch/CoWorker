@@ -2070,6 +2070,8 @@ def _short_term_messages(stm: ShortTermMemory) -> list[dict[str, object]]:
             item["reasoning_content"] = message.reasoning_content
         if message.usage:
             item["usage"] = dict(message.usage)
+        if message.duration_ms is not None:
+            item["duration_ms"] = max(0, message.duration_ms)
         messages.append(item)
     return messages
 
