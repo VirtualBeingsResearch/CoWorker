@@ -85,10 +85,9 @@ LLM__VISION_THINKING_EFFORT=medium
 `opencode-go` 使用 OpenCode Go 订阅的 OpenAI 兼容端点
 （`https://opencode.ai/zen/go/v1`），密钥来自 `LLM__OPENCODE_GO_API_KEY`
 （未设置时兜底读取官方 `OPENCODE_API_KEY`）或 `providers.json`。内置目录包含
-Responses API 的 GPT 5.6 Luna 和 Grok 4.5，以及 chat/completions 的 DeepSeek V4
-（包括支持图片输入的 `deepseek-v4-flash-vision-exp`）、Kimi K2.5+、GLM-5 系列、
-MiMo 和 HY 模型。除套餐明确包含的 DeepSeek 视觉模型外，其他实验、贡献者/地区限定
-和限时模型不进入内置推荐目录；远端目录可能仍会动态显示它们。
+Responses API 的 GPT 5.6 Luna 和 Grok 4.5，以及 chat/completions 的 DeepSeek V4、
+Kimi K2.5+、GLM-5 系列、MiMo 和 HY 模型。实验、贡献者/地区限定和限时模型不进入
+本次新增的内置推荐目录；远端目录可能仍会动态显示它们。
 MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，请用
 `type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
 

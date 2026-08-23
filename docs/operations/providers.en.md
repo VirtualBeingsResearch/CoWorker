@@ -94,10 +94,9 @@ entries. Older entries lack the field and are read with it absent.
 (`https://opencode.ai/zen/go/v1`) with `LLM__OPENCODE_GO_API_KEY` (falling back to the
 official `OPENCODE_API_KEY` environment variable) or a `providers.json` key.
 The built-in catalog covers GPT 5.6 Luna and Grok 4.5 through the Responses API, plus the
-DeepSeek V4 models (including the image-capable `deepseek-v4-flash-vision-exp`), Kimi K2.5+,
-GLM-5, MiMo, and HY models served through chat/completions. Other experimental,
-contributor/region-limited, and limited-time models are excluded from the built-in catalog unless
-the subscription explicitly includes them, although a remote catalog refresh may still discover them. OpenCode Go
+DeepSeek V4, Kimi K2.5+, GLM-5, MiMo, and HY models served through chat/completions.
+Newly listed experimental, contributor/region-limited, and limited-time models are excluded from
+this built-in catalog update, although a remote catalog refresh may still discover them. OpenCode Go
 serves MiniMax/Qwen through its Anthropic-compatible endpoint; configure those with
 `type: anthropic` and `base_url: https://opencode.ai/zen/go`.
 
