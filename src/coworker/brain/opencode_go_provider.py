@@ -13,6 +13,7 @@ from coworker.core.types import LLMResponse, Message
 # provider; the sets below cover chat.completions and Responses separately.
 _CHAT_COMPLETIONS_MODELS = {
     "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
     "kimi-k2.5",
     "kimi-k2.6",
@@ -41,11 +42,13 @@ _RESPONSES_MODELS = {
 _OPENCODE_GO_MODELS = _CHAT_COMPLETIONS_MODELS | _RESPONSES_MODELS
 
 _VISION_MODELS = {
+    "deepseek-v4-flash-vision-exp",
     "kimi-k3",
 }
 
 _DEEPSEEK_MODELS = {
     "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 }
 

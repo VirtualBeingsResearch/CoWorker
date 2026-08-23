@@ -85,6 +85,16 @@ class TestProviderThinkingMappings:
         assert kwargs["reasoning_effort"] == "max"
         assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
+    def test_opencode_go_deepseek_vision_mapping(self):
+        kwargs = _apply(
+            OpenCodeGoProvider,
+            "deepseek-v4-flash-vision-exp",
+            thinking=True,
+            effort="medium",
+        )
+        assert kwargs["reasoning_effort"] == "high"
+        assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+
     def test_opencode_go_kimi_k3_clamps_low_to_high(self):
         kwargs = _apply(OpenCodeGoProvider, "kimi-k3", thinking=True, effort="low")
         assert kwargs["reasoning_effort"] == "high"

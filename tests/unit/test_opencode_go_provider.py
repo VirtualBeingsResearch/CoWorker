@@ -54,6 +54,31 @@ def test_set_model_updates_both_wire_adapters():
     provider._responses_provider.set_model.assert_called_once_with("grok-4.5")
 
 
+def test_deepseek_vision_model_uses_image_url_content():
+    provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
+    content = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": "abc",
+            },
+            "_filename": "photo.jpg",
+        }
+    ]
+
+    result = provider._adapt_content(content, "deepseek-v4-flash-vision-exp")
+
+    assert provider.supports_vision("deepseek-v4-flash-vision-exp") is True
+    assert result == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,abc"},
+        }
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("model_id", "thinking", "expected_reasoning"),
