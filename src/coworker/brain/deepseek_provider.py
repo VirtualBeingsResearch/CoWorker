@@ -9,7 +9,11 @@ from coworker.brain.thinking import ThinkingEffort
 _DEEPSEEK_MODELS = {
     "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "deepseek-v4-flash-vision-exp",
 }
+
+# DeepSeek text models don't accept image input; only the vision-exp model does.
+_VISION_MODELS = {"deepseek-v4-flash-vision-exp"}
 
 # Models that support extended thinking; require reasoning_effort param.
 _THINKING_MODELS = _DEEPSEEK_MODELS
@@ -56,4 +60,4 @@ class DeepSeekProvider(OpenAIChatCompletionsProvider):
         return True
 
     def supports_vision(self, model_id: str) -> bool:
-        return False  # DeepSeek text models don't support vision
+        return model_id in _VISION_MODELS

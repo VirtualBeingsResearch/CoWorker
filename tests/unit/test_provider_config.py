@@ -68,6 +68,13 @@ def test_model_catalog_does_not_construct_api_client(monkeypatch):
     assert "glm-5.1" in available_models("zhipu")
 
 
+def test_deepseek_catalog_includes_vision_model():
+    models = available_models("deepseek")
+    assert "deepseek-v4-flash-vision-exp" in models
+    assert "deepseek-v4-flash" in models
+    assert "deepseek-v4-pro" in models
+
+
 # ---- build_provider ----
 
 def test_build_provider_uses_name_as_registry_key():
