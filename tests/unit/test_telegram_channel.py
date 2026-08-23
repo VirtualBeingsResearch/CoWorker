@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -382,11 +383,44 @@ async def test_inbound_document_exposes_file_details_to_the_model(tmp_path: Path
     assert client.downloads == ["report-file"]
     assert events[0].attachments[0].filename == "quarterly-report.pdf"
     saved_path = events[0].attachments[0].saved_path
+    assert re.fullmatch(r"\d{6}_quarterly-report\.pdf", Path(saved_path).name)
     assert isinstance(blocks, list)
     model_text = "\n".join(block["text"] for block in blocks if block.get("type") == "text")
     assert "[file] quarterly-report.pdf (application/pdf)" in model_text
     assert "Please review this report" in model_text
     assert saved_path in model_text
+
+
+@pytest.mark.asyncio
+async def test_downloaded_media_retries_a_six_digit_prefix_collision(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    attachments_dir = tmp_path / "attachments"
+    attachments_dir.mkdir()
+    existing = attachments_dir / "123456_report.pdf"
+    existing.write_bytes(b"keep-existing")
+    prefixes = iter((123456, 654321))
+    monkeypatch.setattr(
+        telegram_runner_module.secrets,
+        "randbelow",
+        lambda _: next(prefixes),
+    )
+
+    attachment = await runner._bots["main"]._download_media(  # noqa: SLF001
+        _FakeClient(),
+        adapter.TelegramMedia(
+            file_id="report-file",
+            filename="report.pdf",
+            media_type="application/pdf",
+            label_key="channel.telegram.file",
+        ),
+    )
+
+    assert existing.read_bytes() == b"keep-existing"
+    assert Path(attachment.saved_path).name == "654321_report.pdf"
+    assert Path(attachment.saved_path).read_bytes() == b"telegram-image"
 
 
 @pytest.mark.asyncio
