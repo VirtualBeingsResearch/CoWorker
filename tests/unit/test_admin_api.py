@@ -92,6 +92,8 @@ def _client(
     ]
     agent = SimpleNamespace(
         _identity=_Identity(),
+        _snapshot_path=tmp_path / "short_term_snapshot.json",
+        _short_term=ShortTermMemory(),
         state=SimpleNamespace(current_provider="", current_model=""),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
@@ -432,6 +434,63 @@ def test_admin_resume_wakes_rest_without_confirmation(tmp_path):
     assert response.status_code == 200
     assert response.json() == {"resumed": True}
     admin._agent.resume_from_rest.assert_called_once_with()
+
+
+def test_admin_can_delete_emergency_backup_with_confirmation(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    filename = "emergency_backup_20260823_010203.json"
+    backup = tmp_path / filename
+    backup.write_text('{"primary": []}', encoding="utf-8")
+
+    assert client.delete(f"/api/admin/backups/{filename}").status_code == 401
+    rejected = client.request(
+        "DELETE",
+        f"/api/admin/backups/{filename}",
+        headers=headers,
+        json={"confirm_name": "wrong"},
+    )
+    assert rejected.status_code == 400
+    assert backup.is_file()
+
+    deleted = client.request(
+        "DELETE",
+        f"/api/admin/backups/{filename}",
+        headers=headers,
+        json={"confirm_name": "Luna"},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "filename": filename}
+    assert not backup.exists()
+    audit = (tmp_path / "logs" / "admin_audit.jsonl").read_text(encoding="utf-8")
+    assert '"action": "backup.delete"' in audit
+    assert f'"target": "{filename}"' in audit
+
+
+def test_admin_backup_delete_rejects_invalid_or_missing_file(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    payload = {"confirm_name": "Luna"}
+    unrelated = tmp_path / "notes.json"
+    unrelated.write_text("{}", encoding="utf-8")
+
+    invalid = client.request(
+        "DELETE",
+        "/api/admin/backups/notes.json",
+        headers=headers,
+        json=payload,
+    )
+    missing = client.request(
+        "DELETE",
+        "/api/admin/backups/emergency_backup_20990101_000000.json",
+        headers=headers,
+        json=payload,
+    )
+
+    assert invalid.status_code == 400
+    assert unrelated.is_file()
+    assert missing.status_code == 404
 
 
 def test_admin_error_detail_follows_runtime_locale(tmp_path):
@@ -1005,6 +1064,26 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
 
     # The form shows the saved desired value while the running Config remains unchanged.
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
+
+
+def test_config_patch_hot_updates_memory_relevance_threshold(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"memory": {"auto_recall_relevance_threshold": 0.8}},
+            "secrets": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == [
+        "memory.auto_recall_relevance_threshold"
+    ]
+    assert config.memory.auto_recall_relevance_threshold == 0.8
 
 
 def test_config_patch_marks_public_url_for_restart(tmp_path):
@@ -1686,6 +1765,42 @@ def test_model_switch_response_preserves_mem0_view(tmp_path):
         "model": "",
         "thinking": False,
     }
+    assert response.json()["active_changed"] is False
+
+
+def test_admin_model_switch_leaves_runtime_notice_pending_for_agent_loop(tmp_path):
+    client, _ = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    admin._agent.state.current_provider = "openai"
+    admin._agent.state.current_model = "gpt-5.2"
+    original_snapshot = admin._brain.model_config_snapshot()
+
+    async def switch(provider: str, model: str) -> None:
+        admin._brain.current_provider_name = provider
+        admin._brain.current_model = model
+
+    admin._brain.switch_model = AsyncMock(side_effect=switch)
+    admin._brain.model_config_snapshot = lambda: {
+        **original_snapshot,
+        "active": {
+            "provider": admin._brain.current_provider_name,
+            "model": admin._brain.current_model,
+        },
+    }
+
+    response = client.post(
+        "/api/admin/model/switch",
+        headers=headers,
+        json={"provider": "openai", "model_id": "gpt-5.4"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["active_changed"] is True
+    assert response.json()["active"] == {"provider": "openai", "model": "gpt-5.4"}
+    # AgentLoop compares these acknowledged values with Brain on its next cycle
+    # and injects the localized model-switch notice before the next inference.
+    assert admin._agent.state.current_provider == "openai"
+    assert admin._agent.state.current_model == "gpt-5.2"
 
 
 def test_model_catalog_lists_registered_providers(tmp_path):
@@ -2918,7 +3033,7 @@ def test_short_term_memory_returns_wecom_structured_text_without_attachment_byte
                     "source": {
                         "type": "base64",
                         "media_type": "image/png",
-                        "data": "secret-image-bytes",
+                        "data": "c2VjcmV0LWltYWdlLWJ5dGVz",
                     },
                     "_filename": "example.png",
                 },
@@ -2957,16 +3072,108 @@ def test_short_term_memory_returns_wecom_structured_text_without_attachment_byte
     assert message["source"] == "wecom"
     assert message["content"] == [
         {"type": "text", "text": "用户输入正文"},
-        {"type": "image"},
+        {
+            "type": "image",
+            "media_type": "image/png",
+            "filename": "example.png",
+            "preview_url": "/api/admin/memory/short-term/messages/0/content/1",
+        },
     ]
-    assert "secret-image-bytes" not in response.text
+    assert "c2VjcmV0LWltYWdlLWJ5dGVz" not in response.text
+
+    preview = client.get(message["content"][1]["preview_url"], headers={"Authorization": "Bearer secret"})
+    assert preview.status_code == 200
+    assert preview.content == b"secret-image-bytes"
+    assert preview.headers["content-type"] == "image/png"
+    assert preview.headers["cache-control"] == "private, no-store"
+    assert preview.headers["x-content-type-options"] == "nosniff"
+    assert client.get(message["content"][1]["preview_url"]).status_code == 401
+
+
+def test_short_term_tool_image_result_exposes_authenticated_preview(tmp_path):
+    client, config = _client(tmp_path)
+    short_term = ShortTermMemory(max_tokens=1_000)
+    short_term.primary.extend(
+        [
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_view_image",
+                        "type": "function",
+                        "function": {"name": "view_image", "arguments": "{}"},
+                    }
+                ],
+            ),
+            Message(
+                role="tool",
+                tool_call_id="call_view_image",
+                content=[
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": "/9g=",
+                        },
+                        "_filename": "screen.jpg",
+                    },
+                    {"type": "text", "text": "图片已加载"},
+                ],
+            ),
+        ]
+    )
+    agent = SimpleNamespace(
+        _identity=_Identity(),
+        _short_term=short_term,
+        state=SimpleNamespace(last_main_response_usage=None),
+    )
+    brain = SimpleNamespace(
+        active_provider=None,
+        current_provider_name="opencode-go",
+        current_model="kimi-k3",
+    )
+    admin.setup_admin(
+        agent=agent,
+        brain=brain,
+        config=config,
+        alarm_manager=None,
+        skill_loader=None,
+        palace_loader=None,
+        mode_loader=None,
+    )
+
+    headers = {"Authorization": "Bearer secret"}
+    response = client.get("/api/admin/memory/short-term/messages", headers=headers)
+
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+    assert len(messages) == 1
+    result = messages[0]["tool_calls"][0]["result"]
+    assert result[0]["preview_url"] == (
+        "/api/admin/memory/short-term/messages/1/content/0"
+    )
+    preview = client.get(result[0]["preview_url"], headers=headers)
+    assert preview.status_code == 200
+    assert preview.content == b"\xff\xd8"
+    assert client.get(
+        "/api/admin/memory/short-term/messages/1/content/1", headers=headers
+    ).status_code == 404
 
 
 def test_short_term_messages_tail_is_lightweight_and_matches_full_snapshot(tmp_path):
     client, config = _client(tmp_path)
     short_term = ShortTermMemory(max_tokens=1_000)
     short_term.primary.append(Message(role="user", content="first"))
-    short_term.primary.append(Message(role="assistant", content="second"))
+    short_term.primary.append(
+        Message(
+            role="assistant",
+            content="second",
+            usage={"input_tokens": 100, "output_tokens": 20, "cached_tokens": 60},
+            duration_ms=1_250,
+        )
+    )
     agent = SimpleNamespace(
         _identity=_Identity(),
         _short_term=short_term,
@@ -2995,6 +3202,12 @@ def test_short_term_messages_tail_is_lightweight_and_matches_full_snapshot(tmp_p
     body = tail.json()
     assert set(body) == {"messages"}
     assert body["messages"] == full["messages"]
+    assert body["messages"][1]["usage"] == {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cached_tokens": 60,
+    }
+    assert body["messages"][1]["duration_ms"] == 1_250
 
 
 def test_content_registry_includes_parsed_metadata(tmp_path):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from coworker.memory.backends.mem0 import Mem0Backend
@@ -232,6 +233,12 @@ class TestMem0Backend:
             return_value={
                 "results": [
                     {
+                        "id": "low",
+                        "memory": "low relevance",
+                        "metadata": {},
+                        "score": 0.49,
+                    },
+                    {
                         "id": "m1",
                         "memory": "content",
                         "metadata": {
@@ -250,6 +257,32 @@ class TestMem0Backend:
         assert records[0].id == "m1"
         assert records[0].tags == ["a"]
         assert records[0].timestamp == "2026-06-01T00:00:00"
+        assert records[0].extra == {"score": 0.9}
+
+    async def test_query_omits_results_without_scores(self):
+        backend = self._make()
+        backend._mem = MagicMock()
+        backend._mem.search = AsyncMock(
+            return_value={"results": [{"id": "m1", "memory": "content"}]}
+        )
+
+        assert await backend.query(MemoryQuery("content")) == []
+
+    async def test_query_reads_live_relevance_threshold(self):
+        settings = SimpleNamespace(auto_recall_relevance_threshold=0.8)
+        backend = Mem0Backend(db_path="data/_unused", query_settings=settings)
+        backend._mem = MagicMock()
+        backend._mem.search = AsyncMock(
+            return_value={
+                "results": [{"id": "m1", "memory": "content", "score": 0.75}]
+            }
+        )
+
+        assert await backend.query(MemoryQuery("content")) == []
+
+        settings.auto_recall_relevance_threshold = 0.7
+        records = await backend.query(MemoryQuery("content"))
+        assert [record.id for record in records] == ["m1"]
 
     async def test_update_preserves_metadata(self):
         backend = self._make()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,6 @@ from coworker.channels.telegram.state import (
     TelegramStateStore,
 )
 from coworker.core.config import TelegramBotConfig, TelegramConfig
-from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
 from coworker.i18n import tr
 
@@ -343,8 +343,14 @@ class _TelegramBotRuntime:
         buffer = await client.download_file(media.file_id)
         filename = _safe_filename(media.filename)
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
-        destination = self._attachments_dir / f"{new_compact_id()}_{filename}"
-        destination.write_bytes(buffer)
+        while True:
+            destination = self._attachments_dir / f"{secrets.randbelow(1_000_000):06d}_{filename}"
+            try:
+                with destination.open("xb") as handle:
+                    handle.write(buffer)
+                break
+            except FileExistsError:
+                continue
         inline = len(buffer) <= _INLINE_BASE64_LIMIT and (
             media.media_type.startswith("image/")
             or media.media_type == "application/pdf"

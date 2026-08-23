@@ -75,9 +75,9 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
             data = self._transform_message(message, message.to_dict(), model_id)
             if data is None:
                 continue
-            if message.role == "user":
+            if message.role in {"user", "system", "tool"}:
                 data["content"] = self._adapt_content(message.content, model_id)
-            elif message.role == "system":
+            if message.role == "system":
                 data["role"] = "user"
             api_messages.append(data)
         return api_messages

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -289,11 +290,13 @@ class BubbleMiniLoop:
                     thinking=bool(self._brain.thinking),
                     thinking_effort=self._brain.thinking_effort or None,
                 )
+            request_started_at = time.perf_counter()
             response = await self._brain.think(
                 messages=self._stm.build_context(),
                 system_prompt=self._system_prompt,
                 tools=tool_schemas,
             )
+            duration_ms = max(0, round((time.perf_counter() - request_started_at) * 1000))
 
             if self._ilog:
                 self._ilog.log_llm_response(
@@ -306,6 +309,7 @@ class BubbleMiniLoop:
                     provider=self._brain.current_provider_name,
                     thinking=bool(self._brain.thinking),
                     thinking_effort=self._brain.thinking_effort or None,
+                    duration_ms=duration_ms,
                 )
 
             self._stm.primary.append(
@@ -325,6 +329,12 @@ class BubbleMiniLoop:
                         for tc in response.tool_calls
                     ],
                     stop_reason=response.stop_reason,
+                    source=(
+                        f"{self._brain.current_provider_name}/"
+                        f"{response.model or self._brain.current_model}"
+                    ),
+                    usage=response.usage,
+                    duration_ms=duration_ms,
                 )
             )
 

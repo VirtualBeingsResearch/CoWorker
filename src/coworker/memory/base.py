@@ -13,7 +13,9 @@ class MemoryRecord:
     """A single long-term memory entry as seen by Coworker.
 
     ``timestamp`` is the original source timestamp when available; it is stored as
-    an ISO-8601 string to keep the backend contract JSON-friendly.
+    an ISO-8601 string to keep the backend contract JSON-friendly. ``extra`` carries
+    optional backend metadata that callers may inspect without rendering it as memory
+    content.
     """
 
     id: str
@@ -21,6 +23,7 @@ class MemoryRecord:
     category: str = "general"
     tags: list[str] = field(default_factory=list)
     timestamp: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,13 @@ class MemoryBackendConfig(Protocol):
 
     @property
     def thinking(self) -> bool: ...
+
+
+class MemoryQuerySettings(Protocol):
+    """Live settings shared with backends that filter query results."""
+
+    @property
+    def auto_recall_relevance_threshold(self) -> float: ...
 
 
 @runtime_checkable

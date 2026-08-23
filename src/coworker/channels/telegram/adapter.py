@@ -122,9 +122,7 @@ def media_for(message: dict[str, Any]) -> TelegramMedia | None:
 def parse_participant(participant_id: str) -> tuple[str, int]:
     parts = participant_id.split(":", maxsplit=2)
     if len(parts) != 3 or parts[0] != "tg" or not parts[1]:
-        raise ValueError(
-            tr("channel.telegram.participant_invalid", participant=participant_id)
-        )
+        raise ValueError(tr("channel.telegram.participant_invalid", participant=participant_id))
     try:
         chat_id = int(parts[2])
     except ValueError as error:
@@ -141,9 +139,7 @@ def _chat_kind(chat_type: str) -> str:
         return "group"
     if chat_type == "channel":
         return "channel"
-    raise TelegramUpdateFormatError(
-        tr("channel.telegram.chat_type_invalid", type=chat_type)
-    )
+    raise TelegramUpdateFormatError(tr("channel.telegram.chat_type_invalid", type=chat_type))
 
 
 def _sender_prefix(message: dict[str, Any]) -> str:
@@ -166,11 +162,12 @@ def _message_body(
     media: TelegramMedia | None = None,
 ) -> str:
     text = str(message.get("text") or message.get("caption") or "")
-    if text:
-        return text
     detected_media = media or media_for(message)
     if detected_media is not None:
-        return tr(detected_media.label_key)
+        media_summary = _media_summary(detected_media)
+        return f"{media_summary}\n{text}" if text else media_summary
+    if text:
+        return text
     structured = _structured_summary(message)
     return structured or tr("channel.telegram.unsupported")
 
@@ -180,13 +177,22 @@ def _message_preview(message: dict[str, Any]) -> str:
     media = media_for(message)
     parts: list[str] = []
     if media is not None:
-        parts.append(tr(media.label_key))
+        parts.append(_media_summary(media))
     structured = _structured_summary(message)
     if structured:
         parts.append(structured)
     if text:
         parts.append(text)
     return " ".join(parts) or tr("channel.telegram.reference_unavailable")
+
+
+def _media_summary(media: TelegramMedia) -> str:
+    return tr(
+        "channel.telegram.media_summary",
+        kind=tr(media.label_key),
+        filename=media.filename,
+        media_type=media.media_type,
+    )
 
 
 def _structured_summary(message: dict[str, Any]) -> str:

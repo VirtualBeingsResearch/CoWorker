@@ -363,11 +363,13 @@ class AgentLoop:
                 thinking=bool(self._brain.thinking),
                 thinking_effort=self._brain.thinking_effort or None,
             )
+        request_started_at = time.perf_counter()
         response = await self._brain.think(
             messages,
             system_prompt,
             self._tools.get_schemas(model_has_vision=self._brain.current_model_has_vision),
         )
+        duration_ms = max(0, round((time.perf_counter() - request_started_at) * 1000))
         try:
             input_tokens = max(0, int(response.usage.get("input_tokens", 0) or 0))
         except (AttributeError, TypeError, ValueError):
@@ -393,6 +395,7 @@ class AgentLoop:
                 provider=self._brain.current_provider_name,
                 thinking=bool(self._brain.thinking),
                 thinking_effort=self._brain.thinking_effort or None,
+                duration_ms=duration_ms,
             )
 
         assistant_msg = Message(
@@ -415,6 +418,7 @@ class AgentLoop:
             ],
             stop_reason=response.stop_reason,
             usage=response.usage,
+            duration_ms=duration_ms,
         )
         self._short_term.primary.append(assistant_msg)
 

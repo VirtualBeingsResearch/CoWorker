@@ -3,9 +3,10 @@ from __future__ import annotations
 from coworker.agent.loop import AgentLoop
 from coworker.brain.anthropic_provider import AnthropicProvider
 from coworker.brain.deepseek_provider import DeepSeekProvider
+from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
 from coworker.brain.openai_provider import OpenAIProvider
 from coworker.brain.qwen_provider import QwenProvider
-from coworker.core.types import AttachmentData, IncomingEvent
+from coworker.core.types import AttachmentData, IncomingEvent, Message
 
 
 def _image_att(filename="photo.jpg", path="data/attachments/photo.jpg"):
@@ -74,15 +75,18 @@ class TestBuildContentBlocks:
         event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
         assert result[0]["text"] == "[来自文件投递][alice]的消息:\n"
+        assert any("data/attachments/x.jpg" in block.get("text", "") for block in result)
         img_block = next(b for b in result if b["type"] == "image")
         assert img_block["_saved_path"] == "data/attachments/x.jpg"
         assert img_block["_filename"] == "photo.jpg"
         assert img_block["source"]["data"] == "base64data"
 
     def test_pdf_attachment_returns_document_block(self):
-        event = IncomingEvent(participant_id="alice", content="", attachments=[_pdf_att()])
+        att = _pdf_att(path="data/attachments/report.pdf")
+        event = IncomingEvent(participant_id="alice", content="", attachments=[att])
         result = AgentLoop._build_content_blocks([event])
         assert any(b["type"] == "document" for b in result)
+        assert any("data/attachments/report.pdf" in b.get("text", "") for b in result)
 
     def test_text_file_returns_path_reference(self):
         att = _file_att(path="data/attachments/notes.txt")
@@ -218,6 +222,71 @@ class TestAdaptContentOpenAI:
         result = provider._adapt_content(self._content(), self._VISION_MODEL)
 
         assert not any(block.get("type") == "image_url" for block in result)
+
+
+class _VisionChatProvider(OpenAIChatCompletionsProvider):
+    provider_type = ""
+
+    def list_models(self) -> list[str]:
+        return ["vision-model"]
+
+    def supports_tool_use(self, model_id: str) -> bool:
+        return True
+
+    def supports_vision(self, model_id: str) -> bool:
+        return model_id == "vision-model"
+
+
+class TestOpenAIChatMessageAdaptation:
+    @staticmethod
+    def _tool_image_message() -> Message:
+        return Message(
+            role="tool",
+            tool_call_id="call_view_image",
+            content=[
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "abc",
+                    },
+                    "_filename": "screen.png",
+                    "_saved_path": "/tmp/screen.png",
+                },
+                {"type": "text", "text": "Image loaded"},
+            ],
+        )
+
+    def test_tool_image_is_converted_for_vision_chat_model(self):
+        provider = _VisionChatProvider.__new__(_VisionChatProvider)
+
+        messages = provider._build_api_messages(
+            [self._tool_image_message()], "system", "vision-model"
+        )
+
+        tool_message = messages[1]
+        assert tool_message["role"] == "tool"
+        assert tool_message["tool_call_id"] == "call_view_image"
+        assert tool_message["content"] == [
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,abc"},
+            },
+            {"type": "text", "text": "Image loaded"},
+        ]
+
+    def test_tool_image_degrades_for_non_vision_fallback(self):
+        provider = _VisionChatProvider.__new__(_VisionChatProvider)
+
+        messages = provider._build_api_messages(
+            [self._tool_image_message()], "system", "text-model"
+        )
+
+        tool_message = messages[1]
+        assert all(block["type"] == "text" for block in tool_message["content"])
+        assert "screen.png" in tool_message["content"][0]["text"]
+        assert "/tmp/screen.png" in tool_message["content"][0]["text"]
 
 
 class TestAdaptContentQwen:

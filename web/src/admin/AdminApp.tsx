@@ -828,7 +828,9 @@ function Models() {
   const catalog = useLoad(() => api<Json>('/api/admin/model/catalog'), []);
   const [switchTo, setSwitchTo] = useState({ provider: '', model_id: '' });
   const [switchError, setSwitchError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [draft, setDraft] = useState<Json | null>(null);
   const [fallbackText, setFallbackText] = useState('');
@@ -836,10 +838,18 @@ function Models() {
   const selectedCatalog = (catalog.data?.providers || []).find((item: Json) => item.name === switchTo.provider);
   const switchModels: string[] = selectedCatalog?.models || [];
   const refreshCatalog = async () => {
+    setSwitchError('');
+    setActionMessage('');
     setRefreshingCatalog(true);
     try {
       const next = await api<Json>('/api/admin/model/catalog/refresh', { method: 'POST', body: JSON.stringify({}) });
       catalog.setData(next);
+      const failedProviders = (next.providers || []).filter((provider: Json) => provider.error).map((provider: Json) => provider.name);
+      if (failedProviders.length) {
+        setSwitchError(t('模型目录刷新完成，但 {{count}} 个 Provider 拉取失败：{{providers}}', { count: failedProviders.length, providers: failedProviders.join(', ') }));
+      } else {
+        setActionMessage(t('模型目录已刷新。'));
+      }
     } catch (catalogError) {
       setSwitchError(catalogError instanceof Error ? catalogError.message : t('模型目录刷新失败'));
     } finally {
@@ -850,15 +860,28 @@ function Models() {
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
     if (!draft) return;
-    const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
-    setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
+    setSwitchError('');
+    setActionMessage('');
+    setSaving(true);
+    try {
+      const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+      setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
+      setActionMessage(t('模型编排已保存并热更新。'));
+    } catch (saveError) {
+      setSwitchError(saveError instanceof Error ? saveError.message : t('模型编排更新失败'));
+    } finally {
+      setSaving(false);
+    }
   };
   const switchModel = async () => {
     setSwitchError('');
+    setActionMessage('');
     setSwitching(true);
     try {
       const next = await api<Json>('/api/admin/model/switch', { method: 'POST', body: JSON.stringify(switchTo) });
-      setData(next); setDraft(next); setSwitchTo({ provider: '', model_id: '' });
+      setData(next); setDraft(next);
+      setSwitchTo({ provider: next.active.provider || '', model_id: next.active.model || '' });
+      setActionMessage(t(next.active_changed ? '主线模型已切换至 {{provider}}/{{model}}。' : '主线模型未变化，当前仍为 {{provider}}/{{model}}。', { provider: next.active.provider, model: next.active.model }));
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : t('切换模型失败'));
     } finally {
@@ -866,28 +889,36 @@ function Models() {
     }
   };
   if (loading || !draft) return <Loading error={error} />;
-  const set = (path: string, value: any) => setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; });
+  const set = (path: string, value: any) => { setActionMessage(''); setDraft((old: Json) => { const n = structuredClone(old); const [a, b] = path.split('.'); if (b === undefined) { n[a] = value; } else { n[a][b] = value; } return n; }); };
+  const modelOptionsFor = (provider: string) => {
+    const providerCatalog = (catalog.data?.providers || []).find((item: Json) => item.name === provider);
+    return (providerCatalog?.models || []).map((modelId: string) => ({ value: modelId }));
+  };
+  const summaryModelOptions = modelOptionsFor(draft.summary.provider || draft.active.provider);
+  const visionModelOptions = modelOptionsFor(draft.vision.provider);
+  const mem0ModelOptions = modelOptionsFor(draft.mem0.provider || draft.active.provider);
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => setSwitchTo({ ...switchTo, provider: e.target.value })}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => setSwitchTo({ ...switchTo, model_id: next })} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
+      <div className="inline-form"><select value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
+      {actionMessage && <div className="notice success" role="status"><Check size={16} /><span>{actionMessage}</span></div>}
     </Panel>
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">
-        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.summary.model} onChange={e => set('summary.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.summary.thinking_effort || ''} onChange={e => set('summary.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
+        <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="summary-model-input" label="模型" hint="留空时跟随主线模型"><EditableCombobox id="summary-model-input" value={draft.summary.model} options={summaryModelOptions} onChange={next => set('summary.model', next)} placeholder={draft.active.model} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.summary.thinking_effort || ''} onChange={e => set('summary.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
       <Panel title="视觉理解" note="为纯文本主模型提供图片分析能力。">
-        <div className="field-grid"><Field label="Provider" hint="留空时关闭视觉分析"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="视觉分析使用该模型"><input value={draft.vision.model} onChange={e => set('vision.model', e.target.value)} /></Field><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.vision.thinking_effort || ''} onChange={e => set('vision.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
+        <div className="field-grid"><Field label="Provider" hint="留空时关闭视觉分析"><select value={draft.vision.provider} onChange={e => set('vision.provider', e.target.value)}><option value="">{t('关闭')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="vision-model-input" label="模型" hint="视觉分析使用该模型"><EditableCombobox id="vision-model-input" value={draft.vision.model} options={visionModelOptions} onChange={next => set('vision.model', next)} placeholder={t('选择推荐模型或输入模型 ID')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.vision.thinking} onChange={e => set('vision.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.vision.thinking_effort || ''} onChange={e => set('vision.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
       </Panel>
     </div>
     <Panel title="记忆 LLM（mem0 抽取）" note="控制记忆提取/去重推断使用的模型；留空跟随主线，修改后立即生效。">
-      <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><Field label="模型" hint="留空时跟随主线模型"><input value={draft.mem0.model} onChange={e => set('mem0.model', e.target.value)} placeholder={draft.active.model} /></Field><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
+      <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="mem0-model-input" label="模型" hint="留空时跟随主线模型"><EditableCombobox id="mem0-model-input" value={draft.mem0.model} options={mem0ModelOptions} onChange={next => set('mem0.model', next)} placeholder={draft.active.model} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
-      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
-      <div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存并热更新')}</button><button className="ghost" onClick={() => { setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
+      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
+      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
@@ -1694,6 +1725,53 @@ function memoryDetailText(value: unknown) {
   return String(value ?? '');
 }
 
+function memoryImageBlocks(content: unknown): Json[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter((block): block is Json => Boolean(
+    block
+    && typeof block === 'object'
+    && !Array.isArray(block)
+    && (block as Json).type === 'image'
+    && typeof (block as Json).preview_url === 'string',
+  ));
+}
+
+function MemoryImagePreview({ image }: { image: Json }) {
+  const [source, setSource] = useState('');
+  const [failed, setFailed] = useState(false);
+  const url = String(image.preview_url || '');
+  const filename = String(image.filename || t('图片'));
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl = '';
+    setSource('');
+    setFailed(false);
+    void fetch(url, {
+      headers: { Authorization: `Bearer ${storedToken()}` },
+      signal: controller.signal,
+    }).then(async response => {
+      if (!response.ok) throw new Error(String(response.status));
+      objectUrl = URL.createObjectURL(await response.blob());
+      if (!controller.signal.aborted) setSource(objectUrl);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+  return <figure className="memory-image-preview">
+    {source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt={filename} loading="lazy" /></a> : <div className={failed ? 'failed' : ''}>{t(failed ? '加载失败' : '正在加载…')}</div>}
+    <figcaption>{filename}</figcaption>
+  </figure>;
+}
+
+function MemoryImageGallery({ content }: { content: unknown }) {
+  const images = memoryImageBlocks(content);
+  return images.length ? <div className="memory-image-gallery">{images.map((image, index) => <MemoryImagePreview image={image} key={String(image.preview_url) + '-' + index} />)}</div> : null;
+}
+
 function memoryPreview(message: Json) {
   const toolCalls = message.tool_calls || [];
   const fallback = toolCalls.length
@@ -1702,22 +1780,39 @@ function memoryPreview(message: Json) {
   return (memoryContentText(message.content).trim() || String(message.reasoning_content || '').trim() || fallback).replace(/\s+/g, ' ');
 }
 
+function formatRequestDuration(durationMs: unknown) {
+  const milliseconds = Number(durationMs);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return '';
+  if (milliseconds < 1_000) return t('{{milliseconds}}毫秒', { milliseconds: Math.round(milliseconds) });
+  const seconds = milliseconds / 1_000;
+  return t('{{seconds}}秒', { seconds: seconds < 10 ? seconds.toFixed(1) : Math.round(seconds) });
+}
+
 function MemoryMessage({ message, index, defaultOpen = false, coworkerName = '' }: { message: Json; index: number; defaultOpen?: boolean; coworkerName?: string }) {
+  const [open, setOpen] = useState(defaultOpen);
   const role = message.role === 'assistant' && coworkerName && coworkerName.toLowerCase() !== 'coworker'
     ? coworkerName
     : message.role === 'user' ? memorySourceName(message.source) : t(MEMORY_ROLE[message.role] || message.role);
-  const usage = message.role === 'assistant' && message.usage
-    ? t(' · 输入 {{input}} / 输出 {{output}} token', { input: Number(message.usage.input_tokens || 0).toLocaleString(), output: Number(message.usage.output_tokens || 0).toLocaleString() })
+  const requestMetrics = message.role === 'assistant' && message.usage
+    ? [
+      t('输入 {{input}} / 输出 {{output}} / 缓存 {{cached}} token', {
+        input: Number(message.usage.input_tokens || 0).toLocaleString(),
+        output: Number(message.usage.output_tokens || 0).toLocaleString(),
+        cached: Number(message.usage.cached_tokens || 0).toLocaleString(),
+      }),
+      message.duration_ms == null ? '' : t('耗时 {{duration}}', { duration: formatRequestDuration(message.duration_ms) }),
+    ].filter(Boolean).join(' · ')
     : '';
+  const usage = requestMetrics ? ` · ${requestMetrics}` : '';
   const sourceName = memorySourceName(message.source);
   const summaryState = message.pin_id
     ? t('固定')
     : message.tool_calls?.length
       ? t('{{count}} 个工具调用', { count: message.tool_calls.length })
       : message.stop_reason || '';
-  return <details className={'short-message role-' + message.role} open={defaultOpen}>
+  return <details className={'short-message role-' + message.role} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary><span className="message-index">{String(index + 1).padStart(2, '0')}</span><span className="message-summary-copy"><b>{role}</b><small>{formatDateTime(message.timestamp)}{' · '}{sourceName}{usage}</small><em className="message-preview">{memoryPreview(message)}</em></span><i>{summaryState}</i></summary>
-    <div className="short-message-body"><pre>{memoryContentText(message.content)}</pre>{message.reasoning_content && <section className="message-reasoning"><b><Brain size={12} />{t('思考')}</b><pre>{message.reasoning_content}</pre></section>}{message.tool_calls?.length > 0 && <section className="message-tool-section"><b><Wrench size={12} />{t('工具调用')}</b><div className="message-tools">{message.tool_calls.map((call: Json) => <details className="tool-exchange" key={call.id || call.name} open><summary><span><Wrench size={11} />{call.name}</span><small>{'result' in call ? t('已返回') : t('等待结果')}</small></summary><div><label>{t('参数')}</label><pre>{memoryDetailText(call.arguments)}</pre><label>{t('结果')}</label><pre>{'result' in call ? memoryDetailText(call.result) : t('尚未返回结果')}</pre></div></details>)}</div></section>}{message.recalled_memory_ids?.length > 0 && <p>{t('召回长期记忆：')} {message.recalled_memory_ids.join(' · ')}</p>}{message.tool_call_id && <p>{t('工具调用 ID：')} {message.tool_call_id}</p>}</div>
+    <div className="short-message-body"><pre>{memoryContentText(message.content)}</pre>{open && <MemoryImageGallery content={message.content} />}{message.reasoning_content && <section className="message-reasoning"><b><Brain size={12} />{t('思考')}</b><pre>{message.reasoning_content}</pre></section>}{message.tool_calls?.length > 0 && <section className="message-tool-section"><b><Wrench size={12} />{t('工具调用')}</b><div className="message-tools">{message.tool_calls.map((call: Json) => <details className="tool-exchange" key={call.id || call.name} open><summary><span><Wrench size={11} />{call.name}</span><small>{'result' in call ? t('已返回') : t('等待结果')}</small></summary><div><label>{t('参数')}</label><pre>{memoryDetailText(call.arguments)}</pre><label>{t('结果')}</label><pre>{'result' in call ? memoryDetailText(call.result) : t('尚未返回结果')}</pre>{open && <MemoryImageGallery content={call.result} />}</div></details>)}</div></section>}{message.recalled_memory_ids?.length > 0 && <p>{t('召回长期记忆：')} {message.recalled_memory_ids.join(' · ')}</p>}{message.tool_call_id && <p>{t('工具调用 ID：')} {message.tool_call_id}</p>}</div>
   </details>;
 }
 
@@ -1912,7 +2007,7 @@ function bubbleHistoryMessages(events: Json[]) {
     if (event.type === 'message_in') return [{ ...common, role: event.participant_id === 'system' ? 'system' : 'user', source: event.source || '并行思考', content: event.content }];
     if (event.type === 'thinking_start') return [{ ...common, role: 'system', content: t('第 {{count}} 轮开始{{mode}}', { count: Number(event.cycle || 0) + 1, mode: event.thinking === false ? t('（快速模式）') : event.thinking_effort ? `（${event.thinking_effort}）` : '' }) }];
     if (event.type === 'llm_response') return [{
-      ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage,
+      ...common, role: 'assistant', source: event.model || '并行思考', content: event.content || '', reasoning_content: event.reasoning_content, usage: event.usage, duration_ms: event.duration_ms,
       stop_reason: event.stop_reason,
       tool_calls: (event.tool_calls || []).map((call: Json) => {
         const result = results.get(call.id);
@@ -2515,7 +2610,23 @@ function DangerAction({ title, description, button, confirmationName, onConfirm 
 
 function Maintenance({ confirmationName }: { confirmationName: string }) {
   const backups = useLoad(() => api<Json>('/api/admin/backups'), []);
-  return <div className="page-stack"><Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。"><div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}><div><b>{backup.filename}</b><small>{backup.timestamp ? formatDateTime(backup.timestamp) : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div><div className="row-actions"><button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button><BackupFullRestore filename={backup.filename} confirmationName={confirmationName} /></div></article>) : <Empty text="当前没有应急备份。" />}</div></Panel><Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel></div>;
+  return <div className="page-stack">
+    <Panel title="应急备份" note="摘要恢复会把备份压缩后注入 inbox；完整恢复会替换当前短期上下文。">
+      <div className="record-list">{backups.data?.backups?.length ? backups.data.backups.map((backup: Json) => <article className="record" key={backup.filename}>
+        <div><b>{backup.filename}</b><small>{backup.timestamp ? formatDateTime(backup.timestamp) : t('时间未知')}{' · '}{t('{{count}} 条消息', { count: backup.message_count ?? '—' })}</small></div>
+        <div className="row-actions">
+          <button className="ghost" onClick={async () => { if (confirm(t('以摘要方式吸收备份 {{filename}}？', { filename: backup.filename }))) { await api('/api/admin/backups/restore', { method: 'POST', body: JSON.stringify({ filename: backup.filename, mode: 'summarize' }) }); } }}>{t('摘要恢复')}</button>
+          <BackupFullRestore filename={backup.filename} confirmationName={confirmationName} />
+          <BackupDelete
+            filename={backup.filename}
+            confirmationName={confirmationName}
+            onDeleted={() => backups.setData(current => current ? { ...current, backups: current.backups.filter((item: Json) => item.filename !== backup.filename) } : current)}
+          />
+        </div>
+      </article>) : <Empty text="当前没有应急备份。" />}</div>
+    </Panel>
+    <Panel title="维护舱" note="重启会改变运行状态，因此需要明确确认。"><div className="danger-list"><DangerAction title="安全重启 Coworker" description="保存完整短期快照并重启进程。正在运行的 Bubble 会被取消，页面连接会短暂断开。" button="安全重启" confirmationName={confirmationName} onConfirm={() => api('/api/admin/restart', { method: 'POST', body: JSON.stringify({ confirm_name: confirmationName }) })} /></div></Panel>
+  </div>;
 }
 
 function BackupFullRestore({ filename, confirmationName }: { filename: string; confirmationName: string }) {
@@ -2549,6 +2660,42 @@ function BackupFullRestore({ filename, confirmationName }: { filename: string; c
       <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
       {error && <div className="notice error">{error}</div>}
       <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void restore()}>{busy ? t('正在恢复…') : t('完整恢复')}</button></div>
+    </div></div>}
+  </>;
+}
+
+function BackupDelete({ filename, confirmationName, onDeleted }: { filename: string; confirmationName: string; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setTyped('');
+    setError('');
+  };
+  const remove = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE', body: JSON.stringify({ confirm_name: confirmationName }) });
+      onDeleted();
+      setOpen(false);
+      setTyped('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('请求失败'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <>
+    <button className="danger-outline" onClick={() => setOpen(true)}>{t('删除')}</button>
+    {open && <div className="modal-layer"><div className="confirm-modal">
+      <TriangleAlert size={28} /><h3>{t('删除应急备份')}</h3><p>{t('永久删除 {{filename}}；删除后无法再从这份备份恢复。', { filename })}</p>
+      <Field label={t('输入“{{name}}”以确认', { name: confirmationName })}><input autoFocus disabled={busy} value={typed} onChange={event => setTyped(event.target.value)} /></Field>
+      {error && <div className="notice error">{error}</div>}
+      <div className="panel-actions"><button className="ghost" disabled={busy} onClick={close}>{t('取消')}</button><button className="danger-solid" disabled={busy || !confirmationName || typed !== confirmationName} onClick={() => void remove()}>{busy ? t('正在删除…') : t('删除')}</button></div>
     </div></div>}
   </>;
 }

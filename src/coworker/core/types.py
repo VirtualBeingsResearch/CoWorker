@@ -32,6 +32,7 @@ class Message:
     source: str | None = None
     person_id: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
+    duration_ms: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"role": self.role, "content": self.content}

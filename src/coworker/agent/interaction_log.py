@@ -13,6 +13,17 @@ if TYPE_CHECKING:
     from coworker.memory.base import MemoryRecord
 
 
+def _memory_log_payload(memory: MemoryRecord) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": memory.id,
+        "category": memory.category,
+        "content": memory.content,
+    }
+    if memory.extra:
+        payload["extra"] = memory.extra
+    return payload
+
+
 class InteractionLogger:
     """Append-only interaction logger with optional size-based shard rotation.
 
@@ -196,6 +207,7 @@ class InteractionLogger:
         provider: str = "unknown",
         thinking: bool | None = None,
         thinking_effort: str | None = None,
+        duration_ms: int | None = None,
     ) -> None:
         entry: dict[str, Any] = {
             "type": "llm_response",
@@ -214,6 +226,8 @@ class InteractionLogger:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
             entry["thinking_effort"] = thinking_effort
+        if duration_ms is not None:
+            entry["duration_ms"] = max(0, duration_ms)
         self._write(entry)
 
     def log_summary_llm_response(
@@ -383,10 +397,7 @@ class InteractionLogger:
             "tags": tags,
             "critical_skills": critical_skills,
             "related_skills": related_skills,
-            "recalled": [
-                {"id": m.id, "category": m.category, "content": m.content}
-                for m in recalled
-            ],
+            "recalled": [_memory_log_payload(memory) for memory in recalled],
         })
 
     def log_auto_recall(self, query: str, memories: list[MemoryRecord]) -> None:
@@ -394,13 +405,6 @@ class InteractionLogger:
             {
                 "type": "auto_recall",
                 "query": query,
-                "memories": [
-                    {
-                        "id": m.id,
-                        "category": m.category,
-                        "content": m.content,
-                    }
-                    for m in memories
-                ],
+                "memories": [_memory_log_payload(memory) for memory in memories],
             }
         )

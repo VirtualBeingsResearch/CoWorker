@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.agent.incoming_content import format_event_text
+from coworker.agent.incoming_content import build_content_blocks, format_event_text
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.telegram import adapter
@@ -100,9 +101,7 @@ async def test_python_telegram_bot_adapter_uses_typed_bot_api() -> None:
     )
 
     assert await client.get_me() == {"id": 42, "is_bot": True}
-    assert await client.get_updates(7, 30) == [
-        {"update_id": 7, "message": {}}
-    ]
+    assert await client.get_updates(7, 30) == [{"update_id": 7, "message": {}}]
     await client.send_message(-1001, "hello", 19)
     await client.close()
 
@@ -319,9 +318,7 @@ async def test_inbound_access_is_checked_before_contact_and_download(
     runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
     runner.set_access_controller(
         ChannelAccessController(
-            ChannelAccessConfig.model_validate(
-                {"telegram": {"inbound_deny": ["tg:main:*"]}}
-            )
+            ChannelAccessConfig.model_validate({"telegram": {"inbound_deny": ["tg:main:*"]}})
         )
     )
     collect = AsyncMock()
@@ -346,6 +343,84 @@ async def test_inbound_access_is_checked_before_contact_and_download(
     assert client.downloads == []
     assert runner.contacts() == []
     assert client.messages[0][0::2] == (-1009, 9)
+
+
+@pytest.mark.asyncio
+async def test_inbound_document_exposes_file_details_to_the_model(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    events: list[IncomingEvent] = []
+
+    async def collect(event: IncomingEvent) -> None:
+        events.append(event)
+
+    runner.set_inbound_handler(collect)
+    client = _FakeClient()
+    with locale_context("en"):
+        await runner._bots["main"]._consume_update(  # noqa: SLF001
+            client,
+            {
+                "update_id": 5,
+                "message": {
+                    "message_id": 4,
+                    "chat": {
+                        "id": 123,
+                        "type": "private",
+                        "first_name": "Alice",
+                    },
+                    "document": {
+                        "file_id": "report-file",
+                        "file_unique_id": "report-1",
+                        "file_name": "quarterly-report.pdf",
+                        "mime_type": "application/pdf",
+                    },
+                    "caption": "Please review this report",
+                },
+            },
+        )
+
+        blocks = build_content_blocks(events)
+
+    assert client.downloads == ["report-file"]
+    assert events[0].attachments[0].filename == "quarterly-report.pdf"
+    saved_path = events[0].attachments[0].saved_path
+    assert re.fullmatch(r"\d{6}_quarterly-report\.pdf", Path(saved_path).name)
+    assert isinstance(blocks, list)
+    model_text = "\n".join(block["text"] for block in blocks if block.get("type") == "text")
+    assert "[file] quarterly-report.pdf (application/pdf)" in model_text
+    assert "Please review this report" in model_text
+    assert saved_path in model_text
+
+
+@pytest.mark.asyncio
+async def test_downloaded_media_retries_a_six_digit_prefix_collision(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runner = _runner(tmp_path, _config(main={"bot_token": "token"}))
+    attachments_dir = tmp_path / "attachments"
+    attachments_dir.mkdir()
+    existing = attachments_dir / "123456_report.pdf"
+    existing.write_bytes(b"keep-existing")
+    prefixes = iter((123456, 654321))
+    monkeypatch.setattr(
+        telegram_runner_module.secrets,
+        "randbelow",
+        lambda _: next(prefixes),
+    )
+
+    attachment = await runner._bots["main"]._download_media(  # noqa: SLF001
+        _FakeClient(),
+        adapter.TelegramMedia(
+            file_id="report-file",
+            filename="report.pdf",
+            media_type="application/pdf",
+            label_key="channel.telegram.file",
+        ),
+    )
+
+    assert existing.read_bytes() == b"keep-existing"
+    assert Path(attachment.saved_path).name == "654321_report.pdf"
+    assert Path(attachment.saved_path).read_bytes() == b"telegram-image"
 
 
 @pytest.mark.asyncio
@@ -555,7 +630,7 @@ def test_telegram_reply_falls_back_to_original_media_and_caption() -> None:
     assert content == (
         "[Chat: private]\n"
         "[Reply to Alice (ID: 11, username: -)]\n"
-        "> [voice message] status update\n"
+        "> [voice message] telegram-voice-voice-1.ogg (audio/ogg) status update\n"
         "What is this?"
     )
 
@@ -602,7 +677,9 @@ def test_telegram_external_reply_and_forward_origins_are_visible() -> None:
         external_content = adapter.message_content(external_reply, None)
         forwarded_content = adapter.message_content(forwarded, None)
 
-    assert "[外部引用，来源 Hidden Alice]\n> [图片]" in external_content
+    assert (
+        "[外部引用，来源 Hidden Alice]\n> [图片] telegram-photo-photo-1.jpg（image/jpeg）"
+    ) in external_content
     assert "[转发自：Alice（ID：11，用户名：-）]" in forwarded_content
 
 
@@ -668,6 +745,26 @@ def test_telegram_video_note_is_a_downloadable_attachment() -> None:
         filename="telegram-video_note-note-1.mp4",
         media_type="video/mp4",
         label_key="channel.telegram.video_note",
+    )
+
+
+def test_telegram_document_summary_includes_filename_type_and_caption() -> None:
+    message = {
+        "chat": {"id": 123, "type": "private"},
+        "document": {
+            "file_id": "document",
+            "file_unique_id": "document-1",
+            "file_name": "quarterly-report.pdf",
+            "mime_type": "application/pdf",
+        },
+        "caption": "Please review this report",
+    }
+
+    with locale_context("en"):
+        content = adapter.message_content(message, adapter.media_for(message))
+
+    assert content == (
+        "[Chat: private]\n[file] quarterly-report.pdf (application/pdf)\nPlease review this report"
     )
 
 

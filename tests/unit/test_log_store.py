@@ -5,6 +5,7 @@ from datetime import datetime
 
 from coworker.agent.interaction_log import InteractionLogger
 from coworker.agent.log_store import LogStore
+from coworker.memory.base import MemoryRecord
 
 
 def _write_shard(path, entries: list[dict]) -> None:
@@ -21,6 +22,24 @@ def _entry(seq: int, minute: int, type_: str = "message_in", **extra) -> dict:
 
 
 class TestInteractionLogSeq:
+    def test_memory_relevance_scores_are_logged_as_optional_metadata(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(path)
+        scored = MemoryRecord(id="scored", content="relevant", extra={"score": 0.83})
+        unscored = MemoryRecord(id="unscored", content="legacy")
+
+        log.log_auto_recall("query", [scored, unscored])
+        log.log_palace_injection([], [], [], [], [scored, unscored])
+
+        entries = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert entries[0]["memories"][0]["extra"] == {"score": 0.83}
+        assert "extra" not in entries[0]["memories"][1]
+        assert entries[1]["recalled"][0]["extra"] == {"score": 0.83}
+        assert "extra" not in entries[1]["recalled"][1]
+
     def test_seq_monotonic_and_persists_across_restart(self, tmp_path):
         p = tmp_path / "interactions.jsonl"
         log = InteractionLogger(str(p))
@@ -52,12 +71,14 @@ class TestInteractionLogSeq:
             provider="mock",
             thinking=True,
             thinking_effort="high",
+            duration_ms=1_234,
         )
 
         entries = [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
         assert entries[0]["thinking_effort"] == "high"
         assert entries[1]["thinking_effort"] == "high"
         assert entries[1]["thinking"] is True
+        assert entries[1]["duration_ms"] == 1_234
 
     def test_summary_and_vision_responses_record_thinking_effort(self, tmp_path):
         p = tmp_path / "interactions.jsonl"

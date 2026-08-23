@@ -131,7 +131,7 @@ as codes.
 | `MEMORY__TREE_BACKFILL_CONCURRENCY` | `5` | Maximum concurrency for leaf summarization and reduction during backfill |
 | `MEMORY__TREE_MERGE_REACH_DEPTH` | `2` | Number of lower detail levels read during a high-level merge; `2` means the lowest two levels |
 | `MEMORY__AUTO_RECALL_ENABLED` | `true` | Whether to search long-term memory automatically when a message arrives |
-| `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | Relevance threshold for automatic recall (0–1) |
+| `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | Minimum relevance score (0–1) for mem0 query results, shared by automatic recall, `query_memory`, and administration search; changes are hot-applied |
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | Maximum number of memories injected by each automatic recall |
 | `MEMORY__MEM0_LLM_PROVIDER` | `""` (follows main line) | Independent provider for mem0 extraction; leave empty to follow the runtime active provider, including manual switches and failure fallbacks, or set a Brain provider name or type to reuse its credentials and effective `base_url`. Hot-applied, no restart needed |
 | `MEMORY__MEM0_LLM_MODEL` | `""` (follows main line) | Independent model ID for mem0 extraction. When the provider is also empty, it follows the runtime active model. With an explicit provider and an empty model, it uses that provider's `default_model` (or `LLM__DEFAULT_MODEL`). The model ID is passed through to the API dialect; changes are hot-applied with no restart needed |
