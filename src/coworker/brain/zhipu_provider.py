@@ -16,6 +16,7 @@ _ZHIPU_MODELS = {
     "glm-5.1",
     "glm-5.2",
     "glm-5.3",
+    "glm-5.3-flash",
 }
 
 _VISION_MODELS = {
@@ -23,15 +24,20 @@ _VISION_MODELS = {
     "glm-4v-plus",
     "glm-4v-flash",
     "glm-5v-turbo",
+    "glm-5.3-flash",
 }
 
-# GLM-Z1/5 系列支持 extended thinking。GLM-5.3 不允许关闭思考。
+# GLM-Z1/5 系列支持 extended thinking。GLM-5.3 与 GLM-5.3-Flash 不允许关闭思考。
 _THINKING_MODELS = _ZHIPU_MODELS
-_ALWAYS_THINKING_MODELS = {"glm-5.3"}
+_ALWAYS_THINKING_MODELS = {"glm-5.3", "glm-5.3-flash"}
 
 # reasoning_effort 仅 GLM-5.2+ 支持。GLM-5.3 只接受 low/high/max；
 # GLM-5.2 的 medium/low 会被服务端映射为 high，xhigh 映射为 max。
-_EFFORT_MODELS = {"glm-5.2", "glm-5.3"}
+# GLM-5.3-Flash 与 GLM-5.3 使用相同的低/高/最高三档（thinking 不可关闭）。
+_EFFORT_MODELS = {"glm-5.2", "glm-5.3", "glm-5.3-flash"}
+
+# 思考不可关闭，reasoning_effort 只接受 low/high/max（无 disabled 档）的模型。
+_MAX_EFFORT_MODELS = {"glm-5.3", "glm-5.3-flash"}
 
 
 def _thinking_body(enabled: bool) -> dict[str, Any]:
@@ -44,7 +50,7 @@ def _thinking_body(enabled: bool) -> dict[str, Any]:
 
 
 def _mapped_effort(model_id: str, effort: ThinkingEffort) -> str:
-    if model_id == "glm-5.3":
+    if model_id in _MAX_EFFORT_MODELS:
         return {"none": "low", "minimal": "low", "low": "low", "medium": "high",
                 "high": "high", "xhigh": "max", "max": "max"}[effort]
     return {"minimal": "disabled", "low": "high", "medium": "high",

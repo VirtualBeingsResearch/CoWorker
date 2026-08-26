@@ -75,6 +75,16 @@ class TestProviderThinkingMappings:
         assert kwargs["reasoning_effort"] == "max"
         assert kwargs["extra_body"]["thinking"]["type"] == "enabled"
 
+    def test_zhipu_glm53_flash_maps_effort_like_glm53(self):
+        kwargs = _apply(ZhipuProvider, "glm-5.3-flash", thinking=True, effort="xhigh")
+        assert kwargs["reasoning_effort"] == "max"
+        assert kwargs["extra_body"]["thinking"]["type"] == "enabled"
+
+    def test_zhipu_glm53_flash_cannot_disable_thinking(self):
+        kwargs = _apply(ZhipuProvider, "glm-5.3-flash", thinking=False, effort="high")
+        assert kwargs["reasoning_effort"] == "low"
+        assert kwargs["extra_body"]["thinking"]["type"] == "enabled"
+
     def test_zhipu_older_model_is_on_off_only(self):
         kwargs = _apply(ZhipuProvider, "glm-4.7", thinking=True, effort="xhigh")
         assert kwargs["extra_body"]["thinking"]["type"] == "enabled"
