@@ -6,6 +6,7 @@ from coworker.brain.deepseek_provider import DeepSeekProvider
 from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
 from coworker.brain.openai_provider import OpenAIProvider
 from coworker.brain.qwen_provider import QwenProvider
+from coworker.brain.zhipu_provider import ZhipuProvider
 from coworker.core.types import AttachmentData, IncomingEvent, Message
 
 
@@ -371,3 +372,36 @@ class TestAdaptContentDeepSeek:
 
     def test_str_content_unchanged(self):
         assert self._provider()._adapt_content("plain text", "deepseek-v4-flash") == "plain text"
+
+
+class TestAdaptContentZhipu:
+    def test_vision_model_keeps_image_as_url(self):
+        p = ZhipuProvider.__new__(ZhipuProvider)
+        p._current_model = "glm-5.3-flash"
+        content = [{
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc"},
+            "_filename": "pic.jpg",
+        }]
+        result = p._adapt_content(content, "glm-5.3-flash")
+        assert result[0]["type"] == "image_url"
+        assert result[0]["image_url"]["url"] == "data:image/jpeg;base64,abc"
+
+    def test_text_model_degrades_image(self):
+        p = ZhipuProvider.__new__(ZhipuProvider)
+        p._current_model = "glm-5.3"
+        content = [{
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc"},
+            "_filename": "pic.jpg",
+        }]
+        result = p._adapt_content(content, "glm-5.3")
+        assert result[0]["type"] == "text"
+        assert "pic.jpg" in result[0]["text"]
+
+    def test_vision_capability_only_for_vision_models(self):
+        p = ZhipuProvider.__new__(ZhipuProvider)
+        assert p.supports_vision("glm-5.3-flash") is True
+        assert p.supports_vision("glm-5v-turbo") is True
+        assert p.supports_vision("glm-5.3") is False
+        assert p.supports_vision("glm-4.7") is False

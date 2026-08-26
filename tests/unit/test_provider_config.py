@@ -75,6 +75,13 @@ def test_deepseek_catalog_includes_vision_model():
     assert "deepseek-v4-pro" in models
 
 
+def test_zhipu_catalog_includes_vision_model():
+    models = available_models("zhipu")
+    assert "glm-5.3-flash" in models
+    assert "glm-5.3" in models
+    assert "glm-5v-turbo" in models
+
+
 def test_opencode_go_catalog_includes_supported_vision_model():
     models = available_models("opencode-go")
     assert "gpt-5.6-luna" in models
