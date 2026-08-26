@@ -19,6 +19,7 @@ from coworker.channels.telegram.client import (
     TelegramClient,
     TelegramFileTooLargeError,
 )
+from coworker.channels.telegram.logging import configure_telegram_polling_logs
 from coworker.channels.telegram.state import (
     TelegramContact,
     TelegramStateStore,
@@ -392,6 +393,7 @@ class TelegramRunner:
         *,
         client_factory: TelegramClientFactory | None = None,
     ) -> None:
+        configure_telegram_polling_logs()
         self._config = config.model_copy(deep=True)
         self._state_dir = state_dir
         self._attachments_dir = attachments_dir
