@@ -13,7 +13,11 @@ RUN ldflags="-s -w \
     && CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o /out/coworker-relay ./cmd/coworker-relay
 
 FROM alpine:3.24
-RUN apk add --no-cache ca-certificates \
+# The floating `alpine:3.24` tag can lag the package index, shipping an older
+# (vulnerable) OpenSSL. Upgrade to the branch's current packages at build time so
+# the scan sees the fixed libcrypto3/libssl3 (e.g. CVE-2026-14456).
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates \
     && addgroup -S relay \
     && adduser -S -G relay relay
 COPY --from=build /out/coworker-relay /usr/local/bin/coworker-relay
