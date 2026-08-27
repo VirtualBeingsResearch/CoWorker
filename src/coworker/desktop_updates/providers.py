@@ -51,6 +51,7 @@ def source_summary(source: DesktopUpdateSourceSpec) -> SyncSourceSummary:
             options={
                 "include_drafts": source.include_drafts,
                 "include_prereleases": source.include_prereleases,
+                "auto_publish": source.auto_publish,
             },
         )
     if isinstance(source, CoworkerDesktopUpdateSource):
@@ -62,6 +63,7 @@ def source_summary(source: DesktopUpdateSourceSpec) -> SyncSourceSummary:
             target=source.base_url,
             options={
                 "include_prereleases": source.include_prereleases,
+                "auto_publish": source.auto_publish,
             },
         )
     raise ValueError(f"unsupported desktop update source type: {source!r}")
@@ -80,6 +82,7 @@ def runtime_key(source: DesktopUpdateSourceSpec, config: DesktopUpdatesConfig) -
         str(source.id),
         source.type,
         source.include_prereleases,
+        source.auto_publish,
         config.sync_max_asset_bytes,
         config.sync_max_run_bytes,
     )
@@ -118,6 +121,7 @@ def build_runtime_spec(
             enabled=False,
             ready=False,
             readiness="unconfigured",
+            auto_publish=active.auto_publish,
         )
     return SyncRuntimeSpec(
         source=build_release_source(active, config, transport=transport),
@@ -128,6 +132,7 @@ def build_runtime_spec(
         enabled=True,
         ready=True,
         readiness="ready",
+        auto_publish=active.auto_publish,
     )
 
 

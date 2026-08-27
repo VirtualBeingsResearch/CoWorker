@@ -482,6 +482,10 @@ class DesktopUpdateSourceBase(BaseModel):
     name: str
     token: str = Field(default="", repr=False)
     include_prereleases: bool = False
+    # When enabled, a newly imported draft is published automatically right
+    # after a successful sync import (instead of staying a draft for a manual
+    # admin publish). Opt-in so the default keeps the manual-review workflow.
+    auto_publish: bool = False
 
     @field_validator("name")
     @classmethod

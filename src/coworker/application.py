@@ -997,6 +997,7 @@ async def _main() -> bool:
         source_summary=desktop_update_runtime.source_summary,
         runtime_key=desktop_update_runtime.runtime_key,
         token=desktop_update_runtime.token,
+        auto_publish=desktop_update_runtime.auto_publish,
     )
     relay_client = RelayClient(api_app.app, config)
 
@@ -1044,6 +1045,9 @@ async def _main() -> bool:
         config.admin.token,
         desktop_release_store,
     )
+    # After the channel system is wired (setup_channels below), auto-published
+    # releases notify online desktops just like a manual publish would.
+    desktop_update_sync.on_release_published = api_app.notify_desktop_update_published
     api_app.setup_channels(None if setup_required else channel_system)
     api_app.set_collector(event_collector)
 
