@@ -2226,7 +2226,11 @@ async def search_memories(
     limit: int = Query(default=20, ge=1, le=100),
     _: None = Depends(require_admin),
 ) -> ApiResponse:
-    return {"memories": await _require_agent()._long_term.query(q, category=category, limit=limit)}
+    return {
+        "memories": await _require_agent()._long_term.query(
+            q, category=category, limit=limit, manual=True
+        )
+    }
 
 
 @router.patch("/memories/{memory_id}")

@@ -131,6 +131,23 @@ class TestLongTermMemoryFacade:
         assert len(result) == 1
         assert calls == [("goal", {"tags": ["t"], "limit": 8})]
 
+    async def test_query_passes_manual_flag_to_backend(self):
+        memory, backend = self._make()
+        seen: list[MemoryQuery] = []
+
+        async def recording_query(params: MemoryQuery) -> list[MemoryRecord]:
+            seen.append(params)
+            return []
+
+        backend.query = recording_query
+        await memory.query("goal", manual=True)
+        assert len(seen) == 1
+        assert seen[0].text == "goal"
+        assert seen[0].manual is True
+
+        await memory.query("goal")
+        assert seen[1].manual is False
+
     async def test_update_delete_associate_count_delegate(self):
         memory, backend = self._make()
         result = await memory.write("content", category="general", tags=["a"])
@@ -283,6 +300,28 @@ class TestMem0Backend:
         settings.auto_recall_relevance_threshold = 0.7
         records = await backend.query(MemoryQuery("content"))
         assert [record.id for record in records] == ["m1"]
+
+    async def test_query_manual_bypasses_relevance_threshold(self):
+        settings = SimpleNamespace(auto_recall_relevance_threshold=0.8)
+        backend = Mem0Backend(db_path="data/_unused", query_settings=settings)
+        backend._mem = MagicMock()
+        backend._mem.search = AsyncMock(
+            return_value={
+                "results": [
+                    {"id": "low", "memory": "low relevance", "score": 0.31},
+                    {"id": "no-score", "memory": "no score returned"},
+                    {"id": "high", "memory": "high relevance", "score": 0.9},
+                ]
+            }
+        )
+
+        records = await backend.query(MemoryQuery("content", manual=True))
+        assert [record.id for record in records] == ["low", "no-score", "high"]
+        assert records[0].extra == {"score": 0.31}
+        assert records[1].extra == {"score": None}
+
+        records = await backend.query(MemoryQuery("content"))
+        assert [record.id for record in records] == ["high"]
 
     async def test_update_preserves_metadata(self):
         backend = self._make()

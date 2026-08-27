@@ -40,6 +40,9 @@ class MemoryQuery:
     limit: int = 10
     start: datetime | None = None
     end: datetime | None = None
+    # 手动/显式回忆：不受 auto_recall_relevance_threshold 约束，
+    # 后端应返回排序后的 top-N 候选而不做相关性过滤。
+    manual: bool = False
 
 
 class MemoryBackendConfig(Protocol):
