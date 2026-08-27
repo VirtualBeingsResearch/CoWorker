@@ -1241,6 +1241,7 @@ type DesktopUpdateSourceConfig = {
   type: 'github' | 'coworker';
   token?: string;
   include_prereleases?: boolean;
+  auto_publish?: boolean;
   api_base_url?: string;
   repository?: string;
   include_drafts?: boolean;
@@ -1275,8 +1276,8 @@ function createUuid() {
 function desktopSource(type: 'github' | 'coworker' = 'github'): DesktopUpdateSourceConfig {
   const id = createUuid();
   return type === 'github'
-    ? { id, name: t('GitHub 上游'), type, api_base_url: 'https://api.github.com', repository: '', token: '', include_drafts: false, include_prereleases: false }
-    : { id, name: t('Coworker 上游'), type, base_url: '', token: '', include_prereleases: false };
+    ? { id, name: t('GitHub 上游'), type, api_base_url: 'https://api.github.com', repository: '', token: '', include_drafts: false, include_prereleases: false, auto_publish: false }
+    : { id, name: t('Coworker 上游'), type, base_url: '', token: '', include_prereleases: false, auto_publish: false };
 }
 
 function sourceSecretPath(id: string) { return `desktop_updates.sync_sources.${id}.token`; }
@@ -1422,6 +1423,7 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
           <div className="desktop-option-grid">
             {selectedSource.type === 'github' && <label className="desktop-option-card"><input type="checkbox" checked={!!selectedSource.include_drafts} onChange={event => patchSource(selectedSource.id, { include_drafts: event.target.checked })} /><span>{t('同步 GitHub 草稿')}</span><small>{t('仅在需要接收上游 draft 时开启。')}</small></label>}
             <label className="desktop-option-card"><input type="checkbox" checked={!!selectedSource.include_prereleases} onChange={event => patchSource(selectedSource.id, { include_prereleases: event.target.checked })} /><span>{t('同步预发布版本')}</span><small>{t('允许 SemVer 预发布版本进入本地草稿。')}</small></label>
+            <label className="desktop-option-card"><input type="checkbox" checked={!!selectedSource.auto_publish} onChange={event => patchSource(selectedSource.id, { auto_publish: event.target.checked })} /><span>{t('同步后自动发布')}</span><small>{t('只对本次新导入的版本自动发布并通知桌面端；仅在信任该上游签名公钥时开启。')}</small></label>
           </div>
         </div>
       </> : <div className="provider-empty">{t('选择一个上游来源查看详情。')}</div>}</section>

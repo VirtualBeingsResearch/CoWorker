@@ -261,7 +261,7 @@ Upload signed assets and publish releases through the administration interface.
 Coworker can also periodically import a **local draft** from a GitHub-compatible Release API:
 
 ```env
-DESKTOP_UPDATES__SYNC_SOURCES='[{"id":"11111111-1111-4111-8111-111111111111","name":"GitHub official","type":"github","api_base_url":"https://api.github.com","repository":"owner/coworker","token":"","include_drafts":false,"include_prereleases":false}]'
+DESKTOP_UPDATES__SYNC_SOURCES='[{"id":"11111111-1111-4111-8111-111111111111","name":"GitHub official","type":"github","api_base_url":"https://api.github.com","repository":"owner/coworker","token":"","include_drafts":false,"include_prereleases":false,"auto_publish":false}]'
 DESKTOP_UPDATES__SYNC_ACTIVE_SOURCE=11111111-1111-4111-8111-111111111111
 DESKTOP_UPDATES__SYNC_INTERVAL_SECONDS=21600
 DESKTOP_UPDATES__SYNC_ON_START=true
@@ -269,7 +269,9 @@ DESKTOP_UPDATES__SYNC_ON_START=true
 
 The API base URL may point to GitHub Enterprise, such as `https://github.company/api/v3`, or a compatible proxy. Synchronization uses the configured hostname. The token is sent only to requests on the base URL's origin and is removed from cross-origin asset redirects.
 
-The synchronizer can import a Release containing only a subset of the canonical desktop assets. It prefers `SHA256SUMS.txt`, and otherwise uses each GitHub asset's `digest` to verify downloaded bytes. A `.sig` must still be the real Tauri updater signature; a SHA-256 digest cannot replace it. A successful synchronization creates only a server-side draft with `published: false`; it does not modify `latest.json`, notify clients, or re-sign assets. An administrator must still inspect the version, platforms, and signatures in Desktop Releases and publish it manually. The upstream signatures must match the Tauri updater public key embedded in downstream clients.
+The synchronizer can import a Release containing only a subset of the canonical desktop assets. It prefers `SHA256SUMS.txt`, and otherwise uses each GitHub asset's `digest` to verify downloaded bytes. A `.sig` must still be the real Tauri updater signature; a SHA-256 digest cannot replace it. A successful synchronization creates only a server-side draft with `published: false` by default; it does not modify `latest.json`, notify clients, or re-sign assets. An administrator must still inspect the version, platforms, and signatures in Desktop Releases and publish it manually. The upstream signatures must match the Tauri updater public key embedded in downstream clients.
+
+With `auto_publish=true` on a source, the synchronizer publishes **only versions newly imported by that run** automatically: it writes `latest.json`, marks the draft as published, and pushes a single check-update notification to online supporting desktops (the same SSE notification as a manual publish; offline desktops still catch up on next start). It never republishes an already-present local version or overwrites a draft an administrator may have edited. If an automatic publish fails, the version stays a draft and the sync is reported as failed so the administrator can repair and publish it manually. It defaults to off to preserve the manual review workflow, and should be enabled only when you trust the upstream signing public key.
 
 The Desktop Release section in `examples/api_test.html` can also create a release manually, upload one platform asset at a time, publish, or roll back.
 

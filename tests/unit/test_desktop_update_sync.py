@@ -28,12 +28,14 @@ from coworker.desktop_updates import (
     SemVerError,
     SourceAsset,
     SourceRelease,
+    SyncRuntimeSpec,
     SyncService,
     SyncSourceSummary,
     SyncStatus,
     UnsafePathError,
     canonical_asset_names,
 )
+from coworker.desktop_updates.providers import runtime_key, source_summary
 
 
 @pytest.mark.parametrize(
@@ -873,3 +875,183 @@ async def test_sync_rate_limit_sets_outcome_and_delayed_next_run(tmp_path) -> No
     assert status.next_run_at is not None
     assert (status.next_run_at - before).total_seconds() >= 55
     await service.stop()
+
+
+class _PublishFailingSource(_FakeSource):
+    """A source whose metadata lacks the updater signature so publish must fail."""
+
+    async def download_release(
+        self,
+        release: SourceRelease,
+        staging,
+        *,
+        run_id: str,
+        stop_event=None,
+        progress=None,
+    ) -> dict[str, Any]:
+        version = str(release.version)
+        self.downloaded.append(version)
+        await staging.write_asset("desktop.bin", b"binary")
+        return {
+            "version": version,
+            "published": False,
+            "platforms": {"linux-x86_64": {"file": "desktop.bin"}},
+            "installers": {},
+            "source": {
+                "type": "github_release",
+                "fingerprint": self.fingerprint,
+                "run_id": run_id,
+            },
+        }
+
+
+async def test_sync_auto_publish_publishes_newly_imported_version(tmp_path) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    source = _FakeSource([_source_release("2.0.0", 2)])
+    published: list[str] = []
+
+    async def on_published(version: str) -> None:
+        published.append(version)
+
+    service = SyncService(store, source, auto_publish=True, on_release_published=on_published)
+
+    result = await service.sync_now()
+
+    assert result.outcome == "succeeded"
+    assert result.imported_versions == ("2.0.0",)
+    assert published == ["2.0.0"]
+    imported = await store.read_release("2.0.0")
+    assert imported["published"] is True
+    latest = await store.read_latest()
+    assert latest is not None
+    assert latest["version"] == "2.0.0"
+    assert "linux-x86_64" in latest["platforms"]
+    await service.stop()
+
+
+async def test_sync_auto_publish_default_keeps_draft(tmp_path) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    source = _FakeSource([_source_release("2.0.0", 2)])
+    published: list[str] = []
+
+    async def on_published(version: str) -> None:
+        published.append(version)
+
+    service = SyncService(store, source, on_release_published=on_published)
+
+    result = await service.sync_now()
+
+    assert result.outcome == "succeeded"
+    assert published == []
+    imported = await store.read_release("2.0.0")
+    assert imported["published"] is False
+    assert await store.read_latest() is None
+    await service.stop()
+
+
+@pytest.mark.parametrize(
+    ("existing_fingerprint", "expected"),
+    [("source-fingerprint", "no_updates"), ("different", "conflict")],
+)
+async def test_sync_auto_publish_never_republishes_existing_version(
+    tmp_path,
+    existing_fingerprint: str,
+    expected: str,
+) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    await _commit_existing(store, "1.2.3", existing_fingerprint)
+    source = _FakeSource([_source_release("1.2.3", 10)])
+    published: list[str] = []
+
+    async def on_published(version: str) -> None:
+        published.append(version)
+
+    service = SyncService(store, source, auto_publish=True, on_release_published=on_published)
+
+    result = await service.sync_now()
+
+    assert result.outcome == expected
+    assert published == []
+    # The existing release stays exactly as it was committed (draft) and is not
+    # turned into the published latest.json by auto-publish.
+    existing = await store.read_release("1.2.3")
+    assert existing["published"] is False
+    assert await store.read_latest() is None
+    await service.stop()
+
+
+async def test_sync_auto_publish_reports_publish_failure(tmp_path) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    source = _PublishFailingSource([_source_release("2.0.0", 2)])
+    service = SyncService(store, source, auto_publish=True)
+
+    result = await service.sync_now()
+
+    # The draft was still committed, but the publish failure surfaces as a sync
+    # failure so the administrator can repair and publish manually.
+    assert result.outcome == "failed"
+    assert "signature" in result.error
+    imported = await store.read_release("2.0.0")
+    assert imported["published"] is False
+    assert await store.read_latest() is None
+    await service.stop()
+
+
+async def test_reconfigure_updates_auto_publish(tmp_path) -> None:
+    store = DesktopReleaseStore(tmp_path / "updates")
+    source = _FakeSource([_source_release("1.0.0", 1)])
+    service = SyncService(store, source, auto_publish=False)
+    spec = SyncRuntimeSpec(
+        source=source,
+        source_summary=source.source_summary,
+        runtime_key=("changed",),
+        token="",
+        interval_seconds=60,
+        enabled=True,
+        ready=True,
+        readiness="ready",
+        auto_publish=True,
+    )
+
+    await service.reconfigure(spec)
+
+    assert service.auto_publish is True
+    await service.stop()
+
+
+def test_source_config_defaults_auto_publish_false() -> None:
+    config = DesktopUpdatesConfig(
+        sync_sources=[
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "name": "github",
+                "type": "github",
+                "repository": "acme/desktop",
+            }
+        ],
+        sync_active_source="11111111-1111-4111-8111-111111111111",
+    )
+    active = config.active_source()
+    assert active is not None
+    assert active.auto_publish is False
+
+
+def test_source_summary_and_runtime_key_include_auto_publish() -> None:
+    config = DesktopUpdatesConfig(
+        sync_sources=[
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "name": "github",
+                "type": "github",
+                "repository": "acme/desktop",
+                "auto_publish": True,
+            }
+        ],
+        sync_active_source="11111111-1111-4111-8111-111111111111",
+    )
+    active = config.active_source()
+    assert active is not None
+    summary = source_summary(active)
+    assert summary.options.get("auto_publish") is True
+    key = runtime_key(active, config)
+    assert True in key

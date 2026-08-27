@@ -675,6 +675,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   'GitHub Token': 'GitHub token',
   '同步预发布版本': 'Synchronize prereleases',
   '同步 GitHub 草稿': 'Synchronize GitHub drafts',
+  '同步后自动发布': 'Automatically publish after sync',
+  '只对本次新导入的版本自动发布并通知桌面端；仅在信任该上游签名公钥时开启。': 'Only versions newly imported by this sync are published automatically and desktops are notified; enable only if you trust the upstream signing public key.',
   '检测间隔（秒）': 'Check interval (seconds)',
   '服务启动时立即检测': 'Check immediately on service startup',
   '单个制品大小上限（字节）': 'Per-asset size limit (bytes)',

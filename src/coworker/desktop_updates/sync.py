@@ -25,6 +25,7 @@ from .store import DesktopReleaseStore, ReleaseExistsError, ReleaseStaging
 
 ProgressCallback = Callable[[DownloadProgress], Awaitable[None]]
 Readiness = Literal["disabled", "unconfigured", "ready", "reconfiguring", "config_error"]
+ReleasePublishedCallback = Callable[[str], Awaitable[object]]
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,9 @@ class SyncRuntimeSpec:
     enabled: bool = True
     ready: bool = True
     readiness: Readiness = "ready"
+    # When true, a newly imported draft is published automatically right after a
+    # successful sync import (instead of remaining a draft for a manual publish).
+    auto_publish: bool = False
 
 
 class ReleaseSource(Protocol):
@@ -73,6 +77,8 @@ class SyncService:
         source_summary: SyncSourceSummary | None = None,
         runtime_key: tuple[object, ...] | None = None,
         token: str = "",
+        auto_publish: bool = False,
+        on_release_published: ReleasePublishedCallback | None = None,
     ) -> None:
         if interval_seconds <= 0:
             raise ValueError("interval_seconds must be positive")
@@ -85,6 +91,8 @@ class SyncService:
         self.readiness: Readiness = readiness or ("ready" if self.enabled and self.ready else "disabled")
         self._runtime_key = runtime_key
         self._token = token
+        self.auto_publish = auto_publish
+        self.on_release_published = on_release_published
         self._generation = 0
         self._state_lock = asyncio.Lock()
         self._progress_lock = asyncio.Lock()
@@ -200,6 +208,7 @@ class SyncService:
             self.ready = spec.ready
             self.readiness = spec.readiness
             self.source_summary = spec.source_summary
+            self.auto_publish = spec.auto_publish
             if runtime_changed:
                 self._generation += 1
                 self._runtime_key = spec.runtime_key
@@ -509,6 +518,21 @@ class SyncService:
                         skipped=skipped,
                         rate_limit=page.rate_limit,
                     )
+
+            if self.auto_publish:
+                # Publish the version this run actually imported. A publish
+                # failure propagates so the sync is reported as failed (the
+                # release remains a draft on disk); the notification callback is
+                # best-effort and must not flip a successful publish to failure.
+                await self._set_phase("publishing")
+                await self.store.publish_release(version)
+                if self.on_release_published is not None:
+                    try:
+                        await self.on_release_published(version)
+                    except Exception as error:
+                        logger.warning(
+                            f"Desktop release publish notification failed for {version}: {error}"
+                        )
 
             return await self._finish(
                 running,

@@ -494,6 +494,16 @@ async def _published_release_manifest(release: dict[str, Any]) -> dict[str, Any]
     }
 
 
+async def notify_desktop_update_published(version: str) -> dict[str, int]:
+    """Ask online desktops to check for a newly published version.
+
+    Shared by the manual publish/rollback endpoints and the automatic publish
+    kicked off by the desktop-update sync service. Returns the count of
+    eligible and enqueued desktops; offline desktops catch up on next start.
+    """
+    return _enqueue_desktop_update_checks(version)
+
+
 async def _publish_release(
     version: str,
     request: Request,
@@ -505,7 +515,7 @@ async def _publish_release(
     except DesktopReleaseStoreError as error:
         raise _desktop_store_http_error(error) from error
     response = _latest_response(result["latest"], request)
-    response["push"] = _enqueue_desktop_update_checks(version)
+    response["push"] = await notify_desktop_update_published(version)
     return response
 
 
