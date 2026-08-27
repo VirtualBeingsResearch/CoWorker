@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.3 - Unreleased
+
+- docs(release): finalize v0.4.2 changelog (#200)
+- feat(brain): support Zhipu GLM-5.3-Flash vision model (#202)
+- fix(telegram): downgrade long-poll getUpdates logs to debug (#201)
+- feat(desktop-updates): auto-publish newly imported upstream releases (#203)
+- fix(memory): decouple manual recall from auto-recall relevance threshold (#204)
+
 ## 0.4.2 - 2026-08-23
 
 - docs(release): finalize v0.4.1 changelog (#195)
