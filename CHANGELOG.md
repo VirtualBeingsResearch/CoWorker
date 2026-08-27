@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.3 - Unreleased
+## 0.4.3 - 2026-08-27
 
 - docs(release): finalize v0.4.2 changelog (#200)
 - feat(brain): support Zhipu GLM-5.3-Flash vision model (#202)
