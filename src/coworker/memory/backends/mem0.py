@@ -353,7 +353,9 @@ class Mem0Backend:
         )
         results = await self._mem.search(query=params.text, filters=filters, top_k=top_k)
         memories: list[MemoryRecord] = []
-        relevance_threshold = self.relevance_threshold
+        # 手动回忆不受 auto_recall_relevance_threshold 约束：返回排序后的 top-N 候选，
+        # 不做相关性过滤（无分数的候选也一并保留，分数随 extra 返回由调用方自行判断）。
+        relevance_threshold = None if params.manual else self.relevance_threshold
         for item in results.get("results", []):
             meta = item.get("metadata") or {}
             raw_score = item.get("score")
@@ -362,7 +364,9 @@ class Mem0Backend:
                 if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool)
                 else None
             )
-            if score is None or score < relevance_threshold:
+            if relevance_threshold is not None and (
+                score is None or score < relevance_threshold
+            ):
                 continue
             raw_tags = meta.get("tags", "[]")
             try:

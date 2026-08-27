@@ -161,6 +161,7 @@ class LongTermMemory:
         limit: int = 10,
         start: datetime | None = None,
         end: datetime | None = None,
+        manual: bool = False,
     ) -> list[MemoryRecord]:
         return await self._backend.query(
             MemoryQuery(
@@ -170,6 +171,7 @@ class LongTermMemory:
                 limit=limit,
                 start=start,
                 end=end,
+                manual=manual,
             )
         )
 

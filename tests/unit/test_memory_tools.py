@@ -99,14 +99,31 @@ class TestQueryMemoryTool:
         memory = _make_memory([])
         tool = QueryMemoryTool(memory)
         await tool.execute(query="q", category="task", limit=3)
-        memory.query.assert_called_once_with("q", category="task", tags=None, limit=3)
+        memory.query.assert_called_once_with("q", category="task", tags=None, limit=3, manual=True)
 
     @pytest.mark.asyncio
     async def test_passes_tags(self):
         memory = _make_memory([])
         tool = QueryMemoryTool(memory)
         await tool.execute(query="q", tags=["product", "bug"], limit=5)
-        memory.query.assert_called_once_with("q", category=None, tags=["product", "bug"], limit=5)
+        memory.query.assert_called_once_with("q", category=None, tags=["product", "bug"], limit=5, manual=True)
+
+    @pytest.mark.asyncio
+    async def test_results_include_relevance_score(self):
+        records = [
+            MemoryRecord(
+                id="id-001",
+                category="knowledge",
+                content="低相关记忆",
+                tags=[],
+                extra={"score": 0.31},
+            ),
+            MemoryRecord(id="id-002", category="task", content="无分数", tags=[]),
+        ]
+        tool = QueryMemoryTool(_make_memory(records))
+        result = await tool.execute(query="检索")
+        assert not result.is_error
+        assert "score=0.31" in result.content
 
     @pytest.mark.asyncio
     async def test_results_show_tags(self):

@@ -285,7 +285,7 @@ class QueryMemoryTool(Tool):
             for i, r in enumerate(long_term, 1):
                 tag_str = f" #{' #'.join(r.tags)}" if r.tags else ""
                 compact_lines.append(
-                    f"L{i}. id={r.id} [{r.category}]{tag_str} "
+                    f"L{i}. id={r.id} [{r.category}]{tag_str}{self._score_suffix(r)} "
                     f"{self._compact_text(str(r.content))}"
                 )
                 snapshot_sections.append(
@@ -321,6 +321,14 @@ class QueryMemoryTool(Tool):
     def _compact_text(text: str, limit: int = 320) -> str:
         text = " ".join(text.split())
         return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    @staticmethod
+    def _score_suffix(record: MemoryRecord) -> str:
+        """手动回忆时把后端相关度分数附在结果行，供模型自主判断是否采用。"""
+        score = record.extra.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return f" score={score:.2f}"
+        return ""
 
     def _write_snapshot(
         self,
@@ -425,6 +433,7 @@ class QueryMemoryTool(Tool):
                 category=category,
                 tags=tags,
                 limit=limit,
+                manual=True,
             )
         return await self._memory.query(
             query,
@@ -433,6 +442,7 @@ class QueryMemoryTool(Tool):
             limit=limit,
             start=start_dt,
             end=end_dt,
+            manual=True,
         )
 
     async def _query_time_window_focus(self, query: str, t0: datetime, t1: datetime) -> str:
