@@ -6,21 +6,20 @@
 
 The model API exposes Coworker as an **OpenAI Chat Completions-compatible "model"**: anything that can talk to a chat model — chat clients, IDE extensions, automation scripts — can reach the partner with a standard `base_url + api_key`. Callers believe they are calling a model; they are actually talking to a partner with memory, tools, and continuous progress reporting.
 
-## Enabling
+## Enabling and issuing tokens
 
-The model API is disabled by default. The recommended path is the admin console's "Settings → Model API" panel, where enabling and token changes apply immediately without a restart; alternatively configure `.env`:
+The model API is disabled by default. **Tokens are always issued against an existing person record**: on the admin console's People page, pick a person and click "Issue token" — the server generates a random token, pre-binds the `api:<key>` address to that person, and writes the config immediately (no restart). One person can hold multiple tokens (i.e. multiple addresses); revoking a token also unbinds its address. The runtime **never** creates person records on its own.
+
+The "Settings → Model API" panel only handles the enable switch, lifecycle thresholds, and a read-only view of issued tokens (masked secrets). For a first bootstrap, tokens can also be pre-seeded in `.env`:
 
 ```bash
 MODEL_API__ENABLED=true
 MODEL_API__TOKENS='{"alice":{"token":"sk-my-long-token","display_name":"Alice"}}'
 ```
 
-Each token maps to one participant:
+Each token maps to one participant, with the address derived from the token key: `api:<key>` (e.g. `api:alice`). A `.env`-seeded token without a bound person shows up to the agent as an unknown `api:` address, which can be bound manually via the persona tool in conversation, like any other channel.
 
-- With a `display_name` (or the token key) configured, the participant is `api:<lowercased-hyphenated-name>` (e.g. `api:alice`);
-- Otherwise it falls back to `api:<8 hex chars>` derived from a hash of the token.
-
-Different tokens = different participants, attached directly to the existing Persona (contact book) system: the first request automatically creates a `Person` and binds the alias, so the agent sees the person card from the very first message. All `/v1` requests must carry `Authorization: Bearer <token>`; mismatched tokens get 401, and a disabled feature or not-ready agent gets 503.
+All `/v1` requests must carry `Authorization: Bearer <token>`; mismatched tokens get 401, and a disabled feature or not-ready agent gets 503.
 
 ## Protocol semantics
 

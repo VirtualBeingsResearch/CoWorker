@@ -36,7 +36,6 @@ from coworker.core.ids import new_compact_id
 from coworker.core.token_utils import estimate_text_tokens
 from coworker.core.types import IncomingEvent
 from coworker.i18n import tr
-from coworker.persona import PersonAlias, PersonStore
 
 router = APIRouter()
 
@@ -45,20 +44,22 @@ _MODEL_ID = "coworker"
 
 _channel: ModelApiChannel | None = None
 _runtime: ModelApiRuntime | None = None
-_person_store: PersonStore | None = None
 
 
 def setup_model_api(
     *,
     channel: ModelApiChannel | None,
     runtime: ModelApiRuntime | None,
-    person_store: PersonStore | None = None,
 ) -> None:
-    """Wire the endpoint to the channel system; called once during startup."""
-    global _channel, _runtime, _person_store
+    """Wire the endpoint to the channel system; called once during startup.
+
+    Person records are never created here: tokens are issued from the admin
+    People page against an existing person, which is what binds the
+    participant address to a persona.
+    """
+    global _channel, _runtime
     _channel = channel
     _runtime = runtime
-    _person_store = person_store
 
 
 class ChatMessage(BaseModel):
@@ -168,8 +169,6 @@ async def chat_completions(
         for message in delta
     )
 
-    _ensure_person(identity)
-
     if turn is None:
         turn = turns.open_or_get(identity.participant_id, conversation_id)
     queue = turn.attach()
@@ -215,27 +214,6 @@ def _require_runtime() -> ModelApiRuntime:
     if _runtime is None or not _runtime.available:
         raise HTTPException(status_code=503, detail=tr("api.model_api.disabled"))
     return _runtime
-
-
-def _ensure_person(identity: ModelApiIdentity) -> None:
-    """Bind the token identity to a persona contact on first use."""
-    store = _person_store
-    if store is None:
-        return
-    try:
-        if store.find_by_participant(identity.participant_id) is not None:
-            return
-        store.create(
-            display_name=identity.display_name or identity.participant_id,
-            aliases=[
-                PersonAlias(
-                    participant_id=identity.participant_id,
-                    channel="model-api",
-                )
-            ],
-        )
-    except Exception:
-        pass
 
 
 _SCENARIO_EXCERPT_CHARS = 300

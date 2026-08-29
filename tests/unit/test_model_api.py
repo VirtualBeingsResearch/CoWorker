@@ -134,11 +134,12 @@ def test_token_directory_resolves_bearer_and_rejects_duplicates() -> None:
     assert directory.resolve_authorization("Bearer wrong-token-value") is None
     assert directory.resolve_authorization(None) is None
 
+    # Distinct keys that slugify to the same participant collide.
     with pytest.raises(ValueError):
         ModelApiTokenDirectory(
             {
-                "one": ModelApiTokenConfig(token="sk-first-token-123456", display_name="Dup"),
-                "two": ModelApiTokenConfig(token="sk-second-token-12345", display_name="dup"),
+                "a-b": ModelApiTokenConfig(token="sk-first-token-123456"),
+                "a_b": ModelApiTokenConfig(token="sk-second-token-12345"),
             }
         )
 

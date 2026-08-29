@@ -2871,6 +2871,7 @@ function PeopleView() {
   const [notesDraft, setNotesDraft] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState('');
+  const [issuedToken, setIssuedToken] = useState<{ key: string; participant_id: string; token: string } | null>(null);
 
   useEffect(() => {
     const data = people.data;
@@ -2974,6 +2975,25 @@ function PeopleView() {
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
+  const issueToken = async (person: PersonView) => {
+    setBusy(true); setError(null);
+    try {
+      const issued = await api<{ key: string; participant_id: string; token: string }>(`/api/admin/persons/${person.person_id}/model-api-token`, { method: 'POST', body: JSON.stringify({}) });
+      setIssuedToken(issued);
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
+  const revokeToken = async (person: PersonView, participantId: string) => {
+    const key = participantId.replace(/^api:/, '');
+    setBusy(true); setError(null);
+    try {
+      await api(`/api/admin/persons/${person.person_id}/model-api-token/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      setIssuedToken(current => (current?.participant_id === participantId ? null : current));
+      await people.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
   const saveNotes = async () => {
     if (!selectedPerson) return;
     setBusy(true); setError(null);
@@ -2994,6 +3014,7 @@ function PeopleView() {
   const notesChanged = selectedPerson
     ? notesDraft !== (selectedPerson.notes ?? []).join('\n')
     : false;
+  const modelApiAliases = selectedPerson?.aliases.filter(alias => alias.channel === 'model-api') ?? [];
   const personName = (person: PersonView) => person.display_name || t('未命名人物');
   const personInitial = (person: PersonView) => Array.from(personName(person))[0]?.toUpperCase() || '?';
 
@@ -3038,6 +3059,11 @@ function PeopleView() {
             <section className="person-detail-section">
               <header><div><b>{t('联系地址')}</b><small>{t('来自不同信道、但属于同一个人的身份')}</small></div><span>{selectedPerson.aliases.length}</span></header>
               {selectedPerson.aliases.length > 0 ? <div className="person-aliases">{selectedPerson.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}><em>{alias.channel || t('信道')}</em><code>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</code></span>)}</div> : <p className="person-section-empty">{t('还没有联系地址；搭档可以在对话中绑定。')}</p>}
+            </section>
+            <section className="person-detail-section">
+              <header><div><b>{t('模型接口令牌')}</b><small>{t('为这个人物签发 OpenAI 兼容接入令牌；令牌即地址，签发后立即可用')}</small></div><button className="ghost mini" disabled={busy} onClick={() => void issueToken(selectedPerson)}><Plus size={13} />{t('生成令牌')}</button></header>
+              {issuedToken && issuedToken.participant_id.startsWith('api:') && modelApiAliases.some(alias => alias.participant_id === issuedToken.participant_id) ? <div className="notice"><code>{issuedToken.token}</code><small>{t('令牌明文只显示这一次：base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}', { participant: issuedToken.participant_id })}</small></div> : null}
+              {modelApiAliases.length > 0 ? <div className="person-aliases">{modelApiAliases.map((alias, index) => <span className="alias-chip" key={index}><em>model-api</em><code>{alias.participant_id}</code><button type="button" className="danger-icon" title={t('撤销令牌')} disabled={busy} onClick={() => void revokeToken(selectedPerson, alias.participant_id)}><Trash2 size={12} /></button></span>)}</div> : <p className="person-section-empty">{t('还没有模型接口令牌；生成后，外部聊天应用即可用该令牌以这个人物的身份接入。')}</p>}
             </section>
             <section className="person-detail-section person-card-section">
               <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>

@@ -3712,3 +3712,58 @@ def test_person_admin_errors(tmp_path):
         headers=headers,
     )
     assert invalid_merge.status_code == 400
+
+
+def test_person_model_api_token_issue_and_revoke(tmp_path):
+    client, _ = _client(tmp_path, persona=True)
+    auth = {"Authorization": "Bearer secret"}
+    person = client.post(
+        "/api/admin/persons", headers=auth, json={"display_name": "Alice"}
+    ).json()
+
+    issued = client.post(
+        f"/api/admin/persons/{person['person_id']}/model-api-token",
+        headers=auth,
+        json={},
+    )
+    assert issued.status_code == 201
+    body = issued.json()
+    assert body["participant_id"] == "api:alice"
+    assert body["token"].startswith("sk-")
+
+    detail = client.get(
+        f"/api/admin/persons/{person['person_id']}", headers=auth
+    ).json()
+    channels = [alias["channel"] for alias in detail["aliases"]]
+    assert "model-api" in channels
+
+    # A second token for the same person gets a distinct address.
+    second = client.post(
+        f"/api/admin/persons/{person['person_id']}/model-api-token",
+        headers=auth,
+        json={},
+    ).json()
+    assert second["participant_id"] == "api:alice-2"
+
+    revoked = client.delete(
+        f"/api/admin/persons/{person['person_id']}/model-api-token/{body['key']}",
+        headers=auth,
+    )
+    assert revoked.status_code == 200
+    detail = client.get(
+        f"/api/admin/persons/{person['person_id']}", headers=auth
+    ).json()
+    participants = [alias["participant_id"] for alias in detail["aliases"]]
+    assert "api:alice" not in participants
+    assert "api:alice-2" in participants
+
+
+def test_person_model_api_token_requires_existing_person(tmp_path):
+    client, _ = _client(tmp_path, persona=True)
+    auth = {"Authorization": "Bearer secret"}
+    missing = client.post(
+        "/api/admin/persons/p_nonexistent/model-api-token",
+        headers=auth,
+        json={},
+    )
+    assert missing.status_code == 404

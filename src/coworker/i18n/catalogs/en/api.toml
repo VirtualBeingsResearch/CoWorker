@@ -159,3 +159,4 @@ participant_connected = "participant_id is already connected: {{participant}}"
 [api.model_api]
 disabled = "Model API is not enabled or the agent is not ready"
 token_invalid = "Invalid model API token"
+token_not_found = "Model API token {{key}} not found"

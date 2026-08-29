@@ -67,7 +67,7 @@ class ModelApiTokenDirectory:
             token = entry.token.strip()
             if not token:
                 continue
-            participant_id = _participant_id_for(token, key, entry.display_name)
+            participant_id = _participant_id_for(token, key)
             if participant_id in seen:
                 raise ValueError(
                     f"duplicate model API participant id: {participant_id}"
@@ -92,10 +92,18 @@ class ModelApiTokenDirectory:
         return len(self._identities)
 
 
-def _participant_id_for(token: str, key: str, display_name: str) -> str:
-    slug = _SLUG_RE.sub("-", (display_name or key).strip().lower()).strip("-")[
-        :_SLUG_MAX
-    ]
+def token_key_slug(name: str) -> str:
+    """Slugify a name into a model API token key (may be empty for CJK input)."""
+    return _SLUG_RE.sub("-", name.strip().lower()).strip("-")[:_SLUG_MAX]
+
+
+def _participant_id_for(token: str, key: str) -> str:
+    """Derive the participant address from the token key alone.
+
+    The key is the stable identifier (a config dict key); display names are
+    cosmetic and must not move a participant address.
+    """
+    slug = token_key_slug(key)
     if slug:
         return f"{_PARTICIPANT_PREFIX}{slug}"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]

@@ -159,3 +159,4 @@ participant_connected = "participant_id 已连接：{{participant}}"
 [api.model_api]
 disabled = "模型接口未启用或代理未就绪"
 token_invalid = "模型接口令牌无效"
+token_not_found = "模型接口令牌 {{key}} 不存在"

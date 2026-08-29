@@ -1070,7 +1070,6 @@ async def _main() -> bool:
         setup_model_api(
             channel=model_api_module.channel,
             runtime=model_api_module.runtime,
-            person_store=person_store,
         )
 
     # 写入实例状态文件（新旧交接标记）
