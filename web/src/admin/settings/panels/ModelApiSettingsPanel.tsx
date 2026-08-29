@@ -87,7 +87,7 @@ export function ModelApiSettingsPanel({
     <div className="telegram-bot-fields">
       <label><span>{t('空闲提醒（秒）')}</span><input className="admin-input" type="number" min="10" max="3600" step="1" value={value.nudge_seconds ?? 300} onChange={event => change('nudge_seconds', Number(event.target.value))} /><small>{t('一轮会话持续无输出达到该时长时，提醒搭档汇报进度。')}</small></label>
       <label><span>{t('空闲断开（秒）')}</span><input className="admin-input" type="number" min="60" max="86400" step="1" value={value.timeout_seconds ?? 1200} onChange={event => change('timeout_seconds', Number(event.target.value))} /><small>{t('持续无输出达到该时长时，通知搭档并关闭本次 HTTP 响应。')}</small></label>
-      <label><span>{t('场景注入上限（字符）')}</span><input className="admin-input" type="number" min="500" max="100000" step="100" value={value.scenario_max_chars ?? 6000} onChange={event => change('scenario_max_chars', Number(event.target.value))} /><small>{t('调用方的 system prompt 与工具 schema 注入时的截断预算。')}</small></label>
+      <label><span>{t('场景文档单段上限（字符）')}</span><input className="admin-input" type="number" min="500" max="100000" step="100" value={value.scenario_max_chars ?? 6000} onChange={event => change('scenario_max_chars', Number(event.target.value))} /><small>{t('调用方 system prompt 与工具 schema 落盘保存时，单段材料的截断预算。')}</small></label>
     </div>
   </div>;
 }

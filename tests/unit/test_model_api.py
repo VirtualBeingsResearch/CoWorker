@@ -339,6 +339,7 @@ class _EndpointHarness:
     def __init__(self, tmp_path: Path, *, enabled: bool = True) -> None:
         self.events: list[IncomingEvent] = []
         self.channel: ModelApiChannel | None = None
+        self.runtime = None
         module = None
         if enabled:
             module = create_model_api_module(
@@ -354,6 +355,7 @@ class _EndpointHarness:
                 self.events.append(event)
 
             self.channel.set_inbound_handler(handler)
+            self.runtime = module.runtime
         setup_model_api(
             channel=self.channel,
             runtime=module.runtime if module else None,
@@ -574,12 +576,22 @@ async def test_scenario_and_messages_arrive_as_separate_events(
     assert len(harness.events) == 2
     scenario, message = harness.events
     assert scenario is not message
-    # The caller material passes through raw for the model to interpret.
+    # The notice explains what the material is and how to use it, and stays
+    # small: an excerpt plus the tool names, not the full material.
     assert "SYSTEM-PROMPT-MARKER" in scenario.content
     assert "TOOL-NAME-MARKER" in scenario.content
+    assert "tool_calls" in scenario.content
     assert message.content == "USER-MESSAGE-MARKER"
     # Only the scenario event carries the framing; plain user text stays raw.
     assert "USER-MESSAGE-MARKER" not in scenario.content
+
+    # The full material is stored as a readable document.
+    assert harness.runtime is not None
+    docs = list(harness.runtime.scenarios._directory.glob("scenario_*.md"))
+    assert len(docs) == 1
+    document = docs[0].read_text(encoding="utf-8")
+    assert "SYSTEM-PROMPT-MARKER" in document
+    assert "TOOL-NAME-MARKER" in document
 
 
 async def test_module_settings_apply_hot_reconfigures_runtime(tmp_path: Path) -> None:
@@ -608,7 +620,7 @@ async def test_module_settings_apply_hot_reconfigures_runtime(tmp_path: Path) ->
     assert module.runtime.available is True
     assert module.runtime.turns.nudge_seconds == 60.0
     assert module.runtime.turns.timeout_seconds == 240.0
-    assert module.runtime.scenario_max_chars == 2000
+    assert module.runtime.scenarios.max_section_chars == 2000
     assert len(module.runtime.directory) == 2
     identity = module.runtime.directory.resolve_authorization(f"Bearer {_TOKEN}")
     assert identity is not None

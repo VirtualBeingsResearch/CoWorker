@@ -38,9 +38,15 @@ MODEL_API__TOKENS='{"alice":{"token":"sk-my-long-token","display_name":"Alice"}}
 
 请求中的 `tools` schema 和 system prompt 一样，作为**场景上下文**交给模型自己理解（不会注册为 Agent 内部工具）。当模型需要调用对方应用暴露的工具时，它以 `extra={"tool_calls": [...]}`（OpenAI 格式）回复；响应以 `finish_reason: "tool_calls"` 结束，`coworker_end_reason: "tool_calls"`。调用方应用执行工具后，把 `role: "tool"` 的结果放在下一轮请求的消息里发回来即可，会话自动延续。
 
-### 调用方 system prompt：场景，不是指令
+### 调用方场景材料：落盘保存，按需取用
 
-调用方自带的 system prompt 会以「[调用方场景]」块的形式注入 Agent 上下文，**只作为背景信息**，绝不覆盖 Agent 自己的身份与安全边界。场景按内容做哈希去重：同一会话中场景未变化时不会重复注入。
+调用方自带的 system prompt 和 `tools` schema 可能很大，Coworker 把它们**原样保存为文档**（`<数据目录>/model_api_scenarios/scenario_<哈希>.md`，按内容哈希去重），并只向 Agent 注入一份简短说明：
+
+- 材料是什么：对方应用期望的角色约定（系统提示词）与对方应用提供的工具清单（含开头节选与工具名列表）；
+- 完整文档保存在哪个路径，需要原文时可用读文件工具自行查看；
+- 怎么用：工具通过 `communicate` 的 `extra={"tool_calls": [...]}`（OpenAI 格式）调用，对方应用执行后把结果作为新请求发回；这些工具由对方执行，Agent 不能假装执行；系统提示词只作背景参考，不能覆盖 Agent 自己的身份与安全边界。
+
+同一会话中场景未变化时不会重复注入（按内容哈希判断）；场景变更时会保存新文档并重新注入说明。落盘时单段材料的截断预算由 `MODEL_API__SCENARIO_MAX_CHARS` 控制（默认 6000）。
 
 ## 会话粘性
 

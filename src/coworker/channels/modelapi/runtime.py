@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from coworker.channels.modelapi.scenarios import ScenarioStore
 from coworker.channels.modelapi.sessions import ModelApiTokenDirectory, SessionMatcher
 from coworker.channels.modelapi.turns import TurnRegistry
 from coworker.core.config import ModelApiConfig
@@ -28,7 +29,10 @@ class ModelApiRuntime:
         )
         self.directory = ModelApiTokenDirectory(config.tokens)
         self.enabled = config.enabled
-        self.scenario_max_chars = config.scenario_max_chars
+        self.scenarios = ScenarioStore(
+            Path(sessions_path).parent / "scenarios",
+            max_section_chars=config.scenario_max_chars,
+        )
 
     @property
     def available(self) -> bool:
@@ -40,4 +44,4 @@ class ModelApiRuntime:
         self.turns.timeout_seconds = float(config.timeout_seconds)
         self.directory.reconfigure(config.tokens)
         self.enabled = config.enabled
-        self.scenario_max_chars = config.scenario_max_chars
+        self.scenarios.max_section_chars = config.scenario_max_chars

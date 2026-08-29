@@ -140,16 +140,15 @@ async def chat_completions(
         else ""
     )
 
-    # Build the inbound events: the scenario material first (only when new or
+    # Build the inbound events: the scenario notice first (only when new or
     # changed for this session), then each new caller message as its own
-    # event. The model interprets the material; the transport only labels it.
+    # event. Large caller material is stored as a document; the notice tells
+    # the model what it is, where it lives, and how to use it.
     events: list[IncomingEvent] = []
     if delta and runtime.sessions.scenario_changed(
         identity.participant_id, conversation_id, scenario_hash
     ):
-        scenario = _render_scenario(
-            system_text, payload.tools, scenario_hash, runtime.scenario_max_chars
-        )
+        scenario = _render_scenario(runtime, scenario_hash, system_text, payload.tools)
         if scenario:
             events.append(
                 IncomingEvent(
@@ -239,29 +238,74 @@ def _ensure_person(identity: ModelApiIdentity) -> None:
         pass
 
 
+_SCENARIO_EXCERPT_CHARS = 300
+
+
 def _render_scenario(
+    runtime: ModelApiRuntime,
+    scenario_hash: str,
     system_text: str,
     tools: list[dict[str, Any]],
-    scenario_hash: str,
-    max_chars: int,
 ) -> str:
-    """Pass the caller's system prompt and tool schemas through as raw material."""
-    parts: list[str] = [tr("channel.model_api.scenario_header", hash=scenario_hash)]
-    if system_text:
-        parts.append(_truncate(system_text, max_chars))
-    if tools:
-        parts.append(tr("channel.model_api.tools_header"))
-        parts.append(
-            _truncate(json.dumps(tools, ensure_ascii=False, indent=2), max_chars)
+    """Store the caller material on disk and explain it to the model.
+
+    The injected event stays small no matter how large the caller's system
+    prompt or tool schemas are: it names the material's purpose, points at
+    the stored document, excerpts the system prompt, lists the tool names,
+    and spells out how tool invocation works.
+    """
+    document_path = runtime.scenarios.save(scenario_hash, system_text, tools)
+    if document_path is None:
+        return ""
+    parts = [
+        tr(
+            "channel.model_api.scenario_header",
+            hash=scenario_hash,
+            path=str(document_path),
         )
-    return "\n".join(parts) if len(parts) > 1 else ""
+    ]
+    if system_text:
+        parts.append(
+            tr(
+                "channel.model_api.scenario_prompt_note",
+                chars=len(system_text),
+                excerpt=_excerpt(system_text),
+            )
+        )
+    names = _tool_names(tools)
+    if names:
+        parts.append(
+            tr(
+                "channel.model_api.scenario_tools_note",
+                count=len(names),
+                names=", ".join(names),
+            )
+        )
+    return "\n".join(parts)
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    omitted = len(text) - max_chars
-    return f"{text[:max_chars]}\n{tr('channel.model_api.scenario_truncated', omitted=omitted)}"
+def _excerpt(text: str) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= _SCENARIO_EXCERPT_CHARS:
+        return collapsed
+    return f"{collapsed[:_SCENARIO_EXCERPT_CHARS]}…"
+
+
+def _tool_names(tools: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        name = (
+            function.get("name")
+            if isinstance(function, dict)
+            else tool.get("name")
+        )
+        cleaned = str(name or "").strip()
+        if cleaned:
+            names.append(cleaned)
+    return names
 
 
 def _render_delta_message(message: ChatMessage) -> str:

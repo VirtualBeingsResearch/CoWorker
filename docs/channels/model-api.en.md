@@ -38,9 +38,15 @@ By default the request stays open until the agent considers the turn finished. T
 
 The request's `tools` schemas, like the system prompt, are handed to the model as **scenario context** for it to interpret (they are not registered as internal agent tools). When the model wants to invoke a tool exposed by the caller's app, it replies with `extra={"tool_calls": [...]}` (OpenAI format); the response ends with `finish_reason: "tool_calls"` and `coworker_end_reason: "tool_calls"`. After executing the tools, the caller sends the `role: "tool"` results back in its next request, and the conversation continues.
 
-### Caller system prompt: scenario, not instructions
+### Caller scenario material: stored on disk, consulted on demand
 
-The caller's own system prompt is injected into the agent context inside a "[caller scenario]" block, treated **as background information only** — it never overrides the agent's own identity or safety boundaries. Scenarios are hash-deduplicated: an unchanged scenario is not re-injected within the same conversation.
+The caller's system prompt and `tools` schemas can be large, so Coworker **stores them verbatim as a document** (`<data dir>/model_api_scenarios/scenario_<hash>.md`, deduplicated by content hash) and injects only a short notice into the agent context:
+
+- what the material is: the role contract the calling app expects (system prompt) and the tool list the app exposes (with a system-prompt excerpt and the tool names);
+- where the full document lives, so the agent can read the original with its file tools when needed;
+- how to use it: tools are invoked by replying via `communicate` with `extra={"tool_calls": [...]}` (OpenAI format); the calling app executes them and returns results in its next request. The agent must never claim to have executed them itself; the system prompt is background context only and never overrides the agent's own identity or safety boundaries.
+
+An unchanged scenario is not re-injected within the same conversation (content-hash deduplication); a scenario change stores a new document and re-injects the notice. The per-section truncation budget for stored material is `MODEL_API__SCENARIO_MAX_CHARS` (default 6000).
 
 ## Conversation stickiness
 
