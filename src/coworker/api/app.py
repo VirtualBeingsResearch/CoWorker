@@ -28,6 +28,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from coworker.api.admin import admin_router
+from coworker.api.model_api import router as model_api_router
 from coworker.api.request_urls import desktop_update_asset_base_url
 from coworker.api.routes import (
     communication_token_required,
@@ -82,6 +83,7 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(admin_router)
+app.include_router(model_api_router)
 app.state.setup_required = False
 _bootstrap_reconnect_proof = ""
 

@@ -14,6 +14,7 @@ _SOURCE_LABEL_KEYS: dict[str, str] = {
     "weixin": "source.weixin",
     "telegram": "source.telegram",
     "coworker_desktop": "source.coworker_desktop",
+    "model_api": "source.model_api",
     "bubble": "source.bubble",
     "codex": "source.codex",
 }

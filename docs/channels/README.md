@@ -13,3 +13,4 @@
 - [Coworker Desktop](desktop.md)：安装、首次连接、会话、权限、托盘、更新与排障入口。
 - [Telegram](telegram.md)：多 Bot、`tg:` participant、机器人 API 地址、附件与访问控制。
 - [微信 Claw](weixin-claw.md)：个人微信扫码接入、多账号隔离、管理员配置与搭档定向邀请。
+- [模型接口](model-api.md)：OpenAI 兼容端点、令牌与会话粘性、`end_turn`/`tool_calls` 约定。

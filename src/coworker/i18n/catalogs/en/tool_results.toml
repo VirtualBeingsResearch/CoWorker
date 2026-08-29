@@ -309,3 +309,10 @@ deleted = "Deleted person {{name}} ({{person_id}})"
 merge_needs_both = "The merge action requires keep_person_id and drop_person_id"
 merge_invalid = "Merge failed: a person is missing, or you cannot merge a person into itself"
 merge_done = "Merged {{drop_name}} ({{drop_id}}) into {{keep_name}} ({{keep_id}})"
+
+[tool_result.model_api]
+report_sent = "Update delivered to {{participant}} (conversation {{conversation}}); the turn stays open until you send extra {\"end_turn\": true}."
+final_sent = "Final reply delivered to {{participant}} (conversation {{conversation}}); the turn is closed."
+tool_calls_sent = "Tool calls delivered to {{participant}} (conversation {{conversation}}); the caller will return the results in a new request."
+not_delivered = "No open model-API turn for {{participant}}; the message was not delivered. The caller only sees messages while its request is open."
+invalid_tool_calls = "extra.tool_calls must be a list of OpenAI-format tool-call objects, each with function.name."

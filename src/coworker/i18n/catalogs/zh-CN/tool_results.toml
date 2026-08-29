@@ -309,3 +309,10 @@ deleted = "已删除人物 {{name}} ({{person_id}})"
 merge_needs_both = "merge 操作需要提供 keep_person_id 与 drop_person_id"
 merge_invalid = "合并失败：人物不存在，或不能把人物并入自身"
 merge_done = "已将 {{drop_name}} ({{drop_id}}) 并入 {{keep_name}} ({{keep_id}})"
+
+[tool_result.model_api]
+report_sent = "进展已发送给 {{participant}}（会话 {{conversation}}）；本轮保持打开，直到你发送 extra {\"end_turn\": true}。"
+final_sent = "最终回复已发送给 {{participant}}（会话 {{conversation}}）；本轮已结束。"
+tool_calls_sent = "工具调用已发送给 {{participant}}（会话 {{conversation}}）；调用方将在新请求中返回执行结果。"
+not_delivered = "{{participant}} 当前没有打开的模型接口会话，消息未送达。对方只有在请求保持打开期间才能看到消息。"
+invalid_tool_calls = "extra.tool_calls 必须是 OpenAI 格式的工具调用对象列表，每项需包含 function.name。"

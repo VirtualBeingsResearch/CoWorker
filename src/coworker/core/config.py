@@ -431,6 +431,36 @@ class APIConfig(_EnvSettings):
         return value
 
 
+class ModelApiTokenConfig(BaseModel):
+    """One model API token and the participant identity it maps to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(default="", min_length=8, max_length=256, repr=False)
+    display_name: str = Field(default="", max_length=120)
+
+
+class ModelApiConfig(_EnvSettings):
+    """OpenAI-compatible model API surface.
+
+    Disabled unless explicitly enabled with at least one token. Tokens come
+    from the environment as a JSON list, e.g.
+    ``MODEL_API__TOKENS='[{"token":"sk-...","display_name":"Alice"}]'``.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="MODEL_API__", env_file=".env", extra="ignore"
+    )
+
+    enabled: bool = False
+    tokens: list[ModelApiTokenConfig] = Field(default_factory=list)
+    # Idle-turn lifecycle: nudge the model once, then close the HTTP response.
+    nudge_seconds: int = Field(default=300, ge=10, le=3600)
+    timeout_seconds: int = Field(default=1200, ge=60, le=86400)
+    # Caller scenario (system prompt + tools) truncation budget per conversation.
+    scenario_max_chars: int = Field(default=6000, ge=500, le=100_000)
+
+
 class RelayConfig(_EnvSettings):
     """Outbound connection to a self-hosted Coworker Relay."""
 
@@ -921,6 +951,7 @@ class Config(_EnvSettings):
     llm: LLMConfig = Field(default_factory=lambda: LLMConfig(max_tokens=DEFAULT_LLM_MAX_TOKENS))
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     api: APIConfig = Field(default_factory=APIConfig)
+    model_api: ModelApiConfig = Field(default_factory=ModelApiConfig)
     relay: RelayConfig = Field(default_factory=RelayConfig)
     desktop_updates: DesktopUpdatesConfig = Field(default_factory=DesktopUpdatesConfig)
     admin: AdminConfig = Field(default_factory=AdminConfig)

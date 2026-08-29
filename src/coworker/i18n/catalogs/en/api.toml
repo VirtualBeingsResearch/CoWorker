@@ -155,3 +155,7 @@ path_required = "attachments[].path must be a non-empty string."
 missing = "Attachment not found: {{path}}"
 too_large = "Attachment {{name}} ({{size}} bytes) exceeds the {{limit}} byte limit"
 participant_connected = "participant_id is already connected: {{participant}}"
+
+[api.model_api]
+disabled = "Model API is not enabled or the agent is not ready"
+token_invalid = "Invalid model API token"

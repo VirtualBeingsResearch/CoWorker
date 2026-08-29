@@ -26,9 +26,17 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
 from coworker.api.admin import setup_admin, setup_channel_admin
+from coworker.api.model_api import setup_model_api
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.modelapi import (
+    ConversationRegistry,
+    ModelApiChannel,
+    ModelApiTokenDirectory,
+    TurnRegistry,
+    TurnWatchdogRuntime,
+)
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -1057,6 +1065,27 @@ async def _main() -> bool:
                 desktop_registry,
                 desktop_dispatcher,
             )
+        )
+
+    model_api_channel: ModelApiChannel | None = None
+    if not setup_required and config.model_api.enabled and config.model_api.tokens:
+        model_api_turns = TurnRegistry(
+            nudge_seconds=float(config.model_api.nudge_seconds),
+            timeout_seconds=float(config.model_api.timeout_seconds),
+        )
+        model_api_channel = ModelApiChannel(
+            model_api_turns,
+            runtime=TurnWatchdogRuntime(model_api_turns),
+        )
+        channel_system.registry.register(model_api_channel)
+        setup_model_api(
+            channel=model_api_channel,
+            directory=ModelApiTokenDirectory(config.model_api.tokens),
+            conversations=ConversationRegistry(
+                Path(config.memory.db_path) / "model_api_conversations.json"
+            ),
+            person_store=person_store,
+            scenario_max_chars=config.model_api.scenario_max_chars,
         )
 
     # 写入实例状态文件（新旧交接标记）

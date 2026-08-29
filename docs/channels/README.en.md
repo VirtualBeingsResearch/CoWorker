@@ -13,3 +13,4 @@ This domain describes how Coworker receives external messages, replies to partic
 - [Coworker Desktop](desktop.en.md): installation, first connection, conversations, permissions, tray behavior, updates, and troubleshooting.
 - [Telegram](telegram.en.md): multiple Bots, `tg:` participants, Bot API endpoints, attachments, and access control.
 - [Weixin Claw](weixin-claw.en.md): personal-Weixin QR pairing, multi-account isolation, administration, and agent-controlled invitations.
+- [Model API](model-api.en.md): OpenAI-compatible endpoint, tokens and conversation stickiness, `end_turn`/`tool_calls` conventions.
