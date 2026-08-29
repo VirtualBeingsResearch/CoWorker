@@ -2852,6 +2852,35 @@ async def revoke_person_model_api_token(
     return {"revoked": key}
 
 
+@router.get("/persons/{person_id}/model-api-token/{key}")
+async def read_person_model_api_token(
+    person_id: str,
+    key: str,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Return a token's plaintext for copy workflows, like the communication token."""
+    store, _cards = _require_persona()
+    if store.get(person_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    entry = _require_config().model_api.tokens.get(key)
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.model_api.token_not_found", key=key),
+        )
+    _audit(request, "person.model_api_token_read", person_id, detail=f"key={key}")
+    return {
+        "key": key,
+        "participant_id": f"api:{key}",
+        "display_name": entry.display_name,
+        "token": entry.token,
+    }
+
+
 @router.patch("/persons/{person_id}/model-api-token/{key}")
 async def update_person_model_api_token_note(
     person_id: str,

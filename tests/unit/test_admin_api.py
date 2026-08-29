@@ -3715,7 +3715,18 @@ def test_person_admin_errors(tmp_path):
 
 
 def test_person_model_api_token_issue_and_revoke(tmp_path):
-    client, _ = _client(tmp_path, persona=True)
+    from coworker.channels.modelapi import create_model_api_module
+    from coworker.channels.module import ChannelModuleRegistry
+    from coworker.core.config import ModelApiConfig
+
+    registry = ChannelModuleRegistry()
+    registry.register(
+        create_model_api_module(
+            ModelApiConfig(enabled=True),
+            tmp_path / "sessions.json",
+        )
+    )
+    client, _ = _client(tmp_path, persona=True, channel_modules=registry)
     auth = {"Authorization": "Bearer secret"}
     person = client.post(
         "/api/admin/persons", headers=auth, json={"display_name": "Alice"}
@@ -3764,6 +3775,15 @@ def test_person_model_api_token_issue_and_revoke(tmp_path):
     assert tokens["alice"]["note"] == "office IDE"
     assert tokens["car"]["note"] == "car display"
     assert tokens["alice-2"]["note"] == ""
+
+    # The plaintext stays copyable after issuance, like the communication token.
+    fetched = client.get(
+        f"/api/admin/persons/{person['person_id']}/model-api-token/{body['key']}",
+        headers=auth,
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["token"] == body["token"]
+    assert fetched.json()["participant_id"] == "api:alice"
 
     revoked = client.delete(
         f"/api/admin/persons/{person['person_id']}/model-api-token/{body['key']}",

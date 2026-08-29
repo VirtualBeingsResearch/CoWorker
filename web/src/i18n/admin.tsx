@@ -1639,7 +1639,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '模型接口令牌': 'Model API tokens',
   '为这个人物签发 OpenAI 兼容接入令牌；令牌即地址，签发后立即可用': 'Issue OpenAI-compatible access tokens for this person; each token is an address and works immediately.',
   '生成令牌': 'Issue token',
-  '令牌明文只显示这一次：base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}': 'The token is shown only once: point base_url at this instance and use it as the api_key. Address: {{participant}}',
+  '令牌可随时在本页重新复制；如泄露，请撤销并重新签发。base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}': 'Tokens can be copied again here at any time; if one leaks, revoke and re-issue it. Point base_url at this instance and use the token as the api_key. Address: {{participant}}',
   '撤销令牌': 'Revoke token',
   '已复制': 'Copied',
   '复制失败': 'Copy failed',
