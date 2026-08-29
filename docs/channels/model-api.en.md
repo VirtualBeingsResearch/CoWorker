@@ -8,16 +8,16 @@ The model API exposes Coworker as an **OpenAI Chat Completions-compatible "model
 
 ## Enabling
 
-The model API is disabled by default. Configure at least one token in `.env`:
+The model API is disabled by default. The recommended path is the admin console's "Settings → Model API" panel, where enabling and token changes apply immediately without a restart; alternatively configure `.env`:
 
 ```bash
 MODEL_API__ENABLED=true
-MODEL_API__TOKENS='[{"token":"sk-my-long-token","display_name":"Alice"}]'
+MODEL_API__TOKENS='{"alice":{"token":"sk-my-long-token","display_name":"Alice"}}'
 ```
 
 Each token maps to one participant:
 
-- With `display_name` configured, the participant is `api:<lowercased-hyphenated-name>` (e.g. `api:alice`);
+- With a `display_name` (or the token key) configured, the participant is `api:<lowercased-hyphenated-name>` (e.g. `api:alice`);
 - Otherwise it falls back to `api:<8 hex chars>` derived from a hash of the token.
 
 Different tokens = different participants, attached directly to the existing Persona (contact book) system: the first request automatically creates a `Person` and binds the alias, so the agent sees the person card from the very first message. All `/v1` requests must carry `Authorization: Bearer <token>`; mismatched tokens get 401, and a disabled feature or not-ready agent gets 503.
@@ -65,5 +65,6 @@ A not-ready agent or disabled feature returns 503; when every upstream model can
 - `usage` numbers are local estimates, not exact upstream metering.
 - Multimodal messages contribute their text parts only; parameters like `n>1` and `logprobs` are ignored.
 - Scenario (system prompt + tools) injection has a length budget (`MODEL_API__SCENARIO_MAX_CHARS`, default 6000); overflow is truncated and marked.
+- Tokens, the enabled switch, and lifecycle thresholds hot-update in the admin console's "Settings → Model API" panel; token values are stored as masked secrets and never echoed back.
 - The model API is currently not added to the Relay public-tunnel whitelist; for public access use a reverse proxy that terminates TLS.
 - Future directions: per-conversation concurrent execution units (generalized bubbles), and presence-awareness injection so the agent coordinates shared-resource conflicts itself.

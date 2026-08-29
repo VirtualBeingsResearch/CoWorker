@@ -431,6 +431,9 @@ class APIConfig(_EnvSettings):
         return value
 
 
+_MODEL_API_TOKEN_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
 class ModelApiTokenConfig(BaseModel):
     """One model API token and the participant identity it maps to."""
 
@@ -444,8 +447,8 @@ class ModelApiConfig(_EnvSettings):
     """OpenAI-compatible model API surface.
 
     Disabled unless explicitly enabled with at least one token. Tokens come
-    from the environment as a JSON list, e.g.
-    ``MODEL_API__TOKENS='[{"token":"sk-...","display_name":"Alice"}]'``.
+    from the environment as a JSON dict keyed by a short stable name, e.g.
+    ``MODEL_API__TOKENS='{"alice":{"token":"sk-...","display_name":"Alice"}}'``.
     """
 
     model_config = SettingsConfigDict(
@@ -453,12 +456,22 @@ class ModelApiConfig(_EnvSettings):
     )
 
     enabled: bool = False
-    tokens: list[ModelApiTokenConfig] = Field(default_factory=list)
+    tokens: dict[str, ModelApiTokenConfig] = Field(default_factory=dict)
     # Idle-turn lifecycle: nudge the model once, then close the HTTP response.
     nudge_seconds: int = Field(default=300, ge=10, le=3600)
     timeout_seconds: int = Field(default=1200, ge=60, le=86400)
     # Caller scenario (system prompt + tools) truncation budget per conversation.
     scenario_max_chars: int = Field(default=6000, ge=500, le=100_000)
+
+    @field_validator("tokens")
+    @classmethod
+    def _validate_tokens(cls, value: dict[str, ModelApiTokenConfig]) -> dict[str, ModelApiTokenConfig]:
+        for key in value:
+            if not _MODEL_API_TOKEN_KEY_RE.fullmatch(key):
+                raise ValueError(
+                    "model API token keys must match [a-z][a-z0-9_-]{0,31}"
+                )
+        return value
 
 
 class RelayConfig(_EnvSettings):

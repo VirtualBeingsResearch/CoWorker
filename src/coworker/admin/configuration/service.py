@@ -76,6 +76,9 @@ _TELEGRAM_BOT_SECRET_RE = re.compile(
 _WECOM_BOT_SECRET_RE = re.compile(
     r"wecom\.bots\.([a-z][a-z0-9_-]{0,31})\.secret"
 )
+_MODEL_API_TOKEN_SECRET_RE = re.compile(
+    r"model_api\.tokens\.([a-z][a-z0-9_-]{0,31})\.token"
+)
 _PROVIDER_REMOVAL_REASON = "llm.managed_providers.removed"
 
 
@@ -255,6 +258,8 @@ class AdminConfigService:
         _preserve_telegram_bot_tokens(safe_changes, current_overrides)
         _remove_wecom_bot_secrets(safe_changes)
         _preserve_wecom_bot_secrets(safe_changes, current_overrides)
+        _remove_model_api_token_secrets(safe_changes)
+        _preserve_model_api_token_secrets(safe_changes, current_overrides)
 
         # Deep-copy so secret merging below cannot mutate ``current_overrides``
         # before it is used to compute the pre-update running config.
@@ -293,6 +298,7 @@ class AdminConfigService:
                 and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(secret_path)
                 and not _TELEGRAM_BOT_SECRET_RE.fullmatch(secret_path)
                 and not _WECOM_BOT_SECRET_RE.fullmatch(secret_path)
+                and not _MODEL_API_TOKEN_SECRET_RE.fullmatch(secret_path)
             ):
                 raise ConfigUpdateError(
                     400,
@@ -705,6 +711,18 @@ def _mask_config_secrets(data: JsonObject) -> dict[str, SecretStatus]:
                     statuses,
                     f"wecom.bots.{instance_id}.secret",
                 )
+
+    model_api = data.get("model_api")
+    model_api_tokens = model_api.get("tokens", {}) if isinstance(model_api, dict) else {}
+    if isinstance(model_api_tokens, dict):
+        for token_key, token_entry in model_api_tokens.items():
+            if isinstance(token_entry, dict):
+                _mask_secret(
+                    token_entry,
+                    "token",
+                    statuses,
+                    f"model_api.tokens.{token_key}.token",
+                )
     return statuses
 
 
@@ -891,6 +909,38 @@ def _preserve_wecom_bot_secrets(
         secret = current_bot.get("secret")
         if isinstance(secret, str) and secret:
             changed_bot["secret"] = secret
+
+
+def _remove_model_api_token_secrets(data: JsonObject) -> None:
+    tokens = _get_path(data, "model_api.tokens")
+    if not isinstance(tokens, dict):
+        return
+    for entry in tokens.values():
+        if isinstance(entry, dict):
+            entry.pop("token", None)
+
+
+def _preserve_model_api_token_secrets(
+    changes: JsonObject,
+    current_overrides: JsonObject,
+) -> None:
+    """Retain only tokens already owned by the admin override file.
+
+    Tokens inherited from ``.env`` remain inherited instead of being copied
+    into ``admin_config.json`` when an administrator edits another field.
+    """
+
+    changed_tokens = _get_path(changes, "model_api.tokens")
+    current_tokens = _get_path(current_overrides, "model_api.tokens")
+    if not isinstance(changed_tokens, dict) or not isinstance(current_tokens, dict):
+        return
+    for token_key, changed_entry in changed_tokens.items():
+        current_entry = current_tokens.get(token_key)
+        if not isinstance(changed_entry, dict) or not isinstance(current_entry, dict):
+            continue
+        token = current_entry.get("token")
+        if isinstance(token, str) and token:
+            changed_entry["token"] = token
 
 
 def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:

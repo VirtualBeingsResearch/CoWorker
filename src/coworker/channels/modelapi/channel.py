@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from coworker.channels.base import BaseChannel, ChannelCapabilities
 from coworker.channels.inbound import InboundEnvelope
-from coworker.channels.modelapi.turns import TurnItem, TurnRegistry, TurnStream
+from coworker.channels.modelapi.runtime import ModelApiRuntime
+from coworker.channels.modelapi.turns import TurnItem, TurnStream
 from coworker.channels.runtime import ChannelRuntime
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
@@ -25,19 +26,23 @@ class ModelApiChannel(BaseChannel):
 
     def __init__(
         self,
-        turns: TurnRegistry,
+        api_runtime: ModelApiRuntime,
         *,
-        runtime: ChannelRuntime | None = None,
+        watchdog: ChannelRuntime | None = None,
     ) -> None:
         super().__init__(
-            runtime=runtime,
+            runtime=watchdog,
             capabilities=ChannelCapabilities(conversation_id=True, extra=True),
         )
-        self._turns = turns
+        self._api_runtime = api_runtime
 
     @property
-    def turns(self) -> TurnRegistry:
-        return self._turns
+    def api_runtime(self) -> ModelApiRuntime:
+        return self._api_runtime
+
+    @property
+    def turns(self):
+        return self._api_runtime.turns
 
     async def receive_raw(self, envelope: InboundEnvelope) -> None:
         payload = envelope.payload if isinstance(envelope.payload, dict) else {}
@@ -64,7 +69,8 @@ class ModelApiChannel(BaseChannel):
                 is_error=True,
             )
         end_turn = extra.get("end_turn") is True
-        turn = self._turns.get(request.participant_id, request.conversation_id)
+        turns = self._api_runtime.turns
+        turn = turns.get(request.participant_id, request.conversation_id)
         if turn is None:
             return ToolResult(
                 tool_call_id="",
@@ -82,7 +88,7 @@ class ModelApiChannel(BaseChannel):
         )
         self._record_sent(request.participant_id)
         if tool_calls:
-            self._turns.close(turn, "tool_calls")
+            turns.close(turn, "tool_calls")
             return ToolResult(
                 tool_call_id="",
                 content=tr(
@@ -92,7 +98,7 @@ class ModelApiChannel(BaseChannel):
                 ),
             )
         if end_turn:
-            self._turns.close(turn, "end_turn")
+            turns.close(turn, "end_turn")
             return ToolResult(
                 tool_call_id="",
                 content=tr(

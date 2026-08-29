@@ -1,4 +1,5 @@
 import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
+import { ModelApiSettingsPanel } from './panels/ModelApiSettingsPanel';
 import { TelegramSettingsPanel } from './panels/TelegramSettingsPanel';
 import { WeComSettingsPanel } from './panels/WeComSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
@@ -8,6 +9,10 @@ const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
   channel_access: {
     label: '信道访问',
     component: ChannelAccessSettingsPanel,
+  },
+  model_api: {
+    label: '模型接口',
+    component: ModelApiSettingsPanel,
   },
   weixin: {
     label: '微信 Claw',

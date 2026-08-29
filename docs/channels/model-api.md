@@ -8,16 +8,16 @@
 
 ## 启用
 
-模型接口默认关闭。在 `.env` 中配置至少一个令牌后启用：
+模型接口默认关闭。推荐直接在管理界面「配置 → 模型接口」中启用并添加令牌（保存后立即生效，无需重启）；也可以在 `.env` 中配置：
 
 ```bash
 MODEL_API__ENABLED=true
-MODEL_API__TOKENS='[{"token":"sk-my-long-token","display_name":"Alice"}]'
+MODEL_API__TOKENS='{"alice":{"token":"sk-my-long-token","display_name":"Alice"}}'
 ```
 
 每个令牌对应一个参与者（participant）：
 
-- 配置了 `display_name` 时，participant 为 `api:<名称小写连字符>`（如 `api:alice`）；
+- 配置了 `display_name`（或令牌键名）时，participant 为 `api:<名称小写连字符>`（如 `api:alice`）；
 - 否则使用令牌哈希前缀 `api:<8 位十六进制>`。
 
 不同令牌 = 不同参与者，直接挂到现有 Persona（人物档案）体系上：首次请求会自动创建 `Person` 并绑定别名，Agent 从第一条消息就能看到人物卡片。所有 `/v1` 请求都必须携带 `Authorization: Bearer <token>`，令牌不匹配返回 401；功能未启用或 Agent 未就绪返回 503。
@@ -65,5 +65,6 @@ Agent 未就绪、功能未启用返回 503；所有上游模型候选都失败�
 - `usage` 为本地估算值，非上游精确计量。
 - 多模态消息只提取文本部分；`n>1`、`logprobs` 等参数被忽略。
 - 场景（system prompt + tools）注入有长度预算（`MODEL_API__SCENARIO_MAX_CHARS`，默认 6000），超出部分截断并注明。
+- 令牌、启停与生命周期阈值可在管理界面「配置 → 模型接口」中热更新；令牌值作为机密掩码保存，不会回显。
 - 模型接口当前不纳入 Relay 公网隧道白名单；如需公网访问，请使用反向代理并在代理层终止 TLS。
 - 未来方向：按会话的并发执行单元（泛化 bubble）、共享资源冲突由 Agent 自行协调的在场感知注入。

@@ -1,8 +1,8 @@
-"""Token identity and conversation stitching for the model API channel.
+"""Token identity and session stitching for the model API channel.
 
 OpenAI-compatible clients resend the full message history on every request,
 so the per-message fingerprint list of that history acts as a stable identity:
-a request whose fingerprints extend (or equal) a known conversation continues
+a request whose fingerprints overlap the known tail of a conversation continues
 that conversation instead of starting a new one.
 """
 
@@ -53,26 +53,32 @@ class ModelApiIdentity:
 
 
 class ModelApiTokenDirectory:
-    """Static token → participant mapping built from configuration."""
+    """Token → participant mapping built from ``model_api.tokens``."""
 
-    def __init__(self, tokens: list[ModelApiTokenConfig] | None = None) -> None:
+    def __init__(self, tokens: dict[str, ModelApiTokenConfig] | None = None) -> None:
         self._identities: dict[str, ModelApiIdentity] = {}
+        self.reconfigure(tokens)
+
+    def reconfigure(self, tokens: dict[str, ModelApiTokenConfig] | None) -> None:
+        """Atomically replace the token mapping (admin hot config)."""
+        identities: dict[str, ModelApiIdentity] = {}
         seen: set[str] = set()
-        for entry in tokens or []:
+        for key, entry in (tokens or {}).items():
             token = entry.token.strip()
             if not token:
                 continue
-            participant_id = _participant_id_for(token, entry.display_name)
+            participant_id = _participant_id_for(token, key, entry.display_name)
             if participant_id in seen:
                 raise ValueError(
                     f"duplicate model API participant id: {participant_id}"
                 )
             seen.add(participant_id)
-            self._identities[token] = ModelApiIdentity(
+            identities[token] = ModelApiIdentity(
                 participant_id=participant_id,
                 display_name=entry.display_name.strip(),
                 token=token,
             )
+        self._identities = identities
 
     def resolve_authorization(self, authorization: str | None) -> ModelApiIdentity | None:
         if not authorization:
@@ -86,8 +92,10 @@ class ModelApiTokenDirectory:
         return len(self._identities)
 
 
-def _participant_id_for(token: str, display_name: str) -> str:
-    slug = _SLUG_RE.sub("-", display_name.strip().lower()).strip("-")[:_SLUG_MAX]
+def _participant_id_for(token: str, key: str, display_name: str) -> str:
+    slug = _SLUG_RE.sub("-", (display_name or key).strip().lower()).strip("-")[
+        :_SLUG_MAX
+    ]
     if slug:
         return f"{_PARTICIPANT_PREFIX}{slug}"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]
@@ -95,8 +103,8 @@ def _participant_id_for(token: str, display_name: str) -> str:
 
 
 @dataclass
-class ConversationRecord:
-    """One stitched conversation: its id and the client history fingerprints."""
+class SessionRecord:
+    """One stitched session: its conversation id and client history fingerprints."""
 
     conversation_id: str
     fingerprints: list[str] = field(default_factory=list)
@@ -112,7 +120,7 @@ class ConversationRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ConversationRecord:
+    def from_dict(cls, data: dict[str, Any]) -> SessionRecord:
         return cls(
             conversation_id=str(data.get("conversation_id") or ""),
             fingerprints=[str(item) for item in data.get("fingerprints", [])],
@@ -121,20 +129,24 @@ class ConversationRecord:
         )
 
 
-class ConversationRegistry:
-    """Content-based conversation stitching keyed by client message history."""
+class SessionMatcher:
+    """Fingerprint matching that routes a request history to a conversation.
+
+    Named for what it does — matching incoming request histories to existing
+    conversations — not a global registry of every agent conversation.
+    """
 
     def __init__(
         self,
         path: str | Path | None = None,
         *,
-        max_conversations: int = 50,
+        max_sessions: int = 50,
         max_fingerprints: int = 512,
     ) -> None:
         self._path = Path(path) if path else None
-        self._records: dict[str, list[ConversationRecord]] = {}
+        self._sessions: dict[str, list[SessionRecord]] = {}
         self._loaded = False
-        self._max_conversations = max_conversations
+        self._max_sessions = max_sessions
         self._max_fingerprints = max_fingerprints
 
     def match(
@@ -146,15 +158,15 @@ class ConversationRegistry:
         conversation whose known history shares the largest overlap with the
         request's head. ``matched_message_count`` is that overlap: the request
         extends a conversation when the head equals the whole known history
-        (the common case), and trimming-aware when the head equals only the
+        (the common case), and stays trim-aware when the head equals only the
         tail of it (a client that dropped old messages). Requests that overlap
         nothing start a new conversation.
         """
         self._ensure_loaded()
-        records = self._records.setdefault(participant_id, [])
-        best: ConversationRecord | None = None
+        sessions = self._sessions.setdefault(participant_id, [])
+        best: SessionRecord | None = None
         best_overlap = 0
-        for record in records:
+        for record in sessions:
             # Cheap prefilter: the request head must exist in the known list.
             if not fingerprints or fingerprints[0] not in set(record.fingerprints):
                 continue
@@ -169,12 +181,12 @@ class ConversationRegistry:
                 best = record
                 best_overlap = overlap
         if best is None:
-            record = ConversationRecord(
+            record = SessionRecord(
                 conversation_id=new_compact_id(prefix="conv_"),
                 fingerprints=list(fingerprints)[: self._max_fingerprints],
             )
-            records.insert(0, record)
-            del records[self._max_conversations :]
+            sessions.insert(0, record)
+            del sessions[self._max_sessions :]
         else:
             record = best
             # The client's visible history becomes the canonical fingerprint
@@ -185,6 +197,20 @@ class ConversationRegistry:
         self._save()
         return record.conversation_id, best_overlap
 
+    def scenario_changed(
+        self, participant_id: str, conversation_id: str, scenario_hash: str
+    ) -> bool:
+        """Record ``scenario_hash`` for the session; return True when new or changed."""
+        self._ensure_loaded()
+        for record in self._sessions.get(participant_id, []):
+            if record.conversation_id == conversation_id:
+                if record.scenario_hash == scenario_hash:
+                    return False
+                record.scenario_hash = scenario_hash
+                self._save()
+                return True
+        return bool(scenario_hash)
+
     @staticmethod
     def _head_tail_overlap(known: list[str], incoming: list[str]) -> int:
         """Largest ``k`` with ``incoming[:k] == known[-k:]``."""
@@ -193,20 +219,6 @@ class ConversationRegistry:
             if known[-k:] == incoming[:k]:
                 return k
         return 0
-
-    def scenario_changed(
-        self, participant_id: str, conversation_id: str, scenario_hash: str
-    ) -> bool:
-        """Record ``scenario_hash`` for the conversation; return True when new or changed."""
-        self._ensure_loaded()
-        for record in self._records.get(participant_id, []):
-            if record.conversation_id == conversation_id:
-                if record.scenario_hash == scenario_hash:
-                    return False
-                record.scenario_hash = scenario_hash
-                self._save()
-                return True
-        return bool(scenario_hash)
 
     def _ensure_loaded(self) -> None:
         if self._loaded or self._path is None:
@@ -225,10 +237,10 @@ class ConversationRegistry:
         for participant_id, entries in participants.items():
             if not isinstance(entries, list):
                 continue
-            self._records[participant_id] = [
+            self._sessions[participant_id] = [
                 record
                 for record in (
-                    ConversationRecord.from_dict(entry)
+                    SessionRecord.from_dict(entry)
                     for entry in entries
                     if isinstance(entry, dict)
                 )
@@ -241,7 +253,7 @@ class ConversationRegistry:
         payload = {
             "participants": {
                 participant_id: [record.to_dict() for record in records]
-                for participant_id, records in self._records.items()
+                for participant_id, records in self._sessions.items()
             }
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)

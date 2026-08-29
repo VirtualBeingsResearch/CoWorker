@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from coworker.channels.modelapi.channel import ModelApiChannel
+from coworker.channels.modelapi.module import (
+    ModelApiModule,
+    ModelApiSettings,
+    create_model_api_module,
+)
+from coworker.channels.modelapi.runtime import ModelApiRuntime
 from coworker.channels.modelapi.sessions import (
-    ConversationRecord,
-    ConversationRegistry,
     ModelApiIdentity,
     ModelApiTokenDirectory,
+    SessionMatcher,
+    SessionRecord,
     content_text,
     message_fingerprint,
 )
@@ -19,15 +25,19 @@ from coworker.channels.modelapi.turns import (
 )
 
 __all__ = [
-    "ConversationRecord",
-    "ConversationRegistry",
     "ModelApiChannel",
     "ModelApiIdentity",
+    "ModelApiModule",
+    "ModelApiRuntime",
+    "ModelApiSettings",
     "ModelApiTokenDirectory",
+    "SessionMatcher",
+    "SessionRecord",
     "TurnItem",
     "TurnRegistry",
     "TurnStream",
     "TurnWatchdogRuntime",
     "content_text",
+    "create_model_api_module",
     "message_fingerprint",
 ]

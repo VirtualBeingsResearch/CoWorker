@@ -12,15 +12,17 @@ from fastapi import status
 from coworker.api import app as api_app
 from coworker.api.model_api import setup_model_api
 from coworker.channels.modelapi import (
-    ConversationRegistry,
     ModelApiChannel,
+    ModelApiRuntime,
     ModelApiTokenDirectory,
+    SessionMatcher,
     TurnItem,
     TurnRegistry,
     content_text,
+    create_model_api_module,
     message_fingerprint,
 )
-from coworker.core.config import ModelApiTokenConfig
+from coworker.core.config import ModelApiConfig, ModelApiTokenConfig
 from coworker.core.types import CommunicateRequest, IncomingEvent
 
 _TOKEN = "sk-test-token-123456"
@@ -52,7 +54,7 @@ def test_content_text_flattens_multimodal_blocks() -> None:
 
 
 def test_conversation_match_creates_then_extends(tmp_path: Path) -> None:
-    registry = ConversationRegistry(tmp_path / "conversations.json")
+    registry = SessionMatcher(tmp_path / "conversations.json")
     first = _history(("user", "hi"))
     conversation_id, matched = registry.match("api:a", _fingerprints(first))
     assert matched == 0
@@ -68,7 +70,7 @@ def test_conversation_match_creates_then_extends(tmp_path: Path) -> None:
 
 
 def test_conversation_match_survives_trimmed_history(tmp_path: Path) -> None:
-    registry = ConversationRegistry(tmp_path / "conversations.json")
+    registry = SessionMatcher(tmp_path / "conversations.json")
     full = _history(("user", "a"), ("assistant", "b"), ("user", "c"), ("assistant", "d"))
     conversation_id, _ = registry.match("api:a", _fingerprints(full))
     trimmed = full[-2:]
@@ -78,7 +80,7 @@ def test_conversation_match_survives_trimmed_history(tmp_path: Path) -> None:
 
 
 def test_conversation_match_survives_trim_then_continue(tmp_path: Path) -> None:
-    registry = ConversationRegistry(tmp_path / "conversations.json")
+    registry = SessionMatcher(tmp_path / "conversations.json")
     full = _history(("user", "a"), ("assistant", "b"), ("user", "c"), ("assistant", "d"))
     conversation_id, _ = registry.match("api:a", _fingerprints(full))
     # The client dropped old messages and added a new one.
@@ -94,7 +96,7 @@ def test_conversation_match_survives_trim_then_continue(tmp_path: Path) -> None:
 
 
 def test_conversation_divergence_starts_new_conversation(tmp_path: Path) -> None:
-    registry = ConversationRegistry(tmp_path / "conversations.json")
+    registry = SessionMatcher(tmp_path / "conversations.json")
     first = _history(("user", "tell me about cats"), ("assistant", "cats are nice"))
     conversation_id, _ = registry.match("api:a", _fingerprints(first))
     divergent = _history(("user", "tell me about cats"), ("assistant", "dogs are nice"))
@@ -104,18 +106,18 @@ def test_conversation_divergence_starts_new_conversation(tmp_path: Path) -> None
 
 def test_conversation_registry_persists(tmp_path: Path) -> None:
     path = tmp_path / "conversations.json"
-    registry = ConversationRegistry(path)
+    registry = SessionMatcher(path)
     history = _history(("user", "persist me"))
     conversation_id, _ = registry.match("api:a", _fingerprints(history))
     assert path.is_file()
 
-    reloaded = ConversationRegistry(path)
+    reloaded = SessionMatcher(path)
     conversation_id_2, _ = reloaded.match("api:a", _fingerprints(history))
     assert conversation_id_2 == conversation_id
 
 
 def test_scenario_changed_tracks_hash(tmp_path: Path) -> None:
-    registry = ConversationRegistry(tmp_path / "conversations.json")
+    registry = SessionMatcher(tmp_path / "conversations.json")
     conversation_id, _ = registry.match("api:a", _fingerprints(_history(("user", "hi"))))
     assert registry.scenario_changed("api:a", conversation_id, "h1") is True
     assert registry.scenario_changed("api:a", conversation_id, "h1") is False
@@ -124,7 +126,7 @@ def test_scenario_changed_tracks_hash(tmp_path: Path) -> None:
 
 def test_token_directory_resolves_bearer_and_rejects_duplicates() -> None:
     directory = ModelApiTokenDirectory(
-        [ModelApiTokenConfig(token=_TOKEN, display_name="Alice")]
+        {"alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice")}
     )
     identity = directory.resolve_authorization(f"Bearer {_TOKEN}")
     assert identity is not None
@@ -134,15 +136,29 @@ def test_token_directory_resolves_bearer_and_rejects_duplicates() -> None:
 
     with pytest.raises(ValueError):
         ModelApiTokenDirectory(
-            [
-                ModelApiTokenConfig(token="sk-first-token-123456", display_name="Dup"),
-                ModelApiTokenConfig(token="sk-second-token-12345", display_name="dup"),
-            ]
+            {
+                "one": ModelApiTokenConfig(token="sk-first-token-123456", display_name="Dup"),
+                "two": ModelApiTokenConfig(token="sk-second-token-12345", display_name="dup"),
+            }
         )
 
 
+def test_token_directory_reconfigure_swaps_identities() -> None:
+    directory = ModelApiTokenDirectory(
+        {"alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice")}
+    )
+    rotated = "sk-rotated-token-999999"
+    directory.reconfigure(
+        {"bob": ModelApiTokenConfig(token=rotated, display_name="Bob")}
+    )
+    assert directory.resolve_authorization(f"Bearer {_TOKEN}") is None
+    rotated_identity = directory.resolve_authorization(f"Bearer {rotated}")
+    assert rotated_identity is not None
+    assert rotated_identity.participant_id == "api:bob"
+
+
 def test_token_directory_falls_back_to_token_hash() -> None:
-    directory = ModelApiTokenDirectory([ModelApiTokenConfig(token=_TOKEN)])
+    directory = ModelApiTokenDirectory({"k": ModelApiTokenConfig(token=_TOKEN)})
     identity = directory.resolve_authorization(f"Bearer {_TOKEN}")
     assert identity is not None
     assert identity.participant_id.startswith("api:")
@@ -225,8 +241,8 @@ async def test_watchdog_nudges_then_closes_idle_turn() -> None:
 
 
 def _model_api_system(tmp_path: Path) -> tuple[ModelApiChannel, list[IncomingEvent]]:
-    turns = TurnRegistry()
-    channel = ModelApiChannel(turns)
+    runtime = ModelApiRuntime(ModelApiConfig(), tmp_path / "sessions.json")
+    channel = ModelApiChannel(runtime)
     events: list[IncomingEvent] = []
 
     async def handler(event: IncomingEvent) -> None:
@@ -323,26 +339,28 @@ class _EndpointHarness:
     def __init__(self, tmp_path: Path, *, enabled: bool = True) -> None:
         self.events: list[IncomingEvent] = []
         self.channel: ModelApiChannel | None = None
-        directory = None
+        module = None
         if enabled:
-            turns = TurnRegistry()
-            self.channel = ModelApiChannel(turns)
+            module = create_model_api_module(
+                ModelApiConfig(
+                    enabled=True,
+                    tokens={"alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice")},
+                ),
+                tmp_path / "sessions.json",
+            )
+            self.channel = module.channel
 
             async def handler(event: IncomingEvent) -> None:
                 self.events.append(event)
 
             self.channel.set_inbound_handler(handler)
-            directory = ModelApiTokenDirectory(
-                [ModelApiTokenConfig(token=_TOKEN, display_name="Alice")]
-            )
         setup_model_api(
             channel=self.channel,
-            directory=directory,
-            conversations=ConversationRegistry(tmp_path / "conversations.json"),
+            runtime=module.runtime if module else None,
         )
 
     def cleanup(self) -> None:
-        setup_model_api(channel=None, directory=None, conversations=ConversationRegistry(None))
+        setup_model_api(channel=None, runtime=None)
 
     async def wait_for_events(self, count: int) -> None:
         for _ in range(500):
@@ -517,6 +535,84 @@ async def test_followup_request_joins_open_turn(harness: _EndpointHarness) -> No
     assert second_response.status_code == status.HTTP_200_OK
     assert first_response.json()["choices"][0]["message"]["content"] == "both done"
     assert second_response.json()["choices"][0]["message"]["content"] == "both done"
+
+
+async def test_scenario_and_messages_arrive_as_separate_events(
+    harness: _EndpointHarness,
+) -> None:
+    assert harness.channel is not None
+    transport = httpx.ASGITransport(app=api_app.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        pending = asyncio.create_task(
+            _post(
+                client,
+                {
+                    "messages": [
+                        {"role": "system", "content": "SYSTEM-PROMPT-MARKER"},
+                        {"role": "user", "content": "USER-MESSAGE-MARKER"},
+                    ],
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {"name": "TOOL-NAME-MARKER", "parameters": {}},
+                        }
+                    ],
+                },
+            )
+        )
+        await harness.wait_for_events(2)
+        await harness.channel.send(
+            CommunicateRequest(
+                participant_id=harness.events[-1].participant_id,
+                conversation_id=harness.events[-1].conversation_id,
+                message="ok",
+                extra={"end_turn": True},
+            )
+        )
+        await pending
+
+    assert len(harness.events) == 2
+    scenario, message = harness.events
+    assert scenario is not message
+    # The caller material passes through raw for the model to interpret.
+    assert "SYSTEM-PROMPT-MARKER" in scenario.content
+    assert "TOOL-NAME-MARKER" in scenario.content
+    assert message.content == "USER-MESSAGE-MARKER"
+    # Only the scenario event carries the framing; plain user text stays raw.
+    assert "USER-MESSAGE-MARKER" not in scenario.content
+
+
+async def test_module_settings_apply_hot_reconfigures_runtime(tmp_path: Path) -> None:
+    module = create_model_api_module(
+        ModelApiConfig(
+            enabled=False,
+            tokens={"alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice")},
+        ),
+        tmp_path / "sessions.json",
+    )
+    assert module.settings.config_key == "model_api"
+    assert module.runtime.available is False
+
+    await module.settings.apply(
+        ModelApiConfig(
+            enabled=True,
+            nudge_seconds=60,
+            timeout_seconds=240,
+            scenario_max_chars=2000,
+            tokens={
+                "alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice"),
+                "bob": ModelApiTokenConfig(token="sk-bob-token-12345678", display_name="Bob"),
+            },
+        )
+    )
+    assert module.runtime.available is True
+    assert module.runtime.turns.nudge_seconds == 60.0
+    assert module.runtime.turns.timeout_seconds == 240.0
+    assert module.runtime.scenario_max_chars == 2000
+    assert len(module.runtime.directory) == 2
+    identity = module.runtime.directory.resolve_authorization(f"Bearer {_TOKEN}")
+    assert identity is not None
+    assert identity.participant_id == "api:alice"
 
 
 async def test_tool_calls_reply_returns_openai_tool_calls(harness: _EndpointHarness) -> None:

@@ -5,6 +5,10 @@ One request opens one conversation turn on the model API channel; the agent's
 ``communicate`` replies stream into the response, the reply marked
 ``extra={"end_turn": true}`` closes it, and a ``tool_calls`` reply hands
 control back to the caller's application in OpenAI function-calling format.
+
+Inbound caller material is delivered to the agent as separate inbound events —
+the caller's system prompt and tool schemas as one raw scenario event, and each
+new message as its own event — so the model, not the transport, interprets them.
 """
 
 from __future__ import annotations
@@ -20,10 +24,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from coworker.channels.modelapi import (
-    ConversationRegistry,
     ModelApiChannel,
     ModelApiIdentity,
-    ModelApiTokenDirectory,
+    ModelApiRuntime,
     TurnItem,
     TurnStream,
     content_text,
@@ -41,27 +44,21 @@ _HEARTBEAT_SECONDS = 15.0
 _MODEL_ID = "coworker"
 
 _channel: ModelApiChannel | None = None
-_directory: ModelApiTokenDirectory | None = None
-_conversations: ConversationRegistry | None = None
+_runtime: ModelApiRuntime | None = None
 _person_store: PersonStore | None = None
-_scenario_max_chars = 6000
 
 
 def setup_model_api(
     *,
     channel: ModelApiChannel | None,
-    directory: ModelApiTokenDirectory | None,
-    conversations: ConversationRegistry,
+    runtime: ModelApiRuntime | None,
     person_store: PersonStore | None = None,
-    scenario_max_chars: int = 6000,
 ) -> None:
     """Wire the endpoint to the channel system; called once during startup."""
-    global _channel, _directory, _conversations, _person_store, _scenario_max_chars
+    global _channel, _runtime, _person_store
     _channel = channel
-    _directory = directory
-    _conversations = conversations
+    _runtime = runtime
     _person_store = person_store
-    _scenario_max_chars = scenario_max_chars
 
 
 class ChatMessage(BaseModel):
@@ -104,14 +101,16 @@ async def chat_completions(
 ):
     identity = _require_identity(authorization)
     channel = _require_channel()
-    conversations = _require_conversations()
-    turns = channel.turns
+    runtime = _require_runtime()
+    turns = runtime.turns
 
     fingerprints = [
         message_fingerprint(message.role, content_text(message.content))
         for message in payload.messages
     ]
-    conversation_id, matched = conversations.match(identity.participant_id, fingerprints)
+    conversation_id, matched = runtime.sessions.match(
+        identity.participant_id, fingerprints
+    )
     turn = turns.get(identity.participant_id, conversation_id)
     delta = payload.messages[matched:]
     if not delta and turn is None:
@@ -119,6 +118,10 @@ async def chat_completions(
         # (a retry after the response was closed): redeliver the last message
         # so the agent can pick the conversation back up.
         delta = payload.messages[-1:]
+    # System material is owned by the scenario event below; never double-
+    # deliver it as a delta message. A mid-conversation scenario change is
+    # re-injected through the scenario hash instead.
+    delta = [message for message in delta if message.role != "system"]
 
     system_text = "\n".join(
         text
@@ -129,25 +132,42 @@ async def chat_completions(
     )
     scenario_hash = (
         hashlib.sha256(
-            json.dumps([system_text, payload.tools], ensure_ascii=False, default=str).encode(
-                "utf-8"
-            )
+            json.dumps(
+                [system_text, payload.tools], ensure_ascii=False, default=str
+            ).encode("utf-8")
         ).hexdigest()[:16]
         if system_text or payload.tools
         else ""
     )
 
-    parts: list[str] = []
-    if delta and conversations.scenario_changed(
+    # Build the inbound events: the scenario material first (only when new or
+    # changed for this session), then each new caller message as its own
+    # event. The model interprets the material; the transport only labels it.
+    events: list[IncomingEvent] = []
+    if delta and runtime.sessions.scenario_changed(
         identity.participant_id, conversation_id, scenario_hash
     ):
-        parts.append(
-            _render_scenario(
-                system_text, payload.tools, scenario_hash, _scenario_max_chars
-            )
+        scenario = _render_scenario(
+            system_text, payload.tools, scenario_hash, runtime.scenario_max_chars
         )
-    parts.extend(_render_delta_message(message) for message in delta)
-    content = "\n\n".join(part for part in parts if part)
+        if scenario:
+            events.append(
+                IncomingEvent(
+                    participant_id=identity.participant_id,
+                    content=scenario,
+                    conversation_id=conversation_id,
+                    source="model_api",
+                )
+            )
+    events.extend(
+        IncomingEvent(
+            participant_id=identity.participant_id,
+            content=_render_delta_message(message),
+            conversation_id=conversation_id,
+            source="model_api",
+        )
+        for message in delta
+    )
 
     _ensure_person(identity)
 
@@ -158,19 +178,12 @@ async def chat_completions(
     created = int(time.time())
     model = payload.model.strip() or _MODEL_ID
 
-    if content:
-        try:
-            await channel.publish_inbound(
-                IncomingEvent(
-                    participant_id=identity.participant_id,
-                    content=content,
-                    conversation_id=conversation_id,
-                    source="model_api",
-                )
-            )
-        except Exception:
-            turn.detach(queue)
-            raise
+    try:
+        for event in events:
+            await channel.publish_inbound(event)
+    except Exception:
+        turn.detach(queue)
+        raise
 
     if payload.stream:
         return StreamingResponse(
@@ -186,10 +199,8 @@ async def chat_completions(
 
 
 def _require_identity(authorization: str | None) -> ModelApiIdentity:
-    directory = _directory
-    if directory is None or len(directory) == 0:
-        raise HTTPException(status_code=503, detail=tr("api.model_api.disabled"))
-    identity = directory.resolve_authorization(authorization)
+    runtime = _require_runtime()
+    identity = runtime.directory.resolve_authorization(authorization)
     if identity is None:
         raise HTTPException(status_code=401, detail=tr("api.model_api.token_invalid"))
     return identity
@@ -201,10 +212,10 @@ def _require_channel() -> ModelApiChannel:
     return _channel
 
 
-def _require_conversations() -> ConversationRegistry:
-    if _conversations is None:
+def _require_runtime() -> ModelApiRuntime:
+    if _runtime is None or not _runtime.available:
         raise HTTPException(status_code=503, detail=tr("api.model_api.disabled"))
-    return _conversations
+    return _runtime
 
 
 def _ensure_person(identity: ModelApiIdentity) -> None:
@@ -234,14 +245,16 @@ def _render_scenario(
     scenario_hash: str,
     max_chars: int,
 ) -> str:
-    """Render the caller's system prompt and tool schemas as scenario context."""
+    """Pass the caller's system prompt and tool schemas through as raw material."""
     parts: list[str] = [tr("channel.model_api.scenario_header", hash=scenario_hash)]
     if system_text:
         parts.append(_truncate(system_text, max_chars))
     if tools:
         parts.append(tr("channel.model_api.tools_header"))
-        parts.append(_truncate(json.dumps(tools, ensure_ascii=False, indent=2), max_chars))
-    return "\n".join(parts)
+        parts.append(
+            _truncate(json.dumps(tools, ensure_ascii=False, indent=2), max_chars)
+        )
+    return "\n".join(parts) if len(parts) > 1 else ""
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -334,7 +347,9 @@ async def _stream_events(
     model: str,
 ):
     try:
-        yield _chunk(completion_id, created, model, delta={"role": "assistant", "content": ""})
+        yield _chunk(
+            completion_id, created, model, delta={"role": "assistant", "content": ""}
+        )
         while True:
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
@@ -342,21 +357,24 @@ async def _stream_events(
                 yield ": ping\n\n"
                 continue
             if item.kind == "close":
-                finish_reason = "tool_calls" if item.end_reason == "tool_calls" else "stop"
+                finish_reason = (
+                    "tool_calls" if item.end_reason == "tool_calls" else "stop"
+                )
                 yield _chunk(
                     completion_id,
                     created,
                     model,
                     delta={},
                     finish_reason=finish_reason,
-                    usage=item.usage
-                    or _usage_estimates(turn, ""),
+                    usage=item.usage or _usage_estimates(turn, ""),
                     end_reason=item.end_reason or "end_turn",
                 )
                 yield "data: [DONE]\n\n"
                 return
             if item.text:
-                yield _chunk(completion_id, created, model, delta={"content": item.text})
+                yield _chunk(
+                    completion_id, created, model, delta={"content": item.text}
+                )
             if item.tool_calls:
                 yield _chunk(
                     completion_id,
@@ -382,7 +400,10 @@ async def _collect_response(
         if item.kind == "close":
             end_reason = item.end_reason or "end_turn"
             break
-    message: dict[str, Any] = {"role": "assistant", "content": "\n\n".join(turn.texts)}
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": "\n\n".join(turn.texts),
+    }
     finish_reason = "stop"
     if end_reason == "tool_calls" and turn.tool_calls:
         message["tool_calls"] = turn.tool_calls
