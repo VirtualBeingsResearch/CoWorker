@@ -30,6 +30,7 @@ export function ModelApiSettingsPanel({
         <div className="telegram-bot-fields">
           <label><span>{t('显示名称')}</span><span>{entry.display_name || '—'}</span></label>
           <label><span>{t('接入令牌')}</span><small>{status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}</small></label>
+          {entry.note ? <label><span>{t('令牌备注')}</span><span>{entry.note}</span></label> : null}
         </div>
       </article>;
     })}</div> : <div className="provider-empty">{t('还没有接入令牌；在「人物」页面选择人物后生成。')}</div>}

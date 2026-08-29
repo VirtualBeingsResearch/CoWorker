@@ -8,7 +8,7 @@ The model API exposes Coworker as an **OpenAI Chat Completions-compatible "model
 
 ## Enabling and issuing tokens
 
-The model API is disabled by default. **Tokens are always issued against an existing person record**: on the admin console's People page, pick a person and click "Issue token" — the server generates a random token, pre-binds the `api:<key>` address to that person, and writes the config immediately (no restart). One person can hold multiple tokens (i.e. multiple addresses); revoking a token also unbinds its address. The runtime **never** creates person records on its own.
+The model API is disabled by default. **Tokens are always issued against an existing person record**: on the admin console's People page, pick a person and click "Issue token" — the server generates a random token, pre-binds the `api:<key>` address to that person, and writes the config immediately (no restart). One person can hold multiple tokens (i.e. multiple addresses), each with an optional remark recording which app or device uses it; revoking a token also unbinds its address. The runtime **never** creates person records on its own.
 
 The "Settings → Model API" panel only handles the enable switch, lifecycle thresholds, and a read-only view of issued tokens (masked secrets). For a first bootstrap, tokens can also be pre-seeded in `.env`:
 

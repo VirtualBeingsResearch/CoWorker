@@ -2724,6 +2724,11 @@ _MODEL_API_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 class ModelApiTokenIssuePayload(BaseModel):
     key: str = Field(default="", max_length=64)
+    note: str = Field(default="", max_length=200)
+
+
+class ModelApiTokenNotePayload(BaseModel):
+    note: str = Field(default="", max_length=200)
 
 
 def _model_api_snapshot_tokens(service: AdminConfigService) -> JsonObject:
@@ -2778,11 +2783,17 @@ async def issue_person_model_api_token(
     # token dict; secret values of existing entries are preserved by the
     # config service, and new entry's secret rides in `secrets`.
     merged_tokens: JsonObject = {
-        token_key: {"display_name": str(entry.get("display_name") or "")}
+        token_key: {
+            "display_name": str(entry.get("display_name") or ""),
+            "note": str(entry.get("note") or ""),
+        }
         for token_key, entry in snapshot_tokens.items()
         if isinstance(entry, dict)
     }
-    merged_tokens[key] = {"display_name": person.display_name}
+    merged_tokens[key] = {
+        "display_name": person.display_name,
+        "note": payload.note.strip(),
+    }
     token_changes: JsonObject = {"model_api": {"tokens": merged_tokens}}
     await service.patch(
         ConfigUpdate(
@@ -2826,7 +2837,10 @@ async def revoke_person_model_api_token(
             detail=tr("api.model_api.token_not_found", key=key),
         )
     remaining: JsonObject = {
-        token_key: {"display_name": str(entry.get("display_name") or "")}
+        token_key: {
+            "display_name": str(entry.get("display_name") or ""),
+            "note": str(entry.get("note") or ""),
+        }
         for token_key, entry in snapshot_tokens.items()
         if token_key != key and isinstance(entry, dict)
     }
@@ -2836,6 +2850,46 @@ async def revoke_person_model_api_token(
     store.unbind_alias(person_id, f"api:{key}")
     _audit(request, "person.model_api_token_revoke", person_id, detail=f"key={key}")
     return {"revoked": key}
+
+
+@router.patch("/persons/{person_id}/model-api-token/{key}")
+async def update_person_model_api_token_note(
+    person_id: str,
+    key: str,
+    payload: ModelApiTokenNotePayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Update an issued token's admin remark (which app or device it serves)."""
+    store, _cards = _require_persona()
+    if store.get(person_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.person_missing", person_id=person_id),
+        )
+    service = _require_admin_config_service()
+    snapshot_tokens = _model_api_snapshot_tokens(service)
+    entry = snapshot_tokens.get(key)
+    if key not in snapshot_tokens or not isinstance(entry, dict):
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.model_api.token_not_found", key=key),
+        )
+    merged_tokens: JsonObject = {
+        token_key: {
+            "display_name": str(item.get("display_name") or ""),
+            "note": (
+                payload.note.strip() if token_key == key else str(item.get("note") or "")
+            ),
+        }
+        for token_key, item in snapshot_tokens.items()
+        if isinstance(item, dict)
+    }
+    await service.patch(
+        ConfigUpdate(changes={"model_api": {"tokens": merged_tokens}})
+    )
+    _audit(request, "person.model_api_token_note", person_id, detail=f"key={key}")
+    return {"key": key, "note": payload.note.strip()}
 
 
 @router.get("/persons/{person_id}")

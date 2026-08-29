@@ -2858,6 +2858,7 @@ function personMatchesQuery(person: PersonView, query: string) {
 
 function PeopleView() {
   const people = useLoad(() => api<{ persons: PersonView[] }>('/api/admin/persons'), []);
+  const modelApiConfig = useLoad(() => api<Json>('/api/admin/config'), []);
   const [draftName, setDraftName] = useState('');
   const [personQuery, setPersonQuery] = useState('');
   const [addingPerson, setAddingPerson] = useState(false);
@@ -2872,6 +2873,7 @@ function PeopleView() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState('');
   const [issuedToken, setIssuedToken] = useState<{ key: string; participant_id: string; token: string } | null>(null);
+  const [tokenCopyState, setTokenCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
 
   useEffect(() => {
     const data = people.data;
@@ -2994,6 +2996,35 @@ function PeopleView() {
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
+  const copyIssuedToken = async () => {
+    if (!issuedToken) return;
+    try {
+      await navigator.clipboard.writeText(issuedToken.token);
+      setTokenCopyState('copied');
+    } catch {
+      setTokenCopyState('error');
+    }
+    window.setTimeout(() => setTokenCopyState('idle'), 1600);
+  };
+
+  const tokenNoteFor = (participantId: string) => {
+    const key = participantId.replace(/^api:/, '');
+    const tokens = (modelApiConfig.data?.config as Json | undefined)?.model_api?.tokens as Json | undefined;
+    const entry = tokens && typeof tokens === 'object' ? (tokens as Json)[key] : undefined;
+    return entry && typeof entry === 'object' ? String((entry as Json).note ?? '') : '';
+  };
+
+  const saveTokenNote = async (person: PersonView, participantId: string, input: HTMLInputElement) => {
+    const key = participantId.replace(/^api:/, '');
+    const note = input.value.trim();
+    if (note === tokenNoteFor(participantId)) return;
+    setBusy(true); setError(null);
+    try {
+      await api(`/api/admin/persons/${person.person_id}/model-api-token/${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify({ note }) });
+      await modelApiConfig.reload();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+
   const saveNotes = async () => {
     if (!selectedPerson) return;
     setBusy(true); setError(null);
@@ -3062,8 +3093,11 @@ function PeopleView() {
             </section>
             <section className="person-detail-section">
               <header><div><b>{t('模型接口令牌')}</b><small>{t('为这个人物签发 OpenAI 兼容接入令牌；令牌即地址，签发后立即可用')}</small></div><button className="ghost mini" disabled={busy} onClick={() => void issueToken(selectedPerson)}><Plus size={13} />{t('生成令牌')}</button></header>
-              {issuedToken && issuedToken.participant_id.startsWith('api:') && modelApiAliases.some(alias => alias.participant_id === issuedToken.participant_id) ? <div className="notice"><code>{issuedToken.token}</code><small>{t('令牌明文只显示这一次：base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}', { participant: issuedToken.participant_id })}</small></div> : null}
-              {modelApiAliases.length > 0 ? <div className="person-aliases">{modelApiAliases.map((alias, index) => <span className="alias-chip" key={index}><em>model-api</em><code>{alias.participant_id}</code><button type="button" className="danger-icon" title={t('撤销令牌')} disabled={busy} onClick={() => void revokeToken(selectedPerson, alias.participant_id)}><Trash2 size={12} /></button></span>)}</div> : <p className="person-section-empty">{t('还没有模型接口令牌；生成后，外部聊天应用即可用该令牌以这个人物的身份接入。')}</p>}
+              {issuedToken && issuedToken.participant_id.startsWith('api:') && modelApiAliases.some(alias => alias.participant_id === issuedToken.participant_id) ? <div className="notice"><code>{issuedToken.token}</code><button type="button" className="ghost mini" onClick={() => void copyIssuedToken()}>{t(tokenCopyState === 'copied' ? '已复制' : tokenCopyState === 'error' ? '复制失败' : '复制令牌')}</button><small>{t('令牌明文只显示这一次：base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}', { participant: issuedToken.participant_id })}</small></div> : null}
+              {modelApiAliases.length > 0 ? <div className="person-aliases">{modelApiAliases.map(alias => {
+                const key = alias.participant_id.replace(/^api:/, '');
+                return <span className="alias-chip" key={alias.participant_id}><em>model-api</em><code>{alias.participant_id}</code><input className="admin-input" defaultValue={tokenNoteFor(alias.participant_id)} placeholder={t('令牌备注（哪个应用/设备在用）')} maxLength={200} disabled={busy} onBlur={event => void saveTokenNote(selectedPerson, alias.participant_id, event.target as HTMLInputElement)} onKeyDown={event => { if (event.key === 'Enter') (event.target as HTMLInputElement).blur(); }} /><button type="button" className="danger-icon" title={t('撤销令牌')} disabled={busy} onClick={() => void revokeToken(selectedPerson, alias.participant_id)}><Trash2 size={12} /></button></span>;
+              })}</div> : <p className="person-section-empty">{t('还没有模型接口令牌；生成后，外部聊天应用即可用该令牌以这个人物的身份接入。')}</p>}
             </section>
             <section className="person-detail-section person-card-section">
               <header><div><b>{t('人物画像')}</b><small>{t('画像由人物备注和联系地址共同组成')}</small></div><FileText size={16} /></header>

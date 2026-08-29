@@ -441,6 +441,8 @@ class ModelApiTokenConfig(BaseModel):
 
     token: str = Field(default="", min_length=8, max_length=256, repr=False)
     display_name: str = Field(default="", max_length=120)
+    # Free-form admin remark, e.g. which app or device the token serves.
+    note: str = Field(default="", max_length=200)
 
 
 class ModelApiConfig(_EnvSettings):

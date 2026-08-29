@@ -3745,6 +3745,26 @@ def test_person_model_api_token_issue_and_revoke(tmp_path):
     ).json()
     assert second["participant_id"] == "api:alice-2"
 
+    # Token remarks persist and survive further issuances (full-dict patch).
+    noted = client.patch(
+        f"/api/admin/persons/{person['person_id']}/model-api-token/{body['key']}",
+        headers=auth,
+        json={"note": "office IDE"},
+    )
+    assert noted.status_code == 200
+    assert noted.json()["note"] == "office IDE"
+    third = client.post(
+        f"/api/admin/persons/{person['person_id']}/model-api-token",
+        headers=auth,
+        json={"key": "car", "note": "car display"},
+    )
+    assert third.status_code == 201
+    config_data = client.get("/api/admin/config", headers=auth).json()["config"]
+    tokens = config_data["model_api"]["tokens"]
+    assert tokens["alice"]["note"] == "office IDE"
+    assert tokens["car"]["note"] == "car display"
+    assert tokens["alice-2"]["note"] == ""
+
     revoked = client.delete(
         f"/api/admin/persons/{person['person_id']}/model-api-token/{body['key']}",
         headers=auth,
