@@ -460,8 +460,6 @@ class ModelApiConfig(_EnvSettings):
     # Idle-turn lifecycle: nudge the model once, then close the HTTP response.
     nudge_seconds: int = Field(default=300, ge=10, le=3600)
     timeout_seconds: int = Field(default=1200, ge=60, le=86400)
-    # Caller scenario (system prompt + tools) truncation budget per conversation.
-    scenario_max_chars: int = Field(default=6000, ge=500, le=100_000)
 
     @field_validator("tokens")
     @classmethod

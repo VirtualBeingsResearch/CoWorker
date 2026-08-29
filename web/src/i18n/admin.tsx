@@ -1650,8 +1650,6 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '一轮会话持续无输出达到该时长时，提醒搭档汇报进度。': 'After this much silence in an open turn, remind the partner to report progress.',
   '空闲断开（秒）': 'Idle disconnect (seconds)',
   '持续无输出达到该时长时，通知搭档并关闭本次 HTTP 响应。': 'After this much silence, notify the partner and close the HTTP response.',
-  '场景文档单段上限（字符）': 'Scenario document per-section cap (chars)',
-  '调用方 system prompt 与工具 schema 落盘保存时，单段材料的截断预算。': 'Per-section truncation budget when caller system prompts and tool schemas are stored on disk.',
 };
 
 /*

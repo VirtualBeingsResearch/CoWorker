@@ -29,10 +29,7 @@ class ModelApiRuntime:
         )
         self.directory = ModelApiTokenDirectory(config.tokens)
         self.enabled = config.enabled
-        self.scenarios = ScenarioStore(
-            Path(sessions_path).parent / "scenarios",
-            max_section_chars=config.scenario_max_chars,
-        )
+        self.scenarios = ScenarioStore(Path(sessions_path).parent / "scenarios")
 
     @property
     def available(self) -> bool:
@@ -44,4 +41,3 @@ class ModelApiRuntime:
         self.turns.timeout_seconds = float(config.timeout_seconds)
         self.directory.reconfigure(config.tokens)
         self.enabled = config.enabled
-        self.scenarios.max_section_chars = config.scenario_max_chars

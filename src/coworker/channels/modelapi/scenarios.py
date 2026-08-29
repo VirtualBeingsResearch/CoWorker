@@ -20,14 +20,8 @@ from coworker.i18n import tr
 class ScenarioStore:
     """Persist caller system prompts and tool schemas as readable documents."""
 
-    def __init__(
-        self,
-        directory: str | Path,
-        *,
-        max_section_chars: int = 20_000,
-    ) -> None:
+    def __init__(self, directory: str | Path) -> None:
         self._directory = Path(directory)
-        self.max_section_chars = max_section_chars
 
     def save(
         self,
@@ -60,19 +54,8 @@ class ScenarioStore:
         sections = [tr("channel.model_api.doc_title", hash=scenario_hash)]
         if system_text:
             sections.append(tr("channel.model_api.doc_system_section"))
-            sections.append(self._truncate(system_text))
+            sections.append(system_text)
         if tools:
             sections.append(tr("channel.model_api.doc_tools_section"))
-            sections.append(
-                self._truncate(json.dumps(tools, ensure_ascii=False, indent=2))
-            )
+            sections.append(json.dumps(tools, ensure_ascii=False, indent=2))
         return "\n\n".join(sections)
-
-    def _truncate(self, text: str) -> str:
-        if len(text) <= self.max_section_chars:
-            return text
-        omitted = len(text) - self.max_section_chars
-        return (
-            f"{text[: self.max_section_chars]}\n"
-            f"{tr('channel.model_api.scenario_truncated', omitted=omitted)}"
-        )

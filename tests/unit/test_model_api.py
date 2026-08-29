@@ -610,7 +610,6 @@ async def test_module_settings_apply_hot_reconfigures_runtime(tmp_path: Path) ->
             enabled=True,
             nudge_seconds=60,
             timeout_seconds=240,
-            scenario_max_chars=2000,
             tokens={
                 "alice": ModelApiTokenConfig(token=_TOKEN, display_name="Alice"),
                 "bob": ModelApiTokenConfig(token="sk-bob-token-12345678", display_name="Bob"),
@@ -620,7 +619,6 @@ async def test_module_settings_apply_hot_reconfigures_runtime(tmp_path: Path) ->
     assert module.runtime.available is True
     assert module.runtime.turns.nudge_seconds == 60.0
     assert module.runtime.turns.timeout_seconds == 240.0
-    assert module.runtime.scenarios.max_section_chars == 2000
     assert len(module.runtime.directory) == 2
     identity = module.runtime.directory.resolve_authorization(f"Bearer {_TOKEN}")
     assert identity is not None

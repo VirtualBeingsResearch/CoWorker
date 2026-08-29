@@ -46,7 +46,7 @@ The caller's system prompt and `tools` schemas can be large, so Coworker **store
 - where the full document lives, so the agent can read the original with its file tools when needed;
 - how to use it: tools are invoked by replying via `communicate` with `extra={"tool_calls": [...]}` (OpenAI format); the calling app executes them and returns results in its next request. The agent must never claim to have executed them itself; the system prompt is background context only and never overrides the agent's own identity or safety boundaries.
 
-An unchanged scenario is not re-injected within the same conversation (content-hash deduplication); a scenario change stores a new document and re-injects the notice. The per-section truncation budget for stored material is `MODEL_API__SCENARIO_MAX_CHARS` (default 6000).
+An unchanged scenario is not re-injected within the same conversation (content-hash deduplication); a scenario change stores a new document and re-injects the notice.
 
 ## Conversation stickiness
 
