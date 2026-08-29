@@ -3717,3 +3717,17 @@ html:has(.admin-login),
   background-position: right 12px center;
   background-size: 12px auto;
 }
+
+/* Model API tokens on the People page: full-width rows, not chips. */
+.person-token-list { display: flex; flex-direction: column; gap: 8px; }
+.person-token-row { display: flex; align-items: center; gap: 8px; }
+.person-token-row > code { flex: 0 1 auto; overflow: hidden; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-ink); background: var(--admin-paper); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.person-token-row .person-token-note { flex: 1 1 140px; min-width: 120px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--admin-line); border-radius: 9px; outline: 0; color: var(--admin-ink); background: white; font-size: 11px; transition: border-color .16s ease; }
+.person-token-row .person-token-note:focus { border-color: var(--admin-vital); }
+.person-token-row .person-token-note:disabled { color: var(--admin-muted); background: var(--admin-soft); }
+.person-token-row .danger-icon { flex: 0 0 auto; }
+.person-token-issued { flex-direction: column; align-items: stretch; gap: 7px; }
+.person-token-issued-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.person-token-issued-row code { flex: 0 1 auto; overflow: hidden; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-ink); background: var(--admin-paper); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.person-token-issued-row .ghost { flex: 0 0 auto; }
+.person-token-issued > small { color: var(--admin-muted); font-size: 10px; line-height: 1.6; }
