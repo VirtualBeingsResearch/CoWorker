@@ -10,8 +10,8 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "anthropic>=0.123.0",
-    "openai>=3.3.0",
+    "anthropic>=1.0.0",
+    "openai>=3.3.1",
     "pydantic>=2.0",
     "pydantic-settings>=2.15.0",
     "ddgs>=9.15.0",
@@ -38,7 +38,7 @@ dependencies = [
 # 使用 `file` 后端即可运行；要启用 mem0 后端需显式安装本 extra：
 #   uv sync --extra mem0
 mem0 = [
-    "mem0ai[nlp]>=2.0.18",
+    "mem0ai[nlp]>=2.0.19",
     "chromadb>=0.5",
     "sentence-transformers>=6.0.0",
     "torch==2.13.0",
@@ -51,7 +51,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-mock>=3.14",
-    "ruff>=0.16.3",
+    "ruff>=0.16.4",
     "mypy>=2.3.1",
 ]
 
