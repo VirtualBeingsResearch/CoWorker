@@ -58,7 +58,7 @@ prompt 不复制、不 monkey-patch。
 - 系统工具：`sleep`、`breathe`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
 - 通信工具：`communicate`、`list_connections`
-- 人物工具（可选子机制，`MEMORY__PERSONA_ENABLED=false` 关闭）：`persona`（`bind` 把通信地址绑定到已知或新建人物并记地址备注、`note` 记录人物级个性化备注、`card` 读渲染的画像框架、`merge` 合并重复人物）
+- 人物工具（可选子机制，`MEMORY__PERSONA_ENABLED=false` 关闭）：`persona`（`bind` 把通信地址绑定到已知或新建人物并记地址备注、`note` 记录人物级个性化备注、`card` 读渲染的画像框架、`merge` 合并重复人物、`issue_token`/`revoke_token`/`list_tokens` 管理模型接口令牌）
 - 技能与任务：`get_skill`、`task_create`、`task_get`、`task_list`、`task_update`
 
 `visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：

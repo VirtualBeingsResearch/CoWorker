@@ -2,6 +2,12 @@
 
 
 from coworker.agent.loop import AgentLoop
+from coworker.channels.modelapi.tokens import (
+    IssuedToken,
+    ModelApiTokenError,
+    TokenDetail,
+    TokenSummary,
+)
 from coworker.core.types import IncomingEvent
 from coworker.memory.short_term import ShortTermMemory
 from coworker.persona import Person, PersonaCard, PersonaContext, PersonAlias, PersonStore
@@ -662,3 +668,168 @@ async def test_unknown_action(tmp_path) -> None:
     tool, _, _ = _tool(tmp_path)
     result = await tool.execute(action="nope")
     assert result.is_error
+
+
+class _StubTokenService:
+    """Duck-typed ModelApiTokenService double that records calls."""
+
+    def __init__(self, *, issued=None, summaries=None, detail=None, error=None) -> None:
+        self.calls: list[tuple[str, str, dict]] = []
+        self._issued = issued
+        self._summaries = summaries or []
+        self._detail = detail
+        self._error = error
+
+    async def issue(self, person_id, *, note="", key="", origin="admin"):
+        self.calls.append(("issue", person_id, {"note": note, "key": key, "origin": origin}))
+        if self._error is not None:
+            raise self._error
+        return self._issued
+
+    async def revoke(self, person_id, key, *, origin="admin"):
+        self.calls.append(("revoke", person_id, {"key": key, "origin": origin}))
+        if self._error is not None:
+            raise self._error
+        return None
+
+    def list_for_person(self, person_id):
+        self.calls.append(("list", person_id, {}))
+        if self._error is not None:
+            raise self._error
+        return self._summaries
+
+    def read_plaintext(self, person_id, key, *, origin="admin"):
+        self.calls.append(("read", person_id, {"key": key, "origin": origin}))
+        if self._error is not None:
+            raise self._error
+        return self._detail
+
+
+def _token_tool(tmp_path, service) -> tuple[PersonaTool, PersonStore]:
+    store = PersonStore(tmp_path / "persons.json")
+    return PersonaTool(store, PersonaCard(), tokens=service), store
+
+
+async def test_issue_token_reports_key_address_and_plaintext(tmp_path) -> None:
+    person = PersonStore(tmp_path / "persons.json").create(display_name="张三")
+    stub = _StubTokenService(
+        issued=IssuedToken(
+            key="zhangsan",
+            participant_id="api:zhangsan",
+            token="sk-abc123",
+            person=None,
+        )
+    )
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(
+        action="issue_token", person_id=person.person_id, note="office IDE"
+    )
+    assert not result.is_error
+    assert "zhangsan" in result.content
+    assert "api:zhangsan" in result.content
+    assert "sk-abc123" in result.content
+    kind, target, kwargs = stub.calls[0]
+    assert (kind, target) == ("issue", person.person_id)
+    assert kwargs["origin"] == "agent"
+    assert kwargs["note"] == "office IDE"
+
+
+async def test_issue_token_without_service_reports_unavailable(tmp_path) -> None:
+    store = PersonStore(tmp_path / "persons.json")
+    tool = PersonaTool(store, PersonaCard())
+    result = await tool.execute(action="issue_token")
+    assert result.is_error
+    assert "尚未就绪" in result.content or "not ready yet" in result.content
+
+
+async def test_issue_token_surfaces_service_error(tmp_path) -> None:
+    stub = _StubTokenService(error=ModelApiTokenError(403, "模型接口未启用"))
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(action="issue_token", person_id="p_x")
+    assert result.is_error
+    assert "模型接口未启用" in result.content
+
+
+async def test_token_actions_require_person_id(tmp_path) -> None:
+    stub = _StubTokenService()
+    tool, _ = _token_tool(tmp_path, stub)
+    for action in ("issue_token", "revoke_token", "list_tokens"):
+        result = await tool.execute(action=action)
+        assert result.is_error
+        assert "person_id" in result.content
+    assert stub.calls == []
+
+
+async def test_revoke_token_requires_key(tmp_path) -> None:
+    stub = _StubTokenService()
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(action="revoke_token", person_id="p_x")
+    assert result.is_error
+    assert "key" in result.content
+    assert stub.calls == []
+
+
+async def test_revoke_token_reports_key_and_address(tmp_path) -> None:
+    stub = _StubTokenService()
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(action="revoke_token", person_id="p_x", key="alice")
+    assert not result.is_error
+    assert "alice" in result.content
+    assert "api:alice" in result.content
+    kind, target, kwargs = stub.calls[0]
+    assert (kind, target, kwargs["key"], kwargs["origin"]) == (
+        "revoke",
+        "p_x",
+        "alice",
+        "agent",
+    )
+
+
+async def test_list_tokens_without_key_lists_summaries_only(tmp_path) -> None:
+    stub = _StubTokenService(
+        summaries=[
+            TokenSummary(key="alice", participant_id="api:alice", display_name="Alice", note="ide"),
+            TokenSummary(key="car", participant_id="api:car", display_name="Alice", note=""),
+        ]
+    )
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(action="list_tokens", person_id="p_x")
+    assert not result.is_error
+    assert "alice" in result.content and "car" in result.content
+    assert "sk-" not in result.content  # 摘要不含明文
+    kind, target, _ = stub.calls[0]
+    assert (kind, target) == ("list", "p_x")
+
+
+async def test_list_tokens_with_key_returns_plaintext(tmp_path) -> None:
+    stub = _StubTokenService(
+        detail=TokenDetail(
+            key="alice",
+            participant_id="api:alice",
+            display_name="Alice",
+            note="ide",
+            token="sk-xyz789",
+        )
+    )
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(action="list_tokens", person_id="p_x", key="alice")
+    assert not result.is_error
+    assert "sk-xyz789" in result.content
+    kind, target, kwargs = stub.calls[0]
+    assert (kind, target, kwargs["key"], kwargs["origin"]) == (
+        "read",
+        "p_x",
+        "alice",
+        "agent",
+    )
+
+
+async def test_issue_token_rejects_multiline_note(tmp_path) -> None:
+    stub = _StubTokenService()
+    tool, _ = _token_tool(tmp_path, stub)
+    result = await tool.execute(
+        action="issue_token", person_id="p_x", note="office IDE\nsecond line"
+    )
+    assert result.is_error
+    assert "单行" in result.content or "single line" in result.content
+    assert stub.calls == []  # 校验失败不触达服务

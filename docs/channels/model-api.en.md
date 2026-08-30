@@ -10,6 +10,8 @@ The model API exposes Coworker as an **OpenAI Chat Completions-compatible "model
 
 The model API is disabled by default. **Tokens are always issued against an existing person record**: on the admin console's People page, pick a person and click "Issue token" — the server generates a random token, pre-binds the `api:<key>` address to that person, and writes the config immediately (no restart). One person can hold multiple tokens (i.e. multiple addresses), each with an optional remark recording which app or device uses it; revoking a token also unbinds its address. The runtime **never** creates person records on its own.
 
+**The agent can also manage tokens directly in conversation** (via the persona tool): `issue_token` issues a token for a person (the plaintext is returned once, for the agent to hand over), `revoke_token` revokes one, and `list_tokens` lists a person's tokens — with a `key`, it also returns that token's plaintext (re-delivery when the person loses it). Issuing and revoking need no administrator confirmation, but **enabling stays with the administrator**: issuing is refused while the model API is disabled (the agent is told to ask the administrator to enable it under Settings → Model API); revoking and lookups are unaffected. The agent can only touch tokens whose address is bound to the target person. Agent writes land in the admin audit log (`admin_audit.jsonl`) with `source: "agent"` and are visible in the audit view.
+
 The "Settings → Model API" panel only handles the enable switch, lifecycle thresholds, and a read-only view of issued tokens (masked secrets). For a first bootstrap, tokens can also be pre-seeded in `.env`:
 
 ```bash
@@ -17,7 +19,7 @@ MODEL_API__ENABLED=true
 MODEL_API__TOKENS='{"alice":{"token":"sk-my-long-token","display_name":"Alice"}}'
 ```
 
-Each token maps to one participant, with the address derived from the token key: `api:<key>` (e.g. `api:alice`). A `.env`-seeded token without a bound person shows up to the agent as an unknown `api:` address, which can be bound manually via the persona tool in conversation, like any other channel.
+Each token maps to one participant, with the address derived from the token key: `api:<key>` (e.g. `api:alice`). A `.env`-seeded token without a bound person shows up to the agent as an unknown `api:` address, which can be bound manually via the persona tool in conversation, like any other channel — or simply re-issued to an existing person with `issue_token`.
 
 All `/v1` requests must carry `Authorization: Bearer <token>`; mismatched tokens get 401, and a disabled feature or not-ready agent gets 503.
 

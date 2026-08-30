@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from coworker.channels.modelapi.tokens import (
+    ModelApiTokenError,
+    ModelApiTokenService,
+)
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
 from coworker.persona import PersonaCard, PersonAlias, PersonStore
@@ -22,22 +26,38 @@ def _note_is_multiline(note: str) -> bool:
 class PersonaTool(Tool):
     """Bind addresses to persons, record notes, render cards, merge persons."""
 
-    def __init__(self, store: PersonStore, cards: PersonaCard) -> None:
+    def __init__(
+        self,
+        store: PersonStore,
+        cards: PersonaCard,
+        tokens: ModelApiTokenService | None = None,
+    ) -> None:
         self._store = store
         self._cards = cards
+        self._tokens = tokens
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="persona",
-            description="管理「人物」：绑定通信地址与备注（bind）、记录个性化备注（note）、读人物画像框架（card）、解绑地址（unbind）、删除人物（delete）、合并重复人物（merge）",
+            description="管理「人物」：绑定通信地址与备注（bind）、记录个性化备注（note）、读人物画像框架（card）、解绑地址（unbind）、删除人物（delete）、合并重复人物（merge）、签发模型接口令牌（issue_token）、撤销模型接口令牌（revoke_token）、列出令牌或按 key 取回明文（list_tokens）",
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["bind", "card", "note", "unbind", "delete", "merge"],
-                        "description": "操作类型：bind（绑定地址/地址备注）、card（读画像框架）、note（记录/移除人物备注）、unbind（解除地址绑定）、delete（删除人物）、merge（合并人物）",
+                        "enum": [
+                            "bind",
+                            "card",
+                            "note",
+                            "unbind",
+                            "delete",
+                            "merge",
+                            "issue_token",
+                            "revoke_token",
+                            "list_tokens",
+                        ],
+                        "description": "操作类型：bind（绑定地址/地址备注）、card（读画像框架）、note（记录/移除人物备注）、unbind（解除地址绑定）、delete（删除人物）、merge（合并人物）、issue_token（签发模型接口令牌）、revoke_token（撤销模型接口令牌）、list_tokens（列出令牌；带 key 时返回该令牌明文）",
                     },
                     "participant_id": {
                         "type": "string",
@@ -49,7 +69,7 @@ class PersonaTool(Tool):
                     },
                     "person_id": {
                         "type": "string",
-                        "description": "人物 ID（card/note 时必填；bind 时指定要绑定到的已知人物）",
+                        "description": "人物 ID（card/note 时必填；bind 时指定要绑定到的已知人物；issue_token/revoke_token/list_tokens 时必填）",
                     },
                     "name": {
                         "type": "string",
@@ -57,7 +77,11 @@ class PersonaTool(Tool):
                     },
                     "note": {
                         "type": "string",
-                        "description": "该地址的备注（bind 时可选；同一地址可多次 bind 追加多条备注）。必须为单行文本，不能包含换行",
+                        "description": "该地址的备注（bind 时可选；同一地址可多次 bind 追加多条备注）；issue_token 时作为令牌备注（可选，记录哪个应用或设备在用）。必须为单行文本，不能包含换行",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "令牌键名：issue_token 时可选（缺省从人物名派生）；revoke_token 时必填；list_tokens 时可选（指定则返回该令牌的明文）",
                     },
                     "notes": {
                         "type": "array",
@@ -96,6 +120,12 @@ class PersonaTool(Tool):
                 return self._delete(kwargs)
             if action == "merge":
                 return self._merge(kwargs)
+            if action == "issue_token":
+                return await self._issue_token(kwargs)
+            if action == "revoke_token":
+                return await self._revoke_token(kwargs)
+            if action == "list_tokens":
+                return self._list_tokens(kwargs)
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
         return ToolResult(
@@ -380,3 +410,144 @@ class PersonaTool(Tool):
                 keep_id=keep.person_id,
             ),
         )
+
+    def _display_name(self, person_id: str) -> str:
+        person = self._store.get(person_id)
+        if person is None:
+            return person_id
+        return person.display_name or person.person_id
+
+    def _token_error(self, error: ModelApiTokenError) -> ToolResult:
+        return ToolResult(tool_call_id="", content=str(error.detail), is_error=True)
+
+    def _token_target(self, kwargs: dict[str, Any], action: str) -> tuple[str, str] | ToolResult:
+        """Validate the common ``person_id``/``key`` pair; ``key`` may be empty."""
+        if self._tokens is None:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.token_unavailable"),
+                is_error=True,
+            )
+        person_id = str(kwargs.get("person_id") or "").strip()
+        if not person_id:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.token_needs_person", action=action),
+                is_error=True,
+            )
+        key = str(kwargs.get("key") or "").strip()
+        return person_id, key
+
+    async def _issue_token(self, kwargs: dict[str, Any]) -> ToolResult:
+        target = self._token_target(kwargs, "issue_token")
+        if isinstance(target, ToolResult):
+            return target
+        person_id, key = target
+        assert self._tokens is not None
+        note = str(kwargs.get("note") or "").strip()
+        if note and _note_is_multiline(note):
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.note_must_be_single_line"),
+                is_error=True,
+            )
+        try:
+            issued = await self._tokens.issue(
+                person_id, note=note, key=key, origin="agent"
+            )
+        except ModelApiTokenError as error:
+            return self._token_error(error)
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.persona.token_issued",
+                name=self._display_name(person_id),
+                person_id=person_id,
+                key=issued.key,
+                participant_id=issued.participant_id,
+                token=issued.token,
+            ),
+        )
+
+    async def _revoke_token(self, kwargs: dict[str, Any]) -> ToolResult:
+        target = self._token_target(kwargs, "revoke_token")
+        if isinstance(target, ToolResult):
+            return target
+        person_id, key = target
+        assert self._tokens is not None
+        if not key:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.token_needs_key", action="revoke_token"),
+                is_error=True,
+            )
+        try:
+            await self._tokens.revoke(person_id, key, origin="agent")
+        except ModelApiTokenError as error:
+            return self._token_error(error)
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.persona.token_revoked",
+                name=self._display_name(person_id),
+                person_id=person_id,
+                key=key,
+                participant_id=f"api:{key}",
+            ),
+        )
+
+    def _list_tokens(self, kwargs: dict[str, Any]) -> ToolResult:
+        target = self._token_target(kwargs, "list_tokens")
+        if isinstance(target, ToolResult):
+            return target
+        person_id, key = target
+        assert self._tokens is not None
+        try:
+            if key:
+                detail = self._tokens.read_plaintext(person_id, key, origin="agent")
+                content_key = (
+                    "tool_result.persona.token_fetched"
+                    if detail.note
+                    else "tool_result.persona.token_fetched_plain"
+                )
+                content = tr(
+                    content_key,
+                    name=self._display_name(person_id),
+                    person_id=person_id,
+                    key=detail.key,
+                    participant_id=detail.participant_id,
+                    note=detail.note,
+                    token=detail.token,
+                )
+            else:
+                summaries = self._tokens.list_for_person(person_id)
+                if not summaries:
+                    content = tr(
+                        "tool_result.persona.token_list_empty",
+                        name=self._display_name(person_id),
+                        person_id=person_id,
+                    )
+                else:
+                    items = "\n".join(
+                        tr(
+                            (
+                                "tool_result.persona.token_list_item"
+                                if summary.note
+                                else "tool_result.persona.token_list_item_plain"
+                            ),
+                            key=summary.key,
+                            participant_id=summary.participant_id,
+                            note=summary.note,
+                        )
+                        for summary in summaries
+                    )
+                    content = tr(
+                        "tool_result.persona.token_list_header",
+                        name=self._display_name(person_id),
+                        person_id=person_id,
+                        count=len(summaries),
+                        items=items,
+                    )
+        except ModelApiTokenError as error:
+            return self._token_error(error)
+        return ToolResult(tool_call_id="", content=content)

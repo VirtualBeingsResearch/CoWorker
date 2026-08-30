@@ -36,7 +36,10 @@ from coworker.agent.bubble_log_index import (
     synchronize_completed_bubble_index,
 )
 from coworker.agent.log_store import LogPageCursor, LogStore
-from coworker.channels.modelapi.sessions import token_key_slug
+from coworker.channels.modelapi.tokens import (
+    ModelApiTokenError,
+    ModelApiTokenService,
+)
 from coworker.channels.traffic import (
     ChannelTrafficStore,
     TrafficDirection,
@@ -104,6 +107,7 @@ _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
 _person_store: PersonStore | None = None
 _persona_cards: PersonaCard | None = None
+_model_api_tokens: ModelApiTokenService | None = None
 _usage_stats: UsageStatsCollector | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
@@ -298,8 +302,9 @@ def setup_admin(
     relay_client: RelayClient | None = None,
     person_store: PersonStore | None = None,
     persona_cards: PersonaCard | None = None,
+    model_api_tokens: ModelApiTokenService | None = None,
     usage_stats: UsageStatsCollector | None = None,
-) -> None:
+) -> AdminConfigService:
     global \
         _agent, \
         _brain, \
@@ -314,6 +319,7 @@ def setup_admin(
         _relay_client, \
         _person_store, \
         _persona_cards, \
+        _model_api_tokens, \
         _usage_stats
     _agent = agent
     _brain = brain
@@ -327,6 +333,7 @@ def setup_admin(
     _relay_client = relay_client
     _person_store = person_store
     _persona_cards = persona_cards
+    _model_api_tokens = model_api_tokens
     _usage_stats = usage_stats
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
@@ -339,6 +346,7 @@ def setup_admin(
         )
     )
     _admin_config_service.set_channel_modules(_channel_modules)
+    return _admin_config_service
 
 
 def setup_channel_admin(modules: ChannelModuleRegistry | None) -> None:
@@ -394,6 +402,23 @@ def _require_admin_config_service() -> AdminConfigService:
     if _admin_config_service is None:
         raise HTTPException(status_code=503, detail=tr("api.state.config_not_ready"))
     return _admin_config_service
+
+
+def _model_api_token_service() -> ModelApiTokenService:
+    """The token lifecycle service, shared with the agent's persona tool.
+
+    Built lazily from the router globals when the application did not pass a
+    pre-wired instance (tests, partial setups); ``setup_admin`` resets the
+    cache so each setup owns its own instance.
+    """
+    global _model_api_tokens
+    if _model_api_tokens is None:
+        _model_api_tokens = ModelApiTokenService(
+            config=_require_config(),
+            person_store=_require_persona()[0],
+            config_service=_require_admin_config_service(),
+        )
+    return _model_api_tokens
 
 
 def _require_alarms() -> AlarmManager:
@@ -2719,9 +2744,6 @@ async def create_person(
     return _person_payload(person)
 
 
-_MODEL_API_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
-
-
 class ModelApiTokenIssuePayload(BaseModel):
     key: str = Field(default="", max_length=64)
     note: str = Field(default="", max_length=200)
@@ -2729,13 +2751,6 @@ class ModelApiTokenIssuePayload(BaseModel):
 
 class ModelApiTokenNotePayload(BaseModel):
     note: str = Field(default="", max_length=200)
-
-
-def _model_api_snapshot_tokens(service: AdminConfigService) -> JsonObject:
-    """Token entries from the merged desired config (keys stay authoritative)."""
-    model_api = service.snapshot().config.get("model_api")
-    tokens = model_api.get("tokens") if isinstance(model_api, dict) else None
-    return tokens if isinstance(tokens, dict) else {}
 
 
 @router.post("/persons/{person_id}/model-api-token", status_code=201)
@@ -2752,66 +2767,22 @@ async def issue_person_model_api_token(
     so the first message lands on a known identity instead of creating a
     duplicate person.
     """
-    store, _cards = _require_persona()
-    person = store.get(person_id)
-    if person is None:
+    _require_persona()
+    service = _model_api_token_service()
+    try:
+        issued = await service.issue(
+            person_id, note=payload.note, key=payload.key, origin="admin"
+        )
+    except ModelApiTokenError as error:
         raise HTTPException(
-            status_code=404,
-            detail=tr("api.admin.person_missing", person_id=person_id),
-        )
-    service = _require_admin_config_service()
-    # The merged desired config (inherited layers + admin overrides) is the
-    # authoritative view of issued tokens; the running config object only
-    # updates when a channel module applies changes.
-    snapshot_tokens = _model_api_snapshot_tokens(service)
-
-    base = token_key_slug(payload.key) or token_key_slug(
-        person.display_name or person.person_id
-    )
-    if not base:
-        base = f"p{secrets.token_hex(4)}"
-    elif not _MODEL_API_KEY_RE.fullmatch(base):
-        base = f"k{base}"
-    key = base
-    suffix = 2
-    while key in snapshot_tokens:
-        key = f"{base}-{suffix}"
-        suffix += 1
-
-    token_value = f"sk-{secrets.token_urlsafe(24)}"
-    # Config section merges are shallow, so the patch must carry the full
-    # token dict; secret values of existing entries are preserved by the
-    # config service, and new entry's secret rides in `secrets`.
-    merged_tokens: JsonObject = {
-        token_key: {
-            "display_name": str(entry.get("display_name") or ""),
-            "note": str(entry.get("note") or ""),
-        }
-        for token_key, entry in snapshot_tokens.items()
-        if isinstance(entry, dict)
-    }
-    merged_tokens[key] = {
-        "display_name": person.display_name,
-        "note": payload.note.strip(),
-    }
-    token_changes: JsonObject = {"model_api": {"tokens": merged_tokens}}
-    await service.patch(
-        ConfigUpdate(
-            changes=token_changes,
-            secrets={f"model_api.tokens.{key}.token": token_value},
-        )
-    )
-    participant_id = f"api:{key}"
-    updated = store.bind_alias(
-        person_id,
-        PersonAlias(participant_id=participant_id, channel="model-api"),
-    )
-    _audit(request, "person.model_api_token_issue", person_id, detail=f"key={key}")
+            status_code=error.status, detail=error.detail
+        ) from error
+    _audit(request, "person.model_api_token_issue", person_id, detail=f"key={issued.key}")
     return {
-        "key": key,
-        "participant_id": participant_id,
-        "token": token_value,
-        "person": _person_payload(updated) if updated is not None else None,
+        "key": issued.key,
+        "participant_id": issued.participant_id,
+        "token": issued.token,
+        "person": _person_payload(issued.person) if issued.person is not None else None,
     }
 
 
@@ -2823,33 +2794,14 @@ async def revoke_person_model_api_token(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     """Revoke a person's model API token and unbind its participant address."""
-    store, _cards = _require_persona()
-    person = store.get(person_id)
-    if person is None:
+    _require_persona()
+    service = _model_api_token_service()
+    try:
+        updated = await service.revoke(person_id, key, origin="admin")
+    except ModelApiTokenError as error:
         raise HTTPException(
-            status_code=404,
-            detail=tr("api.admin.person_missing", person_id=person_id),
-        )
-    service = _require_admin_config_service()
-    snapshot_tokens = _model_api_snapshot_tokens(service)
-    if key not in snapshot_tokens:
-        raise HTTPException(
-            status_code=404,
-            detail=tr("api.model_api.token_not_found", key=key),
-        )
-    remaining: JsonObject = {
-        token_key: {
-            "display_name": str(entry.get("display_name") or ""),
-            "note": str(entry.get("note") or ""),
-        }
-        for token_key, entry in snapshot_tokens.items()
-        if token_key != key and isinstance(entry, dict)
-    }
-    await service.patch(
-        ConfigUpdate(changes={"model_api": {"tokens": remaining}})
-    )
-    store.unbind_alias(person_id, f"api:{key}")
-    updated = store.get(person_id)
+            status_code=error.status, detail=error.detail
+        ) from error
     _audit(request, "person.model_api_token_revoke", person_id, detail=f"key={key}")
     return {
         "revoked": key,
@@ -2865,24 +2817,20 @@ async def read_person_model_api_token(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     """Return a token's plaintext for copy workflows, like the communication token."""
-    store, _cards = _require_persona()
-    if store.get(person_id) is None:
+    _require_persona()
+    service = _model_api_token_service()
+    try:
+        detail = service.read_plaintext(person_id, key, origin="admin")
+    except ModelApiTokenError as error:
         raise HTTPException(
-            status_code=404,
-            detail=tr("api.admin.person_missing", person_id=person_id),
-        )
-    entry = _require_config().model_api.tokens.get(key)
-    if entry is None:
-        raise HTTPException(
-            status_code=404,
-            detail=tr("api.model_api.token_not_found", key=key),
-        )
+            status_code=error.status, detail=error.detail
+        ) from error
     _audit(request, "person.model_api_token_read", person_id, detail=f"key={key}")
     return {
-        "key": key,
-        "participant_id": f"api:{key}",
-        "display_name": entry.display_name,
-        "token": entry.token,
+        "key": detail.key,
+        "participant_id": detail.participant_id,
+        "display_name": detail.display_name,
+        "token": detail.token,
     }
 
 
@@ -2895,35 +2843,16 @@ async def update_person_model_api_token_note(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     """Update an issued token's admin remark (which app or device it serves)."""
-    store, _cards = _require_persona()
-    if store.get(person_id) is None:
+    _require_persona()
+    service = _model_api_token_service()
+    try:
+        note = await service.set_note(person_id, key, note=payload.note, origin="admin")
+    except ModelApiTokenError as error:
         raise HTTPException(
-            status_code=404,
-            detail=tr("api.admin.person_missing", person_id=person_id),
-        )
-    service = _require_admin_config_service()
-    snapshot_tokens = _model_api_snapshot_tokens(service)
-    entry = snapshot_tokens.get(key)
-    if key not in snapshot_tokens or not isinstance(entry, dict):
-        raise HTTPException(
-            status_code=404,
-            detail=tr("api.model_api.token_not_found", key=key),
-        )
-    merged_tokens: JsonObject = {
-        token_key: {
-            "display_name": str(item.get("display_name") or ""),
-            "note": (
-                payload.note.strip() if token_key == key else str(item.get("note") or "")
-            ),
-        }
-        for token_key, item in snapshot_tokens.items()
-        if isinstance(item, dict)
-    }
-    await service.patch(
-        ConfigUpdate(changes={"model_api": {"tokens": merged_tokens}})
-    )
+            status_code=error.status, detail=error.detail
+        ) from error
     _audit(request, "person.model_api_token_note", person_id, detail=f"key={key}")
-    return {"key": key, "note": payload.note.strip()}
+    return {"key": key, "note": note}
 
 
 @router.get("/persons/{person_id}")

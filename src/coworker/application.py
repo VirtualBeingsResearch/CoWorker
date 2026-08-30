@@ -31,6 +31,7 @@ from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
 from coworker.channels.modelapi import create_model_api_module
+from coworker.channels.modelapi.tokens import ModelApiTokenService
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -817,10 +818,12 @@ async def _main() -> bool:
     person_store: PersonStore | None = None
     persona_cards: PersonaCard | None = None
     persona_context: PersonaContext | None = None
+    model_api_tokens: ModelApiTokenService | None = None
     if config.memory.persona_enabled:
         person_store = PersonStore(config.memory.persona_store_path)
         persona_cards = PersonaCard()
         persona_context = PersonaContext(store=person_store, cards=persona_cards)
+        model_api_tokens = ModelApiTokenService(config=config, person_store=person_store)
     registry.register_many(
         [
             SetAlarmTool(alarm_manager),
@@ -832,8 +835,8 @@ async def _main() -> bool:
             GetContextTool(brain, short_term, agent_state),
             ManagePinnedContextTool(short_term),
             RestartSelfTool(short_term=short_term, snapshot_path=snapshot_path),
-            *(  # 可选的 Person 子机制：绑定地址、维护画像、合并人物。
-                [PersonaTool(person_store, persona_cards)]
+            *(  # 可选的 Person 子机制：绑定地址、维护画像、合并人物、签发模型接口令牌。
+                [PersonaTool(person_store, persona_cards, tokens=model_api_tokens)]
                 if person_store is not None and persona_cards is not None
                 else []
             ),
@@ -1025,7 +1028,7 @@ async def _main() -> bool:
         channels=channel_system.registry,
         communication_token_explicit=bool(config.api.communication_token),
     )
-    setup_admin(
+    admin_config_service = setup_admin(
         agent=agent_loop,
         brain=brain,
         config=config,
@@ -1039,9 +1042,14 @@ async def _main() -> bool:
         relay_client=relay_client,
         person_store=person_store,
         persona_cards=persona_cards,
+        model_api_tokens=model_api_tokens,
         usage_stats=usage_stats,
     )
     setup_channel_admin(channel_system.modules)
+    # The admin config service only exists after setup_admin; the token
+    # service (and with it the persona tool) needs it for every write.
+    if model_api_tokens is not None:
+        model_api_tokens.attach(admin_config_service)
     api_app.setup_desktop_updates(
         config.desktop_updates,
         config.admin.token,

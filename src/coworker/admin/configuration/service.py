@@ -387,6 +387,7 @@ class AdminConfigService:
         desired_base["channel_access"] = inherited["channel_access"]
         desired_base["telegram"] = inherited["telegram"]
         desired_base["wecom"] = inherited["wecom"]
+        desired_base["model_api"] = inherited["model_api"]
         try:
             before = Config.model_validate(merge_config_layers(effective, current_overrides))
             desired = Config.model_validate(merge_config_layers(desired_base, next_overrides))

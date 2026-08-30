@@ -64,7 +64,7 @@ The following tools are registered by default at startup:
 - System tools: `sleep`, `breathe`, `switch_model`, `get_context`, `restart_self`
 - Alarm tools: `set_alarm`, `list_alarms`, `cancel_alarm`
 - Communication tools: `communicate`, `list_connections`
-- Person tools (optional sub-mechanism, disabled with `MEMORY__PERSONA_ENABLED=false`): `persona` (`bind` attaches a communication address to a known or new person and records address notes, `note` records person-level personalized notes, `card` reads the rendered card framework, `merge` merges duplicate people)
+- Person tools (optional sub-mechanism, disabled with `MEMORY__PERSONA_ENABLED=false`): `persona` (`bind` attaches a communication address to a known or new person and records address notes, `note` records person-level personalized notes, `card` reads the rendered card framework, `merge` merges duplicate people, `issue_token`/`revoke_token`/`list_tokens` manage model API tokens)
 - Skills and tasks: `get_skill`, `task_create`, `task_get`, `task_list`, `task_update`
 
 `visual_analyze` is registered by default and is visible to both text and vision main models. It becomes available after `LLM__VISION_PROVIDER` and `LLM__VISION_MODEL` are configured:
