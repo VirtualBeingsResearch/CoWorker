@@ -2802,7 +2802,7 @@ async def issue_person_model_api_token(
         )
     )
     participant_id = f"api:{key}"
-    store.bind_alias(
+    updated = store.bind_alias(
         person_id,
         PersonAlias(participant_id=participant_id, channel="model-api"),
     )
@@ -2811,6 +2811,7 @@ async def issue_person_model_api_token(
         "key": key,
         "participant_id": participant_id,
         "token": token_value,
+        "person": _person_payload(updated) if updated is not None else None,
     }
 
 
@@ -2848,8 +2849,12 @@ async def revoke_person_model_api_token(
         ConfigUpdate(changes={"model_api": {"tokens": remaining}})
     )
     store.unbind_alias(person_id, f"api:{key}")
+    updated = store.get(person_id)
     _audit(request, "person.model_api_token_revoke", person_id, detail=f"key={key}")
-    return {"revoked": key}
+    return {
+        "revoked": key,
+        "person": _person_payload(updated) if updated is not None else None,
+    }
 
 
 @router.get("/persons/{person_id}/model-api-token/{key}")

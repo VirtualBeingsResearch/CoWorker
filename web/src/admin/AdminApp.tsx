@@ -2978,12 +2978,19 @@ function PeopleView() {
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
+  const applyPersonUpdate = (updated: PersonView | null | undefined) => {
+    if (!updated) return;
+    people.setData(current => current
+      ? { persons: current.persons.map(person => (person.person_id === updated.person_id ? updated : person)) }
+      : current);
+  };
+
   const issueToken = async (person: PersonView) => {
     setBusy(true); setError(null);
     try {
-      const issued = await api<{ key: string; participant_id: string; token: string }>(`/api/admin/persons/${person.person_id}/model-api-token`, { method: 'POST', body: JSON.stringify({}) });
+      const issued = await api<{ key: string; participant_id: string; token: string; person?: PersonView | null }>(`/api/admin/persons/${person.person_id}/model-api-token`, { method: 'POST', body: JSON.stringify({}) });
       setIssuedToken(issued);
-      await people.reload();
+      applyPersonUpdate(issued.person);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
@@ -2991,9 +2998,9 @@ function PeopleView() {
     const key = participantId.replace(/^api:/, '');
     setBusy(true); setError(null);
     try {
-      await api(`/api/admin/persons/${person.person_id}/model-api-token/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      const result = await api<{ person?: PersonView | null }>(`/api/admin/persons/${person.person_id}/model-api-token/${encodeURIComponent(key)}`, { method: 'DELETE' });
       setIssuedToken(current => (current?.participant_id === participantId ? null : current));
-      await people.reload();
+      applyPersonUpdate(result.person);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
 
@@ -3103,7 +3110,7 @@ function PeopleView() {
               {selectedPerson.aliases.length > 0 ? <div className="person-aliases">{selectedPerson.aliases.map((alias, index) => <span className="alias-chip" key={index} title={[alias.conversation_id ? `conversation: ${alias.conversation_id}` : '', ...(alias.notes ?? [])].filter(Boolean).join('\n')}><em>{alias.channel || t('信道')}</em><code>{alias.participant_id}{alias.conversation_id ? ` · ${alias.conversation_id}` : ''}</code></span>)}</div> : <p className="person-section-empty">{t('还没有联系地址；搭档可以在对话中绑定。')}</p>}
             </section>
             <section className="person-detail-section">
-              <header><div><b>{t('模型接口令牌')}</b><small>{t('为这个人物签发 OpenAI 兼容接入令牌；令牌即地址，签发后立即可用')}</small></div><button className="ghost mini" disabled={busy} onClick={() => void issueToken(selectedPerson)}><Plus size={13} />{t('生成令牌')}</button></header>
+              <header><div><b>{t('模型接口令牌')}</b><small>{t('为这个人物签发 OpenAI 兼容接入令牌；令牌即地址，签发后立即可用')}</small></div><button type="button" className="ghost mini" disabled={busy} onClick={() => void issueToken(selectedPerson)}><Plus size={13} />{t('生成令牌')}</button></header>
               {issuedToken && issuedToken.participant_id.startsWith('api:') && modelApiAliases.some(alias => alias.participant_id === issuedToken.participant_id) ? <div className="notice person-token-issued">
                 <div className="person-token-issued-row"><code>{issuedToken.token}</code><button type="button" className="ghost mini" onClick={() => void copyIssuedToken()}>{t(tokenCopyState === 'copied' ? '已复制' : tokenCopyState === 'error' ? '复制失败' : '复制令牌')}</button></div>
                 <small>{t('令牌可随时在本页重新复制；如泄露，请撤销并重新签发。base_url 指向本实例，api_key 填入该令牌。接入地址：{{participant}}', { participant: issuedToken.participant_id })}</small>
