@@ -71,7 +71,7 @@ A not-ready agent or disabled feature returns 503; when every upstream model can
 - `GET /v1/models` returns a single model, `coworker`; any `model` value in requests is accepted and echoed back.
 - `usage` numbers are local estimates, not exact upstream metering.
 - Multimodal messages contribute their text parts only; parameters like `n>1` and `logprobs` are ignored.
-- Scenario (system prompt + tools) injection has a length budget (`MODEL_API__SCENARIO_MAX_CHARS`, default 6000); overflow is truncated and marked.
+- Caller scenario material (system prompt + tools) is stored verbatim on disk as a document; only a compact notice is injected into the conversation, and the agent reads the original on demand with its file tools.
 - Tokens, the enabled switch, and lifecycle thresholds hot-update in the admin console's "Settings → Model API" panel; token values are stored as masked secrets and never echoed back.
 - The model API is currently not added to the Relay public-tunnel whitelist; for public access use a reverse proxy that terminates TLS.
 - Future directions: per-conversation concurrent execution units (generalized bubbles), and presence-awareness injection so the agent coordinates shared-resource conflicts itself.
