@@ -31,7 +31,7 @@
 
 ### ④ 信道提供语义 —— [CHANNELS] 提示词
 
-各信道在既有 `agent_instructions()`（`[CHANNELS]` 段）中描述地址语义：如 wecom 的 `wecom:single:*`=人、`wecom:group:*`=群；weixin 的 `weixin:{bot}`=1:1 连接、`conversation_id`=会话 session、`weixin:control`=控制消息；OpenAI 兼容信道的 `openai:{短名}`=持有该通信令牌的 1:1 地址（可 bind，不要带 `conversation_id`），`conversation_id`=该地址下的窗口，`openai:control`=额外令牌控制地址（不是人，不要 bind）。模型据此判断"谁是能绑定的人、conversation_id 指什么"。
+各信道在既有 `agent_instructions()`（`[CHANNELS]` 段）中描述地址语义：如 wecom 的 `wecom:single:*`=人、`wecom:group:*`=群；weixin 的 `weixin:{bot}`=1:1 连接、`conversation_id`=会话 session、`weixin:control`=控制消息；OpenAI 兼容信道的 `openai:{短名}`=持有该通信令牌的 1:1 地址（可 bind，绑定不含 `conversation_id`），`conversation_id`=该地址下的窗口，`openai:control`=额外令牌控制地址（不是人，不参与 persona bind）。模型据此判断"谁是能绑定的人、conversation_id 指什么"。
 
 ### 软边界
 
