@@ -54,6 +54,10 @@ explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
 | `GET /backups` | List emergency short-term-context backups |
 | `POST /backups/restore` | Restore an emergency backup in `full` or `summarize` mode |
 | `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
+| `GET /v1/models` | OpenAI-compatible model list; returns `coworker` |
+| `POST /v1/chat/completions` | OpenAI-compatible inbound; the Bearer short name maps to `openai:{short_name}` |
+
+`/v1/*` authenticates with any communication token (primary or extras) and always requires a Bearer. During first-run setup it returns JSON `503` instead of a 303 HTML redirect to `/admin`. It is not on the Relay allowlist. Optional `conversation_id` or `X-Coworker-Conversation-Id`; otherwise the window fingerprint is the first system plus first user. `stream=true` emits the whole completion as SSE, not a token stream. See [OpenAI-compatible channel](api-and-channels.en.md#openai-compatible-channel).
 
 ### Send a message
 

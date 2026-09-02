@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
 
-内置配置键是 `stream`、`desktop`、`wecom`、`telegram` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+内置配置键是 `stream`、`desktop`、`wecom`、`telegram`、`weixin` 和 `openai`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
 
 管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
 
@@ -206,6 +206,17 @@ Authorization 的 fetch 流消费通用 SSE，不再依赖无法设置 Header �
 
 - `examples/chat.html`
 - `examples/api_test.html`
+- `examples/openai_compat.py`
+
+## OpenAI 兼容信道
+
+Coworker 把运行中的生命体暴露为 OpenAI 兼容模型（`GET /v1/models` → `coworker`，`POST /v1/chat/completions`），供 Cursor、Open WebUI 或 SDK 当作模型调用。这是一条普通 Channel，不是第二套 Agent，也不经 Relay 转发。
+
+哪把通信令牌敲门，participant 就是 `openai:{短名}`。主令牌 `API__COMMUNICATION_TOKEN` 固定为 `openai:api`，Desktop 复制入口和 Relay 加密身份仍只用它；她不能签发、轮换或作废主令牌。额外令牌由她经 `openai:control` 签发（`communicate` 的 `extra.action` 为 `issue` / `rotate` / `revoke` / `list`），短名匹配 `[a-z][a-z0-9_-]{0,31}`，禁止 `api` 与 `control`。`issue` 可用 `person_id` 或 `person` 当场 persona bind；密钥只在 issue/rotate 结果里出现一次。`openai:{短名}` 是 1:1 可 bind 地址，bind 时不要带 `conversation_id`。未绑定仍可进站。`conversation_id` 只是该地址下的窗口（显式传入、`X-Coworker-Conversation-Id`，或由第一条 system + 第一条 user 指纹），照抄给 `communicate` 与泡泡，不是另一个人。
+
+当次 `tools` / `system` 是这封信上的要求。主线与绑定泡泡都用常驻 `call_client_tool` 点名客户端函数；不要把客户端 schema 装进 `get_schemas()`。`communicate` 结束这一轮 HTTP（`stop`）；客户端工具映射为调用方原来的 `tool_calls`。超时见 `API__COMPAT_TIMEOUT_SECONDS`（默认 180）。首次设置未完成时 `/v1/*` 返回 JSON `503`，不会 303 到管理页 HTML。
+
+管理端只备份列出 extras（复制/作废，可选增加一把）；状态页、ChatDock 和 Desktop 复制仍只贴主令牌。
 
 ## 文件消息
 

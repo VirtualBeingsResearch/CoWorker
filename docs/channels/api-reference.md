@@ -50,6 +50,10 @@ WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些
 | `GET /backups` | 列出应急短期上下文备份 |
 | `POST /backups/restore` | 以 `full` 或 `summarize` 模式恢复应急备份 |
 | `GET /api/debug/tasks` | 排查事件循环任务；仅用于受信任的诊断环境 |
+| `GET /v1/models` | OpenAI 兼容模型目录，返回 `coworker` |
+| `POST /v1/chat/completions` | OpenAI 兼容入站；Bearer 短名映射为 `openai:{短名}` |
+
+`/v1/*` 使用任一通信令牌（主令牌或 extras）鉴权，且始终要求 Bearer。首次设置未完成时返回 JSON `503`，不会 303 到 `/admin`。不进入 Relay 允许列表。可选 `conversation_id` 或 `X-Coworker-Conversation-Id`；省略时由第一条 system 与第一条 user 做窗口指纹。`stream=true` 时把整段 completion 作为 SSE 发出，不是 token 流。详见 [OpenAI 兼容信道](api-and-channels.md#openai-兼容信道)。
 
 ### 发送消息
 

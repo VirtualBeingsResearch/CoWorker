@@ -520,6 +520,7 @@ class AgentLoop:
 
     async def _act(self, tool_calls) -> None:
         results: list[ToolResult] = []
+        self._tools.prepare_batch(tool_calls)
         for tc in tool_calls:
             # ── 工具调用计数 ──
             self.state.tool_call_counts[tc.name] = self.state.tool_call_counts.get(tc.name, 0) + 1

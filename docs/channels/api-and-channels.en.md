@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 Each channel has four lists: `inbound_allow`, `inbound_deny`, `outbound_allow`, and `outbound_deny`. Patterns match the complete participant ID case-sensitively and support `*`, `?`, and `[...]`; a value without wildcards is exact. Evaluation is: a matching deny rejects; otherwise a non-empty allow requires a match; otherwise access is allowed. An unconfigured channel, `{}`, or four empty lists therefore preserves the compatible allow-all behavior.
 
-Built-in configuration keys are `stream`, `desktop`, `wecom`, `telegram`, and `weixin`. A Stream profile uses its own channel name, so Desktop participants are governed by `desktop`, not `stream`. Extension Channels use their registered names. Inbound rejection happens before attachment download, reply-frame/context-token caching, activity recording, and Agent handling: REST `/messages` returns `403` with an explanation; WebSocket sends a rejection message before closing with `1008`; and WeCom, Telegram, or Weixin Claw makes a best-effort attempt to return a generic rejection message to the source conversation before dropping the original message. A rejection notice is a transport control response and bypasses outbound lists; failure to send it never admits the original message. The Registry enforces outbound rejection, and denied participants are hidden from the Agent's `list_connections` while their rules remain editable by administrators.
+Built-in configuration keys are `stream`, `desktop`, `wecom`, `telegram`, `weixin`, and `openai`. A Stream profile uses its own channel name, so Desktop participants are governed by `desktop`, not `stream`. Extension Channels use their registered names. Inbound rejection happens before attachment download, reply-frame/context-token caching, activity recording, and Agent handling: REST `/messages` returns `403` with an explanation; WebSocket sends a rejection message before closing with `1008`; and WeCom, Telegram, or Weixin Claw makes a best-effort attempt to return a generic rejection message to the source conversation before dropping the original message. A rejection notice is a transport control response and bypasses outbound lists; failure to send it never admits the original message. The Registry enforces outbound rejection, and denied participants are hidden from the Agent's `list_connections` while their rules remain editable by administrators.
 
 **Diagnostics and Audit → Message traffic** displays recent inbound and outbound results and supports direction, status, and text filters; the page refreshes every five seconds. Inbound records include received, policy-denied, processing-failed, and duplicate Desktop messages. Registry outbound records include sent, policy-denied, and delivery-failed attempts, and the delivery result of a rejection notice is recorded as well. The corresponding administration API is the authenticated `GET /api/admin/channel-traffic`.
 
@@ -201,6 +201,17 @@ Browser examples:
 
 - `examples/chat.html`
 - `examples/api_test.html`
+- `examples/openai_compat.py`
+
+## OpenAI-compatible channel
+
+Coworker exposes the running lifeform as an OpenAI-compatible model (`GET /v1/models` → `coworker`, `POST /v1/chat/completions`) so Cursor, Open WebUI, or an SDK can call her as a model. This is an ordinary Channel, not a second Agent, and it is not forwarded through Relay.
+
+The Bearer token that arrives is the participant: `openai:{short_name}`. The primary `API__COMMUNICATION_TOKEN` is always `openai:api`; Desktop copy and Relay crypto still use only that token, and she cannot issue, rotate, or revoke it. Extra tokens are issued by her through `openai:control` (`communicate` `extra.action` of `issue` / `rotate` / `revoke` / `list`). Short names match `[a-z][a-z0-9_-]{0,31}` and cannot be `api` or `control`. `issue` may bind immediately with `person_id` or `person`; the secret appears once in the issue/rotate result. `openai:{short_name}` is a 1:1 bindable address; bind without `conversation_id`. Unbound extras may still send inbound mail. `conversation_id` is a window under that address (explicit body field, `X-Coworker-Conversation-Id`, or a fingerprint of the first system plus first user). Copy it for `communicate` and bubbles; it is not another person.
+
+Per-request `tools` / `system` belong to that letter. The main thread and bound bubbles use the stable `call_client_tool`; do not register client schemas on `get_schemas()`. `communicate` completes the HTTP turn (`stop`); client tools map to the caller's original `tool_calls`. Timeout is `API__COMPAT_TIMEOUT_SECONDS` (default 180). During first-run setup, `/v1/*` returns JSON `503` rather than a 303 HTML redirect to `/admin`.
+
+The administration console only backs up extras (copy/revoke, with an optional add-one). The status page, ChatDock, and Desktop copy still paste a single primary Bearer.
 
 ## File messages
 

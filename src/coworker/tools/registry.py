@@ -18,6 +18,12 @@ class ToolRegistry:
         # 默认为空，对主线零影响。
         self._intercepts: dict[str, str] = dict(intercepts or {})
 
+    def prepare_batch(self, tool_calls: list[ToolCall]) -> None:
+        for tool in self._tools.values():
+            prepare = getattr(tool, "prepare_batch", None)
+            if callable(prepare):
+                prepare(tool_calls)
+
     def register(self, tool: Tool) -> None:
         entries = self._validated_entries((tool,), subject="tool")
         self._commit(entries)

@@ -48,6 +48,7 @@ visual_analyze = "Analyze an image or video with the vision model; the result is
 search_web = "Search the internet and return summarized results."
 fetch_url = "Fetch the main content of a URL."
 persona = "Manage people: bind a communication address and notes to a known or new person (bind), record personalized notes (note), read the rendered card framework (card), unbind an address (unbind), delete a person (delete), merge duplicate people (merge)."
+call_client_tool = "Call a function supplied by the current OpenAI-compatible HTTP caller. name must be in that request's catalog; copy participant_id and conversation_id from the inbound OpenAI message."
 
 [tool_schema.parameter.set_alarm]
 trigger_at = "First trigger time in YYYY-MM-DD HH:MM:SS format."
@@ -254,3 +255,9 @@ url = "URL to fetch."
 fmt = "Output format: text_markdown (default), text_plain, text_rich, or text (raw HTML)."
 offset = "Character offset for paging through a long page, starting at 0; defaults to 0."
 limit = "Maximum characters to return; use offset for later pages."
+
+[tool_schema.parameter.call_client_tool]
+name = "Client-provided function name from this request's catalog."
+arguments = "Arguments object passed to that client function."
+participant_id = "OpenAI channel address such as openai:api."
+conversation_id = "Window ID under that address; copy it from the inbound OpenAI message."

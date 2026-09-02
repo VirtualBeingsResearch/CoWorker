@@ -396,6 +396,10 @@ class APIConfig(_EnvSettings):
     port: int = Field(default=8000, ge=1, le=65_535)
     public_url: str = Field(default="", max_length=2048)
     communication_token: str = ""
+    # Extra OpenAI-channel tokens: stable short name → secret.
+    # JSON object in environment/.env, e.g. {"cursor":"cwct_v1_..."}.
+    communication_tokens: dict[str, str] = Field(default_factory=dict)
+    compat_timeout_seconds: int = Field(default=180, ge=1, le=3600)
     # JSON list in environment/.env, e.g.
     # ["https://desktop.example", "http://127.0.0.1:1420"]
     cors_origins: list[str] = Field(
@@ -429,6 +433,26 @@ class APIConfig(_EnvSettings):
         ):
             raise ValueError(tr("config.api.public_url_origin_only"))
         return value
+
+    @field_validator("communication_tokens", mode="before")
+    @classmethod
+    def _validate_communication_tokens(cls, value: object) -> object:
+        from coworker.core.communication_tokens import validate_token_name
+
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(tr("config.api.communication_tokens_must_be_object"))
+        normalized: dict[str, str] = {}
+        for raw_name, raw_secret in value.items():
+            if not isinstance(raw_name, str):
+                raise ValueError(tr("config.api.token_name_invalid", name=raw_name))
+            name = validate_token_name(raw_name)
+            secret = str(raw_secret or "").strip()
+            if not secret:
+                continue
+            normalized[name] = secret
+        return normalized
 
 
 class RelayConfig(_EnvSettings):
@@ -1049,7 +1073,9 @@ def _evolve_admin_default_overrides(overrides: dict[str, Any]) -> dict[str, Any]
 # list, so per-key diffing against the inherited layer would erase entries whose
 # secret was masked (a bot that otherwise matches the inherited config would be
 # treated as fully inherited and dropped, making the persisted list incomplete).
-_BOT_MAP_PATHS = frozenset({"wecom.bots", "telegram.bots"})
+_BOT_MAP_PATHS = frozenset(
+    {"wecom.bots", "telegram.bots", "api.communication_tokens"}
+)
 
 
 def _remove_inherited_values(

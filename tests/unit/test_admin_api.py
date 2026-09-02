@@ -1038,6 +1038,51 @@ def test_config_patch_hot_applies_communication_token(tmp_path):
     assert config.api.communication_token == ""
 
 
+def test_config_patch_hot_applies_extra_communication_tokens(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    snapshot = client.get("/api/admin/config", headers=headers).json()
+    assert "api.communication_tokens" in snapshot["hot_reloadable"]
+
+    import coworker.api.routes as routes_mod
+
+    routes_mod._extra_communication_tokens = {}
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {},
+            "secrets": {"api.communication_tokens.cursor": "cursor-secret"},
+        },
+    )
+    assert response.status_code == 200
+    assert "api.communication_tokens" in response.json()["applied_now"]
+    assert routes_mod._extra_communication_tokens["cursor"] == "cursor-secret"
+    assert config.api.communication_tokens["cursor"] == "cursor-secret"
+
+    copied = client.get("/api/admin/communication-tokens/cursor", headers=headers)
+    assert copied.status_code == 200
+    assert copied.json()["communication_token"] == "cursor-secret"
+    assert copied.json()["participant_id"] == "openai:cursor"
+
+    masked = client.get("/api/admin/config", headers=headers).json()
+    assert masked["config"]["api"]["communication_tokens"]["cursor"] == ""
+    assert masked["secret_status"]["api.communication_tokens.cursor"]["configured"] is True
+    assert masked["secret_status"]["api.communication_tokens.cursor"]["last4"] == "cret"
+
+    revoked = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"api": {"communication_tokens": {}}},
+            "secrets": {},
+        },
+    )
+    assert revoked.status_code == 200
+    assert "cursor" not in config.api.communication_tokens
+    assert routes_mod._extra_communication_tokens == {}
+
+
 def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}

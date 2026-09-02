@@ -22,5 +22,7 @@ def test_relay_route_policy_only_exposes_desktop_and_published_updates():
         ("GET", "/sse/participant/extra"),
         ("GET", "/api/desktop-updates/assets/../secret"),
         ("CONNECT", "/anything"),
+        ("GET", "/v1/models"),
+        ("POST", "/v1/chat/completions"),
     }:
         assert not relay_route_allowed(method, path), (method, path)

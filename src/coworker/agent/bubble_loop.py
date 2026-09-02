@@ -412,6 +412,7 @@ class BubbleMiniLoop:
 
     async def _execute_tools(self, tool_calls, scoped_tools) -> bool:
         bubble = self._bubble
+        scoped_tools.prepare_batch(tool_calls)
 
         for tc in tool_calls:
             if self._ilog:

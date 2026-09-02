@@ -31,7 +31,7 @@ When the main loop processes inbound messages it looks up a binding by `particip
 
 ### ④ Channel-provided semantics — the `[CHANNELS]` prompt
 
-Each channel describes address semantics in its existing `agent_instructions()` (the `[CHANNELS]` section): e.g. wecom's `wecom:single:*`=a person, `wecom:group:*`=a group; weixin's `weixin:{bot}`=a 1:1 connection, `conversation_id`=the session, `weixin:control`=control messages. The model uses this to judge who is bindable and what `conversation_id` means.
+Each channel describes address semantics in its existing `agent_instructions()` (the `[CHANNELS]` section): e.g. wecom's `wecom:single:*`=a person, `wecom:group:*`=a group; weixin's `weixin:{bot}`=a 1:1 connection, `conversation_id`=the session, `weixin:control`=control messages; the OpenAI-compatible channel's `openai:{short_name}`=the 1:1 holder of that communication token (bindable, without `conversation_id`), `conversation_id`=a window under that address, `openai:control`=extra-token control (not a person; do not bind). The model uses this to judge who is bindable and what `conversation_id` means.
 
 ### Soft boundary
 
