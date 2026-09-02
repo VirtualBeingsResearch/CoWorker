@@ -31,7 +31,6 @@ class _PendingClientCall:
     name: str
     arguments: str
     openai_id: str
-    result: asyncio.Future[str]
 
 
 class OpenAITurn:
@@ -64,7 +63,6 @@ class OpenAITurn:
             name=name,
             arguments=json.dumps(arguments, ensure_ascii=False, separators=(",", ":")),
             openai_id=f"call_{new_compact_id()}",
-            result=asyncio.get_running_loop().create_future(),
         )
         self._pending.append(pending)
         if (
@@ -73,6 +71,9 @@ class OpenAITurn:
         ):
             self._flush_tool_calls()
         return pending
+
+    def pending_calls(self) -> tuple[_PendingClientCall, ...]:
+        return tuple(self._pending)
 
     def flush_tool_calls(self) -> None:
         self._flush_tool_calls()
@@ -95,21 +96,12 @@ class OpenAITurn:
         )
 
     def deliver_tool_results(self, results: dict[str, str]) -> None:
-        known = {item.openai_id: item for item in self._pending}
+        known = {item.openai_id for item in self._pending}
         missing = [call_id for call_id in known if call_id not in results]
         if missing:
             raise ValueError(
                 tr("api.openai.tool_results_incomplete", ids=", ".join(missing))
             )
-        extra = [call_id for call_id in results if call_id not in known]
-        if extra:
-            raise ValueError(
-                tr("api.openai.tool_results_unknown", ids=", ".join(extra))
-            )
-        for call_id, content in results.items():
-            future = known[call_id].result
-            if not future.done():
-                future.set_result(content)
 
     def fulfill_stop(self, message: str) -> bool:
         if self._closed or self.completion.done():
@@ -123,17 +115,10 @@ class OpenAITurn:
             self.completion.set_result(
                 OpenAICompletion(kind="stop", content="", timed_out=True)
             )
-        for item in self._pending:
-            if not item.result.done():
-                item.result.set_exception(
-                    TimeoutError(tr("tool_result.client_tool.timeout"))
-                )
 
     @property
     def awaiting_client(self) -> bool:
-        return bool(self._pending) and self.completion.done() and all(
-            not item.result.done() for item in self._pending
-        )
+        return bool(self._pending) and self.completion.done()
 
     @property
     def in_flight(self) -> bool:

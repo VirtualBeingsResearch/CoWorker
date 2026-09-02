@@ -339,4 +339,4 @@ conversation_required = "Several OpenAI windows are waiting; pass conversation_i
 no_waiter = "No in-flight OpenAI request is waiting for a client tool."
 native_name = "'{{name}}' is a native Coworker tool; call it directly instead of call_client_tool."
 unknown_name = "The current OpenAI request has no client tool named '{{name}}'."
-timeout = "The OpenAI HTTP waiter timed out before the client returned this tool result."
+dispatched = "Dispatched client tool '{{name}}' ({{call_id}}). The result will arrive as a later inbound letter on this window; do not communicate on this same HTTP turn."

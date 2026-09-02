@@ -210,11 +210,11 @@ Authorization 的 fetch 流消费通用 SSE，不再依赖无法设置 Header �
 
 ## OpenAI 兼容信道
 
-Coworker 把运行中的生命体暴露为 OpenAI 兼容模型（`GET /v1/models` → `coworker`，`POST /v1/chat/completions`），供 Cursor、Open WebUI 或 SDK 当作模型调用。这是一条普通 Channel，不是第二套 Agent，也不经 Relay 转发。
+本项目可以把运行中的生命体暴露为 OpenAI 兼容模型（`GET /v1/models` → `coworker`，`POST /v1/chat/completions`），供 Cursor、Open WebUI 或 SDK 当作模型调用。
 
-哪把通信令牌敲门，participant 就是 `openai:{短名}`。主令牌 `API__COMMUNICATION_TOKEN` 固定为 `openai:api`，Desktop 复制入口和 Relay 加密身份仍只用它；她不能签发、轮换或作废主令牌。额外令牌由她经 `openai:control` 签发（`communicate` 的 `extra.action` 为 `issue` / `rotate` / `revoke` / `list`），短名匹配 `[a-z][a-z0-9_-]{0,31}`，禁止 `api` 与 `control`。`issue` 可用 `person_id` 或 `person` 当场 persona bind；密钥只在 issue/rotate 结果里出现一次。`openai:{短名}` 是 1:1 可 bind 地址，bind 时不要带 `conversation_id`。未绑定仍可进站。`conversation_id` 只是该地址下的窗口（显式传入、`X-Coworker-Conversation-Id`，或由第一条 system + 第一条 user 指纹），照抄给 `communicate` 与泡泡，不是另一个人。
+哪个通信令牌敲门，participant 就是 `openai:{短名}`。主令牌 `API__COMMUNICATION_TOKEN` 固定为 `openai:api`，Desktop 复制入口和 Relay 加密身份仍只能使用它；搭档不能签发、轮换或作废主令牌。额外令牌可以由搭档经 `openai:control` 签发（`communicate` 的 `extra.action` 为 `issue` / `rotate` / `revoke` / `list`），短名匹配 `[a-z][a-z0-9_-]{0,31}`，禁止 `api` 与 `control`。`issue` 可用 `person_id` 或 `person` 当场 persona bind；密钥只在 issue/rotate 结果里出现一次。`openai:{短名}` 是 1:1 可 bind 地址，bind 时不带 `conversation_id`。未绑定仍可进站。`conversation_id` 只是该地址下的窗口（显式传入、`X-Coworker-Conversation-Id`，或由第一条 system + 第一条 user 指纹），照抄给 `communicate` 与泡泡，不是另一个人。
 
-当次 `tools` / `system` 是这封信上的要求。主线与绑定泡泡都用常驻 `call_client_tool` 点名客户端函数；不要把客户端 schema 装进 `get_schemas()`。`communicate` 结束这一轮 HTTP（`stop`）；客户端工具映射为调用方原来的 `tool_calls`。超时见 `API__COMPAT_TIMEOUT_SECONDS`（默认 180）。首次设置未完成时 `/v1/*` 返回 JSON `503`，不会 303 到管理页 HTML。
+当次 `tools` / `system` 是本次会话的要求事项。主流程和绑定泡泡均通过常驻的 `call_client_tool` 指定客户端函数；请勿将客户端 schema 塞进 `get_schemas()`。`call_client_tool` 仅负责分发并不阻塞等待：本轮 HTTP 会以原有 `tool_calls` 返回调用方，客户端处理结果稍后作为新的入站消息返回。后续工具执行轮次可带回之前的 `tool` 消息，但只会处理当前待等待的 call ID。`communicate` 调用会终结本次 HTTP 流程（即 `stop`）。超时请参考 `API__COMPAT_TIMEOUT_SECONDS`（默认 180）。首次配置未完成时，所有 `/v1/*` 接口返回 JSON 格式的 `503`，不会用 303 跳转到管理页 HTML。
 
 管理端只备份列出 extras（复制/作废，可选增加一把）；状态页、ChatDock 和 Desktop 复制仍只贴主令牌。
 

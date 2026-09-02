@@ -1,0 +1,112 @@
+{
+  "id": "channel_compat",
+  "exchanges": [
+    {
+      "id": "dispatch_client_tool",
+      "request": {
+        "model": "virtual-model",
+        "messages": [{ "role": "user" }],
+        "tools": [
+          {
+            "type": "function",
+            "function": { "name": "read_file" }
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-dispatch",
+        "object": "chat.completion",
+        "model": "virtual-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_dispatch",
+                  "type": "function",
+                  "function": {
+                    "name": "call_client_tool",
+                    "arguments": {
+                      "name": "{{client_tool}}",
+                      "arguments": { "path": "a.py" }
+                    }
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reply_after_tools",
+      "request": {
+        "model": "virtual-model",
+        "messages": [
+          { "role": "user", "content": "Client tool results for this window:" }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-tool-followup",
+        "object": "chat.completion",
+        "model": "virtual-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_followup",
+                  "type": "function",
+                  "function": {
+                    "name": "communicate",
+                    "arguments": { "message": "tool-result: {{client_result}}" }
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "id": "echo_user",
+      "request": {
+        "model": "virtual-model",
+        "messages": [{ "role": "user" }]
+      },
+      "response": {
+        "id": "chatcmpl-echo",
+        "object": "chat.completion",
+        "model": "virtual-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_echo",
+                  "type": "function",
+                  "function": {
+                    "name": "communicate",
+                    "arguments": { "message": "echo: {{user_text}}" }
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    }
+  ]
+}

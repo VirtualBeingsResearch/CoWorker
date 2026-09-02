@@ -313,6 +313,7 @@ class OpenAIChannel(BaseChannel):
         pending = self._sessions.pending_tool_turn(participant_id, conversation_id)
         if pending is None:
             raise ValueError(tr("api.openai.tool_followup_unexpected"))
+        body = self._tool_results_body(pending, results)
         followup = OpenAITurn(
             participant_id=participant_id,
             conversation_id=conversation_id,
@@ -320,6 +321,15 @@ class OpenAIChannel(BaseChannel):
             timeout_seconds=self.timeout_seconds,
         )
         self._sessions.begin_tool_followup(followup, results)
+        await self.publish_inbound(
+            IncomingEvent(
+                participant_id=participant_id,
+                conversation_id=conversation_id,
+                content=body,
+                source="openai",
+            )
+        )
+        self.record_received(participant_id)
         return await self._await_turn(followup)
 
     def prepare_client_tool_batch(
@@ -376,11 +386,26 @@ class OpenAIChannel(BaseChannel):
             return ToolResult(tool_call_id="", content=str(error), is_error=True)
         if turn.expected_client_calls <= 0:
             turn.flush_tool_calls()
-        try:
-            content = await pending.result
-        except TimeoutError as error:
-            return ToolResult(tool_call_id="", content=str(error), is_error=True)
-        return ToolResult(tool_call_id="", content=content)
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.client_tool.dispatched",
+                name=name,
+                call_id=pending.openai_id,
+            ),
+        )
+
+    def _tool_results_body(self, turn: OpenAITurn, results: dict[str, str]) -> str:
+        items = [
+            tr(
+                "channel.openai.tool_result_item",
+                call_id=item.openai_id,
+                name=item.name,
+                content=results.get(item.openai_id, ""),
+            )
+            for item in turn.pending_calls()
+        ]
+        return tr("channel.openai.tool_results", items="\n\n".join(items))
 
     def _inbound_body(
         self,

@@ -75,4 +75,4 @@ openai = '''OpenAI 兼容 HTTP：
 - 额外令牌操作：`{"action":"issue","name":"<短名>"}`（可用 `person_id` 或 `person` 当场 bind）、`{"action":"rotate","name":"<短名>"}`、`{"action":"revoke","name":"<短名>"}`、`{"action":"list"}`。短名匹配 `[a-z][a-z0-9_-]{0,31}`，不能叫 `api` 或 `control`。不能在这里签发、轮换或作废 Desktop/Relay 主令牌。
 - `openai:{短名}` 是 1:1 可 bind 的持有者（主令牌对应 `openai:api`）。bind 时不要带 `conversation_id`。未 bind 的 extras 仍可进站。
 - `conversation_id` 是该地址下的窗口（一条 Composer / 一条 WebUI 线程）。`communicate`、waiter、泡泡照抄；它不是另一个人。
-- 用 `communicate` 结束这一轮 HTTP。调用方附带的函数用常驻 `call_client_tool`（照抄入站头里的 `participant_id` 与 `conversation_id`）。与内置工具重名时内置优先。当次 `tools`/`system` 只是这封信上的要求，不是人物备注，也不要当成正式 schema。'''
+- 用 `communicate` 结束这一轮 HTTP。调用方附带的函数用常驻 `call_client_tool`（照抄入站头里的 `participant_id` 与 `conversation_id`）。`call_client_tool` 不等待：该轮 HTTP 以 `tool_calls` 返回，客户端结果作为后续入站信到达。与内置工具重名时内置优先。当次 `tools`/`system` 只是这封信上的要求，不是人物备注，也不要当成正式 schema。'''

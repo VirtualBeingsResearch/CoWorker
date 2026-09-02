@@ -134,6 +134,8 @@ token_name = "OpenAI 兼容令牌 {{name}}"
 originating_task = "起始用户请求：{{task}}"
 request_system = "本请求的 system 说明：\n{{text}}"
 client_tools = "本请求附带的客户端工具（用 call_client_tool 调用；不要把这些名字当成 Coworker 内置工具）：\n{{tools}}"
+tool_results = "本窗口的客户端工具结果：\n{{items}}"
+tool_result_item = "{{call_id}}（{{name}}）：\n{{content}}"
 
 [channel.telegram]
 attachment_type_invalid = "Telegram 不支持附件类型 '{{type}}'"

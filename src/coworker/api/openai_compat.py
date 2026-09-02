@@ -255,10 +255,13 @@ def _is_tool_followup(messages: list[dict[str, Any]]) -> bool:
 
 
 def _tool_results(messages: list[dict[str, Any]]) -> dict[str, str]:
-    results: dict[str, str] = {}
-    for item in messages:
+    trailing: list[dict[str, Any]] = []
+    for item in reversed(messages):
         if str(item.get("role") or "") != "tool":
-            continue
+            break
+        trailing.append(item)
+    results: dict[str, str] = {}
+    for item in reversed(trailing):
         call_id = str(item.get("tool_call_id") or "").strip()
         if not call_id:
             continue

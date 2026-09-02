@@ -10,7 +10,7 @@ from coworker.channels.openai.channel import (
     fingerprint_conversation,
 )
 from coworker.channels.openai.tokens import ExtraTokenStore
-from coworker.channels.openai.waiters import BusyError
+from coworker.channels.openai.waiters import BusyError, OpenAITurn
 from coworker.core.types import CommunicateRequest, IncomingEvent
 from coworker.i18n import locale_context
 from coworker.persona import PersonStore
@@ -239,3 +239,211 @@ async def test_inbound_event_uses_openai_source() -> None:
         )
     )
     await task
+
+
+@pytest.mark.asyncio
+async def test_call_client_tool_does_not_wait_for_client_result() -> None:
+    channel = OpenAIChannel(extras=ExtraTokenStore())
+    channel.publish_inbound = AsyncMock()
+    task = asyncio.create_task(
+        channel.open_user_turn(
+            participant_id="openai:api",
+            conversation_id="win",
+            user_text="open a.py",
+            system_text="",
+            catalog={"read_file": {"name": "read_file"}},
+            originating_task="open a.py",
+        )
+    )
+    await asyncio.sleep(0)
+    channel.prepare_client_tool_batch("openai:api", "win", 2)
+    with locale_context("en"):
+        first = await asyncio.wait_for(
+            channel.call_client_tool(
+                name="read_file",
+                arguments={"path": "a.py"},
+                participant_id="openai:api",
+                conversation_id="win",
+            ),
+            timeout=0.5,
+        )
+        second = await asyncio.wait_for(
+            channel.call_client_tool(
+                name="read_file",
+                arguments={"path": "b.py"},
+                participant_id="openai:api",
+                conversation_id="win",
+            ),
+            timeout=0.5,
+        )
+    assert not first.is_error
+    assert not second.is_error
+    assert "Dispatched" in first.content
+    assert "Dispatched" in second.content
+    completion = await asyncio.wait_for(task, timeout=0.5)
+    assert completion.kind == "tool_calls"
+    assert len(completion.tool_calls) == 2
+    assert {call.name for call in completion.tool_calls} == {"read_file"}
+
+
+@pytest.mark.asyncio
+async def test_call_client_tool_dispatched_zh_cn() -> None:
+    channel = OpenAIChannel(extras=ExtraTokenStore())
+    channel.publish_inbound = AsyncMock()
+    task = asyncio.create_task(
+        channel.open_user_turn(
+            participant_id="openai:api",
+            conversation_id="win",
+            user_text="open a.py",
+            system_text="",
+            catalog={"read_file": {"name": "read_file"}},
+            originating_task="open a.py",
+        )
+    )
+    await asyncio.sleep(0)
+    with locale_context("zh-CN"):
+        result = await asyncio.wait_for(
+            channel.call_client_tool(
+                name="read_file",
+                arguments={"path": "a.py"},
+                participant_id="openai:api",
+                conversation_id="win",
+            ),
+            timeout=0.5,
+        )
+    assert not result.is_error
+    assert "派发" in result.content
+    await asyncio.wait_for(task, timeout=0.5)
+
+
+@pytest.mark.asyncio
+async def test_tool_followup_arrives_as_inbound_mail() -> None:
+    channel = OpenAIChannel(extras=ExtraTokenStore())
+    received: list[IncomingEvent] = []
+
+    async def capture(event: IncomingEvent) -> None:
+        received.append(event)
+
+    channel.set_inbound_handler(capture)
+    task = asyncio.create_task(
+        channel.open_user_turn(
+            participant_id="openai:api",
+            conversation_id="win",
+            user_text="open a.py",
+            system_text="",
+            catalog={"read_file": {"name": "read_file"}},
+            originating_task="open a.py",
+        )
+    )
+    await asyncio.sleep(0)
+    dispatched = await channel.call_client_tool(
+        name="read_file",
+        arguments={"path": "a.py"},
+        participant_id="openai:api",
+        conversation_id="win",
+    )
+    assert not dispatched.is_error
+    completion = await task
+    assert completion.kind == "tool_calls"
+    call_id = completion.tool_calls[0].id
+    followup = asyncio.create_task(
+        channel.open_tool_followup(
+            participant_id="openai:api",
+            conversation_id="win",
+            results={call_id: "print('hi')"},
+        )
+    )
+    await asyncio.sleep(0)
+    assert any("print('hi')" in event.content for event in received[1:])
+    await channel.send(
+        CommunicateRequest(
+            participant_id="openai:api",
+            conversation_id="win",
+            message="done",
+        )
+    )
+    followup_completion = await followup
+    assert followup_completion.kind == "stop"
+    assert followup_completion.content == "done"
+
+
+@pytest.mark.asyncio
+async def test_second_tool_round_accepts_accumulated_history() -> None:
+    channel = OpenAIChannel(extras=ExtraTokenStore())
+    channel.publish_inbound = AsyncMock()
+    first_turn = asyncio.create_task(
+        channel.open_user_turn(
+            participant_id="openai:api",
+            conversation_id="win",
+            user_text="open a.py",
+            system_text="",
+            catalog={"read_file": {"name": "read_file"}},
+            originating_task="open a.py",
+        )
+    )
+    await asyncio.sleep(0)
+    await channel.call_client_tool(
+        name="read_file",
+        arguments={"path": "a.py"},
+        participant_id="openai:api",
+        conversation_id="win",
+    )
+    first_completion = await first_turn
+    old_id = first_completion.tool_calls[0].id
+    second_turn = asyncio.create_task(
+        channel.open_tool_followup(
+            participant_id="openai:api",
+            conversation_id="win",
+            results={old_id: "first file"},
+        )
+    )
+    await asyncio.sleep(0)
+    await channel.call_client_tool(
+        name="read_file",
+        arguments={"path": "b.py"},
+        participant_id="openai:api",
+        conversation_id="win",
+    )
+    second_completion = await second_turn
+    new_id = second_completion.tool_calls[0].id
+    third_turn = asyncio.create_task(
+        channel.open_tool_followup(
+            participant_id="openai:api",
+            conversation_id="win",
+            results={old_id: "first file", new_id: "second file"},
+        )
+    )
+    await asyncio.sleep(0)
+    inbound = channel.publish_inbound.await_args.args[0]
+    assert "second file" in inbound.content
+    assert "first file" not in inbound.content
+    await channel.send(
+        CommunicateRequest(
+            participant_id="openai:api",
+            conversation_id="win",
+            message="done",
+        )
+    )
+    third_completion = await third_turn
+    assert third_completion.kind == "stop"
+    assert third_completion.content == "done"
+
+
+@pytest.mark.asyncio
+async def test_deliver_tool_results_ignores_ids_from_earlier_rounds() -> None:
+    turn = OpenAITurn(
+        participant_id="openai:api",
+        conversation_id="win",
+        catalog={"read_file": {"name": "read_file"}},
+        timeout_seconds=5,
+    )
+    turn.prepare_client_calls(1)
+    pending = turn.register_client_call("read_file", {"path": "a.py"})
+    turn.deliver_tool_results(
+        {
+            "call_stale": "old result",
+            pending.openai_id: "new result",
+        }
+    )
+    with pytest.raises(ValueError):
+        turn.deliver_tool_results({"call_stale": "old result"})

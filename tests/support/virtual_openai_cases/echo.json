@@ -1,0 +1,37 @@
+{
+  "id": "echo",
+  "exchanges": [
+    {
+      "id": "echo_user",
+      "request": {
+        "model": "virtual-model",
+        "messages": [{ "role": "user" }]
+      },
+      "response": {
+        "id": "chatcmpl-echo",
+        "object": "chat.completion",
+        "model": "virtual-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_echo",
+                  "type": "function",
+                  "function": {
+                    "name": "communicate",
+                    "arguments": { "message": "echo: {{user_text}}" }
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    }
+  ]
+}

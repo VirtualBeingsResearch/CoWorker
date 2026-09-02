@@ -197,6 +197,64 @@ def test_v1_tool_calls_keep_client_function_name(monkeypatch) -> None:
     assert response.json()["choices"][0]["finish_reason"] == "tool_calls"
 
 
+def test_v1_tool_followup_uses_only_trailing_tool_messages(monkeypatch) -> None:
+    client, channel = _client(monkeypatch)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer primary-token"},
+        json={
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_old",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_old", "content": "old"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_new",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_new", "content": "new"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    kwargs = channel.open_tool_followup.await_args.kwargs
+    assert kwargs["results"] == {"call_new": "new"}
+
+
+def test_v1_tool_followup_passes_consecutive_trailing_tools(monkeypatch) -> None:
+    client, channel = _client(monkeypatch)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer primary-token"},
+        json={
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "tool", "tool_call_id": "call_old", "content": "old"},
+                {"role": "tool", "tool_call_id": "call_new", "content": "new"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    kwargs = channel.open_tool_followup.await_args.kwargs
+    assert kwargs["results"] == {"call_old": "old", "call_new": "new"}
+
+
 def test_extra_token_authenticates_messages_without_changing_sender(monkeypatch) -> None:
     _client(monkeypatch, extras={"cursor": "cursor-secret"})
     import coworker.api.routes as routes_mod

@@ -22,9 +22,11 @@ class CallClientTool(Tool):
         return ToolDefinition(
             name="call_client_tool",
             description=(
-                "Call a function supplied by the current OpenAI-compatible HTTP "
-                "caller. name must be in that request's catalog; copy "
-                "participant_id and conversation_id from the inbound OpenAI message."
+                "Dispatch a function supplied by the current OpenAI-compatible "
+                "HTTP caller without waiting. name must be in that request's "
+                "catalog; copy participant_id and conversation_id from the "
+                "inbound OpenAI message. The client result arrives later as "
+                "inbound mail."
             ),
             parameters={
                 "type": "object",

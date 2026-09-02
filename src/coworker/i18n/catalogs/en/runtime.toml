@@ -134,6 +134,8 @@ token_name = "OpenAI-compatible token {{name}}"
 originating_task = "Originating user request: {{task}}"
 request_system = "This request's system instructions:\n{{text}}"
 client_tools = "Client tools for this request (call them with call_client_tool; do not treat these names as native Coworker tools):\n{{tools}}"
+tool_results = "Client tool results for this window:\n{{items}}"
+tool_result_item = "{{call_id}} ({{name}}):\n{{content}}"
 
 [channel.telegram]
 attachment_type_invalid = "Telegram does not support attachment type '{{type}}'"
