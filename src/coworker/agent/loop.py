@@ -324,8 +324,8 @@ class AgentLoop:
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
-            and self._short_term.primary
-            and self._short_term.primary[-1].role != "user"
+            and ((self._short_term.primary and self._short_term.primary[-1].role != "user")
+                or not self._short_term.primary)
         ):
             tick_content = f"<{TICK_TAG}>"
             message = Message(role="user", content=tick_content, source="tick")
