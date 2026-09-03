@@ -241,6 +241,15 @@ function ExtraCommunicationTokens({
     Object.entries(tokens).map(([name]) => [name, '']),
   );
   const secretPath = (name: string) => `api.communication_tokens.${name}`;
+  const trimmedName = newName.trim();
+  const nameValid = EXTRA_TOKEN_NAME_RE.test(trimmedName) && !RESERVED_EXTRA_TOKEN_NAMES.has(trimmedName) && !(trimmedName in tokens);
+  const nameMessage = !trimmedName
+    ? ''
+    : RESERVED_EXTRA_TOKEN_NAMES.has(trimmedName)
+      ? t('api 与 control 是保留短名')
+      : trimmedName in tokens
+        ? t('这个短名已经有一把令牌了')
+        : EXTRA_TOKEN_NAME_RE.test(trimmedName) ? '' : t('短名会用作 openai:{短名} 地址：以小写字母开头，之后只能用小写字母、数字、- 和 _');
   const addToken = () => {
     const name = newName.trim();
     if (!EXTRA_TOKEN_NAME_RE.test(name) || RESERVED_EXTRA_TOKEN_NAMES.has(name) || name in tokens) return;
@@ -289,10 +298,11 @@ function ExtraCommunicationTokens({
       </article>;
     }) : <div className="provider-empty">{t('还没有额外通信令牌。她可以用 openai:control 签发；管理员也可在此增加一把以免卡住。')}</div>}
     <div className="extra-token-add">
-      <input value={newName} onChange={event => setNewName(event.target.value)} placeholder={t('短名，如 cursor')} />
-      <button type="button" className="ghost mini" onClick={addToken} disabled={!EXTRA_TOKEN_NAME_RE.test(newName.trim()) || RESERVED_EXTRA_TOKEN_NAMES.has(newName.trim()) || newName.trim() in tokens}>
+      <input value={newName} maxLength={32} onChange={event => setNewName(event.target.value)} placeholder={t('短名，如 cursor')} />
+      <button type="button" className="ghost mini" onClick={addToken} disabled={!nameValid}>
         <Plus size={14} />{t('增加一把')}
       </button>
+      {nameMessage && <small className="extra-token-hint">{nameMessage}</small>}
     </div>
   </div>;
 }
