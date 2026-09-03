@@ -26,6 +26,7 @@ from coworker.channels.inbound import AttachmentStore, InboundEnvelope
 from coworker.core.config import CoworkerPeerConfig
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
+from coworker.relay.consumer import RelayConsumerError, relay_request
 
 COWORKER_PREFIX = "coworker:"
 _SELF_ID_FILE = "coworker_self_id.txt"
@@ -325,14 +326,19 @@ class CoworkerChannel(BaseChannel):
             body["attachments"] = encoded
         if self._announce is not None:
             body["coworker_peer"] = self._announce.to_payload()
-        headers = {"Content-Type": "application/json"}
+        headers = [("content-type", "application/json")]
         if target.token:
-            headers["Authorization"] = f"Bearer {target.token}"
+            headers.append(("authorization", f"Bearer {target.token}"))
+        payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        if is_relay_instance_url(target.base_url):
+            return await self._send_via_relay(
+                request.participant_id, target, headers, payload
+            )
         try:
             response = await self._client().post(
                 f"{target.base_url}/messages",
-                json=body,
-                headers=headers,
+                content=payload,
+                headers=dict(headers),
                 timeout=self._timeout_seconds,
             )
         except httpx.HTTPError as error:
@@ -346,32 +352,64 @@ class CoworkerChannel(BaseChannel):
                 ),
                 is_error=True,
             )
-        if response.status_code in (401, 403):
+        return self._result_for_status(request.participant_id, response.status_code)
+
+    async def _send_via_relay(
+        self,
+        participant_id: str,
+        target: _PeerTarget,
+        headers: list[tuple[str, str]],
+        payload: bytes,
+    ) -> ToolResult:
+        try:
+            response = await relay_request(
+                base_url=target.base_url,
+                token=target.token,
+                method="POST",
+                target="/messages",
+                headers=headers,
+                body=payload,
+                timeout_seconds=self._timeout_seconds + 15.0,
+            )
+        except RelayConsumerError as error:
+            params = dict(error.params)
+            params.setdefault("participant", participant_id)
+            return ToolResult(
+                tool_call_id="",
+                content=tr(error.message_key, **params),
+                is_error=True,
+            )
+        return self._result_for_status(participant_id, response.status)
+
+    def _result_for_status(self, participant_id: str, status: int) -> ToolResult:
+        """Map an HTTP status from either transport onto the shared tool results."""
+
+        if status in (401, 403):
             return ToolResult(
                 tool_call_id="",
                 content=tr(
                     "tool_result.communicate.coworker_unauthorized",
-                    participant=request.participant_id,
-                    status=response.status_code,
+                    participant=participant_id,
+                    status=status,
                 ),
                 is_error=True,
             )
-        if response.status_code >= 400:
+        if status >= 400:
             return ToolResult(
                 tool_call_id="",
                 content=tr(
                     "tool_result.communicate.coworker_failed",
-                    participant=request.participant_id,
-                    status=response.status_code,
+                    participant=participant_id,
+                    status=status,
                 ),
                 is_error=True,
             )
-        self._record_sent(request.participant_id)
+        self._record_sent(participant_id)
         return ToolResult(
             tool_call_id="",
             content=tr(
                 "tool_result.communicate.coworker_sent",
-                participant=request.participant_id,
+                participant=participant_id,
             ),
         )
 

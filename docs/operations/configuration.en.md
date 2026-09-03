@@ -206,6 +206,11 @@ previews the full section and body rendered by the currently running instance.
 | `WECOM__BOTS` | `{}` | JSON object of multiple WeCom Bots keyed by stable `instance_id`; each item accepts `enabled`, `bot_id`, `secret`, and `ws_url` (`ws_url` empty uses the SDK default). The legacy flat form (`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`) is still accepted and folds into a `default` instance |
 | `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
+| `COWORKER__SELF_ID` | Auto-generated on first start (`cw_`-prefixed random ID) | This instance's peer id (the part after the `coworker:` participant prefix); the generated value persists in `data/identity/coworker_self_id.txt` and `GET /status` (with a token) returns `coworker_self_id` |
+| `COWORKER__SELF_BASE_URL` | Empty (falls back to `API__PUBLIC_URL`, then `http://127.0.0.1:{API__PORT}`) | Callback URL announced to peers; must be set explicitly for cross-machine deployments |
+| `COWORKER__INBOUND_TOKEN` | Empty (dedicated token disabled) | Dedicated inbound token for peers; when set, `coworker:` senders must present that Bearer (or the primary communication token), and it is announced to peers for callbacks |
+| `COWORKER__MAX_ATTACHMENT_BYTES` | `10485760` | Cumulative attachment size limit per peer message (bytes); the model receives a clear error when exceeded |
+| `COWORKER__PEERS` | `{}` | Explicitly configured peer instances keyed by the remote `self_id`; each item accepts `base_url` (required), `token`, and `display_name`; see [Coworker peer messaging](../channels/coworker.en.md) |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, set
 `API__PUBLIC_URL` to the origin the browser actually opens, such as

@@ -502,6 +502,95 @@ def test_coworker_peer_auth_accepts_inbound_token(monkeypatch: pytest.MonkeyPatc
     _reset_routes_auth_state()
 
 
+# --- relay transport ------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_relay_shaped_peer_uses_relay_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coworker.channels import coworker as coworker_module
+    from coworker.relay.consumer import RelayHttpResponse
+
+    seen: dict[str, object] = {}
+
+    async def fake_relay_request(**kwargs: object) -> RelayHttpResponse:
+        seen.update(kwargs)
+        return RelayHttpResponse(status=200, headers=[], body=b"")
+
+    monkeypatch.setattr(coworker_module, "relay_request", fake_relay_request)
+    channel = _channel(
+        tmp_path,
+        peers={
+            "bob": _peer_config(
+                base_url="http://relay.example.com:8443/i/cw_remote0001",
+                token="cwct_v1_" + base64.b64encode(b"x" * 32).decode().rstrip("="),
+            )
+        },
+        announce=CoworkerAnnounce(base_url="http://127.0.0.1:8000"),
+    )
+
+    result = await channel.send(
+        CommunicateRequest(participant_id="coworker:bob", message="via relay")
+    )
+    assert result.is_error is False
+    assert seen["base_url"] == "http://relay.example.com:8443/i/cw_remote0001"
+    assert seen["method"] == "POST"
+    assert seen["target"] == "/messages"
+    body = json.loads(seen["body"])  # type: ignore[arg-type]
+    assert body["content"] == "via relay"
+    assert body["coworker_peer"] == {"base_url": "http://127.0.0.1:8000"}
+
+
+@pytest.mark.asyncio
+async def test_relay_consumer_error_is_localized(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coworker.channels import coworker as coworker_module
+    from coworker.relay.consumer import RelayConsumerError
+
+    async def failing_relay_request(**kwargs: object) -> None:
+        raise RelayConsumerError(
+            "tool_result.communicate.coworker_relay_identity",
+            participant="coworker:bob",
+        )
+
+    monkeypatch.setattr(coworker_module, "relay_request", failing_relay_request)
+    channel = _channel(
+        tmp_path,
+        peers={
+            "bob": _peer_config(
+                base_url="http://relay.example.com:8443/i/cw_remote0001",
+                token="cwct_v1_" + base64.b64encode(b"x" * 32).decode().rstrip("="),
+            )
+        },
+    )
+
+    result = await channel.send(
+        CommunicateRequest(participant_id="coworker:bob", message="hi")
+    )
+    assert result.is_error is True
+    assert "coworker:bob" in result.content
+
+
+def test_relay_peer_requires_cwct_token() -> None:
+    from coworker.core.config import CoworkerConfig
+
+    with pytest.raises(ValueError):
+        CoworkerConfig.model_validate(
+            {
+                "peers": {
+                    "bob": {
+                        "base_url": "http://relay.example.com:8443/i/cw_remote0001",
+                        "token": "weak-token",
+                    }
+                }
+            }
+        )
+
+
 def test_coworker_config_validation() -> None:
     from coworker.core.config import CoworkerConfig
 

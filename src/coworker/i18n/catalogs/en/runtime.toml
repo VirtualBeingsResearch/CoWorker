@@ -207,6 +207,7 @@ display_name_too_long = "Coworker peer display_name must be at most 80 character
 self_id_invalid = "Coworker peer self_id '{{self_id}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
 peers_must_be_object = "Coworker peers must be an object keyed by the remote self_id"
 peer_id_invalid = "Coworker peer id '{{peer}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
+peer_relay_token_invalid = "Peer '{{peer}}' uses a Relay instance URL, so its token must be the remote cwct_v1_-format communication token"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name must not exceed 80 characters"

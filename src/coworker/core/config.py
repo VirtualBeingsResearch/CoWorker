@@ -1016,6 +1016,25 @@ class CoworkerConfig(_EnvSettings):
                 raise ValueError(tr("config.coworker.peer_id_invalid", peer=peer_id))
         return value
 
+    @model_validator(mode="after")
+    def _require_relay_safe_tokens(self) -> CoworkerConfig:
+        # Relay 实例 URL 场景下，对端令牌同时用于入口挑战与内层 TLS 密钥派生，
+        # 必须是 Relay 认可的 cwct_v1_ 高熵格式；直连地址无此要求。
+        from coworker.relay.crypto import is_relay_safe_token
+
+        for peer_id, peer in self.peers.items():
+            parsed = urlsplit(peer.base_url)
+            segments = [s for s in parsed.path.split("/") if s]
+            if (
+                len(segments) == 2
+                and segments[0] == "i"
+                and not is_relay_safe_token(peer.token)
+            ):
+                raise ValueError(
+                    tr("config.coworker.peer_relay_token_invalid", peer=peer_id)
+                )
+        return self
+
 
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

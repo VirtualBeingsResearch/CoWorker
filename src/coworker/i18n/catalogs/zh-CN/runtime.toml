@@ -207,6 +207,7 @@ display_name_too_long = "Coworker 搭档 display_name 不能超过 80 个字符"
 self_id_invalid = "Coworker 搭档 self_id '{{self_id}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
 peers_must_be_object = "Coworker peers 必须是以对端 self_id 为键的对象"
 peer_id_invalid = "Coworker peer id '{{peer}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
+peer_relay_token_invalid = "对端 '{{peer}}' 使用 Relay 实例地址，其 token 必须是对端的 cwct_v1_ 格式通信令牌"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name 不能超过 80 个字符"
