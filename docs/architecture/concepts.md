@@ -61,7 +61,7 @@ prompt 不复制、不 monkey-patch。
 - 人物工具（可选子机制，`MEMORY__PERSONA_ENABLED=false` 关闭）：`persona`（`bind` 把通信地址绑定到已知或新建人物并记地址备注、`note` 记录人物级个性化备注、`card` 读渲染的画像框架、`merge` 合并重复人物）
 - 技能与任务：`get_skill`、`task_create`、`task_get`、`task_list`、`task_update`
 
-`visual_analyze` 默认注册，文本和视觉主模型均可见；配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：
+`visual_analyze` 默认注册，仅对无视觉能力的主模型可见；有视觉能力的主模型改用 `view_image` 直接查看。配置 `LLM__VISION_PROVIDER` + `LLM__VISION_MODEL` 后可用：
 
 - `visual_analyze`：对图片或视频进行视觉分析与推理，支持本地路径和 HTTP(S) URL；视频要求视觉模型支持原生视频输入，Base64 Data URL 必须小于 10 MiB，超限时尝试用 FFmpeg 压缩
 

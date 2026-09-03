@@ -67,7 +67,7 @@ The following tools are registered by default at startup:
 - Person tools (optional sub-mechanism, disabled with `MEMORY__PERSONA_ENABLED=false`): `persona` (`bind` attaches a communication address to a known or new person and records address notes, `note` records person-level personalized notes, `card` reads the rendered card framework, `merge` merges duplicate people)
 - Skills and tasks: `get_skill`, `task_create`, `task_get`, `task_list`, `task_update`
 
-`visual_analyze` is registered by default and is visible to both text and vision main models. It becomes available after `LLM__VISION_PROVIDER` and `LLM__VISION_MODEL` are configured:
+`visual_analyze` is registered by default and is visible only to main models without vision capability; vision-capable main models inspect images directly with `view_image` instead. It becomes available after `LLM__VISION_PROVIDER` and `LLM__VISION_MODEL` are configured:
 
 - `visual_analyze`: Performs visual analysis and reasoning over images or videos from local paths or HTTP(S) URLs. Video requires native video support from the vision model, and the Base64 data URL must remain below 10 MiB; Coworker tries FFmpeg compression when it exceeds the limit.
 
