@@ -263,19 +263,21 @@ function ExtraCommunicationTokens({
       setCopyState(current => ({ ...current, [name]: 'idle' }));
     }, 1600);
   };
-  return <div className="config-section-heading extra-tokens">
-    <div>
-      <b>{t('OpenAI 额外通信令牌')}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</b>
-      <small>{t('由她经 openai:control 签发。这里只做备份：复制或作废。短名对应 openai:{短名}，轮换密钥不改地址。主令牌不能在此改写。')}</small>
+  return <div className="extra-tokens">
+    <div className="config-section-heading">
+      <div>
+        <b>{t('OpenAI 额外通信令牌')}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</b>
+        <small>{t('由她经 openai:control 签发。这里只做备份：复制或作废。短名对应 openai:{短名}，轮换密钥不改地址。主令牌不能在此改写。')}</small>
+      </div>
     </div>
     {names.length ? names.map(name => {
       const status = secretStatus[secretPath(name)] || {};
       const state = copyState[name] || 'idle';
-      return <article className="secret-field-row extra-token-row" key={name}>
+      return <article className="extra-token-row" key={name}>
         <Field label={name} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('新令牌将在保存后生效')}>
           <code>openai:{name}</code>
         </Field>
-        <button type="button" className="ghost mini" disabled={state === 'copying'} title={t('复制通信令牌')} onClick={() => void copyToken(name)}>
+        <button type="button" className="ghost mini" disabled={state === 'copying' || !status.configured} title={t('复制通信令牌')} onClick={() => void copyToken(name)}>
           {t(state === 'copied' ? '通信令牌已复制' : state === 'copying' ? '正在复制…' : state === 'error' ? '通信令牌复制失败' : '复制令牌')}
         </button>
         <button type="button" className="danger-icon" title={t('作废额外令牌')} onClick={() => {
@@ -286,7 +288,7 @@ function ExtraCommunicationTokens({
         }}><Trash2 size={15} /></button>
       </article>;
     }) : <div className="provider-empty">{t('还没有额外通信令牌。她可以用 openai:control 签发；管理员也可在此增加一把以免卡住。')}</div>}
-    <div className="secret-field-row extra-token-add">
+    <div className="extra-token-add">
       <input value={newName} onChange={event => setNewName(event.target.value)} placeholder={t('短名，如 cursor')} />
       <button type="button" className="ghost mini" onClick={addToken} disabled={!EXTRA_TOKEN_NAME_RE.test(newName.trim()) || RESERVED_EXTRA_TOKEN_NAMES.has(newName.trim()) || newName.trim() in tokens}>
         <Plus size={14} />{t('增加一把')}
