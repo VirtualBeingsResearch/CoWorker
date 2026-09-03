@@ -21,6 +21,8 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles as _StaticFiles
@@ -28,6 +30,14 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from coworker.api.admin import admin_router
+from coworker.api.openai_compat import (
+    OpenAIHTTPError,
+    openai_json_response,
+    setup_required_v1_response,
+)
+from coworker.api.openai_compat import (
+    router as openai_compat_router,
+)
 from coworker.api.request_urls import desktop_update_asset_base_url
 from coworker.api.routes import (
     communication_token_required,
@@ -78,9 +88,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Authorization", "Content-Type"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Coworker-Conversation-Id",
+    ],
 )
 app.include_router(router)
+app.include_router(openai_compat_router)
 app.include_router(admin_router)
 app.state.setup_required = False
 _bootstrap_reconnect_proof = ""
@@ -125,9 +141,29 @@ async def redirect_to_setup(request: Request, call_next):
         request.method, request.url.path
     ):
         return await call_next(request)
+    if request.url.path.startswith("/v1"):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        return setup_required_v1_response()
     response = RedirectResponse(url="/admin", status_code=303)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.exception_handler(OpenAIHTTPError)
+async def openai_http_error_handler(_request: Request, exc: OpenAIHTTPError):
+    return openai_json_response(exc.status_code, exc.message, code=exc.code)
+
+
+@app.exception_handler(RequestValidationError)
+async def openai_validation_error_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/v1"):
+        return openai_json_response(
+            400,
+            tr("api.openai.invalid_request"),
+            code="invalid_request",
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/api/bootstrap/reconnect", include_in_schema=False)

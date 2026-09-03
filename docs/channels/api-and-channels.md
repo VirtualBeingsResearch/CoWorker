@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
 
-内置配置键是 `stream`、`desktop`、`wecom`、`telegram` 和 `weixin`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+内置配置键是 `stream`、`desktop`、`wecom`、`telegram`、`weixin` 和 `openai`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
 
 管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
 
@@ -206,6 +206,17 @@ Authorization 的 fetch 流消费通用 SSE，不再依赖无法设置 Header �
 
 - `examples/chat.html`
 - `examples/api_test.html`
+- `examples/openai_compat.py`
+
+## OpenAI 兼容信道
+
+Coworker 把运行中的生命体暴露为 OpenAI 兼容模型：`GET /v1/models` 返回 `coworker`，`POST /v1/chat/completions` 作为入站入口。Cursor、Open WebUI 或 SDK 可以把它当作模型调用。这是一条普通 Channel，不是第二个 Agent。两条路径在 Relay 允许列表中，可经已配对实例的端到端加密隧道转发；公网仍没有明文 HTTP 代理门面，调用方需使用 Relay 协议客户端。
+
+到达的 Bearer 映射为 participant `openai:{短名}`。主令牌 `API__COMMUNICATION_TOKEN` 对应 `openai:api`；Desktop 复制入口和 Relay 隧道身份使用该主令牌。内层 `/v1/*` 与直连相同，主令牌与 extras 均可鉴权。`openai:control` 上的 `communicate`（`extra.action` 为 `issue` / `rotate` / `revoke` / `list`）只操作 extras，不签发、轮换或作废主令牌。短名匹配 `[a-z][a-z0-9_-]{0,31}`；`api` 与 `control` 会被拒绝。`issue` 可同时用 `person_id` 或 `person` 做 persona bind；密钥只出现在 issue/rotate 结果里一次。`openai:{短名}` 是 1:1 可 bind 地址；persona bind 使用该地址，不含 `conversation_id`。未绑定的 extras 仍可入站。`conversation_id` 是该地址下的窗口（请求体字段、`X-Coworker-Conversation-Id`，或第一条 system + 第一次请求里全部 user 的指纹；同一窗口的后续回合沿用该指纹，不把后来的 user 算进去）；`communicate` 和泡泡复用同一个窗口 ID，它不是另一个 participant。入站正文包含本回合全部 user 文本：第一次请求里的每条 user（客户端常把 skill 列表、日期等 harness 上下文写成多条 user），或上一条 assistant/tool 之后新追加的 user。
+
+当次请求的 `tools` / `system` 写入两类系统管理 pin。正文 pin 按 kind 与内容摘要寻址，内容相同的窗口共用（不同客户端也一样）。指向 pin 按 `participant_id` 与 `conversation_id` 区分，用 digest 指向对应的正文 pin，便于早期消息被压缩后仍能对上。活着的正文 pin 内容未变则不更新；digest 不同则另开一条正文 pin，短期记忆压缩后由 `reinject_missing_pins` 自动补回。本窗口 HTTP 以 `end_turn`、超时或丢弃结束时卸掉指向 pin；没有任何窗口还引用时才卸正文 pin。下一轮请求再挂上。等待客户端 `tool_calls` 时保持 pin。各自超过约 1500 字符时会按内容寻址折叠到 `data/openai/detail/`（pin 保留摘要或工具名列表与 `read_file` 路径）；完整 client schema 仍保存在本轮 waiter 内存中供 `call_client_tool` 分发。用户消息支持 OpenAI 多模态 `content` 数组：`text` 与 `image_url`（仅 `data:image/jpeg|png|gif|webp;base64,...`，不拉取远程 URL，避免 SSRF）。图片会保存到附件目录并以内联内容交给模型，单次最多 5 张、单张最大 20 MiB。客户端工具结果同样接受这些图片：`tool` 消息的 `content` 可以是带 `image_url` 的数组、整段 data URL 字符串，或（在历史里带有待等待 call ID 时）把图片放在最后一条 `user` 消息里；图片作为入站附件交给模型，而不是只留下空文本。主流程和绑定泡泡通过常驻的 `call_client_tool` 调用客户端函数；客户端 schema 不进入 `get_schemas()`。`call_client_tool` 只分发、不阻塞等待：本轮 HTTP 以调用方原来的 `tool_calls` 返回，客户端结果作为后续入站消息到达。后续工具轮次可以带回更早的 `tool` 消息，但只消费当前待等待的 call ID。`communicate` 可多次推送中间内容；只有 `extra={"end_turn": true}` 才结束本轮 HTTP（`stop`）。非流式响应把多次正文拼接为最终 `message.content`；`stream=true` 时每次 `communicate` 发出一段 `chat.completion.chunk`（`delta`），`end_turn` 再发 `finish_reason: stop` 与 `[DONE]`。等待超时由 `API__COMPAT_TIMEOUT_SECONDS` 控制（默认 180）。首次配置未完成时，`/v1/*` 返回 JSON `503`，而不是 303 到 `/admin` 的 HTML。
+
+管理端可以列出 extras，并提供复制、作废和可选新增。状态页、ChatDock 和 Desktop 复制入口仍只展示主令牌。
 
 ## 文件消息
 

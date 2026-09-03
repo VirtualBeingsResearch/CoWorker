@@ -54,6 +54,10 @@ explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
 | `GET /backups` | List emergency short-term-context backups |
 | `POST /backups/restore` | Restore an emergency backup in `full` or `summarize` mode |
 | `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
+| `GET /v1/models` | OpenAI-compatible model list; returns `coworker` |
+| `POST /v1/chat/completions` | OpenAI-compatible inbound; the Bearer short name maps to `openai:{short_name}` |
+
+`/v1/*` authenticates with any communication token (primary or extras) and always requires a Bearer. During first-run setup it returns JSON `503` instead of a 303 HTML redirect to `/admin`. `GET /v1/models` and `POST /v1/chat/completions` are on the Relay allowlist and may be reached over the inner encrypted tunnel (there is no plaintext public facade). Optional `conversation_id` or `X-Coworker-Conversation-Id`; otherwise the window fingerprint is the first system plus every user message in the first request, and later turns keep that id. Inbound text includes every user message of the current turn: all user messages in the first request, or user messages appended after the last assistant/tool message. User and `tool` `content` may be a string or a multimodal array of `text` / `image_url` parts (data URLs only); images in tool results arrive as inbound attachments. `stream=true` emits `chat.completion.chunk` events (`delta`) as each `communicate` arrives, then `finish_reason` and `[DONE]` on `extra.end_turn`; it is not a model token stream. See [OpenAI-compatible channel](api-and-channels.en.md#openai-compatible-channel).
 
 ### Send a message
 

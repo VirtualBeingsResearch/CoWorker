@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 from collections import OrderedDict
 from datetime import datetime, timedelta
@@ -13,6 +15,11 @@ from pydantic import BaseModel
 
 from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
+from coworker.core.communication_tokens import (
+    PRIMARY_TOKEN_NAME,
+    participant_id_for_token_name,
+    validate_token_name,
+)
 from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
 from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
@@ -36,6 +43,7 @@ _communication_token = ""
 # 只有管理员显式设置了 API__COMMUNICATION_TOKEN 才认为通信令牌“已配置”。
 # _communication_token 仍可携带管理员令牌回退值，供 Desktop 兼容校验。
 _communication_token_explicit = False
+_extra_communication_tokens: dict[str, str] = {}
 _channels: ChannelRegistry | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
@@ -73,6 +81,7 @@ def setup(
     communication_token: str = "",
     channels: ChannelRegistry | None = None,
     communication_token_explicit: bool | None = None,
+    extra_communication_tokens: dict[str, str] | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
     global _communication_token, _communication_token_explicit, _channels
@@ -88,6 +97,7 @@ def setup(
         else communication_token_explicit
     )
     _channels = channels
+    update_communication_token_table(extra_communication_tokens or {}, sync_store=False)
 
 
 class AttachmentSchema(BaseModel):
@@ -109,27 +119,113 @@ class MessagePayload(BaseModel):
     payload: dict[str, Any] | None = None
 
 
-def verify_communication_authorization(authorization: str | None) -> None:
-    if not _communication_token:
-        raise HTTPException(
-            status_code=503,
-            detail=tr("api.auth.communication_token_unconfigured"),
-        )
-    if authorization != f"Bearer {_communication_token}":
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, remainder = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    token = remainder.strip()
+    return token or None
+
+
+def _token_matches(provided: str, expected: str) -> bool:
+    if not expected:
+        return False
+    return hmac.compare_digest(
+        hashlib.sha256(provided.encode("utf-8")).digest(),
+        hashlib.sha256(expected.encode("utf-8")).digest(),
+    )
+
+
+def _normalized_extra_tokens(tokens: dict[str, str] | None) -> dict[str, str]:
+    cleaned: dict[str, str] = {}
+    for raw_name, raw_secret in (tokens or {}).items():
+        try:
+            name = validate_token_name(str(raw_name))
+        except ValueError:
+            continue
+        secret = str(raw_secret or "").strip()
+        if secret:
+            cleaned[name] = secret
+    return cleaned
+
+
+def communication_token_table() -> dict[str, str]:
+    table: dict[str, str] = {}
+    if _communication_token:
+        table[PRIMARY_TOKEN_NAME] = _communication_token
+    table.update(_extra_communication_tokens)
+    return table
+
+
+def resolve_communication_token_name(authorization: str | None) -> str:
+    provided = _bearer_token(authorization)
+    if provided is None:
         raise HTTPException(
             status_code=401,
             detail=tr("api.auth.communication_token_invalid"),
         )
+    table = communication_token_table()
+    if not table:
+        raise HTTPException(
+            status_code=503,
+            detail=tr("api.auth.communication_token_unconfigured"),
+        )
+    if _communication_token and _token_matches(provided, _communication_token):
+        return PRIMARY_TOKEN_NAME
+    for name, secret in _extra_communication_tokens.items():
+        if _token_matches(provided, secret):
+            return name
+    raise HTTPException(
+        status_code=401,
+        detail=tr("api.auth.communication_token_invalid"),
+    )
+
+
+def openai_participant_id(authorization: str | None) -> str:
+    return participant_id_for_token_name(resolve_communication_token_name(authorization))
+
+
+def verify_communication_authorization(authorization: str | None) -> None:
+    resolve_communication_token_name(authorization)
 
 
 def update_communication_token(token: str, explicit: bool | None = None) -> None:
-    """Atomically replace the communication token used by existing ASGI routes."""
+    """Atomically replace the primary communication token used by existing ASGI routes."""
 
     global _communication_token, _communication_token_explicit
     _communication_token = token.strip()
     _communication_token_explicit = (
         bool(_communication_token) if explicit is None else explicit
     )
+
+
+def update_communication_token_table(
+    tokens: dict[str, str],
+    *,
+    sync_store: bool = True,
+) -> None:
+    """Replace extra communication tokens (not the primary Desktop/Relay token)."""
+
+    global _extra_communication_tokens
+    _extra_communication_tokens = _normalized_extra_tokens(tokens)
+    if sync_store:
+        from coworker.api.openai_compat import sync_extra_token_store
+
+        sync_extra_token_store(_extra_communication_tokens)
+
+
+def extra_communication_tokens() -> dict[str, str]:
+    return dict(_extra_communication_tokens)
+
+
+def communication_authorization_matches(authorization: str | None) -> bool:
+    try:
+        resolve_communication_token_name(authorization)
+    except HTTPException:
+        return False
+    return True
 
 
 def communication_token_required() -> bool:
@@ -328,7 +424,7 @@ async def get_status(
     if not _communication_token_explicit:
         # 管理员没有显式设置通信令牌时，保持与引入认证前一致：直接返回完整快照。
         return _full_status_payload()
-    authenticated = authorization == f"Bearer {_communication_token}"
+    authenticated = communication_authorization_matches(authorization)
     if not authenticated:
         # 已配置令牌但未认证时保持 /status 可用，只降级为基础信息。
         return _public_status_payload()

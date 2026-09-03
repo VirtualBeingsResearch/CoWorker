@@ -63,6 +63,8 @@ HOT_CONFIG_PATHS = {
     "memory.auto_recall_relevance_threshold",
     "memory.auto_recall_limit",
     "api.communication_token",
+    "api.communication_tokens",
+    "api.compat_timeout_seconds",
 } | MEM0_LLM_CONFIG_PATHS
 
 _SOURCE_TOKEN_PATH_RE = re.compile(
@@ -75,6 +77,9 @@ _TELEGRAM_BOT_SECRET_RE = re.compile(
 )
 _WECOM_BOT_SECRET_RE = re.compile(
     r"wecom\.bots\.([a-z][a-z0-9_-]{0,31})\.secret"
+)
+_COMMUNICATION_EXTRA_SECRET_RE = re.compile(
+    r"^api\.communication_tokens\.([a-z][a-z0-9_-]{0,31})$"
 )
 _PROVIDER_REMOVAL_REASON = "llm.managed_providers.removed"
 
@@ -255,6 +260,8 @@ class AdminConfigService:
         _preserve_telegram_bot_tokens(safe_changes, current_overrides)
         _remove_wecom_bot_secrets(safe_changes)
         _preserve_wecom_bot_secrets(safe_changes, current_overrides)
+        _strip_communication_token_secrets(safe_changes)
+        _preserve_communication_tokens(safe_changes, current_overrides)
 
         # Deep-copy so secret merging below cannot mutate ``current_overrides``
         # before it is used to compute the pre-update running config.
@@ -293,11 +300,25 @@ class AdminConfigService:
                 and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(secret_path)
                 and not _TELEGRAM_BOT_SECRET_RE.fullmatch(secret_path)
                 and not _WECOM_BOT_SECRET_RE.fullmatch(secret_path)
+                and not _COMMUNICATION_EXTRA_SECRET_RE.fullmatch(secret_path)
             ):
                 raise ConfigUpdateError(
                     400,
                     tr("api.admin.secret_not_writable", path=secret_path),
                 )
+            extra_match = _COMMUNICATION_EXTRA_SECRET_RE.fullmatch(secret_path)
+            if extra_match is not None:
+                from coworker.core.communication_tokens import validate_token_name
+
+                try:
+                    validate_token_name(extra_match.group(1))
+                except ValueError as error:
+                    raise ConfigUpdateError(400, str(error)) from error
+                if value:
+                    _set_path(overrides, secret_path, value)
+                else:
+                    _remove_path(overrides, secret_path)
+                continue
             _set_path(overrides, secret_path, value or "")
 
         self._preserve_desktop_source_secrets(overrides, explicit_source_ids)
@@ -381,6 +402,14 @@ class AdminConfigService:
         desired_base["channel_access"] = inherited["channel_access"]
         desired_base["telegram"] = inherited["telegram"]
         desired_base["wecom"] = inherited["wecom"]
+        inherited_api = inherited.get("api")
+        desired_api = dict(desired_base.get("api") or {})
+        desired_api["communication_tokens"] = dict(
+            inherited_api.get("communication_tokens") or {}
+            if isinstance(inherited_api, dict)
+            else {}
+        )
+        desired_base["api"] = desired_api
         try:
             before = Config.model_validate(merge_config_layers(effective, current_overrides))
             desired = Config.model_validate(merge_config_layers(desired_base, next_overrides))
@@ -549,9 +578,14 @@ class AdminConfigService:
         changed_paths: set[str],
         applied: list[str],
     ) -> None:
-        scalar_paths = changed_paths & (
-            HOT_CONFIG_PATHS - {"llm.max_tokens"} - MEM0_LLM_CONFIG_PATHS
-        )
+        scalar_paths = {
+            path
+            for path in (
+                changed_paths
+                & (HOT_CONFIG_PATHS - {"llm.max_tokens"} - MEM0_LLM_CONFIG_PATHS)
+            )
+            if path != "api.communication_tokens"
+        }
         for path in sorted(scalar_paths):
             _assign_config_path(self._dependencies.config, path, desired)
             applied.append(path)
@@ -571,6 +605,13 @@ class AdminConfigService:
                     else effective_communication_token(desired),
                     explicit=explicit,
                 )
+            elif path == "api.compat_timeout_seconds":
+                from coworker.api.openai_compat import get_openai_channel
+
+                channel = get_openai_channel()
+                if channel is not None:
+                    channel.timeout_seconds = float(desired.api.compat_timeout_seconds)
+        self._apply_communication_token_table(desired, changed_paths, applied)
 
     def _refresh_pending_restart(
         self,
@@ -603,12 +644,28 @@ class AdminConfigService:
             path
             for path in changed_paths
             if path not in HOT_CONFIG_PATHS
+            and not _is_hot_config_path(path)
             and not _is_desktop_hot(path)
             and not path.startswith("llm.managed_providers")
             and not path.startswith(channel_prefixes)
             and not path.startswith("channel_access.")
             and path != "channel_access"
         }
+
+    def _apply_communication_token_table(
+        self,
+        desired: Config,
+        changed_paths: set[str],
+        applied: list[str],
+    ) -> None:
+        if not any(_is_communication_tokens_path(path) for path in changed_paths):
+            return
+        tokens = dict(desired.api.communication_tokens)
+        self._dependencies.config.api.communication_tokens = tokens
+        from coworker.api.routes import update_communication_token_table
+
+        update_communication_token_table(tokens)
+        applied.append("api.communication_tokens")
 
     def _channel_settings(self) -> list[tuple[str, ChannelSettings]]:
         if self._channel_modules is None:
@@ -705,6 +762,15 @@ def _mask_config_secrets(data: JsonObject) -> dict[str, SecretStatus]:
                     statuses,
                     f"wecom.bots.{instance_id}.secret",
                 )
+
+    api = data.get("api")
+    extras = api.get("communication_tokens", {}) if isinstance(api, dict) else {}
+    if isinstance(extras, dict):
+        for name, secret in list(extras.items()):
+            statuses[f"api.communication_tokens.{name}"] = _secret_status(
+                str(secret or "")
+            )
+            extras[name] = ""
     return statuses
 
 
@@ -762,6 +828,41 @@ def _is_desktop_hot(path: str) -> bool:
         and not path.startswith("desktop_updates.dir")
         and not path.startswith("desktop_updates.admin_token")
     )
+
+
+def _is_communication_tokens_path(path: str) -> bool:
+    return path == "api.communication_tokens" or path.startswith(
+        "api.communication_tokens."
+    )
+
+
+def _is_hot_config_path(path: str) -> bool:
+    if path in HOT_CONFIG_PATHS:
+        return True
+    return _is_communication_tokens_path(path)
+
+
+def _strip_communication_token_secrets(data: JsonObject) -> None:
+    tokens = _get_path(data, "api.communication_tokens")
+    if not isinstance(tokens, dict):
+        return
+    for name in list(tokens):
+        tokens[name] = ""
+
+
+def _preserve_communication_tokens(
+    changes: JsonObject,
+    current_overrides: JsonObject,
+) -> None:
+    desired = _get_path(changes, "api.communication_tokens")
+    current = _get_path(current_overrides, "api.communication_tokens")
+    if not isinstance(desired, dict):
+        return
+    if not isinstance(current, dict):
+        return
+    for name, secret in list(desired.items()):
+        if not str(secret or "").strip() and name in current:
+            desired[name] = current[name]
 
 
 def _set_path(data: JsonObject, dotted: str, value: JsonValue) -> None:

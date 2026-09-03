@@ -324,8 +324,8 @@ class AgentLoop:
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
-            and self._short_term.primary
-            and self._short_term.primary[-1].role != "user"
+            and ((self._short_term.primary and self._short_term.primary[-1].role != "user")
+                or not self._short_term.primary)
         ):
             tick_content = f"<{TICK_TAG}>"
             message = Message(role="user", content=tick_content, source="tick")
@@ -520,6 +520,7 @@ class AgentLoop:
 
     async def _act(self, tool_calls) -> None:
         results: list[ToolResult] = []
+        self._tools.prepare_batch(tool_calls)
         for tc in tool_calls:
             # ── 工具调用计数 ──
             self.state.tool_call_counts[tc.name] = self.state.tool_call_counts.get(tc.name, 0) + 1

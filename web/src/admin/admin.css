@@ -574,7 +574,8 @@ html:has(.admin-login),
 .primary:disabled,
 .danger-solid:disabled { cursor: not-allowed; opacity: .42; transform: none; box-shadow: none; }
 .ghost { color: var(--admin-ink); border-color: var(--admin-line); background: var(--admin-surface); }
-.ghost:hover { border-color: color-mix(in oklch, var(--admin-vital) 50%, var(--admin-line)); color: var(--admin-vital); }
+.ghost:not(:disabled):hover { border-color: color-mix(in oklch, var(--admin-vital) 50%, var(--admin-line)); color: var(--admin-vital); }
+.ghost:disabled { cursor: not-allowed; opacity: .45; }
 .danger-outline { color: var(--admin-red); border-color: color-mix(in oklch, var(--admin-red) 42%, var(--admin-surface)); background: color-mix(in oklch, var(--admin-red) 5%, var(--admin-surface)); }
 .danger-outline:hover { border-color: var(--admin-red); background: color-mix(in oklch, var(--admin-red) 9%, var(--admin-surface)); }
 .danger-solid { color: white; background: var(--admin-red); }
@@ -1588,6 +1589,16 @@ html:has(.admin-login),
 .config-section-heading small { display: block; }
 .config-section-heading b { font-size: 13px; }
 .config-section-heading small { margin-top: 4px; color: var(--admin-muted); font-size: 10px; }
+.extra-tokens { grid-column: 1 / -1; display: grid; gap: 12px; }
+.extra-token-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }
+.extra-token-row .field { gap: 5px; }
+.extra-token-row code { overflow-wrap: anywhere; color: var(--admin-ink); font: 650 11px var(--admin-data); }
+.extra-token-row .ghost.mini { min-height: 38px; }
+.extra-token-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.extra-token-add input { min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid var(--admin-line); border-radius: 8px; outline: 0; color: var(--admin-ink); background: white; font: 11px var(--admin-data); }
+.extra-token-add input:focus { border-color: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 10%, transparent); }
+.extra-token-add button { white-space: nowrap; }
+.extra-token-hint { grid-column: 1; color: var(--admin-red); font-size: 11px; line-height: 1.45; }
 .channel-access-settings { display: grid; gap: 14px; margin-top: 14px; }
 .channel-access-overview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px; border: 1px solid color-mix(in oklch, var(--admin-vital) 26%, var(--admin-line)); border-radius: 14px; background: linear-gradient(120deg, var(--admin-soft), var(--admin-surface) 72%); }
 .channel-access-overview > svg { color: var(--admin-vital); }

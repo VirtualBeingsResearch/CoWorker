@@ -515,6 +515,31 @@ async def test_bind_errors(tmp_path) -> None:
     assert bad_id.is_error
 
 
+async def test_bind_rejects_openai_control(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    result = await tool.execute(
+        action="bind",
+        participant_id="openai:control",
+        name="Cursor",
+    )
+    assert result.is_error
+    assert store.all_persons() == []
+
+
+async def test_bind_openai_token_drops_conversation_id(tmp_path) -> None:
+    tool, store, _ = _tool(tmp_path)
+    result = await tool.execute(
+        action="bind",
+        participant_id="openai:cursor",
+        conversation_id="composer-1",
+        name="Cursor",
+    )
+    assert not result.is_error
+    person = store.find_by_participant("openai:cursor")
+    assert person is not None
+    assert person.aliases[0].conversation_id is None
+
+
 async def test_card_read_renders_framework_from_notes(tmp_path) -> None:
     tool, store, cards = _tool(tmp_path)
     person = store.create(display_name="张三", notes=["关系：好友"])

@@ -172,6 +172,29 @@ weixin_control_confirmed = "Weixin Claw pairing session {{session}} is confirmed
 weixin_control_confirm_remove = "Removing Weixin ClawBot instance {{instance}} deletes its local credentials and stops messaging. Retry with the same bot_instance_id and confirm=true only after explicit user confirmation. Weixin-side authorization is not remotely revoked."
 weixin_control_unknown_instance = "Weixin ClawBot instance {{instance}} does not exist."
 weixin_control_removed = "Weixin ClawBot instance {{instance}} was removed from Coworker and stopped. Weixin-side authorization was not remotely revoked."
+openai_conversation_required = "Several OpenAI windows are waiting; pass conversation_id."
+openai_no_waiter = "No in-flight OpenAI request for {{participant}}. The HTTP caller is not waiting."
+openai_late = "The OpenAI HTTP waiter already finished; this reply was not delivered."
+openai_sent = "Replied to {{participant}} on OpenAI window {{conversation}}."
+openai_updated = "Pushed intermediate content to OpenAI window {{conversation}} ({{participant}}); still waiting for end_turn."
+openai_ended = "Ended the OpenAI HTTP turn for window {{conversation}} ({{participant}})."
+openai_control_action = "openai:control does not support action='{{action}}'. Available actions: issue, rotate, revoke, list."
+openai_token_exists = "Extra communication token '{{name}}' already exists."
+openai_token_missing = "Extra communication token '{{name}}' does not exist."
+openai_issued = '''Issued extra token '{{name}}' as {{participant}}.
+Bearer: {{token}}
+{{bind}}
+Deliver the secret once over an existing channel; list_connections will not show it.'''
+openai_rotated = '''Rotated extra token '{{name}}' ({{participant}}).
+Bearer: {{token}}
+The OpenAI address is unchanged.'''
+openai_revoked = "Revoked extra token '{{name}}' ({{participant}}). Inbound on that token has stopped; unbind the Persona alias if you no longer need it."
+openai_token_list_empty = "There are no extra OpenAI communication tokens."
+openai_token_list = "Extra OpenAI communication tokens (secrets omitted):\n{{items}}"
+openai_unbound = "Not bound to a person."
+openai_persona_disabled = "Persona is disabled; the token was issued unbound."
+openai_bound_created = "Created person {{name}} ({{person_id}}) and bound {{participant}}."
+openai_bound = "Bound {{participant}} to {{name}} ({{person_id}})."
 
 [tool_result.bubble]
 needs_goal = "Creating a bubble requires goal; provide bubble_id to resume a timed-out bubble."
@@ -309,3 +332,13 @@ deleted = "Deleted person {{name}} ({{person_id}})"
 merge_needs_both = "The merge action requires keep_person_id and drop_person_id"
 merge_invalid = "Merge failed: a person is missing, or you cannot merge a person into itself"
 merge_done = "Merged {{drop_name}} ({{drop_id}}) into {{keep_name}} ({{keep_id}})"
+control_not_bindable = "openai:control is not a person; do not bind it."
+
+[tool_result.client_tool]
+needs_name = "call_client_tool requires name."
+not_openai = "call_client_tool only works on OpenAI-channel addresses; got '{{participant}}'."
+conversation_required = "Several OpenAI windows are waiting; pass conversation_id."
+no_waiter = "No in-flight OpenAI request is waiting for a client tool."
+native_name = "'{{name}}' is a native Coworker tool; call it directly instead of call_client_tool."
+unknown_name = "The current OpenAI request has no client tool named '{{name}}'."
+dispatched = "Dispatched client tool '{{name}}' ({{call_id}}). The result will arrive as a later inbound message on this window; do not communicate on this same HTTP turn."

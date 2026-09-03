@@ -16,6 +16,7 @@ _SOURCE_LABEL_KEYS: dict[str, str] = {
     "coworker_desktop": "source.coworker_desktop",
     "bubble": "source.bubble",
     "codex": "source.codex",
+    "openai": "source.openai",
 }
 
 # 内容已自带 [闹钟提醒]/[代码任务完成] 等自描述前缀的来源：原样透传，

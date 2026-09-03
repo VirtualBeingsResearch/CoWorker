@@ -61,8 +61,12 @@ def client(tmp_path):
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
     routes_mod._communication_token_explicit = False
+    routes_mod._extra_communication_tokens = {}
     routes_mod._channels = None
     routes_mod._seen_desktop_message_ids.clear()
+    from coworker.api.openai_compat import setup_openai_channel
+
+    setup_openai_channel(None)
     api_app._desktop_updates_effective = None
     api_app._desktop_updates_admin_token = ""
     api_app._channel_system = None

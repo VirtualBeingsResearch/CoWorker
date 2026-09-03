@@ -63,8 +63,8 @@ retain duplicate order. Bodies and SSE events stream in chunks. Stream IDs permi
 concurrency; receivers enforce bounded queues, backpressure, frame-size, and header limits.
 
 After decryption, Coworker applies one Relay exposure policy covering status, Desktop registration,
-messages, SSE, and published desktop updates. Existing ASGI authentication still verifies the
-original Bearer.
+messages, SSE, published desktop updates, and OpenAI-compatible `GET /v1/models` plus
+`POST /v1/chat/completions`. Existing ASGI authentication still verifies the original Bearer.
 
 ## Source context
 

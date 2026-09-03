@@ -2,8 +2,8 @@
 
 中文 · [English](relay.en.md)
 
-Coworker 中继让内网中的 Coworker 主动建立出站连接，并让新版 Desktop 通过同一个公网
-入口访问状态、注册、消息、SSE 和桌面更新：
+Coworker 中继让内网中的 Coworker 主动建立出站连接，并让新版 Desktop（以及 Relay 协议客户端上的 OpenAI 兼容 `/v1`）通过同一个公网
+入口访问状态、注册、消息、SSE、桌面更新与 OpenAI 兼容接口：
 
 ```text
 http://relay.example.com:8443/i/{instance_id}
@@ -151,7 +151,7 @@ Relay v1 是单节点服务，不能让多个副本共享 bbolt 数据卷，也�
   更新或业务内容。
 - 原始 Token、Authorization、请求路径、Header、正文、消息、附件和更新内容不得进入
   Relay 日志、数据库、指标、错误响应或崩溃信息。
-- Coworker 解密后只允许 Desktop 通信与只读更新路由；管理、模型、日志、备份、发布和
+- Coworker 解密后只允许 Desktop 通信、OpenAI 兼容 `/v1/models` 与 `/v1/chat/completions`，以及只读更新路由；管理、日志、备份、发布和
   任意 HTTP/TCP 代理路径不会开放。
 - 原始 Bearer 位于密文请求中，并继续由 Coworker 现有接口认证。
 - 更新检查和制品下载同样经过端到端加密，安装包仍由 Tauri updater 验证发布签名。

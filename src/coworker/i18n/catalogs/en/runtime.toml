@@ -8,6 +8,7 @@ telegram = "Telegram"
 coworker_desktop = "desktop"
 bubble = "bubble"
 codex = "Codex"
+openai = "OpenAI-compatible HTTP"
 system = "system"
 unknown = "unknown source"
 
@@ -126,6 +127,22 @@ pairing_unavailable = "The Weixin Claw pairing session is unavailable"
 disabled = "The Weixin Claw channel is disabled; enable it before creating a connection"
 control_name = "Weixin Claw connection control"
 
+[channel.openai]
+control_name = "OpenAI-compatible extra-token control"
+primary_name = "OpenAI-compatible primary token (openai:api)"
+token_name = "OpenAI-compatible token {{name}}"
+request_system = "This request's system instructions:\n{{text}}"
+request_system_folded = "This request's system instructions (folded because too long; read the complete file at {{path}} with read_file):\n{{text}}"
+client_tools = "Client tools for this request (call them with call_client_tool; do not treat these names as native Coworker tools):\n{{tools}}"
+client_tools_folded = "Client tools for this request (call them with call_client_tool; do not treat these names as native Coworker tools). Full schemas are folded; read the complete file at {{path}} with read_file. Names: {{names}}"
+pin_system_label = "OpenAI system instructions [{{digest}}]"
+pin_tools_label = "OpenAI client tools [{{digest}}]"
+pin_pointer_label = "OpenAI window {{participant}} / {{conversation}} client profile"
+pin_pointer = "This window uses system digest {{system_digest}} and tools digest {{tools_digest}}."
+pin_absent = "(none)"
+tool_results = "Client tool results for this window:\n{{items}}"
+tool_result_item = "{{call_id}} ({{name}}):\n{{content}}"
+
 [channel.telegram]
 attachment_type_invalid = "Telegram does not support attachment type '{{type}}'"
 attachment_missing = "Telegram attachment does not exist: {{path}}"
@@ -222,6 +239,9 @@ standalone_variable = "System prompt template variable must appear on its own li
 public_url_absolute = "The public API URL must be an absolute HTTP(S) URL"
 public_url_wildcard = "The public API URL must use a browser-reachable hostname, not a wildcard bind address"
 public_url_origin_only = "The public API URL must not contain credentials, a path, query parameters, or a fragment"
+communication_tokens_must_be_object = "API extra communication tokens must be a JSON object of short names to secrets"
+token_name_invalid = "Communication token short name '{{name}}' must match [a-z][a-z0-9_-]{0,31}"
+token_name_reserved = "Communication token short name '{{name}}' is reserved"
 
 [config.provider]
 model_required = "A model capability declaration requires a model ID"

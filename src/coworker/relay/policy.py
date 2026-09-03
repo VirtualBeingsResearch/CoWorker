@@ -28,6 +28,10 @@ def relay_route_allowed(method: str, path: str) -> bool:
         return True
     if _SSE_PATH.fullmatch(path) and method == "GET":
         return True
+    if method == "GET" and path == "/v1/models":
+        return True
+    if method == "POST" and path == "/v1/chat/completions":
+        return True
     if method == "GET" and (
         _UPDATE_MANIFEST.fullmatch(path) or _UPDATE_ASSET.fullmatch(path)
     ):

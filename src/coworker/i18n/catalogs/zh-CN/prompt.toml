@@ -70,3 +70,9 @@ wecom = '''企业微信：
 stream = '''Stream / 桌面：
 - participant_id 是注册客户端或桌面 actor 的地址（如 `coworker-desktop:d:{actor}:{random}`），也可能是客户端自选的 id。
 - 存在 `conversation_id` 时表示该 participant 下的某个会话。一个人可能跨多个会话使用多个地址。'''
+openai = '''OpenAI 兼容 HTTP：
+- `openai:control` 是额外通信令牌的控制地址，不是人，不要 persona bind。只从主线用 `communicate(participant_id="openai:control", extra={...})` 签发、轮换、作废或列出 extras；泡泡不要向 control 发令。
+- 额外令牌操作：`{"action":"issue","name":"<短名>"}`（可用 `person_id` 或 `person` 当场 bind）、`{"action":"rotate","name":"<短名>"}`、`{"action":"revoke","name":"<短名>"}`、`{"action":"list"}`。短名匹配 `[a-z][a-z0-9_-]{0,31}`，不能叫 `api` 或 `control`。不能在这里签发、轮换或作废 Desktop/Relay 主令牌。
+- `openai:{短名}` 是 1:1 可 bind 的持有者（主令牌对应 `openai:api`）。bind 时不要带 `conversation_id`。未 bind 的 extras 仍可进站。
+- `conversation_id` 是该地址下的窗口（一条 Composer / 一条 WebUI 线程）。`communicate`、waiter、泡泡照抄；它不是另一个人。
+- 用 `communicate` 向该窗口推送内容；中间状态可多次发送。只有带 `extra={"end_turn": true}` 时才结束本轮 HTTP（`stop`）。非流式客户端会收到拼接后的全文；`stream=true` 时每次 `communicate` 推送一段 `delta`，`end_turn` 再发结束 chunk。调用方附带的函数用常驻 `call_client_tool`（照抄入站头里的 `participant_id` 与 `conversation_id`）。`call_client_tool` 不等待：该轮 HTTP 以 `tool_calls` 返回，客户端结果作为后续入站消息到达。与内置工具重名时内置优先。当次 `tools`/`system` 挂在两类系统 pin 上，不是人物备注或正式 schema：一份按 kind 与内容摘要共享正文，一份按 `participant_id` / `conversation_id` 用 digest 指向那些正文 pin。内容相同的窗口共用正文 pin。无短期记忆时，入站短注表示本窗口沿用已有正文 pin。未改动的活正文 pin 不更新；digest 不同则另开一条正文 pin，压缩后自动回注。本窗口 HTTP 结束（`end_turn`、超时或丢弃）时卸掉指向 pin；没有任何窗口还引用时才卸正文 pin。下一轮再挂。若 pin 提示已折叠，用 `read_file` 按需读取完整内容。'''

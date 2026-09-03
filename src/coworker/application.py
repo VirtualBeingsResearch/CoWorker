@@ -26,9 +26,11 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
 from coworker.api.admin import setup_admin, setup_channel_admin
+from coworker.api.openai_compat import setup_openai_channel
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.openai import OpenAIModule, create_openai_module
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -47,7 +49,10 @@ from coworker.core.config import (
     effective_admin_token,
     effective_communication_token,
     ensure_admin_token,
+    load_admin_overrides,
     normalize_admin_overrides_file,
+    sparse_admin_overrides,
+    write_admin_overrides,
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
@@ -90,6 +95,7 @@ from coworker.tools.bubble_tools import (
     BubbleSendTool,
     BubbleSpawnTool,
 )
+from coworker.tools.client_tool import CallClientTool
 from coworker.tools.code_tools import (
     BackgroundJobStore,
     ExecuteCodeTool,
@@ -735,6 +741,7 @@ async def _main() -> bool:
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None
+    openai_module: OpenAIModule | None = None
     if not setup_required:
         weixin_module = create_weixin_module(
             config.weixin,
@@ -752,6 +759,11 @@ async def _main() -> bool:
                 ),
             )
         )
+        openai_module = create_openai_module(
+            config.api,
+            attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
+        )
+        channel_system.install(openai_module)
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
     browser_store = BrowserSessionStore()
@@ -833,6 +845,11 @@ async def _main() -> bool:
             *(  # 可选的 Person 子机制：绑定地址、维护画像、合并人物。
                 [PersonaTool(person_store, persona_cards)]
                 if person_store is not None and persona_cards is not None
+                else []
+            ),
+            *(
+                [CallClientTool(openai_module.channel)]
+                if openai_module is not None
                 else []
             ),
         ]
@@ -930,6 +947,31 @@ async def _main() -> bool:
     if bubble_store is not None:
         inbox_watcher.add_interceptor(BubbleMessageRouter(bubble_store))
     registry.register(ClearShortTermMemoryTool(short_term, brain, subconscious))
+    if openai_module is not None:
+        openai_module.attach_person_store(person_store)
+        openai_module.attach_short_term(short_term)
+        openai_module.attach_native_tool_names(
+            {name for name in registry.list_names() if name != "call_client_tool"}
+        )
+
+        async def persist_openai_extras(tokens: dict[str, str]) -> None:
+            path = Path(config.admin.config_file)
+            overrides = load_admin_overrides(path)
+            api_section = overrides.get("api")
+            if not isinstance(api_section, dict):
+                api_section = {}
+                overrides["api"] = api_section
+            api_section["communication_tokens"] = dict(tokens)
+            write_admin_overrides(
+                path,
+                sparse_admin_overrides(overrides, inherited_config),
+            )
+            config.api.communication_tokens = dict(tokens)
+            from coworker.api.routes import update_communication_token_table
+
+            update_communication_token_table(tokens, sync_store=False)
+
+        openai_module.attach_persist(persist_openai_extras)
 
     if not setup_required and is_restart:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1022,7 +1064,9 @@ async def _main() -> bool:
         effective_communication_token(config),
         channels=channel_system.registry,
         communication_token_explicit=bool(config.api.communication_token),
+        extra_communication_tokens=config.api.communication_tokens,
     )
+    setup_openai_channel(None if openai_module is None else openai_module.channel)
     setup_admin(
         agent=agent_loop,
         brain=brain,

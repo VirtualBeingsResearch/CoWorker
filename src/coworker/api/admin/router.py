@@ -1436,6 +1436,34 @@ async def get_communication_token(
     }
 
 
+@router.get("/communication-tokens/{name}")
+async def get_extra_communication_token(
+    name: str,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    """Return one extra OpenAI-channel communication token for backup copy."""
+
+    from coworker.core.communication_tokens import validate_token_name
+
+    try:
+        cleaned = validate_token_name(name)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    _audit(request, "communication_token.read", f"api.communication_tokens.{cleaned}")
+    token = _require_config().api.communication_tokens.get(cleaned, "")
+    if not token:
+        raise HTTPException(
+            status_code=404,
+            detail=tr("api.admin.extra_token_missing", name=cleaned),
+        )
+    return {
+        "name": cleaned,
+        "communication_token": token,
+        "participant_id": f"openai:{cleaned}",
+    }
+
+
 @router.patch("/config")
 async def patch_config(
     payload: ConfigPatch,

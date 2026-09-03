@@ -216,6 +216,97 @@ function generateCommunicationToken(): string {
   return `cwct_v1_${bytesToBase64Url(bytes)}`;
 }
 
+const EXTRA_TOKEN_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+const RESERVED_EXTRA_TOKEN_NAMES = new Set(['api', 'control']);
+
+function ExtraCommunicationTokens({
+  tokens,
+  change,
+  secretInputs,
+  setSecretInputs,
+  secretStatus,
+  hot = false,
+}: {
+  tokens: Record<string, unknown>;
+  change: (value: Record<string, string>) => void;
+  secretInputs: Record<string, string>;
+  setSecretInputs: (value: Record<string, string>) => void;
+  secretStatus: Json;
+  hot?: boolean;
+}) {
+  const [newName, setNewName] = useState('');
+  const [copyState, setCopyState] = useState<Record<string, 'idle' | 'copying' | 'copied' | 'error'>>({});
+  const names = Object.keys(tokens).sort();
+  const asSecrets = (): Record<string, string> => Object.fromEntries(
+    Object.entries(tokens).map(([name]) => [name, '']),
+  );
+  const secretPath = (name: string) => `api.communication_tokens.${name}`;
+  const trimmedName = newName.trim();
+  const nameValid = EXTRA_TOKEN_NAME_RE.test(trimmedName) && !RESERVED_EXTRA_TOKEN_NAMES.has(trimmedName) && !(trimmedName in tokens);
+  const nameMessage = !trimmedName
+    ? ''
+    : RESERVED_EXTRA_TOKEN_NAMES.has(trimmedName)
+      ? t('api 与 control 是保留短名')
+      : trimmedName in tokens
+        ? t('这个短名已经有一把令牌了')
+        : EXTRA_TOKEN_NAME_RE.test(trimmedName) ? '' : t('短名会用作 openai:{短名} 地址：以小写字母开头，之后只能用小写字母、数字、- 和 _');
+  const addToken = () => {
+    const name = newName.trim();
+    if (!EXTRA_TOKEN_NAME_RE.test(name) || RESERVED_EXTRA_TOKEN_NAMES.has(name) || name in tokens) return;
+    change({ ...asSecrets(), [name]: '' });
+    setSecretInputs({ ...secretInputs, [secretPath(name)]: generateCommunicationToken() });
+    setNewName('');
+  };
+  const copyToken = async (name: string) => {
+    setCopyState(current => ({ ...current, [name]: 'copying' }));
+    try {
+      const result = await api<Json>(`/api/admin/communication-tokens/${encodeURIComponent(name)}`);
+      const token = String(result.communication_token || '');
+      if (!token) throw new Error(t('通信令牌未配置'));
+      await navigator.clipboard.writeText(token);
+      setCopyState(current => ({ ...current, [name]: 'copied' }));
+    } catch {
+      setCopyState(current => ({ ...current, [name]: 'error' }));
+    }
+    window.setTimeout(() => {
+      setCopyState(current => ({ ...current, [name]: 'idle' }));
+    }, 1600);
+  };
+  return <div className="extra-tokens">
+    <div className="config-section-heading">
+      <div>
+        <b>{t('OpenAI 额外通信令牌')}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</b>
+        <small>{t('由她经 openai:control 签发。这里只做备份：复制或作废。短名对应 openai:{短名}，轮换密钥不改地址。主令牌不能在此改写。')}</small>
+      </div>
+    </div>
+    {names.length ? names.map(name => {
+      const status = secretStatus[secretPath(name)] || {};
+      const state = copyState[name] || 'idle';
+      return <article className="extra-token-row" key={name}>
+        <Field label={name} hint={status.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('新令牌将在保存后生效')}>
+          <code>openai:{name}</code>
+        </Field>
+        <button type="button" className="ghost mini" disabled={state === 'copying' || !status.configured} title={t('复制通信令牌')} onClick={() => void copyToken(name)}>
+          {t(state === 'copied' ? '通信令牌已复制' : state === 'copying' ? '正在复制…' : state === 'error' ? '通信令牌复制失败' : '复制令牌')}
+        </button>
+        <button type="button" className="danger-icon" title={t('作废额外令牌')} onClick={() => {
+          const next = asSecrets();
+          delete next[name];
+          change(next);
+          setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => path !== secretPath(name))));
+        }}><Trash2 size={15} /></button>
+      </article>;
+    }) : <div className="provider-empty">{t('还没有额外通信令牌。她可以用 openai:control 签发；管理员也可在此增加一把以免卡住。')}</div>}
+    <div className="extra-token-add">
+      <input value={newName} maxLength={32} onChange={event => setNewName(event.target.value)} placeholder={t('短名，如 cursor')} />
+      <button type="button" className="ghost mini" onClick={addToken} disabled={!nameValid}>
+        <Plus size={14} />{t('增加一把')}
+      </button>
+      {nameMessage && <small className="extra-token-hint">{nameMessage}</small>}
+    </div>
+  </div>;
+}
+
 class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -1192,7 +1283,7 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
 }
 
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
-const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template']);
+const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template', 'api.communication_tokens']);
 const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   IDENTITY: '姓名、位置与人格身份',
   ENVIRONMENT: '操作系统、Python、目录与时区',
@@ -1490,6 +1581,8 @@ const CONFIG_LABELS: Record<string, string> = {
   'api.port': 'API 监听端口',
   'api.public_url': 'API 公开访问地址',
   'api.communication_token': '通信令牌',
+  'api.communication_tokens': 'OpenAI 额外通信令牌',
+  'api.compat_timeout_seconds': 'OpenAI 兼容请求超时（秒）',
   'api.cors_origins': '允许的跨域来源',
   'relay.enabled': '启用 Relay',
   'relay.url': 'Relay 地址',
@@ -1615,7 +1708,7 @@ function Settings() {
         if (group === 'llm' && key.endsWith('thinking_effort')) return <Field key={key} label={CONFIG_LABELS[path] || humanize(key)} hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射"><select value={String(value || '')} onChange={e => change(key, e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>;
         if (path === 'llm.default_provider') return <Field key={key} label={CONFIG_LABELS[path]} hint="Coworker 启动后首先使用的连接"><select value={String(value)} onChange={e => change(key, e.target.value)}>{!providerNames.includes(String(value)) && <option value={String(value)}>{String(value)}</option>}{providerNames.map((name: string) => <option key={name}>{name}</option>)}</select></Field>;
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
-      })}</div></>}
+      })}{group === 'api' && <ExtraCommunicationTokens tokens={(draft.api?.communication_tokens && typeof draft.api.communication_tokens === 'object' && !Array.isArray(draft.api.communication_tokens)) ? draft.api.communication_tokens : {}} change={next => change('communication_tokens', next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} hot={isHot('api.communication_tokens')} />}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
       <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'telegram' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>

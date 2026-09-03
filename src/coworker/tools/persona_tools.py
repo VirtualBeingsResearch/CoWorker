@@ -112,9 +112,19 @@ class PersonaTool(Tool):
                 content=tr("tool_result.persona.bind_needs_participant"),
                 is_error=True,
             )
+        from coworker.core.communication_tokens import CONTROL_PARTICIPANT_ID, OPENAI_PREFIX
+
+        if participant_id == CONTROL_PARTICIPANT_ID:
+            return ToolResult(
+                tool_call_id="",
+                content=tr("tool_result.persona.control_not_bindable"),
+                is_error=True,
+            )
         conversation_id = kwargs.get("conversation_id") or None
         if conversation_id is not None:
             conversation_id = str(conversation_id).strip() or None
+        if participant_id.startswith(OPENAI_PREFIX):
+            conversation_id = None
         person_id = kwargs.get("person_id") or None
         name = kwargs.get("name") or None
         created = False

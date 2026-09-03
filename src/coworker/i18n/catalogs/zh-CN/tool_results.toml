@@ -172,6 +172,29 @@ weixin_control_confirmed = "微信 Claw 配对会话 {{session}} 已确认，新
 weixin_control_confirm_remove = "移除微信 ClawBot 实例 {{instance}} 会删除本地凭证并停止收发。仅在用户明确确认后使用相同 bot_instance_id 和 confirm=true 重试；微信侧授权不会被远程注销。"
 weixin_control_unknown_instance = "微信 ClawBot 实例 {{instance}} 不存在。"
 weixin_control_removed = "微信 ClawBot 实例 {{instance}} 已从 Coworker 移除并停止收发；微信侧授权未被远程注销。"
+openai_conversation_required = "当前有多个 OpenAI 窗口在等待，请传入 conversation_id。"
+openai_no_waiter = "没有等待中的 OpenAI 请求（{{participant}}）；HTTP 调用方已不在等待。"
+openai_late = "OpenAI HTTP waiter 已经结束，这条回复没有投递。"
+openai_sent = "已通过 OpenAI 窗口 {{conversation}} 回复 {{participant}}。"
+openai_updated = "已向 OpenAI 窗口 {{conversation}} 推送中间内容（{{participant}}）；本轮仍在等待 end_turn。"
+openai_ended = "已结束 OpenAI 窗口 {{conversation}} 本轮 HTTP（{{participant}}）。"
+openai_control_action = "openai:control 不支持 action='{{action}}'。可用操作：issue、rotate、revoke、list。"
+openai_token_exists = "额外通信令牌 '{{name}}' 已存在。"
+openai_token_missing = "额外通信令牌 '{{name}}' 不存在。"
+openai_issued = '''已签发额外令牌 '{{name}}'，地址为 {{participant}}。
+Bearer: {{token}}
+{{bind}}
+请通过已有信道把密钥交给对方一次；list_connections 不会列出密钥。'''
+openai_rotated = '''已轮换额外令牌 '{{name}}'（{{participant}}）。
+Bearer: {{token}}
+OpenAI 地址不变。'''
+openai_revoked = "已作废额外令牌 '{{name}}'（{{participant}}）。该令牌入站已停止；若不再需要 Persona 别名请自行 unbind。"
+openai_token_list_empty = "当前没有额外的 OpenAI 通信令牌。"
+openai_token_list = "额外 OpenAI 通信令牌（不含密钥）：\n{{items}}"
+openai_unbound = "未绑定到人物。"
+openai_persona_disabled = "Persona 未启用；令牌已签发但未绑定。"
+openai_bound_created = "已新建人物 {{name}}（{{person_id}}）并绑定 {{participant}}。"
+openai_bound = "已将 {{participant}} 绑定到 {{name}}（{{person_id}}）。"
 
 [tool_result.bubble]
 needs_goal = "创建泡泡需要 goal；续跑超时泡泡请提供 bubble_id。"
@@ -309,3 +332,13 @@ deleted = "已删除人物 {{name}} ({{person_id}})"
 merge_needs_both = "merge 操作需要提供 keep_person_id 与 drop_person_id"
 merge_invalid = "合并失败：人物不存在，或不能把人物并入自身"
 merge_done = "已将 {{drop_name}} ({{drop_id}}) 并入 {{keep_name}} ({{keep_id}})"
+control_not_bindable = "openai:control 不是人，不要绑定。"
+
+[tool_result.client_tool]
+needs_name = "call_client_tool 需要 name。"
+not_openai = "call_client_tool 只能用于 OpenAI 信道地址，收到的是 '{{participant}}'。"
+conversation_required = "当前有多个 OpenAI 窗口在等待，请传入 conversation_id。"
+no_waiter = "没有等待中的 OpenAI 请求可以接收客户端工具。"
+native_name = "'{{name}}' 是 Coworker 内置工具，请直接调用，不要走 call_client_tool。"
+unknown_name = "当前 OpenAI 请求没有名为 '{{name}}' 的客户端工具。"
+dispatched = "已派发客户端工具 '{{name}}'（{{call_id}}）。结果会作为该窗口的后续入站消息到达；不要在同一轮 HTTP 上 communicate。"

@@ -3,8 +3,8 @@
 English · [中文](relay.md)
 
 Coworker Relay lets a Coworker on a private network establish an outbound connection and lets a
-new Desktop reach status, registration, messaging, SSE, and desktop updates through one public
-endpoint:
+new Desktop (and OpenAI-compatible `/v1` over a Relay-protocol client) reach status, registration,
+messaging, SSE, desktop updates, and the OpenAI-compatible API through one public endpoint:
 
 ```text
 http://relay.example.com:8443/i/{instance_id}
@@ -170,9 +170,9 @@ shutdown.
   audit events, and aggregate traffic counters. It does not cache updates or business content.
 - Raw tokens, Authorization, request paths, headers, bodies, messages, attachments, and update
   content must not appear in Relay logs, databases, metrics, errors, or crash output.
-- After decryption, Coworker exposes only Desktop communication and read-only update routes.
-  Administration, models, logs, backups, release management, and arbitrary HTTP/TCP proxying stay
-  inaccessible.
+- After decryption, Coworker exposes Desktop communication, OpenAI-compatible `GET /v1/models` and
+  `POST /v1/chat/completions`, and read-only update routes. Administration, logs, backups, release
+  management, and arbitrary HTTP/TCP proxying stay inaccessible.
 - The original Bearer remains inside the encrypted request and is still authenticated by
   Coworker's existing endpoint authentication.
 - Update checks and artifacts also use end-to-end encryption; Tauri updater still verifies the
