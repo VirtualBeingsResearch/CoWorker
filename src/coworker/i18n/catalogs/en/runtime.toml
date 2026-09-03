@@ -9,6 +9,7 @@ coworker_desktop = "desktop"
 bubble = "bubble"
 codex = "Codex"
 openai = "OpenAI-compatible HTTP"
+coworker = "Coworker peer"
 system = "system"
 unknown = "unknown source"
 
@@ -127,6 +128,11 @@ pairing_unavailable = "The Weixin Claw pairing session is unavailable"
 disabled = "The Weixin Claw channel is disabled; enable it before creating a connection"
 control_name = "Weixin Claw connection control"
 
+[channel.coworker]
+peer_conflict = "Coworker peer {{participant}} announced a different callback URL or token than the learned record; updated to the latest values. If unexpected, check for a self_id collision or impersonation."
+store_load_failed = "Failed to load the Coworker peer store: {{error}}"
+store_save_failed = "Failed to save the Coworker peer store: {{error}}"
+
 [channel.openai]
 control_name = "OpenAI-compatible extra-token control"
 primary_name = "OpenAI-compatible primary token (openai:api)"
@@ -195,6 +201,12 @@ sender_unknown = "unknown sender"
 reply = "[Reply to {{sender}}]\n{{content}}\n"
 external_reply = "[External reply from {{sender}}]\n{{content}}\n"
 forwarded_from = "[Forwarded from: {{sender}}]\n"
+
+[config.coworker]
+display_name_too_long = "Coworker peer display_name must be at most 80 characters"
+self_id_invalid = "Coworker peer self_id '{{self_id}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
+peers_must_be_object = "Coworker peers must be an object keyed by the remote self_id"
+peer_id_invalid = "Coworker peer id '{{peer}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name must not exceed 80 characters"

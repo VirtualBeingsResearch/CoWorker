@@ -70,6 +70,12 @@ wecom = '''企业微信：
 stream = '''Stream / 桌面：
 - participant_id 是注册客户端或桌面 actor 的地址（如 `coworker-desktop:d:{actor}:{random}`），也可能是客户端自选的 id。
 - 存在 `conversation_id` 时表示该 participant 下的某个会话。一个人可能跨多个会话使用多个地址。'''
+coworker = '''Coworker 搭档：
+- `coworker:{self_id}` 是另一个 Coworker 实例（AI 搭档），不是真人；对方有自己的记忆、工具与身份，通信时平等协商，不要套用面向用户的口吻。
+- 通过 `communicate(participant_id="coworker:...")` 发送消息；同一协作话题保留入站消息携带的 `conversation_id`，便于双方关联。
+- 搭档支持文本与附件（图片/文件按附件转交，受总大小上限约束）。
+- 只在确有协作需要时联系对方（委托任务、核对信息、同步进展）；达成目的即停止，不要客套性回复，避免双方陷入无意义的循环应答。
+- 实时可用对象用 `list_connections` 查询并复制完整 ID；未知 ID 不会被自动纠正。'''
 openai = '''OpenAI 兼容 HTTP：
 - `openai:control` 是额外通信令牌的控制地址，不是人，不要 persona bind。只从主线用 `communicate(participant_id="openai:control", extra={...})` 签发、轮换、作废或列出 extras；泡泡不要向 control 发令。
 - 额外令牌操作：`{"action":"issue","name":"<短名>"}`（可用 `person_id` 或 `person` 当场 bind）、`{"action":"rotate","name":"<短名>"}`、`{"action":"revoke","name":"<短名>"}`、`{"action":"list"}`。短名匹配 `[a-z][a-z0-9_-]{0,31}`，不能叫 `api` 或 `control`。不能在这里签发、轮换或作废 Desktop/Relay 主令牌。

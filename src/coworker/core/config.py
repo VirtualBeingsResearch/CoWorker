@@ -939,6 +939,84 @@ class TelegramConfig(_EnvSettings):
         return value
 
 
+class CoworkerPeerConfig(BaseModel):
+    """One explicitly configured peer Coworker instance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = ""
+    base_url: str
+    token: str = Field(default="", repr=False)
+
+    @field_validator("display_name")
+    @classmethod
+    def _validate_display_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 80:
+            raise ValueError(tr("config.coworker.display_name_too_long"))
+        return value
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        return _normalize_source_base_url(
+            value,
+            field_name="base_url",
+            allow_empty=False,
+        )
+
+
+class CoworkerConfig(_EnvSettings):
+    """Peer Coworker instances reachable over the ``coworker:`` channel."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="COWORKER__",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    # 空值表示首次启动时自动生成并持久化到 identity 目录（见 resolve_coworker_self_id）。
+    self_id: str = ""
+    # 对端回呼本实例的地址；空值依次回退 API__PUBLIC_URL 与 http://127.0.0.1:{API__PORT}。
+    self_base_url: str = ""
+    inbound_token: str = Field(default="", repr=False)
+    max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    peers: dict[str, CoworkerPeerConfig] = Field(default_factory=dict)
+
+    @field_validator("self_id")
+    @classmethod
+    def _validate_self_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", value):
+            raise ValueError(tr("config.coworker.self_id_invalid", self_id=value))
+        return value
+
+    @field_validator("self_base_url")
+    @classmethod
+    def _validate_self_base_url(cls, value: str) -> str:
+        return _normalize_source_base_url(
+            value,
+            field_name="self_base_url",
+            allow_empty=True,
+        )
+
+    @field_validator("peers", mode="before")
+    @classmethod
+    def _validate_peers(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(tr("config.coworker.peers_must_be_object"))
+        for peer_id in value:
+            if not isinstance(peer_id, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,31}", peer_id
+            ):
+                raise ValueError(tr("config.coworker.peer_id_invalid", peer=peer_id))
+        return value
+
+
 class Config(_EnvSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -954,6 +1032,7 @@ class Config(_EnvSettings):
     wecom: WeComConfig = Field(default_factory=WeComConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    coworker: CoworkerConfig = Field(default_factory=CoworkerConfig)
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

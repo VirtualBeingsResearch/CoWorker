@@ -70,6 +70,12 @@ wecom = '''WeCom:
 stream = '''Stream / desktop:
 - participant_id is a registered client or desktop actor address (e.g. `coworker-desktop:d:{actor}:{random}`) or a client-chosen id.
 - `conversation_id`, when present, names a specific conversation under that participant. A person may use several participant_ids across sessions.'''
+coworker = '''Coworker peers:
+- `coworker:{self_id}` is another Coworker instance (an AI peer), not a human; it has its own memory, tools, and identity. Negotiate as equals and do not use user-facing phrasing.
+- Send with `communicate(participant_id="coworker:...")`; keep the `conversation_id` carried by inbound messages for the same collaboration topic so both sides can correlate.
+- Peers accept text and attachments (images/files are forwarded as attachments, subject to a total size limit).
+- Contact a peer only when collaboration is genuinely needed (delegating a task, cross-checking information, syncing progress); stop once the goal is met, skip courtesy replies, and avoid pointless back-and-forth loops.
+- Discover currently known peers with `list_connections` and copy the full ID; unknown IDs are never auto-corrected.'''
 openai = '''OpenAI-compatible HTTP:
 - `openai:control` is the extra-token control address. It is not a person; do not persona-bind it. Issue, rotate, revoke, or list extras only from the main thread with `communicate(participant_id="openai:control", extra={...})`. Do not send control actions from a bubble.
 - Extra-token actions: `{"action":"issue","name":"<short>"}` (optional `person_id` or `person` to bind immediately), `{"action":"rotate","name":"<short>"}`, `{"action":"revoke","name":"<short>"}`, `{"action":"list"}`. Short names match `[a-z][a-z0-9_-]{0,31}` and cannot be `api` or `control`. The primary Desktop/Relay token cannot be issued, rotated, or revoked here.
