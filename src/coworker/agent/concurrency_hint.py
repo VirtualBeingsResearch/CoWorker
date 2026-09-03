@@ -65,6 +65,18 @@ class ConcurrencyHintTracker:
         self._last_count = 0
         self._last_hint_at: float | None = None
 
+    def configure(
+        self,
+        *,
+        window_seconds: float,
+        threshold: int,
+        cooldown_seconds: float,
+    ) -> None:
+        """管理端热更新检测参数；保留窗口内已记录的事件。"""
+        self._window_seconds = window_seconds
+        self._threshold = threshold
+        self._cooldown_seconds = cooldown_seconds
+
     def observe(
         self,
         events: Iterable[IncomingEvent],

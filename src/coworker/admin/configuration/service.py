@@ -59,6 +59,9 @@ HOT_CONFIG_PATHS = {
     "agent.passive_mode",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
+    "agent.concurrency_hint_window_seconds",
+    "agent.concurrency_hint_threshold",
+    "agent.concurrency_hint_cooldown_seconds",
     "memory.auto_recall_enabled",
     "memory.auto_recall_relevance_threshold",
     "memory.auto_recall_limit",
@@ -593,6 +596,14 @@ class AdminConfigService:
                 store = getattr(self._dependencies.agent, "_bubble_store", None)
                 if store is not None:
                     store.max_concurrent = desired.agent.bubble_max_concurrent
+            elif path.startswith("agent.concurrency_hint_"):
+                tracker = getattr(self._dependencies.agent, "_concurrency_hints", None)
+                if tracker is not None:
+                    tracker.configure(
+                        window_seconds=desired.agent.concurrency_hint_window_seconds,
+                        threshold=desired.agent.concurrency_hint_threshold,
+                        cooldown_seconds=desired.agent.concurrency_hint_cooldown_seconds,
+                    )
             elif path == "api.communication_token":
                 # 管理后台保存通信令牌后立即替换现有 ASGI 路由的校验值。
                 # 显式清空时回退到管理员令牌，并保持“未显式配置”标记。

@@ -240,3 +240,18 @@ def test_agent_loop_wires_concurrency_hint_config() -> None:
     assert loop._concurrency_hints._window_seconds == 60.0
     assert loop._concurrency_hints._threshold == 3
     assert loop._concurrency_hints._cooldown_seconds == 120.0
+
+
+def test_configure_updates_parameters_for_hot_reload():
+    clock = _FakeClock()
+    tracker = ConcurrencyHintTracker(clock=clock)
+    tracker.configure(window_seconds=60.0, threshold=3, cooldown_seconds=120.0)
+    assert tracker._window_seconds == 60.0
+    assert tracker._threshold == 3
+    assert tracker._cooldown_seconds == 120.0
+
+    tracker.observe([_event("alice"), _event("bob")])
+    assert tracker.observe([]) is None
+    hint = tracker.observe([_event("carol")])
+    assert hint is not None
+    assert hint.count == 3
