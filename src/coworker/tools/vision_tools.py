@@ -286,6 +286,10 @@ class ViewImageTool(Tool):
 
 
 class VisualAnalysisTool(Tool):
+    """委托配置的视觉模型分析图片或视频，供无视觉能力的主模型使用。"""
+
+    text_model_only = True
+
     def __init__(
         self,
         brain: Brain,

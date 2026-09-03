@@ -1656,9 +1656,17 @@ class TestVisualAnalysisTool:
             inbox=inbox or self._make_inbox(),
         )
 
-    def test_available_to_text_and_vision_models(self):
-        assert VisualAnalysisTool.text_model_only is False
+    def test_only_visible_to_text_models(self):
+        assert VisualAnalysisTool.text_model_only is True
         assert VisualAnalysisTool.vision_model_only is False
+
+    def test_hidden_from_vision_model_schemas(self):
+        registry = ToolRegistry()
+        registry.register(self._make_tool())
+        vision_names = {s["name"] for s in registry.get_schemas(model_has_vision=True)}
+        text_names = {s["name"] for s in registry.get_schemas(model_has_vision=False)}
+        assert "visual_analyze" not in vision_names
+        assert "visual_analyze" in text_names
 
     def test_definition_name(self):
         definition = self._make_tool().definition
