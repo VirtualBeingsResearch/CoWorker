@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from coworker.agent.concurrency_hint import ConcurrencyHintTracker
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
@@ -85,6 +86,7 @@ class AgentLoop:
         self._bubble_store = bubble_store
         self._subconscious = subconscious
         self._persona = persona
+        self._concurrency_hints = ConcurrencyHintTracker()
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -272,6 +274,7 @@ class AgentLoop:
                     source=" + ".join(sorted({event.source for event in batch})),
                 )
             )
+            self._maybe_inject_concurrency_hint(batch)
             participants = {e.participant_id for e in batch}
             if len(batch) > 1:
                 logger.info(
@@ -602,6 +605,34 @@ class AgentLoop:
             and getattr(message, "person_id", None) == person_id
             for message in self._short_term.primary
         )
+
+    def _maybe_inject_concurrency_hint(self, batch: list[IncomingEvent]) -> None:
+        """多会话并发高峰时追加一条 user 提示，引导用绑定的泡泡并行处理。
+
+        检测（滑动窗口 / 上穿边沿 / 冷却 / 活跃泡泡排除与满员约束）都在
+        ConcurrencyHintTracker 中；这里只负责把提示文本写进短期上下文。
+        与 _inject_persona_cards 一样按 getattr 取可选协作对象，兼容测试里
+        手工构造的实例。
+        """
+        tracker: ConcurrencyHintTracker | None = getattr(self, "_concurrency_hints", None)
+        bubble_store: BubbleStore | None = getattr(self, "_bubble_store", None)
+        if tracker is None or bubble_store is None:
+            return
+        hint = tracker.observe(batch, bubble_store)
+        if hint is None:
+            return
+        self._short_term.primary.append(
+            Message(
+                role="user",
+                content=tr(
+                    "loop.concurrency_hint",
+                    count=hint.count,
+                    max=bubble_store.max_concurrent,
+                ),
+                source="concurrency_hint",
+            )
+        )
+        logger.info(f"Injected concurrency hint for {hint.count} active conversation(s)")
 
     async def _auto_recall(self, query_text: str) -> None:
         if not query_text.strip():
