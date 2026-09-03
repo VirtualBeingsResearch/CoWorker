@@ -319,7 +319,7 @@ def test_detail_files_are_pruned_by_age(tmp_path):
 
 def test_detail_files_are_pruned_by_count(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 2
+        "coworker.channels.detail_store._DETAIL_MAX_FILES", 2
     )
     dispatcher = _dispatcher(tmp_path)
     registry = dispatcher._registry
@@ -337,7 +337,7 @@ def test_detail_count_pruning_is_deterministic_when_mtimes_match(
     tmp_path,
     monkeypatch,
 ):
-    monkeypatch.setattr("coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 10)
+    monkeypatch.setattr("coworker.channels.detail_store._DETAIL_MAX_FILES", 10)
     dispatcher = _dispatcher(tmp_path)
     registry = dispatcher._registry
     paths = [registry.write_detail(f"k{i}", f"content {i}") for i in range(4)]
@@ -345,7 +345,7 @@ def test_detail_count_pruning_is_deterministic_when_mtimes_match(
     for path in paths:
         os.utime(path, ns=(same_time, same_time))
 
-    monkeypatch.setattr("coworker.channels.stream.desktop.detail_store._DETAIL_MAX_FILES", 2)
+    monkeypatch.setattr("coworker.channels.detail_store._DETAIL_MAX_FILES", 2)
     registry._prune_details()
 
     assert [path.name for path in paths if path.exists()] == ["k2.txt", "k3.txt"]

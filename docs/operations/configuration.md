@@ -169,7 +169,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `API__PUBLIC_URL` | 空 | 反向代理后浏览器访问的公开 HTTP(S) 根地址，只能包含 scheme、host 和可选端口；首次初始化重连优先使用它，而不是内部监听地址 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
 | `API__COMMUNICATION_TOKEN` | 空（回退管理员令牌） | 生产通信 Bearer 令牌；显式设置后保护 Desktop 通信、普通 REST 消息、WebSocket/SSE 连接、运行日志流与 `/status` 完整快照。管理后台保存后立即生效，`.env` 修改需重启；需要与管理权限隔离时单独配置 |
-| `API__COMMUNICATION_TOKENS` | `{}` | OpenAI 信道额外通信令牌：JSON 对象，短名 → 密钥。短名匹配 `[a-z][a-z0-9_-]{0,31}`；`api` 与 `control` 会被拒绝。签发路径是 `openai:control`；管理端可列出、复制、作废或新增。保存后立即刷新鉴权。extras 不参与 Relay |
+| `API__COMMUNICATION_TOKENS` | `{}` | OpenAI 信道额外通信令牌：JSON 对象，短名 → 密钥。短名匹配 `[a-z][a-z0-9_-]{0,31}`；`api` 与 `control` 会被拒绝。签发路径是 `openai:control`；管理端可列出、复制、作废或新增。保存后立即刷新鉴权。Desktop 配对复制与 Relay 隧道身份仍使用主令牌；extras 可在直连与 Relay 内层 `/v1/*` 上鉴权 |
 | `API__COMPAT_TIMEOUT_SECONDS` | `180` | OpenAI 兼容 `chat/completions` 等待 `communicate` 或客户端工具结果的超时秒数（1–3600） |
 | `CHANNEL_ACCESS` | `{}` | 按信道设置 participant 入站/出站访问列表的 JSON 对象；每项可含 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` |
 | `ADMIN__TOKEN` | 首次启动自动生成 | `/admin` 管理控制台和 `/api/admin/*` 的 Bearer 令牌；自动值会保存到管理端配置文件 |

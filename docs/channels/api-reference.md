@@ -53,7 +53,7 @@ WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些
 | `GET /v1/models` | OpenAI 兼容模型目录，返回 `coworker` |
 | `POST /v1/chat/completions` | OpenAI 兼容入站；Bearer 短名映射为 `openai:{短名}` |
 
-`/v1/*` 使用任一通信令牌（主令牌或 extras）鉴权，且始终要求 Bearer。首次设置未完成时返回 JSON `503`，不会 303 到 `/admin`。不进入 Relay 允许列表。可选 `conversation_id` 或 `X-Coworker-Conversation-Id`；省略时由第一条 system 与第一条 user 做窗口指纹。`stream=true` 时把整段 completion 作为 SSE 发出，不是 token 流。详见 [OpenAI 兼容信道](api-and-channels.md#openai-兼容信道)。
+`/v1/*` 使用任一通信令牌（主令牌或 extras）鉴权，且始终要求 Bearer。首次设置未完成时返回 JSON `503`，不会 303 到 `/admin`。`GET /v1/models` 与 `POST /v1/chat/completions` 在 Relay 允许列表中，可经内层加密隧道访问（公网无明文门面）。可选 `conversation_id` 或 `X-Coworker-Conversation-Id`；省略时由第一条 system 与第一次请求的全部 user 做窗口指纹，后续回合沿用该指纹。入站正文包含本回合全部 user：第一次请求里的每条 user，或上一条 assistant/tool 之后新追加的 user。用户与 `tool` 消息的 `content` 可为字符串，或含 `text` / `image_url`（仅 data URL）的多模态数组；工具回传中的图片作为入站附件。`stream=true` 时按 `communicate` 增量发出 `chat.completion.chunk`（`delta`），`extra.end_turn` 结束后发出 `finish_reason` 与 `[DONE]`；不是模型 token 流。详见 [OpenAI 兼容信道](api-and-channels.md#openai-兼容信道)。
 
 ### 发送消息
 

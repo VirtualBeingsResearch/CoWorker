@@ -759,7 +759,10 @@ async def _main() -> bool:
                 ),
             )
         )
-        openai_module = create_openai_module(config.api)
+        openai_module = create_openai_module(
+            config.api,
+            attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
+        )
         channel_system.install(openai_module)
     communicate = CommunicateTool(channel_system.registry)
     job_store = BackgroundJobStore()
@@ -946,6 +949,7 @@ async def _main() -> bool:
     registry.register(ClearShortTermMemoryTool(short_term, brain, subconscious))
     if openai_module is not None:
         openai_module.attach_person_store(person_store)
+        openai_module.attach_short_term(short_term)
         openai_module.attach_native_tool_names(
             {name for name in registry.list_names() if name != "call_client_tool"}
         )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -26,6 +28,15 @@ class OpenAICompletion:
     timed_out: bool = False
 
 
+@dataclass(frozen=True)
+class StreamEvent:
+    """Outbound event for ``stream=true`` HTTP responses."""
+
+    kind: Literal["delta", "stop", "tool_calls", "timeout"]
+    content: str = ""
+    tool_calls: tuple[ClientToolCall, ...] = ()
+
+
 @dataclass
 class _PendingClientCall:
     name: str
@@ -34,7 +45,11 @@ class _PendingClientCall:
 
 
 class OpenAITurn:
-    """One held HTTP request waiting for communicate or client-tool calls."""
+    """One held HTTP request waiting for end_turn or client-tool calls.
+
+    Intermediate ``communicate`` calls append or stream content; only
+    ``extra.end_turn`` (or client ``tool_calls`` / timeout) closes the turn.
+    """
 
     def __init__(
         self,
@@ -43,20 +58,29 @@ class OpenAITurn:
         conversation_id: str,
         catalog: dict[str, dict[str, Any]],
         timeout_seconds: float,
+        stream: bool = False,
     ) -> None:
         self.participant_id = participant_id
         self.conversation_id = conversation_id
         self.catalog = catalog
         self.timeout_seconds = timeout_seconds
-        self.completion: asyncio.Future[OpenAICompletion] = asyncio.get_running_loop().create_future()
+        self.stream = stream
+        self.completion: asyncio.Future[OpenAICompletion] = (
+            asyncio.get_running_loop().create_future()
+        )
         self.expected_client_calls = 0
         self._pending: list[_PendingClientCall] = []
+        self._parts: list[str] = []
+        self._events: asyncio.Queue[StreamEvent] = asyncio.Queue()
         self._closed = False
+        self._deadline = time.monotonic() + timeout_seconds
 
     def prepare_client_calls(self, count: int) -> None:
         self.expected_client_calls = count
 
-    def register_client_call(self, name: str, arguments: dict[str, Any]) -> _PendingClientCall:
+    def register_client_call(
+        self, name: str, arguments: dict[str, Any]
+    ) -> _PendingClientCall:
         if name not in self.catalog:
             raise ValueError(tr("tool_result.client_tool.unknown_name", name=name))
         pending = _PendingClientCall(
@@ -81,19 +105,21 @@ class OpenAITurn:
     def _flush_tool_calls(self) -> None:
         if self.completion.done():
             return
-        self.completion.set_result(
-            OpenAICompletion(
-                kind="tool_calls",
-                tool_calls=tuple(
-                    ClientToolCall(
-                        id=item.openai_id,
-                        name=item.name,
-                        arguments=item.arguments,
-                    )
-                    for item in self._pending
-                ),
+        tool_calls = tuple(
+            ClientToolCall(
+                id=item.openai_id,
+                name=item.name,
+                arguments=item.arguments,
             )
+            for item in self._pending
         )
+        self.completion.set_result(
+            OpenAICompletion(kind="tool_calls", tool_calls=tool_calls)
+        )
+        if self.stream:
+            self._events.put_nowait(
+                StreamEvent(kind="tool_calls", tool_calls=tool_calls)
+            )
 
     def deliver_tool_results(self, results: dict[str, str]) -> None:
         known = {item.openai_id for item in self._pending}
@@ -103,10 +129,30 @@ class OpenAITurn:
                 tr("api.openai.tool_results_incomplete", ids=", ".join(missing))
             )
 
-    def fulfill_stop(self, message: str) -> bool:
+    def push_message(self, message: str) -> bool:
+        """Accept an intermediate communicate without ending the HTTP turn."""
         if self._closed or self.completion.done():
             return False
-        self.completion.set_result(OpenAICompletion(kind="stop", content=message))
+        text = message or ""
+        if text:
+            self._parts.append(text)
+            if self.stream:
+                self._events.put_nowait(StreamEvent(kind="delta", content=text))
+        return True
+
+    def fulfill_stop(self, message: str = "") -> bool:
+        """End the turn (``extra.end_turn``). Optional final message is included."""
+        if self._closed or self.completion.done():
+            return False
+        text = message or ""
+        if text:
+            self._parts.append(text)
+            if self.stream:
+                self._events.put_nowait(StreamEvent(kind="delta", content=text))
+        content = "".join(self._parts)
+        self.completion.set_result(OpenAICompletion(kind="stop", content=content))
+        if self.stream:
+            self._events.put_nowait(StreamEvent(kind="stop"))
         return True
 
     def expire(self) -> None:
@@ -115,6 +161,30 @@ class OpenAITurn:
             self.completion.set_result(
                 OpenAICompletion(kind="stop", content="", timed_out=True)
             )
+            if self.stream:
+                self._events.put_nowait(StreamEvent(kind="timeout"))
+
+    async def iter_events(self) -> AsyncIterator[StreamEvent]:
+        """Yield stream events until stop, tool_calls, or timeout."""
+        while True:
+            remaining = self._deadline - time.monotonic()
+            try:
+                event = await asyncio.wait_for(
+                    self._events.get(),
+                    timeout=max(remaining, 0.001),
+                )
+            except TimeoutError:
+                if not self.completion.done():
+                    self.expire()
+                try:
+                    event = self._events.get_nowait()
+                except asyncio.QueueEmpty:
+                    event = StreamEvent(kind="timeout")
+                yield event
+                return
+            yield event
+            if event.kind in {"stop", "tool_calls", "timeout"}:
+                return
 
     @property
     def awaiting_client(self) -> bool:
@@ -177,15 +247,20 @@ class OpenAISessionTable:
     def awaiting_tools(self, participant_id: str, conversation_id: str) -> bool:
         return (participant_id, conversation_id) in self._awaiting_tools
 
-    def take_awaiting_tools(self, participant_id: str, conversation_id: str) -> OpenAITurn | None:
-        return self._awaiting_tools.pop((participant_id, conversation_id), None)
-
     def in_flight_for(self, participant_id: str) -> list[OpenAITurn]:
         return [
             turn
             for turn in self._turns.values()
             if turn.participant_id == participant_id and turn.in_flight
         ]
+
+    def all_active(self) -> list[OpenAITurn]:
+        turns = list(self._turns.values())
+        seen = {id(turn) for turn in turns}
+        for turn in self._awaiting_tools.values():
+            if id(turn) not in seen:
+                turns.append(turn)
+        return turns
 
 
 class BusyError(Exception):

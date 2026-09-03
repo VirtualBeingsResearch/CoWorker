@@ -118,6 +118,20 @@ def _catalog_names(text: str) -> tuple[str, ...]:
     return tuple(re.findall(r'"name"\s*:\s*"([^"]+)"', text))
 
 
+def _collect_catalog_names(messages: list[Message] | list[dict[str, Any]]) -> tuple[str, ...]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in messages:
+        if _role(item) != "user":
+            continue
+        for name in _catalog_names(message_text(item)):
+            if name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+    return tuple(names)
+
+
 def _parse_client_results(text: str) -> tuple[tuple[str, str, str], ...]:
     body = text
     for marker in _CLIENT_RESULT_MARKERS:
@@ -211,7 +225,7 @@ def snapshot_messages(messages: list[Message] | list[dict[str, Any]]) -> Inbound
             client_results=_parse_client_results(raw),
             last_role=last_role,
         )
-    catalog = _catalog_names(raw)
+    catalog = _collect_catalog_names(messages)
     if catalog:
         return InboundSnapshot(
             kind="client_tools",

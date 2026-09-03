@@ -23,7 +23,7 @@
                   "type": "function",
                   "function": {
                     "name": "communicate",
-                    "arguments": { "message": "echo: {{user_text}}" }
+                    "arguments": { "extra": { "end_turn": true }, "message": "echo: {{user_text}}" }
                   }
                 }
               ]

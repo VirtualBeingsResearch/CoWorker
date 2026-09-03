@@ -6,23 +6,24 @@ import json
 import time
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from coworker.api.routes import (
-    is_authenticated_relay_request,
-    openai_participant_id,
-)
+from coworker.api.routes import openai_participant_id
 from coworker.channels.openai.channel import (
     OpenAIChannel,
     catalog_from_tools,
-    fingerprint_conversation,
     first_system_text,
+    image_attachments_from_message,
+    image_attachments_from_messages,
+    last_user_image_attachments,
     last_user_text,
+    tool_call_ids_from_messages,
+    turn_user_text,
 )
 from coworker.channels.openai.tokens import ExtraTokenStore
-from coworker.channels.openai.waiters import BusyError, OpenAICompletion
+from coworker.channels.openai.waiters import BusyError, OpenAICompletion, OpenAITurn
 from coworker.core.ids import new_compact_id
 from coworker.i18n import tr
 
@@ -127,13 +128,7 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: Any = None
 
 
-def _authorize(request: Request, authorization: str | None) -> str:
-    if is_authenticated_relay_request(request):
-        raise OpenAIHTTPError(
-            403,
-            tr("api.openai.relay_forbidden"),
-            "relay_forbidden",
-        )
+def _authorize(authorization: str | None) -> str:
     try:
         return openai_participant_id(authorization)
     except HTTPException as error:
@@ -149,10 +144,9 @@ def _authorize(request: Request, authorization: str | None) -> str:
 
 @router.get("/v1/models")
 async def list_models(
-    request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _authorize(request, authorization)
+    _authorize(authorization)
     now = int(time.time())
     return {
         "object": "list",
@@ -170,59 +164,104 @@ async def list_models(
 @router.post("/v1/chat/completions")
 async def chat_completions(
     payload: ChatCompletionRequest,
-    request: Request,
     authorization: str | None = Header(default=None),
     x_coworker_conversation_id: str | None = Header(default=None),
 ) -> Any:
-    participant_id = _authorize(request, authorization)
+    participant_id = _authorize(authorization)
     channel = _channel()
     messages = [item.model_dump(exclude_none=True) for item in payload.messages]
     conversation_id = _resolve_conversation_id(
         payload,
         x_coworker_conversation_id,
         messages,
+        channel=channel,
+        participant_id=participant_id,
     )
-    if _is_tool_followup(messages):
+    model = payload.model or _MODEL_ID
+    stream_headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    pending = channel.sessions().pending_tool_turn(participant_id, conversation_id)
+    if _is_tool_followup(messages) or _is_image_user_followup(messages, pending):
+        try:
+            results, image_dicts = _followup_results(messages, pending)
+            attachments = channel.materialize_image_dicts(image_dicts)
+        except ValueError as error:
+            raise OpenAIHTTPError(400, str(error)) from error
+        if payload.stream:
+            try:
+                turn = await channel.start_tool_followup(
+                    participant_id=participant_id,
+                    conversation_id=conversation_id,
+                    results=results,
+                    stream=True,
+                    attachments=attachments,
+                )
+            except BusyError as error:
+                _raise_busy(error.reason)
+            except ValueError as error:
+                raise OpenAIHTTPError(400, str(error)) from error
+            return StreamingResponse(
+                _sse_turn(model, channel, turn),
+                media_type="text/event-stream",
+                headers=stream_headers,
+            )
         try:
             completion = await channel.open_tool_followup(
                 participant_id=participant_id,
                 conversation_id=conversation_id,
-                results=_tool_results(messages),
+                results=results,
+                attachments=attachments,
             )
         except BusyError as error:
             _raise_busy(error.reason)
         except ValueError as error:
             raise OpenAIHTTPError(400, str(error)) from error
-    else:
-        user_text = last_user_text(messages)
-        if not user_text:
-            raise OpenAIHTTPError(400, tr("api.openai.user_message_required"))
-        if channel.sessions().awaiting_tools(participant_id, conversation_id):
-            _raise_busy("tools")
-        originating = _originating_user_text(messages)
+        return JSONResponse(_completion_body(model, completion))
+
+    user_text = turn_user_text(messages)
+    try:
+        attachments = channel.materialize_user_images(messages)
+    except ValueError as error:
+        raise OpenAIHTTPError(400, str(error)) from error
+    if not user_text and not attachments:
+        raise OpenAIHTTPError(400, tr("api.openai.user_message_required"))
+    if channel.sessions().awaiting_tools(participant_id, conversation_id):
+        _raise_busy("tools")
+    catalog = catalog_from_tools(payload.tools)
+    system_text = first_system_text(messages)
+    if payload.stream:
         try:
-            completion = await channel.open_user_turn(
+            turn = await channel.start_user_turn(
                 participant_id=participant_id,
                 conversation_id=conversation_id,
                 user_text=user_text,
-                system_text=first_system_text(messages),
-                catalog=catalog_from_tools(payload.tools),
-                originating_task=originating,
+                system_text=system_text,
+                catalog=catalog,
+                attachments=attachments,
+                stream=True,
             )
         except BusyError as error:
             _raise_busy(error.reason)
-    body = _completion_body(payload.model or _MODEL_ID, completion)
-    if payload.stream:
         return StreamingResponse(
-            _sse(body),
+            _sse_turn(model, channel, turn),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
+            headers=stream_headers,
         )
-    return JSONResponse(body)
+    try:
+        completion = await channel.open_user_turn(
+            participant_id=participant_id,
+            conversation_id=conversation_id,
+            user_text=user_text,
+            system_text=system_text,
+            catalog=catalog,
+            attachments=attachments,
+        )
+    except BusyError as error:
+        _raise_busy(error.reason)
+    return JSONResponse(_completion_body(model, completion))
 
 
 def _raise_busy(reason: str) -> None:
@@ -238,6 +277,9 @@ def _resolve_conversation_id(
     payload: ChatCompletionRequest,
     header: str | None,
     messages: list[dict[str, Any]],
+    *,
+    channel: OpenAIChannel,
+    participant_id: str,
 ) -> str:
     for candidate in (
         (header or "").strip(),
@@ -245,7 +287,7 @@ def _resolve_conversation_id(
     ):
         if candidate:
             return candidate
-    return fingerprint_conversation(messages)
+    return channel.resolve_implicit_conversation_id(participant_id, messages)
 
 
 def _is_tool_followup(messages: list[dict[str, Any]]) -> bool:
@@ -254,14 +296,31 @@ def _is_tool_followup(messages: list[dict[str, Any]]) -> bool:
     return str(messages[-1].get("role") or "") == "tool"
 
 
-def _tool_results(messages: list[dict[str, Any]]) -> dict[str, str]:
+def _is_image_user_followup(messages: list[dict[str, Any]], pending: OpenAITurn | None) -> bool:
+    if pending is None or not messages:
+        return False
+    last = messages[-1]
+    if str(last.get("role") or "") != "user":
+        return False
+    pending_ids = {item.openai_id for item in pending.pending_calls()}
+    if not pending_ids or not (pending_ids & tool_call_ids_from_messages(messages)):
+        return False
+    return bool(image_attachments_from_message(last))
+
+
+def _trailing_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     trailing: list[dict[str, Any]] = []
     for item in reversed(messages):
         if str(item.get("role") or "") != "tool":
             break
         trailing.append(item)
+    trailing.reverse()
+    return trailing
+
+
+def _tool_results(messages: list[dict[str, Any]]) -> dict[str, str]:
     results: dict[str, str] = {}
-    for item in reversed(trailing):
+    for item in _trailing_tool_messages(messages):
         call_id = str(item.get("tool_call_id") or "").strip()
         if not call_id:
             continue
@@ -273,11 +332,21 @@ def _tool_results(messages: list[dict[str, Any]]) -> dict[str, str]:
     return results
 
 
-def _originating_user_text(messages: list[dict[str, Any]]) -> str:
-    for item in messages:
-        if str(item.get("role") or "") == "user":
-            return last_user_text([item])
-    return ""
+def _followup_results(
+    messages: list[dict[str, Any]],
+    pending: OpenAITurn | None,
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    if _is_tool_followup(messages):
+        trailing = _trailing_tool_messages(messages)
+        return _tool_results(messages), image_attachments_from_messages(trailing)
+    if pending is None:
+        raise ValueError(tr("api.openai.tool_followup_unexpected"))
+    results = {
+        item.openai_id: last_user_text(messages) for item in pending.pending_calls()
+    }
+    if not results:
+        raise ValueError(tr("api.openai.tool_results_missing"))
+    return results, last_user_image_attachments(messages)
 
 
 def _completion_body(model: str, completion: OpenAICompletion) -> dict[str, Any]:
@@ -325,8 +394,154 @@ def _completion_body(model: str, completion: OpenAICompletion) -> dict[str, Any]
     }
 
 
-async def _sse(body: dict[str, Any]):
-    yield f"data: {json.dumps(body, ensure_ascii=False)}\n\n"
+def _chunk_body(
+    *,
+    completion_id: str,
+    created: int,
+    model: str,
+    delta: dict[str, Any],
+    finish_reason: str | None,
+) -> dict[str, Any]:
+    return {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model or _MODEL_ID,
+        "choices": [
+            {
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+
+
+async def _sse_turn(model: str, channel: OpenAIChannel, turn: OpenAITurn):
+    completion_id = f"chatcmpl-{new_compact_id()}"
+    created = int(time.time())
+    role_sent = False
+    try:
+        async for event in turn.iter_events():
+            if event.kind == "delta":
+                delta: dict[str, Any] = {}
+                if not role_sent:
+                    delta["role"] = "assistant"
+                    role_sent = True
+                if event.content:
+                    delta["content"] = event.content
+                if not delta:
+                    continue
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta=delta,
+                            finish_reason=None,
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+            elif event.kind == "timeout":
+                delta = {}
+                if not role_sent:
+                    delta["role"] = "assistant"
+                    role_sent = True
+                delta["content"] = tr("api.openai.timeout")
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta=delta,
+                            finish_reason=None,
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta={},
+                            finish_reason="stop",
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+            elif event.kind == "tool_calls":
+                delta = {}
+                if not role_sent:
+                    delta["role"] = "assistant"
+                    role_sent = True
+                delta["tool_calls"] = [
+                    {
+                        "index": index,
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": call.arguments,
+                        },
+                    }
+                    for index, call in enumerate(event.tool_calls)
+                ]
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta=delta,
+                            finish_reason=None,
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta={},
+                            finish_reason="tool_calls",
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+            elif event.kind == "stop":
+                yield (
+                    "data: "
+                    + json.dumps(
+                        _chunk_body(
+                            completion_id=completion_id,
+                            created=created,
+                            model=model,
+                            delta={},
+                            finish_reason="stop",
+                        ),
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+    finally:
+        channel.settle_turn(turn)
     yield "data: [DONE]\n\n"
 
 

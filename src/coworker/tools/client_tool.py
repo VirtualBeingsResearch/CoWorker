@@ -26,7 +26,7 @@ class CallClientTool(Tool):
                 "HTTP caller without waiting. name must be in that request's "
                 "catalog; copy participant_id and conversation_id from the "
                 "inbound OpenAI message. The client result arrives later as "
-                "inbound mail."
+                "inbound message."
             ),
             parameters={
                 "type": "object",

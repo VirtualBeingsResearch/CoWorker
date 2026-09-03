@@ -61,7 +61,10 @@ async def openai_compat_harness(
     inbox = InboxWatcher(config.agent.inbox_dir)
     channels = create_channel_system(config.agent.outbox_dir)
     channels.registry.set_inbound_handler(inbox.push)
-    openai_module = create_openai_module(config.api)
+    openai_module = create_openai_module(
+        config.api,
+        attachments_dir=tmp_path / "attachments",
+    )
     channels.install(openai_module)
 
     registry = ToolRegistry()
@@ -83,9 +86,12 @@ async def openai_compat_harness(
     long_term = MagicMock()
     long_term.is_ready = MagicMock(return_value=False)
 
+    short_term = ShortTermMemory(tree_enabled=False)
+    openai_module.attach_short_term(short_term)
+
     agent_loop = AgentLoop(
         brain=brain,
-        short_term=ShortTermMemory(tree_enabled=False),
+        short_term=short_term,
         long_term=long_term,
         tool_registry=registry,
         identity=MagicMock(name="e2e"),

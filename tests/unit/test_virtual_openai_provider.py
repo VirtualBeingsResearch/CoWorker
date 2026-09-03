@@ -59,6 +59,24 @@ def test_snapshot_classifies_structured_kinds() -> None:
     )
     assert tools.kind == "client_tools"
     assert tools.client_tools == ("read_file",)
+    pinned = snapshot_messages(
+        [
+            Message(
+                role="user",
+                content=(
+                    "[OpenAI client tools [abc]]\n"
+                    "Client tools for this request (call them with call_client_tool; "
+                    'do not treat these names as native Coworker tools):\n[{"name": "read_file"}]'
+                ),
+                pin_id="openai-req:tools:abc",
+                source="pinned_context",
+            ),
+            _openai_user("open a.py"),
+        ]
+    )
+    assert pinned.kind == "client_tools"
+    assert pinned.client_tools == ("read_file",)
+    assert pinned.user_text == "open a.py"
     results = snapshot_messages(
         [
             _openai_user(
@@ -77,7 +95,8 @@ def test_echo_fixture_is_openai_request_response() -> None:
     assert exchange.response["object"] == "chat.completion"
     assert exchange.response["choices"][0]["finish_reason"] == "tool_calls"
     assert exchange.response["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == {
-        "message": "echo: {{user_text}}"
+        "extra": {"end_turn": True},
+        "message": "echo: {{user_text}}",
     }
     runner = ScriptRunner(scenario)
     response, calls = runner.complete([_openai_user("hello coworker")])

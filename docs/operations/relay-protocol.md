@@ -57,8 +57,8 @@ version:u8 | type:u8 | stream_id:u32be | payload_length:u32be
 错误、ping 和 pong。Header 使用有序的 `[名称, 值]` 数组，重复值保持原顺序；正文与 SSE 都可分块流式传输。流 ID
 支持并发，接收方必须实施有界队列、背压、帧长和 Header 限制。
 
-Coworker 解密后统一执行 Relay 暴露策略，仅允许状态、Desktop 注册管理、消息、SSE 和
-已发布桌面更新。原始 Bearer 仍由现有 ASGI 认证验证。
+Coworker 解密后统一执行 Relay 暴露策略，仅允许状态、Desktop 注册管理、消息、SSE、
+已发布桌面更新，以及 OpenAI 兼容的 `GET /v1/models` 与 `POST /v1/chat/completions`。原始 Bearer 仍由现有 ASGI 认证验证。
 
 ## 来源上下文
 

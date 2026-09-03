@@ -127,7 +127,10 @@ async def test_custom_mapping_selects_turn_by_user_text(tmp_path) -> None:
                                         "type": "function",
                                         "function": {
                                             "name": "communicate",
-                                            "arguments": {"message": "got-alpha"},
+                                            "arguments": {
+                                                "message": "got-alpha",
+                                                "extra": {"end_turn": True},
+                                            },
                                         },
                                     }
                                 ],
@@ -150,7 +153,10 @@ async def test_custom_mapping_selects_turn_by_user_text(tmp_path) -> None:
                                         "type": "function",
                                         "function": {
                                             "name": "communicate",
-                                            "arguments": {"message": "got-beta"},
+                                            "arguments": {
+                                                "message": "got-beta",
+                                                "extra": {"end_turn": True},
+                                            },
                                         },
                                     }
                                 ],
