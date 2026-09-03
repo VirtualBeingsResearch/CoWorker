@@ -7,7 +7,7 @@ import {
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
-  MessagesSquare, Orbit, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
+  MessagesSquare, Orbit, Pause, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
 import './admin.css';
@@ -48,7 +48,7 @@ import remarkGfm from 'remark-gfm';
 type Section = 'overview' | 'usage' | 'memory' | 'models' | 'settings' | 'runtime' | 'identity' | 'people' | 'content' | 'relay' | 'releases' | 'audit';
 type Workspace = 'overview' | 'operations' | 'configuration' | 'relationships' | 'advanced';
 type RuntimeTab = 'tasks' | 'alarms' | 'logs' | 'maintenance';
-type LifeState = 'live' | 'resting' | 'quiet';
+type LifeState = 'live' | 'resting' | 'paused' | 'quiet';
 type AdminIdentity = { name: string; confirmation_name: string };
 type PromptSectionPreview = {
   name: string;
@@ -808,6 +808,7 @@ function Loading({ error }: { error?: string }) {
 
 function runtimePresenceLabel(status: Json) {
   if (!status.is_running) return t('未运行');
+  if (status.paused) return t('已暂停');
   if (status.is_sleeping) return t(status.passive_mode ? '等待事件' : '休息中');
   return t(status.passive_mode ? '处理事件' : '正在运行');
 }
@@ -823,6 +824,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   const usage = useLoad(() => api<UsageStats>('/api/admin/usage'), []);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState('');
+  const [pausing, setPausing] = useState(false);
   const reloadAll = async () => { await Promise.all([reload(), usage.reload()]); };
   const resume = async () => {
     setResuming(true);
@@ -836,12 +838,25 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
       setResuming(false);
     }
   };
+  const pause = async () => {
+    setPausing(true);
+    setResumeError('');
+    try {
+      await api('/api/admin/pause', { method: 'POST' });
+      await reload();
+    } catch (error) {
+      setResumeError(error instanceof Error ? error.message : t('暂停失败'));
+    } finally {
+      setPausing(false);
+    }
+  };
   if (loading || !data) return <Loading error={error} />;
   const status = data.status; const counts = data.counts;
   const running = status.is_running;
+  const paused = running && Boolean(status.paused);
   const resting = running && Boolean(status.is_sleeping);
   const firstPassiveStart = running && status.startup_reason === 'bootstrap' && Boolean(status.passive_mode) && Number(status.cycle_count || 0) === 0;
-  const presenceState = running ? (resting ? 'resting' : 'running') : 'quiet';
+  const presenceState = running ? (paused ? 'paused' : resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
   const sampledAt = formatTime(new Date(), [], { hour: '2-digit', minute: '2-digit' });
@@ -866,10 +881,12 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
       <div className="overview-status-actions">
-        {resting && !firstPassiveStart && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : '继续运行')}</button>}
+        {running && !paused && <button type="button" className="ghost mini" disabled={pausing} onClick={() => void pause()} title={t('暂停主线：新消息保留，恢复后一起处理')}><Pause size={14} />{t(pausing ? '正在暂停…' : '暂停')}</button>}
+        {(paused || (resting && !firstPassiveStart)) && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={paused ? t('结束暂停，继续处理保留的消息') : t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : paused ? '恢复运行' : '继续运行')}</button>}
         <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
       </div>
     </section>
+    {paused && <div className="notice paused"><Pause size={17} /><span>{t('搭档已暂停：新消息会保留在收件队列，恢复运行后一起处理。暂停状态在重启后保持。')}</span></div>}
     {firstPassiveStart && <section className="overview-first-cycle" role="note"><div className="overview-first-cycle-mark"><Orbit size={22} /><i /></div><div><span>{t('Passive 模式 · 第一次运行')}</span><h2>{t('请由你开启她对世界的第一次观察')}</h2><p>{t('被动模式不会自行开始生命循环。点击“开始第一次运行”会在不添加对话消息的情况下主动继续；这次醒来所感知的环境，将参与形成她最初的世界记忆。')}</p></div>{resting ? <button type="button" className="primary" disabled={resuming} onClick={() => void resume()}><Play size={15} />{t(resuming ? '正在开始…' : '开始第一次运行')}</button> : <small>{t('正在准备第一次运行，请稍候刷新。')}</small>}</section>}
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
@@ -1283,7 +1300,7 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
 }
 
 const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
-const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template', 'api.communication_tokens']);
+const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template', 'agent.paused', 'api.communication_tokens']);
 const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   IDENTITY: '姓名、位置与人格身份',
   ENVIRONMENT: '操作系统、Python、目录与时区',
@@ -4110,7 +4127,7 @@ export default function AdminApp() {
         const result = await api<Json>('/api/admin/overview');
         if (!active) return;
         const running = Boolean(result.status?.is_running);
-        setLifeState(running ? (result.status?.is_sleeping ? 'resting' : 'live') : 'quiet');
+        setLifeState(!running ? 'quiet' : result.status?.paused ? 'paused' : result.status?.is_sleeping ? 'resting' : 'live');
       } catch {
         if (active) setLifeState('quiet');
       }
@@ -4166,7 +4183,7 @@ export default function AdminApp() {
   }, [navigate]);
   const name = identity.name || '';
   const confirmationName = identity.confirmation_name || '';
-  const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : '等待生命信号');
+  const lifeLabel = t(lifeState === 'live' ? '生命信号在线' : lifeState === 'resting' ? '安静休息中' : lifeState === 'paused' ? '已暂停响应' : '等待生命信号');
   if (!sessionChecked) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在确认本地值守状态…')}</span></div></main></>;
   if (!ready) return <Login onReady={result => { setIdentity(result); setReady(true); }} />;
   if (!bootstrap) return <><AdminLanguageSwitch className="admin-language-toggle-floating" /><main className="admin-login"><div className="state-box"><span className="state-pulse"><i /><i /><i /></span><span>{t('正在读取初始化状态…')}</span></div></main></>;

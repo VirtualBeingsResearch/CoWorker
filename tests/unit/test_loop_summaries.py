@@ -34,6 +34,7 @@ def _make_loop(brain, mem, events=None):
     config = MagicMock()
     config.agent.idle_sleep_seconds = 0
     config.agent.inbox_batch_max = 10
+    config.agent.paused = False
 
     state = MagicMock()
     state.tick = False
@@ -58,6 +59,7 @@ def _make_loop(brain, mem, events=None):
     loop._snapshot_path = None
     loop._stop_event = MagicMock()
     loop._stop_event.is_set = MagicMock(return_value=False)
+    loop._resume_event = MagicMock()
     loop.state = state
     loop._task_store = None
     loop._task_reminder_interval = 10

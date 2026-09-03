@@ -680,6 +680,10 @@ class AgentConfig(_EnvSettings):
     # passive 模式：_rest() 不设 idle 超时，模型 sleep 只等外部事件唤醒，
     # 取消「无事件时周期性 tick 自驱」。运行时可通过管理 API 热切换。
     passive_mode: bool = False
+    # 管理端暂停：主循环停靠在 _pause_rest()，新消息留在 inbox 队列，
+    # 恢复后一起处理。运行时可通过管理 API 热切换，随覆盖配置持久化，
+    # 重启后保持暂停。
+    paused: bool = False
 
     code_hard_timeout: int = 300
     image_max_dimension: int = 960

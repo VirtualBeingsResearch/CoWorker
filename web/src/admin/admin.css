@@ -622,6 +622,7 @@ html:has(.admin-login),
 
 .life-quiet .admin-sidebar::after { background: linear-gradient(transparent, #ffffff16, transparent); }
 .life-resting .admin-sidebar::after { background: linear-gradient(transparent, color-mix(in oklch, var(--admin-amber) 50%, transparent), transparent); }
+.life-paused .admin-sidebar::after { background: linear-gradient(transparent, color-mix(in oklch, var(--admin-sky) 50%, transparent), transparent); }
 
 .admin-brand {
   display: flex;
@@ -658,6 +659,7 @@ html:has(.admin-login),
 }
 
 .life-resting .brand-mark i { background: var(--admin-amber); }
+.life-paused .brand-mark i { background: var(--admin-sky); box-shadow: none; }
 .life-quiet .brand-mark i { background: #718084; box-shadow: none; }
 .admin-brand b,
 .admin-brand span { display: block; }
@@ -738,6 +740,7 @@ html:has(.admin-login),
 .sidebar-foot button:hover { color: color-mix(in oklch, var(--admin-paper) 86%, var(--admin-ink)); }
 .sidebar-presence > i { width: 7px; height: 7px; border-radius: 50%; background: var(--admin-vital); box-shadow: 0 0 0 4px color-mix(in oklch, var(--admin-vital) 14%, transparent); }
 .life-resting .sidebar-presence > i { background: var(--admin-amber); box-shadow: none; }
+.life-paused .sidebar-presence > i { background: var(--admin-sky); box-shadow: none; }
 .life-quiet .sidebar-presence > i { background: #718084; box-shadow: none; }
 
 .admin-main { min-width: 0; }
@@ -795,6 +798,7 @@ html:has(.admin-login),
 .shell-life > span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; white-space: nowrap; }
 .shell-life > span > i { width: 6px; height: 6px; border-radius: 50%; background: var(--admin-vital); }
 .life-resting .shell-life > span > i { background: var(--admin-amber); }
+.life-paused .shell-life > span > i { background: var(--admin-sky); }
 .life-quiet .shell-life > span > i { background: #839093; }
 
 .life-trace {
@@ -838,6 +842,9 @@ html:has(.admin-login),
 .life-resting .life-trace::before { background: color-mix(in oklch, var(--admin-amber) 32%, var(--admin-line)); }
 .life-resting .life-trace::after { background: var(--admin-amber); animation-duration: 5s; }
 .life-resting .life-trace i { background: color-mix(in oklch, var(--admin-amber) 70%, var(--admin-surface)); }
+.life-paused .life-trace::before { background: color-mix(in oklch, var(--admin-sky) 32%, var(--admin-line)); }
+.life-paused .life-trace::after { background: var(--admin-sky); animation: none; }
+.life-paused .life-trace i { background: color-mix(in oklch, var(--admin-sky) 70%, var(--admin-surface)); }
 .life-quiet .life-trace::after { display: none; }
 .life-quiet .life-trace i { height: 3px; background: #9aa6a7; }
 
@@ -981,6 +988,7 @@ html:has(.admin-login),
     var(--admin-surface);
 }
 .overview-status-strip.resting { --presence-color: var(--admin-amber); }
+.overview-status-strip.paused { --presence-color: var(--admin-sky); }
 .overview-status-strip.quiet { --presence-color: #869396; }
 .overview-status-lead { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .overview-status-lead .eyebrow { margin: 0 0 4px; color: color-mix(in oklch, var(--presence-color) 70%, var(--admin-muted)); }
@@ -990,6 +998,7 @@ html:has(.admin-login),
 .overview-mini-signal { display: flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto; width: 50px; height: 48px; padding: 8px; border: 1px solid color-mix(in oklch, var(--presence-color) 22%, var(--admin-line)); border-radius: 13px; background: color-mix(in oklch, var(--presence-color) 8%, var(--admin-surface)); }
 .overview-mini-signal i { width: 3px; height: var(--h); max-height: 30px; border-radius: 99px; background: var(--presence-color); animation: vital-beat 1.8s ease-in-out var(--d) infinite; }
 .overview-status-strip.resting .overview-mini-signal i { animation-duration: 4s; }
+.overview-status-strip.paused .overview-mini-signal i { animation: none; opacity: .55; transform: scaleY(.45); }
 .overview-status-strip.quiet .overview-mini-signal i { animation: none; opacity: .46; transform: scaleY(.35); }
 .overview-status-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; border-left: 1px solid var(--admin-line); }
 .overview-status-facts > div { min-width: 0; padding: 2px 13px; border-right: 1px solid var(--admin-line); }
@@ -1410,6 +1419,7 @@ html:has(.admin-login),
 /* Feedback */
 .notice { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 10px 13px; border: 1px solid transparent; border-radius: 10px; font-size: 12px; line-height: 1.5; }
 .notice.amber { color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-amber) 34%, var(--admin-surface)); background: color-mix(in oklch, var(--admin-amber) 10%, var(--admin-surface)); }
+.notice.paused { color: color-mix(in oklch, var(--admin-sky) 60%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-sky) 40%, var(--admin-surface)); background: color-mix(in oklch, var(--admin-sky) 14%, var(--admin-surface)); }
 .notice.success { color: color-mix(in oklch, var(--admin-vital) 82%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-vital) 28%, var(--admin-surface)); background: color-mix(in oklch, var(--admin-vital) 8%, var(--admin-surface)); }
 .notice.error { color: color-mix(in oklch, var(--admin-red) 82%, var(--admin-ink)); border-color: color-mix(in oklch, var(--admin-red) 28%, var(--admin-surface)); background: color-mix(in oklch, var(--admin-red) 7%, var(--admin-surface)); }
 .state-box { display: grid; place-items: center; align-content: center; gap: 12px; min-height: 180px; border: 1px dashed var(--admin-line); border-radius: 15px; color: var(--admin-muted); background: color-mix(in oklch, var(--admin-surface) 82%, transparent); font-size: 12px; }
