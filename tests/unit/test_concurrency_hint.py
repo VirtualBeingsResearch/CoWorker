@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from pydantic import ValidationError
+
 from coworker.agent.bubble import BubbleStore
 from coworker.agent.concurrency_hint import ConcurrencyHintTracker
 from coworker.agent.loop import AgentLoop
+from coworker.core.config import AgentConfig
 from coworker.core.types import IncomingEvent
 from coworker.i18n import locale_context
 from coworker.memory.short_term import ShortTermMemory
@@ -172,3 +179,64 @@ def test_loop_injects_hint_message_into_short_term_context():
     before = len(mem.primary)
     loop._maybe_inject_concurrency_hint([_event("alice")])
     assert len(mem.primary) == before
+
+
+_AGENT__HINT_VARS = (
+    "AGENT__CONCURRENCY_HINT_WINDOW_SECONDS",
+    "AGENT__CONCURRENCY_HINT_THRESHOLD",
+    "AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS",
+)
+
+
+def test_concurrency_hint_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in _AGENT__HINT_VARS:
+        monkeypatch.delenv(var, raising=False)
+    config = AgentConfig(_env_file=None)
+
+    assert config.concurrency_hint_window_seconds == 180.0
+    assert config.concurrency_hint_threshold == 2
+    assert config.concurrency_hint_cooldown_seconds == 600.0
+
+
+def test_concurrency_hint_config_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT__CONCURRENCY_HINT_WINDOW_SECONDS", "60")
+    monkeypatch.setenv("AGENT__CONCURRENCY_HINT_THRESHOLD", "3")
+    monkeypatch.setenv("AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS", "120")
+    config = AgentConfig(_env_file=None)
+
+    assert config.concurrency_hint_window_seconds == 60.0
+    assert config.concurrency_hint_threshold == 3
+    assert config.concurrency_hint_cooldown_seconds == 120.0
+
+
+def test_concurrency_hint_threshold_rejects_values_below_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT__CONCURRENCY_HINT_THRESHOLD", "1")
+    with pytest.raises(ValidationError):
+        AgentConfig(_env_file=None)
+
+
+def test_agent_loop_wires_concurrency_hint_config() -> None:
+    config = SimpleNamespace(
+        agent=SimpleNamespace(
+            concurrency_hint_window_seconds=60.0,
+            concurrency_hint_threshold=3,
+            concurrency_hint_cooldown_seconds=120.0,
+        )
+    )
+
+    loop = AgentLoop(
+        brain=MagicMock(),
+        short_term=MagicMock(),
+        long_term=MagicMock(),
+        tool_registry=MagicMock(),
+        identity=MagicMock(),
+        prompt_builder=MagicMock(),
+        inbox_watcher=MagicMock(),
+        config=config,
+    )
+
+    assert loop._concurrency_hints._window_seconds == 60.0
+    assert loop._concurrency_hints._threshold == 3
+    assert loop._concurrency_hints._cooldown_seconds == 120.0

@@ -686,6 +686,10 @@ class AgentConfig(_EnvSettings):
     message_time_prefix: bool = True
     bubble_thinking: bool = True
     bubble_max_concurrent: int = Field(default=5, gt=0)
+    # 多会话并发提示：滑动窗口内未接管会话数上穿阈值时，向模型注入泡泡并行提示。
+    concurrency_hint_window_seconds: float = Field(default=180.0, gt=0)
+    concurrency_hint_threshold: int = Field(default=2, ge=2)
+    concurrency_hint_cooldown_seconds: float = Field(default=600.0, gt=0)
     # participant_id 整串匹配这些 glob 时，向对方显式说明泡泡转交并标识回复。
     # 环境变量传 JSON 数组；不含通配符的条目表示精确匹配，[] 可关闭全部默认匹配。
     bubble_handoff_transparency_participant_matches: list[str] = Field(

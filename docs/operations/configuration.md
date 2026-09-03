@@ -142,6 +142,9 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
+| `AGENT__CONCURRENCY_HINT_WINDOW_SECONDS` | `180.0` | 多会话并发提示的滑动窗口时长（秒）；窗口内出现过来信的会话视为同时活跃 |
+| `AGENT__CONCURRENCY_HINT_THRESHOLD` | `2` | 窗口内未被泡泡接管的会话数上穿该阈值时，向模型注入泡泡并行提示；最小为 2 |
+| `AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` | `600.0` | 两次并发提示之间的最小间隔（秒） |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "tg:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw、Telegram 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |

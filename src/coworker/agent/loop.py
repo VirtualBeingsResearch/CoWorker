@@ -86,7 +86,11 @@ class AgentLoop:
         self._bubble_store = bubble_store
         self._subconscious = subconscious
         self._persona = persona
-        self._concurrency_hints = ConcurrencyHintTracker()
+        self._concurrency_hints = ConcurrencyHintTracker(
+            window_seconds=config.agent.concurrency_hint_window_seconds,
+            threshold=config.agent.concurrency_hint_threshold,
+            cooldown_seconds=config.agent.concurrency_hint_cooldown_seconds,
+        )
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
