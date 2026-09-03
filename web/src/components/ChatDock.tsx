@@ -475,6 +475,9 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
     void fetchEventSource(getChatEventStreamUrl(participantId), {
       headers,
       signal: controller.signal,
+      // 库默认在页面隐藏时主动断流；断开窗口内后端只把回复落盘 outbox，重连后
+      // 不回放，网页端会缺消息，因此保持隐藏时也维持连接。
+      openWhenHidden: true,
       onopen: async response => {
         if (disposed || eventSourceRef.current !== controller) {
           controller.abort();

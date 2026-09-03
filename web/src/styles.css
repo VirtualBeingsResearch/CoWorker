@@ -1627,6 +1627,9 @@ h1, h2, h3, p { margin: 0; }
   background: var(--surface);
   box-shadow: 0 24px 80px oklch(0% 0 0 / 0.15), inset 0 1px 0 oklch(100% 0 0 / 0.9);
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* 列宽下限取 0：底部连接错误等 nowrap 长文本按 max-content 参与隐式列取宽，
+     会把整列（含消息区）撑出卡片；下限为 0 才能让 flex 子项收缩并走省略号。 */
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   transform: translateY(24px) scale(0.96);
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1904,7 +1907,7 @@ h1, h2, h3, p { margin: 0; }
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   color: var(--muted); font-family: var(--font-meta); font-size: 11px;
 }
-.chat-tool-statuses { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-tool-statuses { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; }
 .chat-bubble-live {
   display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 220px;
   padding: 3px 7px; border: 1px solid color-mix(in oklch, var(--tool-bubble) 34%, var(--border));
