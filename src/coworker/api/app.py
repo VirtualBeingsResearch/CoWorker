@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import secrets
+import time
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -50,6 +51,7 @@ from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.ids import new_compact_id
+from coworker.core.metrics import Counter, Histogram, MetricsRegistry
 from coworker.core.types import CommunicateRequest
 from coworker.desktop_updates import (
     DesktopReleaseStore,
@@ -147,6 +149,58 @@ async def redirect_to_setup(request: Request, call_next):
         return setup_required_v1_response()
     response = RedirectResponse(url="/admin", status_code=303)
     response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# HTTP 遥测：注册表在 application 装配时注入；未注入（metrics 关闭）时中间件直通。
+_metrics_registry: MetricsRegistry | None = None
+_http_requests_total: Counter | None = None
+_http_request_duration: Histogram | None = None
+_metrics_started_monotonic = time.monotonic()
+
+
+def setup_metrics_registry(registry: MetricsRegistry) -> None:
+    """Declare the HTTP metric families and enable request collection."""
+    global _metrics_registry, _http_requests_total, _http_request_duration
+    global _metrics_started_monotonic
+    _metrics_registry = registry
+    _metrics_started_monotonic = time.monotonic()
+    _http_requests_total = registry.counter(
+        "coworker_http_requests_total",
+        "HTTP requests by method, route template and status code.",
+        ("method", "route", "status"),
+    )
+    _http_request_duration = registry.histogram(
+        "coworker_http_request_duration_seconds",
+        "HTTP request duration in seconds; streaming responses count until "
+        "the first body byte.",
+    )
+
+
+def metrics_started_monotonic() -> float:
+    return _metrics_started_monotonic
+
+
+def _record_http_metrics(request: Request, status: str, started: float) -> None:
+    assert _http_requests_total is not None and _http_request_duration is not None
+    route = request.scope.get("route")
+    # 路由模板（如 /ws/{participant_id}）替代原始路径，避免把 ID 变成高基数标签。
+    template = getattr(route, "path_format", "") or "unmatched"
+    _http_requests_total.inc(method=request.method, route=template, status=status)
+    _http_request_duration.observe(time.perf_counter() - started)
+
+
+@app.middleware("http")
+async def collect_http_metrics(request: Request, call_next):
+    if _http_requests_total is None or _http_request_duration is None:
+        return await call_next(request)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        _record_http_metrics(request, "500", started)
+        raise
+    _record_http_metrics(request, str(response.status_code), started)
     return response
 
 

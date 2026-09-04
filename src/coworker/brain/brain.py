@@ -91,7 +91,9 @@ class Brain:
         self._last_switch_was_fallback = False
         self._summary_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._vision_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
-        self._model_switch_listeners: list[Callable[[str, str], Awaitable[None]]] = []
+        self._model_switch_listeners: list[
+            Callable[[str, str, str, str, str], Awaitable[None]]
+        ] = []
 
     @property
     def message_time_prefix(self) -> bool:
@@ -153,9 +155,13 @@ class Brain:
 
     def add_model_switch_listener(
         self,
-        fn: Callable[[str, str], Awaitable[None]],
+        fn: Callable[[str, str, str, str, str], Awaitable[None]],
     ) -> None:
-        """Register an async observer for persistent active-model changes."""
+        """Register an async observer for persistent active-model changes.
+
+        Observers receive ``(from_provider, from_model, to_provider,
+        to_model, reason)`` where ``reason`` is ``"fallback"`` or ``"manual"``.
+        """
         self._model_switch_listeners.append(fn)
 
     def inherit_usage_listeners_from(self, other: Brain) -> None:
@@ -174,7 +180,14 @@ class Brain:
             except Exception as e:
                 logger.warning(f"Brain usage listener raised, ignored: {e}")
 
-    async def _notify_model_switch_listeners(self, provider: str, model: str) -> None:
+    async def _notify_model_switch_listeners(
+        self,
+        provider: str,
+        model: str,
+        from_provider: str,
+        from_model: str,
+        reason: str,
+    ) -> None:
         # Serialize notifications so concurrent switches cannot leave observers on
         # an older model after a newer switch has already completed.
         async with self._model_switch_listener_lock:
@@ -182,7 +195,7 @@ class Brain:
                 return
             for fn in self._model_switch_listeners:
                 try:
-                    await fn(provider, model)
+                    await fn(from_provider, from_model, provider, model, reason)
                 except Exception as e:
                     logger.warning(
                         tr(
@@ -560,7 +573,9 @@ class Brain:
                     self._active_model = model
                     self._last_switch_was_fallback = True
                 logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
-                await self._notify_model_switch_listeners(name, model)
+                await self._notify_model_switch_listeners(
+                    name, model, old[0], old[1], "fallback"
+                )
             return response
 
         assert last_err is not None
@@ -699,7 +714,9 @@ class Brain:
             self._active_model = model_id
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
         if old != (provider_name, model_id):
-            await self._notify_model_switch_listeners(provider_name, model_id)
+            await self._notify_model_switch_listeners(
+                provider_name, model_id, old[0], old[1], "manual"
+            )
 
     @staticmethod
     def _sanitize_for_summary(content: str | list) -> str | list:

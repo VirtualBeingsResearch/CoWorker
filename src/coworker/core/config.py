@@ -408,6 +408,8 @@ class APIConfig(_EnvSettings):
             "http://127.0.0.1:8000",
         ]
     )
+    # Prometheus 指标端点开关：关闭后 /metrics 返回 404，运行时指标不再采集。
+    metrics_enabled: bool = True
 
     @field_validator("public_url")
     @classmethod

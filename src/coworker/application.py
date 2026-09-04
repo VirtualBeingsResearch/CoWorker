@@ -57,6 +57,7 @@ from coworker.core.config import (
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.logging import intercept_standard_logging
+from coworker.core.metrics import MetricsRegistry
 from coworker.core.model_config import apply_runtime_model_config_file
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
 from coworker.core.types import AgentState, IncomingEvent, Message
@@ -313,7 +314,13 @@ def _bind_memory_model_following(
 ) -> None:
     """Keep mem0 on the active model while its provider remains implicit."""
 
-    async def reconfigure_for_active_model(provider: str, model: str) -> None:
+    async def reconfigure_for_active_model(
+        from_provider: str,
+        from_model: str,
+        provider: str,
+        model: str,
+        reason: str,
+    ) -> None:
         if config.memory.mem0_llm_provider:
             return
         await long_term.reconfigure(
@@ -735,11 +742,46 @@ async def _main() -> bool:
 
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
 
+    # 运行时遥测注册表：仅进程生命周期（HTTP 请求、会话、Relay、模型切换），
+    # 重启归零；需跨重启保留的统计走 UsageStatsCollector / ChannelTrafficStore。
+    metrics_registry = MetricsRegistry() if config.api.metrics_enabled else None
+    if metrics_registry is not None:
+        api_app.setup_metrics_registry(metrics_registry)
+        model_switches = metrics_registry.counter(
+            "coworker_model_switches_total",
+            "Active model switches by reason and model pair.",
+            (
+                "from_provider",
+                "from_model",
+                "to_provider",
+                "to_model",
+                "reason",
+            ),
+        )
+
+        async def record_model_switch_metrics(
+            from_provider: str,
+            from_model: str,
+            to_provider: str,
+            to_model: str,
+            reason: str,
+        ) -> None:
+            model_switches.inc(
+                from_provider=from_provider,
+                from_model=from_model,
+                to_provider=to_provider,
+                to_model=to_model,
+                reason=reason,
+            )
+
+        brain.add_model_switch_listener(record_model_switch_metrics)
+
     channel_system = create_channel_system(
         outbox_dir=config.agent.outbox_dir,
         activity_path=Path(config.memory.db_path) / "channel_activity.json",
         access_config=config.channel_access,
         traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
+        metrics=metrics_registry,
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None
@@ -1043,7 +1085,7 @@ async def _main() -> bool:
         token=desktop_update_runtime.token,
         auto_publish=desktop_update_runtime.auto_publish,
     )
-    relay_client = RelayClient(api_app.app, config)
+    relay_client = RelayClient(api_app.app, config, metrics_registry)
 
     if not setup_required:
         channel_system.install(

@@ -22,6 +22,7 @@ from coworker.channels.stream.registration import (
     next_participant_id,
 )
 from coworker.channels.traffic import ChannelTrafficStore
+from coworker.core.metrics import Counter, Gauge, MetricsRegistry
 from coworker.core.types import (
     AttachmentData,
     CommunicateRegistration,
@@ -48,6 +49,7 @@ class StreamRuntime:
         registrations_path: str | Path,
         activity: ChannelActivityStore | None = None,
         traffic: ChannelTrafficStore | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._outbox = Path(outbox_dir)
         self._pool = ConnectionPool()
@@ -55,6 +57,24 @@ class StreamRuntime:
         self._attachments = AttachmentStore(self._outbox.parent / "attachments")
         self._activity = activity or ChannelActivityStore()
         self._traffic = traffic if traffic is not None else ChannelTrafficStore()
+        self._metrics = metrics
+        self._session_transports: dict[str, str] = {}
+        self._sessions_total: Counter | None
+        self._sessions_active: Gauge | None
+        if metrics is not None:
+            self._sessions_total = metrics.counter(
+                "coworker_sessions_total",
+                "Stream sessions by transport and outcome.",
+                ("transport", "state"),
+            )
+            self._sessions_active = metrics.gauge(
+                "coworker_sessions_active",
+                "Currently live stream sessions by transport.",
+                ("transport",),
+            )
+        else:
+            self._sessions_total = None
+            self._sessions_active = None
 
     def register_session(
         self,
@@ -63,10 +83,32 @@ class StreamRuntime:
         *,
         transport: str = "websocket",
     ) -> bool:
-        return self._pool.register_session(participant_id, queue, transport=transport)
+        accepted = self._pool.register_session(
+            participant_id, queue, transport=transport
+        )
+        if accepted:
+            self._session_transports[participant_id] = transport
+            if self._sessions_total is not None:
+                self._sessions_total.inc(transport=transport, state="accepted")
+            if self._sessions_active is not None:
+                self._sessions_active.inc(transport=transport)
+        elif self._sessions_total is not None:
+            self._sessions_total.inc(transport=transport, state="rejected")
+        return accepted
 
     def unregister_session(self, participant_id: str, queue: asyncio.Queue[Any]) -> None:
+        was_live = self._pool.outbound_queue(participant_id) is queue
+        transport = self._session_transports.get(participant_id)
         self._pool.unregister_session(participant_id, queue)
+        if not was_live:
+            return
+        self._session_transports.pop(participant_id, None)
+        if self._sessions_total is not None:
+            self._sessions_total.inc(
+                transport=transport or "websocket", state="closed"
+            )
+        if self._sessions_active is not None:
+            self._sessions_active.dec(transport=transport or "websocket")
 
     def outbound_queue(self, participant_id: str) -> asyncio.Queue[Any] | None:
         return self._pool.outbound_queue(participant_id)

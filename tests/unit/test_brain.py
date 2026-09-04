@@ -108,7 +108,9 @@ class TestBrain:
 
         await brain.switch_model("mock", "new-model")
 
-        listener.assert_awaited_once_with("mock", "new-model")
+        listener.assert_awaited_once_with(
+            "mock", "old-model", "mock", "new-model", "manual"
+        )
 
     @pytest.mark.asyncio
     async def test_switch_model_unknown_provider(self):
@@ -609,7 +611,9 @@ class TestBrainFallback:
         # 降级后停在备用模型，并标记为失败降级
         assert brain.current_provider_name == "backup"
         assert brain.current_model == "backup-model"
-        listener.assert_awaited_once_with("backup", "backup-model")
+        listener.assert_awaited_once_with(
+            "primary", "primary-model", "backup", "backup-model", "fallback"
+        )
         assert brain.consume_fallback_switch() is True
         # consume 后复位
         assert brain.consume_fallback_switch() is False
