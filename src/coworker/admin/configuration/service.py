@@ -57,6 +57,7 @@ HOT_CONFIG_PATHS = {
     "llm.model_prices",
     "agent.idle_sleep_seconds",
     "agent.passive_mode",
+    "agent.paused",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
     "memory.auto_recall_enabled",

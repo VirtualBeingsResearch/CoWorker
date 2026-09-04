@@ -74,6 +74,9 @@ class AgentLoop:
         self._config = config
         self._ilog = interaction_log
         self._stop_event = asyncio.Event()
+        # 管理端暂停的停靠/恢复信号：_pause_rest() 只等这个事件，
+        # 避免队列中已有消息时 message_event 反复触发造成空转。
+        self._resume_event = asyncio.Event()
         self._snapshot_path = snapshot_path
         self._consecutive_errors = 0
         self._consecutive_no_tool_responses = 0
@@ -113,6 +116,11 @@ class AgentLoop:
         # first model cycle.
         if self._config.agent.passive_mode:
             await self._rest()
+
+        # 管理端暂停随覆盖配置持久化，重启后仍保持暂停：启动时先停靠，
+        # 直到管理员恢复。
+        if self._config.agent.paused:
+            await self._pause_rest()
 
         while not self._stop_event.is_set():
             try:
@@ -208,7 +216,17 @@ class AgentLoop:
 
     def stop(self) -> None:
         self._stop_event.set()
-        # 唤醒 _rest() 中等待的消息事件，避免等满 idle_sleep_seconds 才退出
+        # 唤醒 _rest() 中等待的消息事件，避免等满 idle_sleep_seconds 才退出；
+        # 同时唤醒停靠在 _pause_rest() 的循环，暂停期间也能正常关闭/重启。
+        self._inbox.message_event.set()
+        self._resume_event.set()
+
+    def interrupt_rest(self) -> None:
+        """Interrupt an idle sleep without changing pause state.
+
+        管理端暂停时调用：让定时长眠中的循环立刻醒来，下一轮 _cycle()
+        看到 paused 后停靠到 _pause_rest()。对已停靠或运行中的循环无副作用。
+        """
         self._inbox.message_event.set()
 
     def resume_from_rest(self) -> bool:
@@ -219,7 +237,11 @@ class AgentLoop:
             or self._stop_event.is_set()
         ):
             return False
+        # 普通休眠等 message_event，管理端暂停停靠等 resume_event；
+        # 两个事件同时触发即可覆盖两种停靠，多余的信号会在下一次
+        # 停靠进入 _pause_rest() 时被清除。
         self._inbox.message_event.set()
+        self._resume_event.set()
         return True
 
     async def wait_until_stopped(self) -> None:
@@ -246,6 +268,11 @@ class AgentLoop:
             # Keep inbox messages queued while the first model connection is being
             # configured. Setup completion restarts into a fully initialized loop.
             await self._rest()
+            return
+        if self._config.agent.paused:
+            # 管理端暂停：停靠等恢复信号，新消息留在 inbox 队列，
+            # 恢复后随下一轮 _cycle() 一起取出处理。
+            await self._pause_rest()
             return
         self._sync_task_pins()
         reinjected_pins = self._short_term.reinject_missing_pins()
@@ -761,6 +788,20 @@ class AgentLoop:
                     source="sleep_interrupt",
                 )
             logger.debug(f"Task watcher interrupted sleep: {len(active)} active tasks")
+
+    async def _pause_rest(self) -> None:
+        """管理端暂停时的停靠等待：只等 resume_event，不消费 inbox 队列。
+
+        进入前先清除残留的恢复信号，保证暂停期间即使有新消息置位
+        message_event 也不会空转；恢复/停止通过 resume_event 打断。
+        """
+        self._resume_event.clear()
+        self.state.is_sleeping = True
+        try:
+            logger.info("Agent paused by admin; waiting for resume")
+            await self._resume_event.wait()
+        finally:
+            self.state.is_sleeping = False
 
     async def _rest(self) -> None:
         self.state.is_sleeping = True
