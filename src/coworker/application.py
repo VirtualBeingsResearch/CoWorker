@@ -683,6 +683,8 @@ async def _main() -> bool:
     usage_stats = UsageStatsCollector(
         log_store,
         state_path=Path(config.agent.logs_dir) / "usage_stats.json",
+        # 状态文件只是可重建的检查点：按时间窗合并写盘，关闭时 flush 兜底。
+        persist_interval=5.0,
     )
     usage_stats.load_bubble_history(config.agent.logs_dir)
     interaction_log.add_listener(event_collector.on_entry)
@@ -1065,6 +1067,7 @@ async def _main() -> bool:
         channels=channel_system.registry,
         communication_token_explicit=bool(config.api.communication_token),
         extra_communication_tokens=config.api.communication_tokens,
+        channel_traffic=channel_system.traffic,
     )
     setup_openai_channel(None if openai_module is None else openai_module.channel)
     setup_admin(
@@ -1082,6 +1085,7 @@ async def _main() -> bool:
         person_store=person_store,
         persona_cards=persona_cards,
         usage_stats=usage_stats,
+        channel_traffic=channel_system.traffic,
     )
     setup_channel_admin(channel_system.modules)
     api_app.setup_desktop_updates(
@@ -1197,6 +1201,7 @@ async def _main() -> bool:
         api_app.signal_shutdown()
         await channel_system.registry.stop()
         await relay_client.stop()
+        usage_stats.flush()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()

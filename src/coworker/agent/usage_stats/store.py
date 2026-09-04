@@ -18,7 +18,10 @@ from loguru import logger
 
 from .buckets import MAIN_STREAM_ID, merge_bucket, new_bucket, new_scope_buckets
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+# States written by older versions load in place: new fields default to zero,
+# so a version bump must not silently discard a user's history.
+_LOADABLE_SCHEMA_VERSIONS = (11, SCHEMA_VERSION)
 
 
 @dataclass
@@ -49,7 +52,7 @@ def load_state(state: CollectorState, path: Path | None) -> bool:
         logger.warning(f"Failed to read usage stats state {path}: {e}")
         return False
     schema_version = data.get("schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in _LOADABLE_SCHEMA_VERSIONS:
         return False
     try:
         compression_tracking_since = data.get("compression_tracking_since")

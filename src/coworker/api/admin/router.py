@@ -104,6 +104,7 @@ _relay_client: RelayClient | None = None
 _person_store: PersonStore | None = None
 _persona_cards: PersonaCard | None = None
 _usage_stats: UsageStatsCollector | None = None
+_channel_traffic: ChannelTrafficStore | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 _CONTENT_TYPES = {"skills", "palaces", "subconscious"}
 _SAFE_SLUG = re.compile(r"^[\w.-]{1,80}$", re.UNICODE)
@@ -298,6 +299,7 @@ def setup_admin(
     person_store: PersonStore | None = None,
     persona_cards: PersonaCard | None = None,
     usage_stats: UsageStatsCollector | None = None,
+    channel_traffic: ChannelTrafficStore | None = None,
 ) -> None:
     global \
         _agent, \
@@ -313,7 +315,8 @@ def setup_admin(
         _relay_client, \
         _person_store, \
         _persona_cards, \
-        _usage_stats
+        _usage_stats, \
+        _channel_traffic
     _agent = agent
     _brain = brain
     _config = config
@@ -327,6 +330,7 @@ def setup_admin(
     _person_store = person_store
     _persona_cards = persona_cards
     _usage_stats = usage_stats
+    _channel_traffic = channel_traffic
     _admin_config_service = AdminConfigService(
         AdminConfigDependencies(
             agent=agent,
@@ -2634,7 +2638,11 @@ async def channel_traffic(
         status=status,
         channel=channel,
     )
-    return {"entries": entries}
+    payload: ApiResponse = {"entries": entries}
+    if _channel_traffic is not None:
+        # 累计计数来自运行中的 store（保留窗口内），与每请求新建的查询 store 无关。
+        payload["totals"] = await asyncio.to_thread(_channel_traffic.totals)
+    return payload
 
 
 @router.get("/identity")

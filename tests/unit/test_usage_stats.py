@@ -1271,7 +1271,7 @@ def test_runtime_entry_persists_seq_checkpoint(tmp_path):
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["checkpoint"] == {"seq": 9}
     assert state["checkpoints"]["main"] == {"seq": 9}
-    assert state["schema_version"] == 11
+    assert state["schema_version"] == 12
     assert state["lifetime_by_scope"]["main"]["tool_calls"] == 1
 
 
@@ -1607,7 +1607,7 @@ def test_old_state_schema_is_rebuilt_from_logs_for_scope_split(tmp_path):
     assert lifetime["by_provider_model"]["unknown/bubble-model"]["total_tokens"] == 5
     assert lifetime["by_scope"]["main"]["total_tokens"] == 5
     assert lifetime["by_scope"]["bubble"]["total_tokens"] == 5
-    assert migrated["schema_version"] == 11
+    assert migrated["schema_version"] == 12
     assert migrated["checkpoint"] == {"seq": 0}
     assert "bubble:bubbles/bbl_a.jsonl" not in migrated["checkpoints"]
     assert migrated["bubble_history"]["path"] == "bubbles/bbl_a.jsonl"
@@ -1670,7 +1670,7 @@ def test_v11_state_loads_provider_model_scope_thinking_tracking_and_hour_buckets
     assert lifetime["avg_thinking_seconds"] == 6
     assert lifetime["tracking_coverage"] == 1
     assert lifetime["by_scope"]["main"]["by_provider_model"]["unknown/legacy-model"]["total_tokens"] == 25
-    assert migrated["schema_version"] == 11
+    assert migrated["schema_version"] == 12
     assert collector.report()["today_intraday"][8]["total_tokens"] == 25
     assert collector.report()["today_intraday"][8]["by_scope"]["main"][
         "total_tokens"
@@ -1707,7 +1707,7 @@ def test_v8_state_is_rebuilt_from_logs_for_intraday_buckets(tmp_path):
 
     assert collector.snapshot()["lifetime"]["llm_calls"] == 1
     assert collector.report()["today_intraday"][14]["total_tokens"] == 10
-    assert migrated["schema_version"] == 11
+    assert migrated["schema_version"] == 12
     assert migrated["hours"]["2026-06-29T14:00:00"]["input_tokens"] == 7
 
 
@@ -1753,7 +1753,7 @@ def test_v5_state_is_rebuilt_from_logs_for_thinking_time(tmp_path):
     assert lifetime["total_tokens"] == 5
     assert lifetime["thinking_calls"] == 1
     assert lifetime["avg_thinking_seconds"] == 6
-    assert migrated["schema_version"] == 11
+    assert migrated["schema_version"] == 12
 
 
 def test_mark_bubble_log_complete_compacts_stream_checkpoint(tmp_path):
@@ -1904,3 +1904,179 @@ def _new_empty_test_bucket():
         "by_provider_model": {},
         "tools": {},
     }
+
+
+def test_event_counters_aggregate_inbound_and_recall_events():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "message_in",
+            "seq": 1,
+            "ts": "2026-06-29T08:00:00",
+            "participant_id": "wecom:single:a",
+            "source": "wecom",
+            "content": "hello",
+        },
+        {
+            "type": "message_in",
+            "seq": 2,
+            "ts": "2026-06-29T08:01:00",
+            "participant_id": "desktop:one",
+            "source": "websocket",
+            "content": "hi",
+        },
+        {
+            "type": "message_in",
+            "seq": 3,
+            "ts": "2026-06-29T08:02:00",
+            "participant_id": "desktop:one",
+            "source": "websocket",
+            "content": "again",
+        },
+        {
+            "type": "task_reminder",
+            "seq": 4,
+            "ts": "2026-06-29T08:03:00",
+            "source": "task_reminder",
+            "tasks": [],
+        },
+        {
+            "type": "auto_recall",
+            "seq": 5,
+            "ts": "2026-06-29T08:04:00",
+            "query": "greeting",
+            "memories": [{"id": "m1"}, {"id": "m2"}],
+        },
+        {
+            "type": "subconscious_spawned",
+            "seq": 6,
+            "ts": "2026-06-29T08:05:00",
+            "mode": "reflect",
+            "bubble_id": "bbl_1",
+            "goal": "think",
+        },
+        {
+            "type": "subconscious_done",
+            "seq": 7,
+            "ts": "2026-06-29T08:06:00",
+            "bubble_id": "bbl_1",
+        },
+    ])
+
+    lifetime = collector.snapshot()["lifetime"]
+
+    assert lifetime["events"]["messages_in"] == 3
+    assert lifetime["events"]["messages_in_by_source"] == {"wecom": 1, "websocket": 2}
+    assert lifetime["events"]["task_reminders"] == 1
+    assert lifetime["events"]["auto_recalls"] == 1
+    assert lifetime["events"]["auto_recall_memories"] == 2
+    assert lifetime["events"]["subconscious_spawned"] == 1
+    assert lifetime["events"]["subconscious_done"] == 1
+    # 事件计数可从 interaction log 重放重建（seq 去重保证同一条目只计一次）。
+    replayed = _collector()
+    replayed.load_entries([
+        {
+            "type": "message_in",
+            "seq": 1,
+            "ts": "2026-06-29T08:00:00",
+            "participant_id": "wecom:single:a",
+            "source": "wecom",
+            "content": "hello",
+        },
+        {
+            "type": "message_in",
+            "seq": 1,
+            "ts": "2026-06-29T08:00:00",
+            "participant_id": "wecom:single:a",
+            "source": "wecom",
+            "content": "hello",
+        },
+    ])
+    assert replayed.snapshot()["lifetime"]["events"]["messages_in"] == 1
+
+
+def test_metrics_snapshot_flattens_lifetime_counters():
+    collector = _collector()
+    collector.load_entries([
+        {
+            "type": "llm_response",
+            "seq": 1,
+            "ts": "2026-06-29T08:00:00",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "usage": {"input_tokens": 100, "output_tokens": 10, "cached_tokens": 40},
+        },
+        {
+            "type": "tool_call",
+            "seq": 2,
+            "ts": "2026-06-29T08:01:00",
+            "name": "get_skill",
+            "id": "call_1",
+            "arguments": {"skill_name": "search"},
+        },
+        {
+            "type": "tool_result",
+            "seq": 3,
+            "ts": "2026-06-29T08:01:30",
+            "id": "call_1",
+            "is_error": False,
+        },
+        {
+            "type": "message_in",
+            "seq": 4,
+            "ts": "2026-06-29T08:02:00",
+            "participant_id": "desktop:one",
+            "source": "websocket",
+            "content": "hi",
+        },
+    ])
+
+    families = collector.metrics_snapshot()
+
+    assert (
+        {"provider": "openai", "model": "gpt-4o", "scope": "main"},
+        1.0,
+    ) in families["coworker_llm_calls_total"]
+    input_tokens = [
+        (labels, value)
+        for labels, value in families["coworker_llm_tokens_total"]
+        if labels["kind"] == "input_tokens"
+    ]
+    assert input_tokens == [(
+        {"provider": "openai", "model": "gpt-4o", "scope": "main", "kind": "input_tokens"},
+        100,
+    )]
+    assert families["coworker_tool_calls_total"] == [({"tool": "get_skill"}, 1.0)]
+    assert families["coworker_tool_results_total"] == [
+        ({"tool": "get_skill", "outcome": "success"}, 1.0)
+    ]
+    assert families["coworker_skill_loads_total"] == [
+        ({"skill": "search", "mode": "explicit"}, 1.0)
+    ]
+    assert families["coworker_messages_in_total"] == [
+        ({"source": "websocket"}, 1.0)
+    ]
+
+
+def test_debounced_persistence_coalesces_until_flush(tmp_path):
+    state_path = tmp_path / "usage_stats.json"
+    collector = UsageStatsCollector(
+        now_fn=lambda: datetime(2026, 6, 29, 12, 0, 0),
+        state_path=state_path,
+        persist_interval=3600,
+    )
+    collector.on_entry({
+        "type": "message_in",
+        "seq": 1,
+        "ts": "2026-06-29T08:00:00",
+        "participant_id": "desktop:one",
+        "source": "websocket",
+        "content": "hi",
+    })
+    # 去抖窗口内不写盘。
+    assert not state_path.exists()
+
+    collector.flush()
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["schema_version"] == 12
+    assert state["lifetime"]["events"]["messages_in"] == 1

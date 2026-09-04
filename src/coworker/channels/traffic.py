@@ -39,6 +39,10 @@ class ChannelTrafficStore:
         self._backups = max(0, backups)
         self._memory: deque[dict[str, str]] = deque(maxlen=max(1, memory_limit))
         self._lock = threading.Lock()
+        # Cumulative (channel, direction, status) counts. Built lazily from the
+        # retained JSONL the first time totals() is read, then maintained
+        # incrementally by record(); query-only stores never pay the scan.
+        self._totals: dict[str, dict[str, dict[str, int]]] | None = None
 
     @property
     def path(self) -> Path | None:
@@ -65,12 +69,48 @@ class ChannelTrafficStore:
         }
         with self._lock:
             self._memory.append(entry)
+            self._bump_totals(entry)
             if self._path is None:
                 return
             try:
                 self._append(entry)
             except OSError as error:
                 logger.warning(tr("channel.traffic.write_failed", error=error))
+
+    def totals(self) -> dict[str, dict[str, dict[str, int]]]:
+        """Cumulative message counts per channel, direction and status.
+
+        Counts stay monotonic for the lifetime of this store instance. A store
+        rebuilt after a restart only sees the retained traffic window (rotated
+        -away backups no longer contribute), so counters may reset lower then.
+        """
+        with self._lock:
+            totals = self._ensure_totals()
+            return {
+                channel: {
+                    direction: dict(status_counts)
+                    for direction, status_counts in directions.items()
+                }
+                for channel, directions in totals.items()
+            }
+
+    def _ensure_totals(self) -> dict[str, dict[str, dict[str, int]]]:
+        assert self._lock.locked()
+        if self._totals is None:
+            totals: dict[str, dict[str, dict[str, int]]] = {}
+            if self._path is not None:
+                for entry in self._iter_persisted_entries():
+                    _apply_totals(totals, entry)
+            else:
+                for entry in self._memory:
+                    _apply_totals(totals, entry)
+            self._totals = totals
+        return self._totals
+
+    def _bump_totals(self, entry: dict[str, str]) -> None:
+        assert self._lock.locked()
+        if self._totals is not None:
+            _apply_totals(self._totals, entry)
 
     def recent(
         self,
@@ -147,6 +187,31 @@ class ChannelTrafficStore:
             except OSError as error:
                 logger.warning(tr("channel.traffic.read_failed", error=error))
 
+    def _iter_persisted_entries(self) -> Iterator[dict[str, str]]:
+        """Yield retained entries oldest-first for totals rebuilding."""
+        assert self._path is not None
+        paths = [
+            *(self._backup_path(index) for index in range(self._backups, 0, -1)),
+            self._path,
+        ]
+        for path in paths:
+            if not path.is_file():
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
+                        if isinstance(entry, dict):
+                            yield {str(key): str(value) for key, value in entry.items()}
+            except OSError as error:
+                logger.warning(tr("channel.traffic.read_failed", error=error))
+
     def _backup_path(self, index: int) -> Path:
         assert self._path is not None
         return self._path.with_name(f"{self._path.name}.{index}")
@@ -168,3 +233,16 @@ def _iter_lines_newest_first(path: Path) -> Iterator[bytes]:
                     yield line
         if remainder:
             yield remainder
+
+
+def _apply_totals(
+    totals: dict[str, dict[str, dict[str, int]]],
+    entry: dict[str, str],
+) -> None:
+    channel = entry.get("channel") or "unknown"
+    direction = entry.get("direction") or "unknown"
+    status = entry.get("status") or "unknown"
+    channel_totals = totals.setdefault(channel, {})
+    channel_totals.setdefault(direction, {})
+    counts = channel_totals[direction]
+    counts[status] = counts.get(status, 0) + 1

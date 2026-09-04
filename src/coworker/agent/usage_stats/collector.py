@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -19,6 +20,7 @@ from .buckets import (
     MAIN_STREAM_ID,
     SUBCONSCIOUS_SCOPE,
     SUMMARY_SCOPE,
+    TOKEN_KEYS,
     VISION_SCOPE,
     add_automatic_skill_load,
     add_bubble_outcome,
@@ -35,7 +37,9 @@ from .buckets import (
     new_scope_buckets,
     norm_part,
     scope_for_stream_id,
+    split_provider_model_key,
 )
+from .events import EVENTS_BY_TYPE, metrics_series, record_entry_events
 from .pricing import PricingCatalog
 from .store import CollectorState, iter_jsonl, load_state, persist_state
 
@@ -48,10 +52,15 @@ class UsageStatsCollector:
         log_store: LogStore | None = None,
         now_fn: Callable[[], datetime] = datetime.now,
         state_path: str | Path | None = None,
+        persist_interval: float = 0.0,
     ) -> None:
         self._now_fn = now_fn
         self._state = CollectorState()
         self._state_path = Path(state_path) if state_path is not None else None
+        # 0 keeps the historical write-per-entry behavior; a positive interval
+        # coalesces state writes (callers must flush on shutdown).
+        self._persist_interval = max(0.0, float(persist_interval))
+        self._dirty_since: float | None = None
         self._loading_history = False
         self._snapshot_cache_date: date | None = None
         self._snapshot_cache: dict[str, Any] | None = None
@@ -73,7 +82,7 @@ class UsageStatsCollector:
             self._loading_history = False
         if self._state.compression_tracking_since is None:
             self._state.compression_tracking_since = self._now_fn().date()
-        self._persist_state()
+        self._persist_state(force=True)
 
     def load_entries(self, entries: list[dict[str, Any]]) -> None:
         for entry in entries:
@@ -83,7 +92,7 @@ class UsageStatsCollector:
         root = Path(logs_dir)
         if self._state.bubble_history_scanned:
             self._load_pending_bubble_streams(root)
-            self._persist_state()
+            self._persist_state(force=True)
             return
 
         paths = [
@@ -92,7 +101,7 @@ class UsageStatsCollector:
         ]
         if not paths:
             self._state.bubble_history_scanned = True
-            self._persist_state()
+            self._persist_state(force=True)
             return
         try:
             self._loading_history = True
@@ -123,7 +132,7 @@ class UsageStatsCollector:
             return
         finally:
             self._loading_history = False
-        self._persist_state()
+        self._persist_state(force=True)
 
     def mark_bubble_log_complete(self, logs_dir: str | Path, log_path: str | Path) -> None:
         root = Path(logs_dir)
@@ -134,7 +143,7 @@ class UsageStatsCollector:
         self._state.last_seq_by_stream.pop(stream_id, None)
         self._state.pending_thinking_starts.pop(stream_id, None)
         self._discard_pending_tool_calls(stream_id)
-        self._persist_state()
+        self._persist_state(force=True)
 
     def on_entry(
         self,
@@ -209,6 +218,8 @@ class UsageStatsCollector:
                         norm_part(skill_name, "unknown"),
                         stream_id,
                     )
+        elif t in EVENTS_BY_TYPE:
+            self._record_entry_events(entry, stream_id)
         elif entry.get("__meta__"):
             self._record_bubble_outcome(self._entry_date(entry), entry, stream_id)
         if persist and not self._loading_history:
@@ -603,6 +614,19 @@ class UsageStatsCollector:
         add_bubble_outcome(self._scope_bucket_for_day(day, scope), entry)
         add_bubble_outcome(self._scope_bucket_for_lifetime(scope), entry)
 
+    def _record_entry_events(self, entry: dict[str, Any], stream_id: str) -> None:
+        """Aggregate declared agent-event counters into the matching windows."""
+        day = self._entry_date(entry)
+        hour = self._entry_hour(entry)
+        scope = scope_for_stream_id(stream_id)
+        record_entry_events(self._state.days.setdefault(day, new_bucket()), entry)
+        record_entry_events(
+            self._state.hours.setdefault(hour, new_bucket()), entry
+        )
+        record_entry_events(self._state.lifetime, entry)
+        record_entry_events(self._scope_bucket_for_day(day, scope), entry)
+        record_entry_events(self._scope_bucket_for_lifetime(scope), entry)
+
     def _record_memory_compression(
         self,
         entry: dict[str, Any],
@@ -783,8 +807,98 @@ class UsageStatsCollector:
     def _load_state(self) -> bool:
         return load_state(self._state, self._state_path)
 
-    def _persist_state(self) -> None:
+    def _persist_state(self, force: bool = False) -> None:
+        if self._state_path is None:
+            return
+        now = time.monotonic()
+        if self._dirty_since is None:
+            self._dirty_since = now
+        if (
+            not force
+            and self._persist_interval > 0
+            and now - self._dirty_since < self._persist_interval
+        ):
+            return
+        self.flush()
+
+    def flush(self) -> None:
+        """Write pending aggregation state to disk immediately."""
+        if self._state_path is None:
+            return
         persist_state(self._state, self._state_path, self._now_fn)
+        self._dirty_since = None
+
+    def metrics_snapshot(self) -> dict[str, list[tuple[dict[str, str], float]]]:
+        """Lifetime counters flattened for Prometheus-style export.
+
+        Reads aggregation state directly (no window shaping, no deep copies),
+        so a periodic scrape stays cheap even with long histories. Every
+        counter family aggregates to the lifetime totals; LLM series carry the
+        scope dimension because the plain lifetime bucket is their exact sum.
+        """
+        families: dict[str, list[tuple[dict[str, str], float]]] = {}
+
+        def emit(name: str, labels: dict[str, str], value: float) -> None:
+            if value:
+                families.setdefault(name, []).append((labels, value))
+
+        lifetime = self._state.lifetime
+        for scope, scope_bucket in sorted(self._state.lifetime_by_scope.items()):
+            for key, provider_model in sorted(scope_bucket["by_provider_model"].items()):
+                provider, model = split_provider_model_key(str(key))
+                labels = {
+                    "provider": norm_part(
+                        provider_model.get("provider"), provider
+                    ),
+                    "model": norm_part(provider_model.get("model"), model),
+                    "scope": scope,
+                }
+                emit("coworker_llm_calls_total", labels, int(provider_model["llm_calls"]))
+                for kind in TOKEN_KEYS:
+                    emit(
+                        "coworker_llm_tokens_total",
+                        {**labels, "kind": kind},
+                        int(provider_model[kind]),
+                    )
+        for tool, outcome in sorted(lifetime["tool_outcomes"].items()):
+            emit("coworker_tool_calls_total", {"tool": tool}, int(outcome["calls"]))
+            emit(
+                "coworker_tool_results_total",
+                {"tool": tool, "outcome": "success"},
+                int(outcome["successes"]),
+            )
+            emit(
+                "coworker_tool_results_total",
+                {"tool": tool, "outcome": "error"},
+                int(outcome["errors"]),
+            )
+        for skill, item in sorted(lifetime["skills"].items()):
+            emit(
+                "coworker_skill_loads_total",
+                {"skill": skill, "mode": "explicit"},
+                int(item["explicit_attempts"]),
+            )
+            emit(
+                "coworker_skill_loads_total",
+                {"skill": skill, "mode": "automatic"},
+                int(item["automatic_loads"]),
+            )
+        for outcome, field in (
+            ("done", "bubble_done"),
+            ("error", "bubble_errors"),
+            ("timeout", "bubble_timeouts"),
+            ("cancelled", "bubble_cancelled"),
+        ):
+            emit("coworker_bubble_runs_total", {"outcome": outcome}, int(lifetime[field]))
+        for trigger, count in sorted(lifetime["memory_compression_triggers"].items()):
+            emit(
+                "coworker_memory_compressions_total",
+                {"trigger": trigger},
+                int(count),
+            )
+        for name, labels, value in metrics_series(lifetime["events"]):
+            emit(name, labels, value)
+        return families
 
     def _discard_pending_tool_calls(self, stream_id: str) -> None:
         stale = [

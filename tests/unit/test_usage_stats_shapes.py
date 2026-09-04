@@ -37,6 +37,7 @@ _SNAPSHOT_WINDOW_KEYS = {
     "by_model",
     "by_provider_model",
     "tools",
+    "events",
     "by_scope",
 }
 
@@ -98,6 +99,7 @@ _REPORT_WINDOW_KEYS = {
     "tools",
     "tool_outcomes",
     "skills",
+    "events",
     "by_scope",
 }
 
@@ -151,6 +153,7 @@ _SUMMARY_WINDOW_KEYS = {
     "memory_compression_total_tokens",
     "memory_compression_triggers",
     "last_memory_compression_at",
+    "events",
     "by_scope",
 }
 

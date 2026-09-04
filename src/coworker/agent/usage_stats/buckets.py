@@ -158,6 +158,31 @@ def new_compression_trigger_bucket() -> dict[str, int]:
     return {trigger: 0 for trigger in COMPRESSION_TRIGGERS}
 
 
+def merge_events_map(dst: dict[str, Any], src: dict[str, Any]) -> None:
+    """Merge event counters; values are scalar counts or per-label count maps."""
+    for key, value in src.items():
+        name = str(key)
+        if isinstance(value, dict):
+            dst_map = dst.setdefault(name, {})
+            if not isinstance(dst_map, dict):
+                dst_map = dst[name] = {}
+            for label, count in value.items():
+                label_name = str(label)
+                dst_map[label_name] = dst_map.get(label_name, 0) + int_value(count)
+        else:
+            dst[name] = dst.get(name, 0) + int_value(value)
+
+
+def events_has_data(events: dict[str, Any]) -> bool:
+    for value in events.values():
+        if isinstance(value, dict):
+            if any(int_value(count) > 0 for count in value.values()):
+                return True
+        elif int_value(value) > 0:
+            return True
+    return False
+
+
 def new_bucket() -> dict[str, Any]:
     bucket: dict[str, Any] = {field.name: 0 for field in _INT_FIELD_SPECS}
     for field in _FLOAT_FIELD_SPECS:
@@ -169,6 +194,7 @@ def new_bucket() -> dict[str, Any]:
     bucket["tools"] = {}
     bucket["tool_outcomes"] = {}
     bucket["skills"] = {}
+    bucket["events"] = {}
     return bucket
 
 
@@ -414,7 +440,10 @@ def merge_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
         dst_skill = dst["skills"].setdefault(skill_name, new_skill_bucket())
         for key in SKILL_BUCKET_KEYS:
             dst_skill[key] += int_value(item.get(key))
+    merge_events_map(dst["events"], src.get("events") or {})
 
 
 def bucket_has_data(bucket: dict[str, Any]) -> bool:
-    return any(int_value(bucket.get(name)) > 0 for name in INT_FIELDS)
+    if any(int_value(bucket.get(name)) > 0 for name in INT_FIELDS):
+        return True
+    return events_has_data(bucket.get("events") or {})

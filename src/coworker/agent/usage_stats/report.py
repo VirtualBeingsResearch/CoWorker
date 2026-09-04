@@ -67,6 +67,7 @@ SUMMARY_KEYS = (
     "memory_compression_total_tokens",
     "memory_compression_triggers",
     "last_memory_compression_at",
+    "events",
 )
 COST_SUMMARY_KEYS = (
     "estimated_costs",
@@ -369,10 +370,24 @@ def finalize_bucket(
         "tools": tools,
         "tool_outcomes": tool_outcomes,
         "skills": skills,
+        "events": finalize_events(bucket.get("events") or {}),
     }
     if pricing is not None:
         payload.update(pricing_summary(bucket, pricing))
     return payload
+
+
+def finalize_events(events: dict[str, Any]) -> dict[str, Any]:
+    """Shape the bucket's ``events`` sub-dict for report and snapshot output."""
+    shaped: dict[str, Any] = {}
+    for key, value in sorted(events.items()):
+        if isinstance(value, dict):
+            shaped[str(key)] = {
+                str(label): int_value(count) for label, count in sorted(value.items())
+            }
+        else:
+            shaped[str(key)] = int_value(value)
+    return shaped
 
 
 def summary_bucket(
