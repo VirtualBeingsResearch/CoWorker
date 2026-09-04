@@ -31,6 +31,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from coworker.api.admin import admin_router
+from coworker.api.metrics import router as metrics_router
 from coworker.api.openai_compat import (
     OpenAIHTTPError,
     openai_json_response,
@@ -100,6 +101,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(openai_compat_router)
 app.include_router(admin_router)
+app.include_router(metrics_router)
 app.state.setup_required = False
 _bootstrap_reconnect_proof = ""
 

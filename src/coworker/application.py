@@ -26,6 +26,7 @@ from coworker.agent.subconscious_mode import SubconsciousModeLoader
 from coworker.agent.usage_stats import UsageStatsCollector
 from coworker.api import app as api_app
 from coworker.api.admin import setup_admin, setup_channel_admin
+from coworker.api.metrics import setup as setup_metrics
 from coworker.api.openai_compat import setup_openai_channel
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
@@ -1112,6 +1113,12 @@ async def _main() -> bool:
         channel_traffic=channel_system.traffic,
     )
     setup_openai_channel(None if openai_module is None else openai_module.channel)
+    setup_metrics(
+        usage_stats=usage_stats,
+        registry=metrics_registry,
+        agent=agent_loop,
+        channel_traffic=channel_system.traffic,
+    )
     setup_admin(
         agent=agent_loop,
         brain=brain,
