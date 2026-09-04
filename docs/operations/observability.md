@@ -11,12 +11,13 @@
 
 | 入口 | 回答的问题 |
 |---|---|
-| `GET /status` | Agent 是否运行/休眠；已配置令牌时携带通信 Bearer 还包括当前模型、周期数和用量 |
+| `GET /status` | Agent 是否运行/休眠；已配置令牌时携带通信 Bearer 还包括当前模型、周期数、用量和渠道消息累计 |
 | 管理后台“生命总览” | 当前上下文、模型和关键状态 |
 | “诊断与审计” | 后台任务在哪里等待、最近错误和管理员操作 |
 | “诊断与审计 → 消息流量” | 各信道最近哪些消息被接收、发送、拒绝、忽略或投递失败 |
 | “生命全史”与 `data/logs/` | 某次模型、工具或消息实际发生了什么 |
 | `GET /api/debug/tasks` | 事件循环任务是否卡在同一 await；仅可信诊断环境 |
+| `GET /metrics` | Prometheus 文本格式的运行时与累计指标，供抓取式监控集成 |
 | Docker healthcheck / `docker compose ps` | 容器和 HTTP 服务是否可达 |
 
 `pending` 常表示等待消息或定时器，不等于故障。判断卡死要结合等待位置、最近成功活动和
@@ -62,6 +63,47 @@ Token 折算；异常的缓存 Token 会钳制到输入 Token。不同币种独�
 金额始终是本地估算，不是 Provider 账单。它不覆盖请求费、图片/视频独立计费、缓存写入、
 阶梯价、批处理折扣、税费或账户级优惠；最终费用以外部服务为准。
 
+## Prometheus 指标（`GET /metrics`）
+
+`/metrics` 复用 API 端口，输出 Prometheus 文本格式（version 0.0.4）。认证与 `/status`
+一致：已显式配置 `API__COMMUNICATION_TOKEN` 时必须携带有效 Bearer，Prometheus 抓取配置
+里用 `bearer_token` 填入即可；未配置令牌时与 API 其余无认证面一致（默认只绑定
+`127.0.0.1`，对外暴露前务必配置令牌）。设置 `API__METRICS_ENABLED=false` 可整体关闭；
+首次初始化（setup 模式）期间该端点随其它路径一起重定向到 `/admin`。
+
+抓取配置示例：
+
+```yaml
+scrape_configs:
+  - job_name: coworker
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["127.0.0.1:8000"]
+    bearer_token: "<API__COMMUNICATION_TOKEN>"
+```
+
+指标分两类。运行时指标（`coworker_http_requests_total{method,route,status}`、
+`coworker_http_request_duration_seconds`、`coworker_sessions_active{transport}`、
+`coworker_sessions_total{transport,state}`、`coworker_relay_connected`、
+`coworker_relay_connects_total`、`coworker_relay_reconnects_total`、
+`coworker_relay_frames_total{direction}`、`coworker_relay_errors_total`、
+`coworker_model_switches_total{...}`）只覆盖本进程生命周期，重启归零，其中 HTTP 路由
+标签是路由模板（如 `/ws/{participant_id}`），不会把 participant ID 变成高基数标签；
+流式响应的耗时统计到响应首字节。累计指标来自持久化统计
+（`coworker_llm_calls_total{provider,model,scope}`、`coworker_llm_tokens_total`、
+`coworker_tool_calls_total`、`coworker_tool_results_total`、`coworker_skill_loads_total`、
+`coworker_bubble_runs_total{outcome}`、`coworker_memory_compressions_total{trigger}`、
+`coworker_messages_in_total{source}`、`coworker_task_reminders_total`、
+`coworker_auto_recalls_total`、`coworker_auto_recall_memories_total`、
+`coworker_subconscious_spawned_total`、`coworker_subconscious_done_total`、
+`coworker_channel_messages_total{channel,direction,status}`），跨越重启持续累计。
+另有 `coworker_uptime_seconds` 和 `coworker_agent_cycles_total` 两个 gauge。
+
+`coworker_channel_messages_total` 覆盖保留的渠道流量窗口：`channel_traffic.jsonl` 轮转后
+被裁剪的记录不再计入，因此进程内计数保持单调，但重启重建后的数值可能低于重启前。
+带标签的序列不再重复输出无标签总量；Prometheus 侧用 `sum by (...)` 聚合得到总量。
+
 ## 日志与敏感信息
 
 记录问题发生时间、时区、participant、Channel 和第一个错误。分享日志前移除令牌、密钥、
@@ -85,8 +127,9 @@ Token 折算；异常的缓存 Token 会钳制到输入 Token。不同币种独�
 - 每月或重大升级前：执行恢复演练、审查能力内容、记录版本和容量趋势。
 
 告警至少覆盖：进程/健康检查连续失败、磁盘空间不足、错误任务持续增长、Relay 不可达和
-备份过期。当前项目不直接提供 Prometheus 指标；外部监控应轮询轻量状态和进程/磁盘信号，
-不要抓取包含敏感正文的日志作为默认指标。
+备份过期。`/metrics` 抓取式监控可以覆盖以上大部分信号（Relay 连接、失败任务增速、用量
+突增）；仍未覆盖的进程/磁盘信号继续由主机级监控提供，不要抓取包含敏感正文的日志作为
+默认指标。
 
 ## 事件响应顺序
 

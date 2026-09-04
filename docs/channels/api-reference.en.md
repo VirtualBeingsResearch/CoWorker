@@ -54,6 +54,7 @@ explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
 | `GET /backups` | List emergency short-term-context backups |
 | `POST /backups/restore` | Restore an emergency backup in `full` or `summarize` mode |
 | `GET /api/debug/tasks` | Event-loop diagnostics for trusted environments only |
+| `GET /metrics` | Prometheus text-format metrics; requires a Bearer once a token is explicitly set, unvalidated otherwise, and redirects to `/admin` during setup |
 | `GET /v1/models` | OpenAI-compatible model list; returns `coworker` |
 | `POST /v1/chat/completions` | OpenAI-compatible inbound; the Bearer short name maps to `openai:{short_name}` |
 
