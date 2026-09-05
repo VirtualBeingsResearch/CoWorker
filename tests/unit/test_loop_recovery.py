@@ -21,6 +21,8 @@ def _make_recovery_loop(memory: ShortTermMemory, snapshot_path) -> AgentLoop:
     loop._bubble_store = None
     loop._config = MagicMock()
     loop._config.agent.passive_mode = False
+    loop._config.agent.paused = False
+    loop._resume_event = asyncio.Event()
     loop.state = AgentState()
     loop._cycle = AsyncMock(side_effect=RuntimeError("provider unavailable"))
     return loop

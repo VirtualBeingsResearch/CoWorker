@@ -97,6 +97,7 @@ def _client(
         state=SimpleNamespace(current_provider="", current_model=""),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
+        interrupt_rest=MagicMock(),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
         current_system_prompt_sections=MagicMock(return_value=section_previews),
         refresh_system_prompt=MagicMock(),
@@ -434,6 +435,49 @@ def test_admin_resume_wakes_rest_without_confirmation(tmp_path):
     assert response.status_code == 200
     assert response.json() == {"resumed": True}
     admin._agent.resume_from_rest.assert_called_once_with()
+
+
+def test_admin_pause_persists_override_and_audits(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    assert client.post("/api/admin/pause").status_code == 401
+    response = client.post("/api/admin/pause", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"paused": True}
+    assert config.agent.paused is True
+    overrides = json.loads(Path(config.admin.config_file).read_text(encoding="utf-8"))
+    assert overrides["agent"]["paused"] is True
+    admin._agent.interrupt_rest.assert_called_once_with()
+    audit_lines = (Path(config.agent.logs_dir) / "admin_audit.jsonl").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert json.loads(audit_lines[-1])["action"] == "runtime.pause"
+
+    # 重复暂停幂等：不重写覆盖配置，也不再次打断循环。
+    admin._agent.interrupt_rest.reset_mock()
+    repeat = client.post("/api/admin/pause", headers=headers)
+    assert repeat.status_code == 200
+    admin._agent.interrupt_rest.assert_not_called()
+
+
+def test_admin_resume_clears_pause_override(tmp_path):
+    client, config = _client(tmp_path, agent_config={"paused": True})
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post("/api/admin/resume", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"resumed": True}
+    assert config.agent.paused is False
+    overrides = json.loads(Path(config.admin.config_file).read_text(encoding="utf-8"))
+    assert overrides["agent"]["paused"] is False
+    admin._agent.resume_from_rest.assert_called_once_with()
+    audit_lines = (Path(config.agent.logs_dir) / "admin_audit.jsonl").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert json.loads(audit_lines[-1])["action"] == "runtime.resume"
 
 
 def test_admin_can_delete_emergency_backup_with_confirmation(tmp_path):
@@ -2747,6 +2791,7 @@ def test_bootstrap_rejects_invalid_runtime_options_and_blank_credentials(tmp_pat
 def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     client, config = _client(tmp_path)
     config.agent.passive_mode = True
+    config.agent.paused = True
     config.agent.idle_sleep_seconds = 0
     status_path = Path(config.memory.db_path) / "instance_status.json"
     status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2777,6 +2822,7 @@ def test_overview_uses_short_term_configured_token_capacity(tmp_path):
     assert response.status_code == 200
     assert response.json()["memory"]["max_tokens"] == 12_345
     assert response.json()["status"]["passive_mode"] is True
+    assert response.json()["status"]["paused"] is True
     assert response.json()["status"]["idle_sleep_seconds"] == 0
     assert response.json()["status"]["startup_reason"] == "bootstrap"
 

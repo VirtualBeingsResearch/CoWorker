@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT = ROOT / "scripts" / "container-entrypoint.sh"
@@ -53,6 +56,11 @@ def _run_entrypoint(
     embedded_bundle: bool = False,
     bundled_repository_ref: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if sys.platform == "win32":
+        # The entrypoint is a POSIX shell script with a /bin/sh shebang. It only
+        # ever runs inside the Linux container; Windows hosts cannot execute it
+        # directly (CreateProcess rejects it with WinError 193).
+        pytest.skip("container-entrypoint.sh requires a POSIX host")
     env = {
         **os.environ,
         "COWORKER_WORKSPACE_PATH": str(workspace),

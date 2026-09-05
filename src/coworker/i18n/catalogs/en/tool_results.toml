@@ -306,6 +306,7 @@ next = "Use get_code_result('{{id}}', offset={{offset}}) to view subsequent outp
 more = "Use get_code_result('{{id}}', offset={{offset}}) to view more"
 truncated = "[output truncated] {{notice}}"
 completed = "[code job completed] job_id={{id}} [{{status}}] elapsed={{elapsed}}s"
+poll_hint = "Job is still running; a [code job completed] notice will be pushed automatically when it finishes — no need to keep polling, handle other work in the meantime."
 missing = "Job {{id}} not found"
 already = "Job {{id}} is already {{status}}"
 kill_failed = "Failed to kill: {{error}}"

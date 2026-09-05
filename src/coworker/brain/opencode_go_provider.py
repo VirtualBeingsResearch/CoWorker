@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
 from coworker.brain.openai_provider import OpenAIProvider
 from coworker.brain.thinking import ThinkingEffort
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.types import LLMResponse, Message
+from coworker.version import __version__
 
 # Official model catalog served by OpenCode Go's /v1 endpoint. MiniMax/Qwen
 # models use its Anthropic-compatible endpoint and are not exposed by this
@@ -57,12 +59,50 @@ _KIMI_MEDIUM_MODELS = {"kimi-k2.6", "kimi-k2.7-code"}
 _KIMI_MAX_MODELS = {"kimi-k3"}
 
 
+def _new_opencode_session_id() -> str:
+    return f"coworker:{uuid4()}"
+
+
+def _opencode_go_headers(session_id: str) -> dict[str, str]:
+    return {
+        "User-Agent": f"Coworker/{__version__}",
+        "x-opencode-session": session_id,
+    }
+
+
+def _with_opencode_headers(client: Any, session_id: str) -> Any:
+    bind = getattr(client, "with_options", None)
+    if not callable(bind):
+        return client
+    return bind(default_headers=_opencode_go_headers(session_id))
+
+
+def _apply_opencode_session_header(provider: Any, kwargs: dict[str, Any]) -> None:
+    session_id = getattr(provider, "_opencode_session_id", None)
+    if not isinstance(session_id, str) or not session_id:
+        session_id = _new_opencode_session_id()
+        provider._opencode_session_id = session_id
+    kwargs["extra_headers"] = _opencode_go_headers(session_id)
+
+
 class _OpenCodeGoResponsesProvider(OpenAIProvider):
     """Responses adapter without registering a second public provider type."""
 
     provider_type = ""
 
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        name: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        super().__init__(api_key, base_url=base_url, name=name)
+        self._opencode_session_id = session_id or _new_opencode_session_id()
+        self._client = _with_opencode_headers(self._client, self._opencode_session_id)
+
     def _apply_reasoning(self, kwargs: dict, effort) -> None:
+        _apply_opencode_session_header(self, kwargs)
         # OpenCode documents Luna's standard Responses reasoning contract.
         # Grok has no stable public effort contract through Go, so leave its
         # request shape untouched and let the gateway select its default.
@@ -88,12 +128,15 @@ class OpenCodeGoProvider(OpenAIChatCompletionsProvider):
         base_url: str | None = None,
         name: str | None = None,
     ) -> None:
+        self._opencode_session_id = _new_opencode_session_id()
         resolved_base_url = self.resolve_base_url(base_url)
         super().__init__(api_key, base_url=resolved_base_url, name=name)
+        self._client = _with_opencode_headers(self._client, self._opencode_session_id)
         self._responses_provider = _OpenCodeGoResponsesProvider(
             api_key,
             base_url=resolved_base_url,
             name=self.provider_name,
+            session_id=self._opencode_session_id,
         )
 
     async def complete(
@@ -138,6 +181,7 @@ class OpenCodeGoProvider(OpenAIChatCompletionsProvider):
         effort: ThinkingEffort | None,
         model_id: str,
     ) -> None:
+        _apply_opencode_session_header(self, kwargs)
         if model_id in _DEEPSEEK_MODELS:
             if effort == "none":
                 kwargs["extra_body"] = {"thinking": {"type": "disabled"}}

@@ -1345,6 +1345,7 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "started_at": _process_started_at.isoformat(),
             "startup_reason": startup_reason,
             "passive_mode": config.agent.passive_mode,
+            "paused": config.agent.paused,
             "idle_sleep_seconds": config.agent.idle_sleep_seconds,
         },
         "counts": {
@@ -1839,11 +1840,38 @@ async def restart(
     return {"accepted": True}
 
 
+@router.post("/pause")
+async def pause(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    config = _require_config()
+    if not config.agent.paused:
+        try:
+            await _require_admin_config_service().patch(
+                ConfigUpdate(changes={"agent": {"paused": True}})
+            )
+        except ConfigUpdateError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+        # 让休眠中的循环立刻停靠，而不等满 idle 间隔。
+        _require_agent().interrupt_rest()
+    _audit(request, "runtime.pause", "coworker")
+    return {"paused": True}
+
+
 @router.post("/resume")
 async def resume(
     request: Request,
     _: None = Depends(require_admin),
 ) -> ApiResponse:
+    config = _require_config()
+    if config.agent.paused:
+        try:
+            await _require_admin_config_service().patch(
+                ConfigUpdate(changes={"agent": {"paused": False}})
+            )
+        except ConfigUpdateError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from error
     resumed = _require_agent().resume_from_rest()
     _audit(request, "runtime.resume", "coworker", detail=f"resumed={resumed}")
     if resumed:
