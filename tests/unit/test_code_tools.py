@@ -238,6 +238,7 @@ class TestGetCodeResultTool:
         assert not result.is_error
         assert "done" in result.content
         assert "x" in result.content
+        assert "无需连续查询" not in result.content
 
     async def test_running_job_returns_running_status(self):
         execute, get_result, _, store = make_tools()
@@ -247,6 +248,8 @@ class TestGetCodeResultTool:
         result = await get_result.execute(job_id=job.job_id)
         assert not result.is_error
         assert "running" in result.content
+        assert "无需连续查询" in result.content
+        assert "自动推送" in result.content
 
     async def test_missing_job_returns_error(self):
         _, get_result, *_ = make_tools()
