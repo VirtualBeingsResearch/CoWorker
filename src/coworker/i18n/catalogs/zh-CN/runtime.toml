@@ -9,6 +9,7 @@ coworker_desktop = "桌面端"
 bubble = "气泡"
 codex = "Codex"
 openai = "OpenAI 兼容 HTTP"
+coworker = "Coworker 搭档"
 system = "系统"
 unknown = "未知来源"
 
@@ -127,6 +128,11 @@ pairing_unavailable = "微信 Claw 配对会话不可用"
 disabled = "微信 Claw 信道已停用；请先启用设置再创建连接"
 control_name = "微信 Claw 连接控制"
 
+[channel.coworker]
+peer_conflict = "Coworker 搭档 {{participant}} 的宣告地址或令牌与已学习记录不一致，已更新为最新值；如非预期，请检查是否存在 self_id 撞号或身份冒充"
+store_load_failed = "加载 Coworker 搭档学习库失败：{{error}}"
+store_save_failed = "保存 Coworker 搭档学习库失败：{{error}}"
+
 [channel.openai]
 control_name = "OpenAI 兼容额外令牌控制"
 primary_name = "OpenAI 兼容主令牌（openai:api）"
@@ -195,6 +201,13 @@ sender_unknown = "未知发送者"
 reply = "[引用 {{sender}}]\n{{content}}\n"
 external_reply = "[外部引用，来源 {{sender}}]\n{{content}}\n"
 forwarded_from = "[转发自：{{sender}}]\n"
+
+[config.coworker]
+display_name_too_long = "Coworker 搭档 display_name 不能超过 80 个字符"
+self_id_invalid = "Coworker 搭档 self_id '{{self_id}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
+peers_must_be_object = "Coworker peers 必须是以对端 self_id 为键的对象"
+peer_id_invalid = "Coworker peer id '{{peer}}' 无效；请使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头"
+peer_relay_token_invalid = "对端 '{{peer}}' 使用 Relay 实例地址，其 token 必须是对端的 cwct_v1_ 格式通信令牌"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name 不能超过 80 个字符"

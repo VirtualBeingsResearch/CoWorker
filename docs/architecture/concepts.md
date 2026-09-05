@@ -9,7 +9,7 @@
 - **多 LLM Provider**：支持 Anthropic、OpenAI、DeepSeek、Qwen、Zhipu、MiniMax、OpenCode Go，以及可声明能力的通用 OpenAI 兼容 Provider，可通过 API 或工具热切换模型；可经 `providers.json` 配置同一类型的多个命名实例（如多个智谱 Key），每个实例可带各自的默认模型。主线/摘要/视觉调用均可独立设置思考强度。
 - **分层记忆**：短期上下文自动压缩，长期记忆由 **mem0** 管理（底层 ChromaDB + 本地 SentenceTransformer）；原始对话入库时由 mem0 提炼并语义合并，显式写入的已提炼记忆直接保存并精确去重，避免再次调用 LLM；收到新消息时系统自动检索相关记忆以 `[自动回忆]` 形式注入上下文，已回忆/已写入的记忆在同一会话内不重复注入（持久化去重，重启后同样有效）；短期记忆在重启后自动恢复。
 - **多人对话隔离**：每个 `participant_id` 拥有独立对话线程，避免不同用户的上下文互相污染。
-- **内置交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信；外部 Channel 再接入 WeCom、微信 Claw、Telegram 与 Desktop。
+- **内置交互入口**：文件 inbox/outbox、REST API、SSE/WebSocket 实时通信；外部 Channel 再接入 WeCom、微信 Claw、Telegram、Desktop，以及 Coworker 实例之间的 `coworker:` 搭档互通。
 - **工具系统**：文件读写、代码执行、网页搜索、浏览器自动化、记忆读写、技能读取、任务板、模型切换等。
 - **视觉分析**：配置 `LLM__VISION_PROVIDER/MODEL` 后，纯文本模型（如 DeepSeek）可调用 `visual_analyze`，委托视觉模型理解图片或视频；视频以 Base64 原生输入发送，仅支持声明了视频能力的视觉模型，编码后达到 10 MiB 时会先尝试用 FFmpeg 压缩。
 - **泡泡思考**（可选）：设置 `AGENT__BUBBLE_THINKING=true` 后，模型可主动从当前上下文分叉出独立子任务并发执行，完成后自动合并结论；支持主线与泡泡之间双向通信。创建时绑定 `participant_id`（可同时绑定 `conversation_id`）后，匹配且无歧义的后续通信会直接交给该活跃泡泡处理；泡泡只能直接回复其绑定对象。可用 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` 通过整串 glob 为指定通信 ID 启用外显提示；在线 WebSocket/SSE 会话默认也会按传输层启用，可通过 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` 调整或关闭。默认 participant glob 匹配企微、微信 Claw、Telegram 与 Desktop `local` actor，不匹配 Claude 或 Codex actor。接管提示延迟到首次真实收发，直接回复会标明来自泡泡，且只有已公告接管的会话才发送结束提示。达到轮次上限后，可在配置的宽限期内通过 `bubble_spawn(bubble_id=...)` 保留原上下文继续执行。

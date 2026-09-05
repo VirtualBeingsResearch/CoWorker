@@ -7,7 +7,7 @@
 > 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
 > [安全策略](../../SECURITY.md)。
 
-所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信、Telegram 或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
+所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信、Telegram、微信 Claw 或 Coworker 搭档互通。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
 
 向内置 Stream、Desktop、企业微信、Telegram 或微信 Claw 信道发送消息时，`communicate` 只接受 `list_connections` 中存在的完整 participant ID（信道明确支持的精确简写仍可使用）。未知 ID 不会被自动纠正，也不会发送消息：如果与已知 ID 的编辑距离不超过 4 个字符，工具会列出相近的完整 ID 供模型重新选择；否则按不存在处理并提示重新调用 `list_connections`。已经注册但当前离线的 Stream participant 仍属于已知对象，可继续使用 outbox 投递。
 
@@ -71,7 +71,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 每个信道都有 `inbound_allow`、`inbound_deny`、`outbound_allow`、`outbound_deny` 四个列表。规则按大小写敏感的完整 participant ID 匹配，支持 `*`、`?` 和 `[...]`；没有通配符的值是精确匹配。判定顺序为：命中 deny 时拒绝；否则 allow 非空时必须命中 allow；否则允许。因此未配置某个信道、配置 `{}`，或四个列表都为空时均保持“全部允许”的兼容行为。
 
-内置配置键是 `stream`、`desktop`、`wecom`、`telegram`、`weixin` 和 `openai`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
+内置配置键是 `stream`、`desktop`、`wecom`、`telegram`、`weixin`、`openai` 和 `coworker`；Stream profile 使用自己的信道名，所以 Desktop participant 受 `desktop` 规则而不是 `stream` 规则约束。扩展 Channel 使用其注册名。入站拒绝发生在附件下载、回复帧/上下文令牌缓存、活动记录和 Agent 处理之前：REST `/messages` 返回含说明的 `403`；WebSocket 先发送一条拒绝消息，再以 `1008` 关闭；企业微信、Telegram 和微信 Claw 会尽力向原会话返回一条通用拒绝消息，然后丢弃原消息。拒绝回执属于传输层控制响应，不受出站列表约束；回执发送失败也不会放行原消息。出站拒绝由 Registry 强制执行，被拒绝的 participant 也不会出现在 Agent 的 `list_connections` 中，但仍可在管理端编辑规则。
 
 管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
 

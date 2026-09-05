@@ -186,6 +186,11 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个企业微信 Bot 的 JSON 对象；每项支持 `enabled`、`bot_id`、`secret` 和 `ws_url`（`ws_url` 留空使用 SDK 默认地址）。仍兼容旧版扁平写法（`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`，会自动归为 `default` 实例） |
 | `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode` 和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
+| `COWORKER__SELF_ID` | 首启自动生成（`cw_` 前缀随机 ID） | 本实例的搭档标识（`coworker:` participant 前缀后的部分）；自动生成值持久化在 `data/identity/coworker_self_id.txt`，`GET /status`（带令牌）返回 `coworker_self_id` |
+| `COWORKER__SELF_BASE_URL` | 空（依次回退 `API__PUBLIC_URL`、`http://127.0.0.1:{API__PORT}`） | 对端回呼本实例的地址；跨机器部署必须显式配置 |
+| `COWORKER__INBOUND_TOKEN` | 空（不启用专用令牌） | 搭档专用入站令牌；设置后 `coworker:` 发送方需携带该 Bearer（或主通信令牌），并随出站宣告分发给对端 |
+| `COWORKER__MAX_ATTACHMENT_BYTES` | `10485760` | 向单个对端发送的附件总大小上限（字节）；超限时模型会收到明确错误 |
+| `COWORKER__PEERS` | `{}` | 显式配置的对端实例：键为对端 `self_id`，每项支持 `base_url`（必填）、`token` 与 `display_name`；见 [Coworker 搭档互通](../channels/coworker.md) |
 
 反向代理同时代理 `/admin`、`/api/*` 和静态资源时，将 `API__PUBLIC_URL` 设置为浏览器
 实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或

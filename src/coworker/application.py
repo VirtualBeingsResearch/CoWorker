@@ -30,6 +30,13 @@ from coworker.api.openai_compat import setup_openai_channel
 from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
+from coworker.channels.coworker import (
+    CoworkerAnnounce,
+    CoworkerChannel,
+    CoworkerPeerStore,
+    resolve_coworker_self_id,
+)
+from coworker.channels.inbound import AttachmentStore
 from coworker.channels.openai import OpenAIModule, create_openai_module
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
@@ -740,6 +747,35 @@ async def _main() -> bool:
         traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
     )
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
+    coworker_self_id = resolve_coworker_self_id(
+        config.agent.identity_dir,
+        configured=config.coworker.self_id,
+    )
+    coworker_announce_base_url = (
+        config.coworker.self_base_url
+        or config.api.public_url
+        or f"http://127.0.0.1:{config.api.port}"
+    )
+    coworker_announce_token = config.coworker.inbound_token or (
+        config.api.communication_token if config.api.communication_token else ""
+    )
+    coworker_channel = CoworkerChannel(
+        self_id=coworker_self_id,
+        peers=config.coworker.peers,
+        learned=CoworkerPeerStore(Path(config.memory.db_path) / "coworker_peers.json"),
+        attachments=AttachmentStore(
+            Path(config.agent.inbox_dir).parent / "attachments"
+        ),
+        announce=CoworkerAnnounce(
+            base_url=coworker_announce_base_url,
+            token=coworker_announce_token,
+            display_name=identity.name or coworker_self_id,
+        ),
+        max_attachment_bytes=config.coworker.max_attachment_bytes,
+        activity=channel_system.activity,
+    )
+    channel_system.registry.register(coworker_channel)
+    logger.info(f"Coworker peer channel ready: self_id={coworker_self_id}")
     weixin_module: WeixinModule | None = None
     openai_module: OpenAIModule | None = None
     if not setup_required:
@@ -1065,6 +1101,8 @@ async def _main() -> bool:
         channels=channel_system.registry,
         communication_token_explicit=bool(config.api.communication_token),
         extra_communication_tokens=config.api.communication_tokens,
+        coworker_inbound_token=config.coworker.inbound_token,
+        coworker_self_id=coworker_self_id,
     )
     setup_openai_channel(None if openai_module is None else openai_module.channel)
     setup_admin(
