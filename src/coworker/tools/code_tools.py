@@ -472,6 +472,9 @@ class GetCodeResultTool(Tool):
                 self._inbox.cancel(job.notification_event_id)
 
         status_line = f"[{job.status}] elapsed={elapsed:.1f}s  job_id={job_id}\n"
+        if not job.done_event.is_set():
+            # 任务仍在运行：每次查询都提醒完成会自动通知，抑制空转轮询。
+            status_line += tr("tool_result.code.poll_hint") + "\n"
         return ToolResult(
             tool_call_id="",
             content=status_line + paginate_text(full_output, offset, limit),
