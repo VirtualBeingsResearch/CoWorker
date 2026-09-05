@@ -338,6 +338,7 @@ task_wakeup = "[task reminder] {{count}} unfinished task(s) interrupted sleep."
 task_details_hint = " has_details=true; use task_get to view details"
 task_pin_label = "Unfinished tasks"
 task_board_more = "... and {{count}} more; use task_list"
+concurrency_hint = "[parallel hint] {{count}} conversations have been active within a short window. This is a good moment to work in parallel with bubbles: spawn one bubble bound to each pending conversation (pass participant_id and conversation_id to bubble_spawn); follow-up messages will be routed straight to the matching bubble. At most {{max}} bubbles may run concurrently."
 
 [bubble]
 cancelled = "The bubble was cancelled manually"

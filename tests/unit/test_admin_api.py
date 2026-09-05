@@ -1155,6 +1155,36 @@ def test_config_patch_reports_hot_and_restart_fields(tmp_path):
     assert client.get("/api/admin/config", headers=headers).json()["config"]["api"]["port"] == 8123
 
 
+def test_config_patch_hot_updates_concurrency_hint(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "agent": {
+                    "concurrency_hint_window_seconds": 60.0,
+                    "concurrency_hint_threshold": 3,
+                    "concurrency_hint_cooldown_seconds": 120.0,
+                }
+            },
+            "secrets": {},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == [
+        "agent.concurrency_hint_cooldown_seconds",
+        "agent.concurrency_hint_threshold",
+        "agent.concurrency_hint_window_seconds",
+    ]
+    assert response.json()["requires_restart"] == []
+    assert config.agent.concurrency_hint_window_seconds == 60.0
+    assert config.agent.concurrency_hint_threshold == 3
+    assert config.agent.concurrency_hint_cooldown_seconds == 120.0
+
+
 def test_config_patch_hot_updates_memory_relevance_threshold(tmp_path):
     client, config = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}

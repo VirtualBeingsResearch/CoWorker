@@ -157,6 +157,9 @@ as codes.
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
 | `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
+| `AGENT__CONCURRENCY_HINT_WINDOW_SECONDS` | `180.0` | Sliding window length in seconds for the multi-conversation concurrency hint; conversations heard from within the window count as active |
+| `AGENT__CONCURRENCY_HINT_THRESHOLD` | `2` | The hint to run bubbles in parallel is injected when conversations in the window that no bubble has taken over rise above this threshold; minimum 2 |
+| `AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` | `600.0` | Minimum interval in seconds between two concurrency hints |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "tg:*", "coworker-desktop:*:local:*"]` | JSON array of case-sensitive, full-ID participant globs; an entry without wildcards is an exact match. Matching recipients receive a Bubble-ID takeover or resume notice on the first real exchange, and direct replies carry provenance; completion is sent only for an announced handoff. The defaults match WeCom, Weixin Claw, Telegram, and the Desktop `local` actor; set `[]` to disable every default participant match. |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON transport array accepting `websocket` and `sse`; both are enabled by default, so live generic streams use transparent handoff automatically. A Desktop actor that does not match a participant glob never falls through to this rule, so `claude` and `codex` remain excluded. Set `[]` to disable transport matching. |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | Grace period in seconds for continuing a Bubble with `bubble_spawn(bubble_id=...)` after it reaches its cycle limit; set to `0` to disable. |

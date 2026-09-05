@@ -338,6 +338,7 @@ task_wakeup = "[任务提醒] 有 {{count}} 个未完成任务，中断睡眠。
 task_details_hint = " has_details=true，请用 task_get 查看"
 task_pin_label = "未完成任务"
 task_board_more = "……以及另外 {{count}} 个，用 task_list 查看"
+concurrency_hint = "[并行提示] 近期有 {{count}} 个会话同时活跃，适合用并行思维（bubble）并发处理：为每个待回复的会话创建绑定该会话的泡泡（bubble_spawn 带 participant_id 与 conversation_id），该会话的后续消息会直接转交对应泡泡。当前泡泡并发上限为 {{max}}。"
 
 [bubble]
 cancelled = "泡泡被手动取消"
