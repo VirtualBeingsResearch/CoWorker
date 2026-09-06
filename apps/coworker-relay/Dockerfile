@@ -1,4 +1,4 @@
-FROM golang:1.26.6-alpine AS build
+FROM golang:1.27.1-alpine AS build
 ARG RELAY_VERSION=dev
 ARG RELAY_COMMIT=unknown
 ARG RELAY_BUILD_DATE=unknown
