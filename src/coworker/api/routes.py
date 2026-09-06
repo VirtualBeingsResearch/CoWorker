@@ -14,6 +14,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from coworker.channels.access import ChannelAccessDeniedError
+from coworker.channels.coworker import COWORKER_PREFIX
 from coworker.channels.inbound import InboundEnvelope
 from coworker.core.communication_tokens import (
     PRIMARY_TOKEN_NAME,
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from coworker.agent.loop import AgentLoop
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
+    from coworker.channels.coworker import CoworkerChannel
     from coworker.channels.registry import ChannelRegistry
 
 router = APIRouter()
@@ -44,9 +46,9 @@ _communication_token = ""
 # _communication_token 仍可携带管理员令牌回退值，供 Desktop 兼容校验。
 _communication_token_explicit = False
 _extra_communication_tokens: dict[str, str] = {}
-# 搭档信道（coworker: 前缀发送方）专用的入站令牌与自身 peer id。
-_coworker_inbound_token = ""
-_coworker_self_id = ""
+# 搭档信道实例：认证 coworker: 发送方与 /status 暴露 self_id 都在请求时读取它，
+# 管理端热应用 reconfigure 后自动生效，无需在 API 层另存镜像状态。
+_coworker_channel: CoworkerChannel | None = None
 _channels: ChannelRegistry | None = None
 
 # 已处理过的入站 desktop 消息 message_id 集合，用于对 bridge 出站"至少一次"重试做幂等去重：
@@ -85,12 +87,11 @@ def setup(
     channels: ChannelRegistry | None = None,
     communication_token_explicit: bool | None = None,
     extra_communication_tokens: dict[str, str] | None = None,
-    coworker_inbound_token: str = "",
-    coworker_self_id: str = "",
+    coworker_channel: CoworkerChannel | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
     global _communication_token, _communication_token_explicit, _channels
-    global _coworker_inbound_token, _coworker_self_id
+    global _coworker_channel
     _inbox = inbox
     _agent = agent
     _brain = brain
@@ -103,8 +104,7 @@ def setup(
         else communication_token_explicit
     )
     _channels = channels
-    _coworker_inbound_token = coworker_inbound_token.strip()
-    _coworker_self_id = coworker_self_id
+    _coworker_channel = coworker_channel
     update_communication_token_table(extra_communication_tokens or {}, sync_store=False)
 
 
@@ -202,21 +202,39 @@ def verify_communication_authorization(authorization: str | None) -> None:
     resolve_communication_token_name(authorization)
 
 
-def _verify_coworker_peer_authorization(authorization: str | None) -> None:
-    """Authenticate ``coworker:`` senders: the dedicated inbound token or the usual table."""
-    if _coworker_inbound_token:
+def verify_inbound_authorization(
+    *,
+    sender_id: str,
+    is_desktop: bool,
+    request: Request,
+    authorization: str | None,
+) -> None:
+    """/messages 入站认证的唯一入口（desktop / relay / 普通 REST / 搭档信道共用）。
+
+    普通 REST 入站仅在显式配置通信令牌后强制认证，未配置时由回环/可信网络边界兜底；
+    搭档信道（coworker: 前缀）额外接受专用入站令牌，且一旦配置该令牌，搭档消息必须
+    认证：专用令牌或既有通信令牌任一命中即可，都不匹配时按无效令牌拒绝（401），
+    而不是上报"未配置"（503），避免误导对端排查方向。
+    """
+    coworker_token = _coworker_channel.inbound_token if _coworker_channel else ""
+    is_coworker_peer = sender_id.startswith(COWORKER_PREFIX)
+    if is_coworker_peer and coworker_token:
         provided = _bearer_token(authorization)
-        if provided is not None and _token_matches(provided, _coworker_inbound_token):
+        if provided is not None and _token_matches(provided, coworker_token):
             return
-        if communication_token_table():
-            # 主令牌/额外令牌对搭档消息同样有效；都不匹配时按无效令牌拒绝。
-            verify_communication_authorization(authorization)
-            return
-        raise HTTPException(
-            status_code=401,
-            detail=tr("api.auth.communication_token_invalid"),
-        )
-    verify_communication_authorization(authorization)
+        if not communication_token_table():
+            raise HTTPException(
+                status_code=401,
+                detail=tr("api.auth.communication_token_invalid"),
+            )
+    requires_authorization = (
+        is_desktop
+        or is_authenticated_relay_request(request)
+        or _communication_token_explicit
+        or (is_coworker_peer and bool(coworker_token))
+    )
+    if requires_authorization:
+        verify_communication_authorization(authorization)
 
 
 def update_communication_token(token: str, explicit: bool | None = None) -> None:
@@ -227,15 +245,6 @@ def update_communication_token(token: str, explicit: bool | None = None) -> None
     _communication_token_explicit = (
         bool(_communication_token) if explicit is None else explicit
     )
-
-
-def update_coworker_peer_auth(*, inbound_token: str = "", self_id: str = "") -> None:
-    """Replace the dedicated coworker inbound token and advertised self_id."""
-
-    global _coworker_inbound_token, _coworker_self_id
-    _coworker_inbound_token = inbound_token.strip()
-    if self_id:
-        _coworker_self_id = self_id
 
 
 def update_communication_token_table(
@@ -333,21 +342,12 @@ async def post_message(
         or message.message_id is not None
         or message.type is not None
     )
-    is_coworker_peer = message.sender_id.startswith("coworker:")
-    # 普通 REST 入站同样受通信令牌保护：只有显式设置了通信令牌时，所有 /messages
-    # 才必须携带 Bearer；未显式设置时保持既有行为，由回环/可信网络边界兜底。
-    # 搭档信道额外接受 COWORKER__INBOUND_TOKEN；一旦设置，搭档消息必须认证。
-    requires_communication_auth = (
-        is_desktop
-        or is_authenticated_relay_request(request)
-        or _communication_token_explicit
-        or (is_coworker_peer and bool(_coworker_inbound_token))
+    verify_inbound_authorization(
+        sender_id=message.sender_id,
+        is_desktop=is_desktop,
+        request=request,
+        authorization=authorization,
     )
-    if requires_communication_auth:
-        if is_coworker_peer:
-            _verify_coworker_peer_authorization(authorization)
-        else:
-            verify_communication_authorization(authorization)
     if is_desktop:
         if message.protocol_version != 1:
             raise HTTPException(status_code=422, detail=tr("api.message.protocol_version"))
@@ -451,8 +451,8 @@ def _full_status_payload(auth: dict[str, Any] | None = None) -> dict[str, Any]:
         "cycle_count": s.cycle_count,
         "setup_mode": s.setup_mode,
     }
-    if _coworker_self_id:
-        payload["coworker_self_id"] = _coworker_self_id
+    if _coworker_channel is not None:
+        payload["coworker_self_id"] = _coworker_channel.self_id
     if auth:
         payload.update(auth)
     if _brain is not None:

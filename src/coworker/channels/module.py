@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from coworker.channels.base import BaseChannel
 from coworker.core.registration import RegistrationError
@@ -21,6 +21,13 @@ class ChannelSettings(Protocol):
     def config_key(self) -> str: ...
 
     async def apply(self, config: object) -> None: ...
+
+
+@runtime_checkable
+class ChannelRuntimeInfo(Protocol):
+    """Optional settings capability: read-only runtime facts for the admin config view."""
+
+    def runtime_info(self) -> dict[str, str | int | float | bool | None]: ...
 
 
 class ChannelModule(Protocol):

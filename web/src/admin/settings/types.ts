@@ -17,6 +17,7 @@ export type SettingsPanelProps = {
   secretInputs: Record<string, string>;
   setSecretInputs: (value: Record<string, string>) => void;
   secretStatus: Record<string, { configured?: boolean; last4?: string }>;
+  runtime?: Json;
 };
 
 export type SettingsPanelRegistration = {

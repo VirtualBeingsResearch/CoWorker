@@ -18,6 +18,7 @@ export function CoworkerSettingsPanel({
   secretInputs,
   setSecretInputs,
   secretStatus,
+  runtime,
 }: SettingsPanelProps) {
   const peers = (value.peers || {}) as Record<string, Json>;
   const entries = useMemo(() => Object.entries(peers), [peers]);
@@ -25,6 +26,9 @@ export function CoworkerSettingsPanel({
   const normalizedId = peerId.trim();
   const inboundPath = 'coworker.inbound_token';
   const inboundStatus = secretStatus[inboundPath];
+  const effectiveSelfId = typeof runtime?.coworker_self_id === 'string' ? runtime.coworker_self_id : '';
+  // 配置值与生效值一致时不重复展示；生效值仅在进程运行后存在。
+  const showEffectiveSelfId = Boolean(effectiveSelfId) && effectiveSelfId !== String(value.self_id || '').trim();
   const canAdd = (
     COWORKER_PEER_ID_PATTERN.test(normalizedId)
     && !COWORKER_RESERVED_PEER_IDS.has(normalizedId)
@@ -63,7 +67,7 @@ export function CoworkerSettingsPanel({
     <section className="coworker-identity">
       <div><b>{t('本实例身份')}</b><small>{t('对端配置本实例时需要 self_id；带令牌的 GET /status 也会返回 coworker_self_id。')}</small></div>
       <div className="telegram-bot-fields">
-        <label><span>{t('本实例 self_id')}</span><input className="admin-input" value={value.self_id || ''} onChange={event => change('self_id', event.target.value)} placeholder={t('留空则首次启动自动生成')} /><small>{t('使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。control 为保留名。')}</small></label>
+        <label><span>{t('本实例 self_id')}</span><input className="admin-input" value={value.self_id || ''} onChange={event => change('self_id', event.target.value)} placeholder={t('留空则首次启动自动生成')} /><small>{t('使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。control 为保留名。')}</small>{showEffectiveSelfId && <small className="coworker-effective-self-id"><code>{effectiveSelfId}</code>{t('为当前生效的 self_id，对端配置时填写这个。')}</small>}</label>
         <label><span>{t('回呼地址')}</span><input className="admin-input" value={value.self_base_url || ''} onChange={event => change('self_base_url', event.target.value)} placeholder="http://127.0.0.1:8000" /><small>{t('对端回呼本实例的地址；留空则回退 API 公开地址或本机端口。')}</small></label>
         <label><span>{t('搭档入站令牌')}</span><input className="admin-input" type="password" value={secretInputs[inboundPath] || ''} onChange={event => setSecretInputs({ ...secretInputs, [inboundPath]: event.target.value })} placeholder={inboundStatus?.configured ? t('••••••••{{last4}}（留空保留）', { last4: inboundStatus.last4 || '' }) : t('建议设置专用令牌，避免把主通信令牌交给对端')} /><small>{inboundStatus?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: inboundStatus.last4 || '' }) : t('当前未配置')}</small></label>
         <label><span>{t('附件总大小上限（字节）')}</span><input className="admin-input" type="number" min="1" step="1" value={value.max_attachment_bytes ?? 10485760} onChange={event => change('max_attachment_bytes', Number(event.target.value))} /></label>

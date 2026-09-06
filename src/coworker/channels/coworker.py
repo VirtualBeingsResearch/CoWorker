@@ -222,6 +222,7 @@ class CoworkerChannel(BaseChannel):
         learned: CoworkerPeerStore,
         attachments: AttachmentStore,
         announce: CoworkerAnnounce | None = None,
+        inbound_token: str = "",
         max_attachment_bytes: int = 10 * 1024 * 1024,
         runtime: CoworkerRuntime | None = None,
         activity: ChannelActivityStore | None = None,
@@ -237,6 +238,9 @@ class CoworkerChannel(BaseChannel):
         self._learned = learned
         self._attachments = attachments
         self._announce = announce
+        # 对端调用本实例 /messages 时使用的专用入站令牌；为空时沿用共享通信令牌
+        # 的既有认证规则。API 层在请求时读取，热应用无需另行同步。
+        self._inbound_token = inbound_token.strip()
         self._max_attachment_bytes = max_attachment_bytes
         self._timeout_seconds = timeout_seconds
         self._fallback_base_url = fallback_base_url.rstrip("/")
@@ -246,6 +250,12 @@ class CoworkerChannel(BaseChannel):
     @property
     def self_id(self) -> str:
         return self._self_id
+
+    @property
+    def inbound_token(self) -> str:
+        """Dedicated peer inbound token, read by the API layer to authenticate peers."""
+
+        return self._inbound_token
 
     def agent_instructions(self) -> str:
         return tr("prompt.channel.coworker")
@@ -259,6 +269,7 @@ class CoworkerChannel(BaseChannel):
         """Replace explicit peers and announce settings without restarting."""
 
         self._peers = dict(config.peers)
+        self._inbound_token = config.inbound_token.strip()
         if config.self_id:
             self._self_id = config.self_id
             # 持久化到 identity 目录：管理端之后清空配置时，重启仍沿用最后生效的身份。
@@ -699,12 +710,11 @@ class CoworkerSettings:
         if not isinstance(config, CoworkerConfig):
             raise TypeError(tr("channel.coworker.config_type_invalid"))
         self._channel.reconfigure(config)
-        from coworker.api.routes import update_coworker_peer_auth
 
-        update_coworker_peer_auth(
-            inbound_token=config.inbound_token,
-            self_id=self._channel.self_id,
-        )
+    def runtime_info(self) -> dict[str, str]:
+        """Read-only facts for the admin config view; the effective peer identity."""
+
+        return {"coworker_self_id": self._channel.self_id}
 
 
 @dataclass(frozen=True)
@@ -736,6 +746,7 @@ def create_coworker_module(
         learned=learned,
         attachments=attachments,
         announce=announce,
+        inbound_token=config.inbound_token,
         max_attachment_bytes=config.max_attachment_bytes,
         runtime=runtime,
         activity=activity,

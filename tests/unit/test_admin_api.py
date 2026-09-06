@@ -1748,6 +1748,7 @@ def test_coworker_config_hot_applies_peers_and_masks_tokens(tmp_path):
 
     body = client.get("/api/admin/config", headers=headers).json()
     assert "coworker" in body["hot_reloadable"]
+    assert body["runtime"]["coworker_self_id"] == "ava"
     assert body["config"]["coworker"]["peers"]["bob"]["token"] == ""
     assert body["secret_status"]["coworker.peers.bob.token"]["last4"] == "ting"
 

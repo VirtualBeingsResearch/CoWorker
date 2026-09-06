@@ -49,6 +49,7 @@ def _channel(
     *,
     peers: dict[str, CoworkerPeerConfig] | None = None,
     announce: CoworkerAnnounce | None = None,
+    inbound_token: str = "",
     client: httpx.AsyncClient | None = None,
     activity: ChannelActivityStore | None = None,
     max_attachment_bytes: int = 10 * 1024 * 1024,
@@ -60,6 +61,7 @@ def _channel(
         learned=CoworkerPeerStore(tmp_path / "coworker_peers.json"),
         attachments=AttachmentStore(tmp_path / "attachments"),
         announce=announce,
+        inbound_token=inbound_token,
         max_attachment_bytes=max_attachment_bytes,
         runtime=CoworkerRuntime(client=client),
         activity=activity or ChannelActivityStore(),
@@ -473,36 +475,95 @@ def _deny_access(direction: str) -> ChannelAccessController:
 def _reset_routes_auth_state() -> None:
     from coworker.api import routes
 
-    routes._coworker_inbound_token = ""
+    routes._coworker_channel = None
     routes._communication_token = ""
     routes._communication_token_explicit = False
     routes._extra_communication_tokens = {}
 
 
-def test_coworker_peer_auth_accepts_inbound_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def _verify_inbound(
+    sender_id: str,
+    authorization: str | None,
+    *,
+    is_desktop: bool = False,
+) -> None:
+    from starlette.requests import Request
+
+    from coworker.api import routes
+
+    request = Request({"type": "http", "state": {}})
+    routes.verify_inbound_authorization(
+        sender_id=sender_id,
+        is_desktop=is_desktop,
+        request=request,
+        authorization=authorization,
+    )
+
+
+def test_coworker_peer_auth_accepts_inbound_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import HTTPException
 
     from coworker.api import routes
 
     _reset_routes_auth_state()
-    monkeypatch.setattr(routes, "_coworker_inbound_token", "cw-inbound")
+    monkeypatch.setattr(routes, "_coworker_channel", _channel(tmp_path, inbound_token="cw-inbound"))
 
     # 专用入站令牌通过，即使没有配置任何主通信令牌。
-    routes._verify_coworker_peer_authorization("Bearer cw-inbound")
+    _verify_inbound("coworker:ava", "Bearer cw-inbound")
     with pytest.raises(HTTPException) as exc_info:
-        routes._verify_coworker_peer_authorization("Bearer wrong")
+        _verify_inbound("coworker:ava", "Bearer wrong")
     assert exc_info.value.status_code == 401
-    with pytest.raises(HTTPException):
-        routes._verify_coworker_peer_authorization(None)
+    with pytest.raises(HTTPException) as exc_info:
+        _verify_inbound("coworker:ava", None)
+    assert exc_info.value.status_code == 401
 
     # 主令牌对搭档消息同样有效；专用令牌在主令牌存在时依然有效（轮换互不影响）。
     monkeypatch.setattr(routes, "_communication_token", "primary-token")
-    routes._verify_coworker_peer_authorization("Bearer primary-token")
-    routes._verify_coworker_peer_authorization("Bearer cw-inbound")
+    _verify_inbound("coworker:ava", "Bearer primary-token")
+    _verify_inbound("coworker:ava", "Bearer cw-inbound")
     with pytest.raises(HTTPException):
-        routes._verify_coworker_peer_authorization("Bearer wrong")
+        _verify_inbound("coworker:ava", "Bearer wrong")
 
     _reset_routes_auth_state()
+
+
+def test_inbound_authorization_requires_no_auth_without_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+
+    from coworker.api import routes
+
+    _reset_routes_auth_state()
+
+    # 未配置任何令牌时，普通 REST 与搭档消息都保持免认证（由回环/可信边界兜底）。
+    _verify_inbound("coworker:ava", None)
+    _verify_inbound("someone-else", None)
+
+    # 搭档信道未配置专用令牌时，搭档消息与普通发送方适用同一套通信令牌规则。
+    channel = _channel(tmp_path)
+    monkeypatch.setattr(routes, "_coworker_channel", channel)
+    monkeypatch.setattr(routes, "_communication_token_explicit", True)
+    with pytest.raises(HTTPException) as unconfigured:
+        _verify_inbound("coworker:ava", "Bearer some-token")
+    assert unconfigured.value.status_code == 503
+
+    _reset_routes_auth_state()
+
+
+def test_reconfigure_updates_inbound_token(tmp_path: Path) -> None:
+    from coworker.core.config import CoworkerConfig
+
+    channel = _channel(tmp_path, inbound_token="old-token")
+    assert channel.inbound_token == "old-token"
+    channel.reconfigure(CoworkerConfig.model_validate({"inbound_token": "new-token"}))
+    assert channel.inbound_token == "new-token"
+    channel.reconfigure(CoworkerConfig.model_validate({}))
+    assert channel.inbound_token == ""
 
 
 # --- relay transport ------------------------------------------------------------

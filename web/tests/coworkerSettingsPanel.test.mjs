@@ -28,3 +28,9 @@ test('adds explicit peers by remote self_id instead of generating one', () => {
   assert.match(panel, /coworker\.peers\.\$\{peerId\}\.token/);
   assert.match(panel, /coworker\.inbound_token/);
 });
+
+test('shows the effective self_id from admin runtime info', () => {
+  assert.match(panel, /runtime\?\.coworker_self_id/);
+  assert.match(panel, /showEffectiveSelfId/);
+  assert.match(panel, /为当前生效的 self_id，对端配置时填写这个。/);
+});

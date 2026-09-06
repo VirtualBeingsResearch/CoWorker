@@ -900,6 +900,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '对端配置本实例时需要 self_id；带令牌的 GET /status 也会返回 coworker_self_id。': 'Peers need this self_id when they add this instance; authenticated GET /status also returns coworker_self_id.',
   '本实例 self_id': 'This instance self_id',
   '留空则首次启动自动生成': 'Leave empty to auto-generate on first start',
+  '为当前生效的 self_id，对端配置时填写这个。': 'is the effective self_id; peers should use it when adding this instance.',
   '使用 1–32 位小写字母、数字、下划线或连字符，并以字母开头。control 为保留名。': 'Use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter. control is reserved.',
   '回呼地址': 'Callback URL',
   '对端回呼本实例的地址；留空则回退 API 公开地址或本机端口。': 'URL peers use to call back to this instance; empty falls back to the public API URL or local port.',

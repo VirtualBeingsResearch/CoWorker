@@ -1103,8 +1103,7 @@ async def _main() -> bool:
         channels=channel_system.registry,
         communication_token_explicit=bool(config.api.communication_token),
         extra_communication_tokens=config.api.communication_tokens,
-        coworker_inbound_token=config.coworker.inbound_token,
-        coworker_self_id=coworker_self_id,
+        coworker_channel=coworker_module.channel,
     )
     setup_openai_channel(None if openai_module is None else openai_module.channel)
     setup_admin(

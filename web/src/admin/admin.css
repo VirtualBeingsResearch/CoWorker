@@ -1672,6 +1672,8 @@ html:has(.admin-login),
 .coworker-identity > div:first-child b,
 .coworker-identity > div:first-child small { display: block; }
 .coworker-identity > div:first-child small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; }
+.coworker-effective-self-id { display: block; margin-top: 3px; color: var(--admin-muted); }
+.coworker-effective-self-id code { color: var(--admin-ink); }
 .weixin-settings { display: grid; gap: 14px; }
 .weixin-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 18px; padding: 18px; border: 1px solid var(--admin-line); border-radius: 14px; background: linear-gradient(120deg, color-mix(in oklch, #19ad67 7%, var(--admin-soft)), var(--admin-surface) 70%); }
 .weixin-overview.warning { border-color: color-mix(in oklch, var(--admin-amber) 36%, var(--admin-line)); }

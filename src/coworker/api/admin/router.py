@@ -347,6 +347,21 @@ def setup_channel_admin(modules: ChannelModuleRegistry | None) -> None:
         _admin_config_service.set_channel_modules(modules)
 
 
+def _channel_runtime_info() -> JsonObject:
+    """Merge read-only runtime facts contributed by channel settings modules.
+
+    配置接口返回的是落盘配置；信道运行期生成的事实（如搭档信道的生效 self_id）
+    通过可选的 ``runtime_info`` 能力单独透出，避免与配置字段混淆或被覆盖保存。
+    """
+    from coworker.channels.module import ChannelRuntimeInfo
+
+    info: JsonObject = {}
+    for _, settings in (_channel_modules.settings_items() if _channel_modules else []):
+        if isinstance(settings, ChannelRuntimeInfo):
+            info.update(settings.runtime_info())
+    return info
+
+
 def _require_agent() -> AgentLoop:
     if _agent is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
@@ -1403,6 +1418,7 @@ async def get_config(_: None = Depends(require_admin)) -> ApiResponse:
         "hot_reloadable": snapshot.hot_reloadable,
         "override_path": snapshot.override_path,
         "pending_restart": snapshot.pending_restart,
+        "runtime": _channel_runtime_info(),
         "sources": {
             "base": ".env / environment",
             "providers": _require_config().llm.providers_file,
