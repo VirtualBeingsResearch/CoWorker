@@ -20,8 +20,8 @@ connection state.
 | `GET /api/debug/tasks` | Are event-loop tasks stuck on the same await? Trusted diagnostics only |
 | Docker healthcheck / `docker compose ps` | Are the container and HTTP service reachable? |
 
-`pending` often means waiting for a message or timer, not failure. Combine wait location, last
-successful activity, and repeated errors before declaring a stall.
+`pending` often means waiting for a message or timer, not failure. Whether a stall is real depends
+on the wait location, the last successful activity, and whether errors repeat.
 
 ## Suggested health checks
 
@@ -35,7 +35,9 @@ docker compose ps
 ```
 
 Then send a test message that cannot trigger a high-risk tool and verify inbound, model, and reply
-paths. A health probe should never call endpoints that incur model cost or mutate state.
+paths. `GET /status` and the Docker healthcheck have no side effects; `POST /messages`,
+`POST /backups/restore`, and similar endpoints incur model cost or mutate state and are not probe
+targets.
 
 ## Usage and cost
 
@@ -55,7 +57,7 @@ Unpriced tokens are not treated as free: amount subtotals include only priced us
 still priced. Existing token data may carry the current exact/estimated markers; untracked calls
 have no tokens available for pricing.
 
-Watch for:
+Signals worth watching:
 
 - sudden call or token growth;
 - fallback handling most traffic, indicating primary Provider instability;
@@ -65,20 +67,21 @@ Watch for:
 
 Amounts are always local estimates, not Provider invoices. They exclude request fees, separate
 image/video charges, cache writes, tiers, batch discounts, taxes, and account-level concessions.
-Use the external service as the billing authority.
+The external service is the billing authority.
 
 ## Logs and sensitive information
 
-Record time, timezone, participant, Channel, and the first error. Before sharing logs, remove
-tokens, keys, message text, attachments, personal paths, Weixin QR codes, and Relay pairing
-material. Never upload a complete configuration export.
+An incident record typically includes the time, timezone, participant, Channel, and the first
+error. Logs and configuration exports contain sensitive material such as tokens, keys, message
+text, attachments, personal paths, Weixin QR codes, and Relay pairing material; a complete
+configuration export concentrates the whole configuration and is equally sensitive.
 
 `data/logs/channel_traffic.jsonl` is the metadata source for the administration console's Message
 traffic view. It excludes message bodies, attachment contents, and credentials, but contains
-potentially sensitive participant IDs. It rotates at 10 MiB with six backups; include these files
-in access control, retention, and cleanup whenever changing the overall log-backup policy.
+potentially sensitive participant IDs. It rotates at 10 MiB with six backups; these files are also
+part of access control, retention, and cleanup scope when the overall log-backup policy changes.
 
-Retention must account for:
+Retention factors include:
 
 - incident audit and policy needs;
 - raw interaction logs used for memory-tree backfill;
@@ -91,9 +94,10 @@ Retention must account for:
 - Weekly: Providers/fallbacks, backup results, offline participants, and long-running tasks.
 - Monthly or before major upgrades: recovery drill, capability review, version and capacity trend.
 
-Alert at least on repeated health failure, low disk, growing failed-task count, unreachable Relay,
-and stale backups. Coworker does not currently expose Prometheus metrics; external monitoring
-should poll lightweight state and host signals instead of indexing sensitive message logs.
+Typical alerting covers at least repeated health failure, low disk, a growing failed-task count, an
+unreachable Relay, and stale backups. Coworker does not currently expose Prometheus metrics;
+external monitoring typically polls lightweight state and host signals, and logs containing
+sensitive message bodies are not the default metric source.
 
 ## Incident response order
 

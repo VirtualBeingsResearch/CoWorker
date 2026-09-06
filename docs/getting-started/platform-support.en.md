@@ -5,8 +5,8 @@
 [← Back to First Run](README.en.md)
 
 This page describes platforms covered by current source and build workflows. It does not imply
-that every platform has an official prebuilt package. Use `VERSION`, manifests, and release notes
-as the version authority.
+that every platform has an official prebuilt package. `VERSION`, manifests, and release notes
+are the version authority.
 
 ## Runtime requirements
 
@@ -24,8 +24,8 @@ independently. Missing Codex or Claude does not block the local user or other av
 
 The repository uses the PyTorch CPU index on every platform by default. NVIDIA CUDA 13.0 on
 Windows/Linux requires switching the `torch` source as described in `pyproject.toml`, then
-regenerating the lock and syncing dependencies. Do not copy a virtual environment or local wheel
-cache between architectures.
+regenerating the lock and syncing dependencies. Virtual environments and local wheel caches
+contain architecture-specific binaries and do not work when copied between architectures.
 
 The Docker offline image preloads an embedding model; runtime configuration must match the cache.
 Conversation models normally use external Providers and do not become offline because the image is.
@@ -46,7 +46,7 @@ signature and retain the installed version.
 
 - Desktop registration and message envelopes currently use protocol version `1`.
 - Relay v1 requires compatible Coworker, Desktop, and Relay protocol implementations.
-- API v0.x responses may add fields; clients should ignore unknown fields.
+- API v0.x responses may add fields; clients that ignore unknown fields stay compatible.
 - `/api/admin/*` is an implementation contract for the matching Web console, not a stable SDK.
 - Older releases do not receive security fixes by default; see the [Security Policy](../../SECURITY.en.md).
 

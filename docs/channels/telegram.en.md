@@ -11,12 +11,13 @@ never becomes ambiguous.
 
 ## Create and configure Bots
 
-Create a Bot with [@BotFather](https://t.me/BotFather) and obtain its token. Never commit the token
-to Git or expose it in logs or screenshots. Add multiple Bots under **Runtime Settings → Telegram**
-in the administration console. The page prefills each new instance with a unique four-character
-`instance_id` and creates an editable `Telegram <instance_id>` display name. Use the ID directly or
-customize it before creation, then keep it stable. It must start with a lowercase letter, may contain
-lowercase letters, digits, `_`, or `-`, and is at most 32 characters.
+Create a Bot with [@BotFather](https://t.me/BotFather) and obtain its token. A token that reaches
+Git, logs, or screenshots counts as a leaked credential. Add multiple Bots under
+**Runtime Settings → Telegram** in the administration console. The page prefills each new instance
+with a unique four-character `instance_id` and creates an editable `Telegram <instance_id>` display
+name. Use the ID directly or customize it before creation; it is part of participant IDs and the
+per-instance state path and usually stays unchanged afterward. It must start with a lowercase
+letter, may contain lowercase letters, digits, `_`, or `-`, and is at most 32 characters.
 
 For unattended deployments, put multiple instances in one JSON object in `.env`:
 
@@ -35,12 +36,12 @@ Each instance accepts these fields:
 | `local_mode` | `false` | Interpret file paths using local Bot API Server semantics |
 | `poll_timeout_seconds` | `30` | `getUpdates` long-poll timeout, from 1 to 50 seconds |
 
-Set `api_base_url` to the root and do not append `/bot`; Coworker builds the Bot API and file API
-URLs separately. Enable `local_mode` only when a self-hosted
-[Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api) runs with `--local` and shares
-file paths with Coworker; keep it off for the official API or a regular proxy. Adding, removing,
-enabling, disabling, or editing an instance in the administration console is hot-applied and does
-not require a Coworker restart.
+Set `api_base_url` to the root; Coworker adds the `/bot` segment itself when it builds the Bot API
+and file API URLs separately. `local_mode` applies only to a self-hosted
+[Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api) that runs with `--local` and
+shares file paths with Coworker; the official API and a regular proxy do not use it. Adding,
+removing, enabling, disabling, or editing an instance in the administration console is hot-applied
+and does not require a Coworker restart.
 
 Telegram Bot API `getUpdates` and webhooks are mutually exclusive. If the token previously had a
 webhook, call `deleteWebhook` first. See Telegram's
@@ -73,8 +74,8 @@ the administrator permissions needed to read and send posts.
 
 If ordinary group messages are missing, check
 [Privacy Mode](https://core.telegram.org/bots/features#privacy-mode) in BotFather. With Privacy Mode
-enabled, a Bot typically receives only commands, replies, and messages relevant to it. Disable it
-when the deployment requires all group messages.
+enabled, a Bot typically receives only commands, replies, and messages relevant to it; all group
+messages reach the Bot only when Privacy Mode is disabled.
 
 ## Messages and attachments
 
@@ -95,9 +96,9 @@ MiB and saved under Coworker's attachment directory; images and PDFs up to 10 Mi
 inline to the model. Outbound handling supports text, images, and files. Text is split at Telegram's
 4096-character limit, and one uploaded file is limited to 50 MiB.
 
-Treat Telegram messages and attachments as untrusted external input that may contain prompt
-injection or malicious files. Grant only the group/channel permissions the Bot needs, and restrict
-sources with channel access rules:
+Telegram messages and attachments are untrusted external input that may contain prompt injection
+or malicious files. The Bot's group/channel permissions and channel access rules together define
+its source boundary:
 
 ```dotenv
 CHANNEL_ACCESS={"telegram":{"inbound_allow":["tg:main:*"],"inbound_deny":["tg:main:-1009999999999"],"outbound_allow":["tg:main:*"],"outbound_deny":[]}}

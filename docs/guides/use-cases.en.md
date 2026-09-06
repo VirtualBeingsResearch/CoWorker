@@ -4,8 +4,8 @@
 
 [← Back to Web Management Console](README.en.md)
 
-These scenarios compose existing capabilities. They do not grant Coworker additional authority.
-Keep human review for consequential operations.
+These scenarios compose existing capabilities. They do not grant Coworker additional authority;
+consequential operations still pass through human review.
 
 ## Personal persistent companion
 
@@ -17,7 +17,7 @@ Goal: continue project context, tasks, and reminders across days.
 4. Carry next actions through tasks and alarms.
 5. Review stale tasks, memory, and usage weekly.
 
-Do not pin an entire project corpus. Put procedures in Skills and facts in memory.
+Pinning an entire project corpus permanently consumes context. Put procedures in Skills and facts in memory.
 
 ## Team project memory
 
@@ -26,7 +26,7 @@ Goal: let members share durable background while isolating short-term conversati
 - Use a separate `participant_id` for every member.
 - Compose project orientation, critical Skills, and memory tags in a Palace.
 - Retain important decisions only after human confirmation.
-- Transfer results through a Channel or Desktop; do not mistake conversation isolation for authorization.
+- Transfer results through a Channel or Desktop; conversation isolation separates context and is not an authorization boundary.
 
 ## Desktop multi-agent collaboration
 
@@ -58,7 +58,7 @@ Goal: connect an existing service to persistent context.
 - Keep participant and conversation identifiers stable.
 - Implement `BaseChannel` or `StreamProfile` for independent transport semantics.
 - Define retry, attachment, authentication, offline-outbox, and recovery contracts.
-- Do not depend on `/api/admin/*` as a stable public API.
+- `/api/admin/*` is the matching-version Web console implementation contract, not a stable public API.
 
 ## Domain Palace
 

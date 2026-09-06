@@ -10,10 +10,11 @@ Coworker 可以通过一个或多个 Telegram Bot 接收私聊、群组、话题
 
 ## 创建并配置 Bot
 
-先在 Telegram 中通过 [@BotFather](https://t.me/BotFather) 创建 Bot 并取得 token。不要把
-token 提交到 Git、日志或截图中。可以在管理端「运行设置 → Telegram」添加多个 Bot；页面会
-为新实例预填一个不重复的 4 位 `instance_id`，并在创建时使用 `Telegram <instance_id>` 作为
-可编辑的默认显示名称。ID 可以直接使用或在创建前自定义，创建后应保持稳定；它只允许小写
+先在 Telegram 中通过 [@BotFather](https://t.me/BotFather) 创建 Bot 并取得 token。token
+进入 Git、日志或截图即等同于凭据泄露。可以在管理端「运行设置 → Telegram」添加多个 Bot；
+页面会为新实例预填一个不重复的 4 位 `instance_id`，并在创建时使用
+`Telegram <instance_id>` 作为可编辑的默认显示名称。ID 可以直接使用或在创建前自定义，
+创建后即作为 participant ID 与状态文件路径的一部分，通常保持不变；它只允许小写
 字母开头，并包含小写字母、数字、`_` 或 `-`，最长 32 个字符。
 
 无人值守部署也可以在 `.env` 中把多个实例写成一个 JSON 对象：
@@ -33,10 +34,10 @@ TELEGRAM__BOTS={"main":{"enabled":true,"display_name":"主机器人","bot_token"
 | `local_mode` | `false` | 是否按本地机器人 API 服务器模式处理文件路径 |
 | `poll_timeout_seconds` | `30` | `getUpdates` 长轮询超时，范围 1～50 秒 |
 
-`api_base_url` 填根地址即可，末尾不要手工追加 `/bot`；Coworker 会分别构造机器人 API 与文件
-API 地址。仅当自托管 [Telegram 机器人 API 服务器](https://github.com/tdlib/telegram-bot-api)
-以 `--local` 启动并与 Coworker 共享文件路径时启用 `local_mode`；官方 API 或普通代理保持
-关闭。保存管理端配置后，新增、删除、启停或修改某个实例会热应用，不需要重启 Coworker。
+`api_base_url` 填根地址即可，`/bot` 段由 Coworker 在构造机器人 API 与文件 API 地址时自行
+添加。`local_mode` 仅适用于以 `--local` 启动并与 Coworker 共享文件路径的自托管
+[Telegram 机器人 API 服务器](https://github.com/tdlib/telegram-bot-api)；官方 API 或普通代理
+不使用该模式。保存管理端配置后，新增、删除、启停或修改某个实例会热应用，不需要重启 Coworker。
 
 Telegram 机器人 API 的 `getUpdates` 与 webhook 互斥；如果这个 token 之前配置过 webhook，需先
 调用 `deleteWebhook` 清除它。参见 Telegram 的[更新接收说明](https://core.telegram.org/bots/api#getting-updates)。
@@ -66,7 +67,7 @@ Telegram forum topic 的 `message_thread_id` 会作为 `conversation_id`；回�
 
 如果 Bot 在群组中看不到普通消息，请在 BotFather 检查
 [Privacy Mode](https://core.telegram.org/bots/features#privacy-mode)。保持 Privacy Mode 时，
-Bot 通常只会收到命令、回复和与它相关的消息；需要处理全部群消息时应按部署需求关闭。
+Bot 通常只会收到命令、回复和与它相关的消息；关闭后 Bot 才会收到全部群消息。
 
 ## 消息与附件
 
@@ -85,8 +86,8 @@ Bot 通常只会收到命令、回复和与它相关的消息；需要处理全�
 并保存到 Coworker 的附件目录；不超过 10 MiB 的图片和 PDF 还会以内联内容交给模型。出站支持
 文本、图片和文件，长文本按 Telegram 的 4096 字符限制自动拆分，单个上传文件最大 50 MiB。
 
-Telegram 消息和附件均属于不可信外部输入，可能包含提示注入或恶意文件。只给 Bot 必需的
-群组/频道权限，并结合信道访问规则限制来源：
+Telegram 消息和附件均属于不可信外部输入，可能包含提示注入或恶意文件。Bot 的群组/频道
+权限与信道访问规则共同决定它的消息来源范围：
 
 ```dotenv
 CHANNEL_ACCESS={"telegram":{"inbound_allow":["tg:main:*"],"inbound_deny":["tg:main:-1009999999999"],"outbound_allow":["tg:main:*"],"outbound_deny":[]}}

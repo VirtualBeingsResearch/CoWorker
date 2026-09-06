@@ -49,7 +49,7 @@ The admin API exposes `GET/POST /api/admin/persons`, `GET/PATCH/DELETE /api/admi
 ## Boundaries and notes
 
 - **Groups / senders inside groups**: `wecom:group:*` has no binding, so no person context; individual senders inside groups are not bound in v1 (a group is a communication target, not a Person).
-- **Cards are model-maintained**: they may lag or contain fabricated content — treat them as untrusted input; when a card contradicts `relationship` memory, the card is the current understanding and memory is the recallable evidence; the agent reconciles them.
+- **Cards are model-maintained**: they may lag or contain fabricated content and are untrusted input; when a card contradicts `relationship` memory, the card is the current understanding and memory is the recallable evidence; the agent reconciles them.
 - **Mistaken binding of a non-person address**: no hard validation; constrained by `[CHANNELS]` knowledge and tool descriptions, fixable from the admin panel.
 - **Bubble inheritance**: a card already injected on the main line flows into forked bubble context; fresh-start bubbles need an explicit load (future capability).
 - **States are not conflated**: card (current understanding) ≠ `relationship` memory (recallable facts) ≠ logs (records); stored separately with distinct semantics.

@@ -22,9 +22,9 @@
 Coworker Desktop 不是 Coworker 服务的安装器。它连接已经运行的实例，并把 Local、Codex
 和 Claude Code 会话接入 Coworker。
 
-Intel macOS 无法安装当前 PyTorch wheel。请使用
-[Dev Container](../development/development.md#dev-container) 或 Docker 路径运行
-Coworker 服务；Desktop 本身仍可使用与 Intel macOS 匹配的安装包。
+Intel macOS 无法安装当前 PyTorch wheel，Coworker 服务在该平台通过
+[Dev Container](../development/development.md#dev-container) 或 Docker 路径运行；
+Desktop 本身仍可使用与 Intel macOS 匹配的安装包。
 
 ## 2. 启动 Coworker
 
@@ -42,8 +42,8 @@ docker run --name coworker \
 不需要克隆仓库。镜像已经包含 Coworker 源码、Python 环境、Chromium、FFmpeg 和
 embedding 模型，Docker 会自动为 Git 工作区、运行状态和模型缓存创建数据卷。命令会留在
 前台显示管理员令牌与日志，按 `Ctrl+C` 停止后可用 `docker start -a coworker` 再次启动
-同一个容器。在记录卷名或完成备份前，不要删除这个容器，也不要执行
-`docker rm -v`；直接 Docker 的[卷检查与备份方法](../operations/backup-and-restore.md#直接运行-docker-镜像)
+同一个容器。在记录卷名或完成备份前，工作区、运行状态和模型缓存只存在于这个容器挂载的
+数据卷中，`docker rm -v` 会连同卷内容一起删除；直接 Docker 的[卷检查与备份方法](../operations/backup-and-restore.md#直接运行-docker-镜像)
 见运维文档。准备长期运行时，可迁移到
 [长期运行与部署](../operations/deployment.md#docker-compose-当前-checkout)
 中的 Compose 配置，以便明确管理卷、重启策略和备份。
@@ -76,17 +76,18 @@ docker compose up --pull always --no-build
 
 > [!WARNING]
 > Compose 启动时会把 `/app/data` 指向独立状态卷。如果当前 checkout 的 `data/`
-> 已有源码运行产生的内容，入口脚本会拒绝覆盖并退出。先按
+> 已有源码运行产生的内容，入口脚本会拒绝覆盖并退出。这些内容通过
 > [迁移现有-data](../operations/upgrading.md#迁移-checkout-中现有的-data)
-> 保存并转移数据，不要为了启动而删除它。
+> 保存并转移；直接删除会丢弃源码运行产生的数据。
 
 `offline` 镜像会阻止自动下载缺失的 Hugging Face 内容，并拒绝启动初始化器从 Git
 远端克隆工作区，但它不是网络沙箱：你配置的模型服务，以及你明确让 Agent 执行的 Git、搜索、
-浏览器或集成任务仍可能联网。不要通过删除卷来处理普通启动问题。
+浏览器或集成任务仍可能联网。卷承载运行状态与模型缓存，删除它们不会排除引发启动问题的
+原因。
 
 启动完成后，默认管理地址为 <http://127.0.0.1:8000/admin>。以上 Docker 命令只把宿主机
-入口绑定到 `127.0.0.1:8000`，源码运行时 API 默认也只监听 `127.0.0.1`。不要将 `8000`
-端口直接映射到公网。
+入口绑定到 `127.0.0.1:8000`，源码运行时 API 默认也只监听 `127.0.0.1`；直接映射到公网
+会绕过这层回环绑定保护。
 
 ## 3. 取得管理员令牌
 
@@ -96,8 +97,8 @@ docker compose up --pull always --no-build
 2. 在终端显示当前有效令牌；
 3. 将它保存到 `data/admin_config.json`。
 
-打开管理地址并输入该令牌。它可以读取和修改运行设置，不应发送到聊天、提交到 Git 或
-保存在共享文档中。配置文件中的令牌和模型 API Key 依赖操作系统权限与磁盘加密保护。
+打开管理地址并输入该令牌。它可以读取和修改运行设置，进入聊天、Git 历史或共享文档即等同于
+泄露管理员凭据。配置文件中的令牌和模型 API Key 依赖操作系统权限与磁盘加密保护。
 
 ## 4. 完成初始化向导
 
@@ -163,8 +164,8 @@ curl -X POST http://127.0.0.1:8000/messages \
   -d '{"sender_id": "alice", "content": "你好，你是谁？"}'
 ```
 
-如果返回鉴权错误，先确认当前接口是否要求通信 token；不要通过暴露或关闭生产鉴权来规避
-问题。
+如果返回鉴权错误，先确认当前接口是否要求通信 token；暴露服务或关闭生产鉴权只是移除
+认证层，并不修正令牌配置。
 
 </details>
 
@@ -195,9 +196,11 @@ curl -X POST http://127.0.0.1:8000/messages \
 源码运行时，运行数据默认保存在 `data/`，用户能力内容默认保存在 `.coworker/`；
 容器运行时，它们位于对应工作区和状态卷中。开始长期使用前先阅读
 [数据与信任边界](../architecture/data-boundaries.md)与
-[备份与恢复](../operations/backup-and-restore.md)，并为工作区和运行数据制定备份策略。
+[备份与恢复](../operations/backup-and-restore.md)；长期使用的备份策略需要覆盖工作区和
+运行数据。
 
 若启动、初始化、模型调用或客户端连接失败，先查
-[故障排查](../operations/troubleshooting.md)，不要直接删除 `data/`、配置或 Docker 卷。
+[故障排查](../operations/troubleshooting.md)；`data/`、配置和 Docker 卷保存身份、记忆与
+运行状态，直接删除会同时丢弃这些数据。
 
 [← 返回项目首页](../../README.md)

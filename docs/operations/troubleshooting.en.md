@@ -5,9 +5,9 @@
 [← Back to Configuration and Operations](README.en.md)
 
 This page provides one diagnostic order for the Coworker service, management
-console, models, Desktop, Relay, and container deployment. Gather evidence
-before changing state. Do not make deletion of `data/`, configuration, Docker
-volumes, or application reinstallation the first step.
+console, models, Desktop, Relay, and container deployment: evidence is gathered
+before state changes. Deleting `data/`, configuration, Docker volumes, or
+reinstalling the application removes the state that diagnosis depends on.
 
 ## General diagnostic order
 
@@ -17,16 +17,16 @@ volumes, or application reinstallation the first step.
    how it is running, and the most recent change.
 3. **Inspect status**: use the terminal, Management Console Diagnostics and
    Audit, Desktop Status, or Relay health.
-4. **Align logs**: find the first ERROR or WARN in the same time range rather
-   than only the last cascading error.
+4. **Align logs**: the first ERROR or WARN in the same time range marks the
+   origin; later entries are cascading results.
 5. **Verify configuration source**: confirm the file, environment, and working
    directory the current process actually uses.
 6. **Apply the smallest recovery**: retry one connection or perform a safe
-   restart; back up before restore, cleanup, or migration.
+   restart; restore, cleanup, and migration rewrite runtime data, so a backup
+   usually precedes them.
 
-Do not include Bearer tokens, API keys, Relay private keys, QR-code content,
-complete message bodies, or unreviewed configuration exports in a problem
-report.
+A problem report can pick up Bearer tokens, API keys, Relay private keys,
+QR-code content, complete message bodies, or unreviewed configuration exports.
 
 ## Coworker does not start
 
@@ -38,9 +38,9 @@ python3 --version
 uv run python scripts/check_version.py
 ```
 
-- Python satisfies the project requirement;
-- dependencies were installed from the current checkout's lock file;
-- only one Coworker process uses a working directory;
+- the Python version satisfies the project requirement;
+- dependencies come from the current checkout's lock file;
+- one working directory runs a single Coworker process at a time;
 - `data/` is writable and the disk is not full;
 - no other process occupies port `8000`;
 - Intel macOS runs the Python service through the Dev Container or Docker.
@@ -57,7 +57,7 @@ On Debian or Ubuntu with missing system libraries:
 uv run playwright install --with-deps chromium
 ```
 
-Do not clear memory or identity data because a browser dependency failed.
+Memory and identity data are unrelated to a browser dependency failure.
 
 ## Management page unavailable or sign-in rejected
 
@@ -66,15 +66,18 @@ Do not clear memory or identity data because a browser dependency failed.
 - Confirm the Coworker process is still running.
 - The default URL is <http://127.0.0.1:8000/admin>.
 - For containers, check port mapping and container health.
-- From another machine, do not temporarily publish port `8000`; use controlled
-  network access or the supported Relay scenario.
+- From another machine, publishing port `8000` drops the loopback-binding
+  protection; controlled network access or the supported Relay scenario is the
+  typical cross-device path.
 
 ### Token is rejected
 
-- Use the effective administrator token printed by the current startup terminal.
+- The effective administrator token is the one printed by the current startup
+  terminal.
 - Confirm the process reads `data/admin_config.json` from the expected working
   directory.
-- Do not confuse Desktop communication, Relay, and administrator tokens.
+- Desktop communication, Relay, and administrator tokens are three distinct,
+  non-interchangeable token types.
 - If the browser retained an old token, sign out of the management session and
   enter the current one.
 
@@ -97,16 +100,17 @@ Check in order:
 A manually entered model is not probed online. Successful plain-text generation
 does not prove tool-calling support.
 
-If you just changed the long-term-memory embedding model, stop further writes
-and inspect migration requirements. Existing Chroma data cannot be assumed
-compatible with a different embedding model.
+After a change of the long-term-memory embedding model, new writes use the new
+model immediately; existing Chroma data cannot be assumed compatible with the
+other embedding model, so migration requirements come first.
 
 ## Memory, task, or context problems
 
-- Short context is too large: inspect the message tail and memory tree before
-  triggering full compression.
-- Backfill keeps running: inspect `GET /backfill_tree` or the console progress;
-  do not run offline backfill at the same time.
+- Short context is too large: the common path is to inspect the message tail and
+  memory tree first, then decide on full compression.
+- Backfill keeps running: progress is visible through `GET /backfill_tree` or the
+  console; running offline backfill at the same time repeats work over the same
+  history.
 - Long-term memory is not found: verify the mem0 Provider, embedding model, and
   database path did not change.
 - Recent state is missing after restart: inspect the short-term snapshot,
@@ -119,9 +123,9 @@ Emergency backup recovery has two levels:
 - try summary restore first to re-inject history into the current context;
 - use full restore only when the current short-term context must be replaced.
 
-Record current version, backup filename, and message count before restoring.
-Emergency short-term backups do not replace a backup of the complete runtime
-directory.
+The common practice is to record the current version, backup filename, and
+message count before restoring. Emergency short-term backups do not replace a
+backup of the complete runtime directory.
 
 ## Desktop cannot connect
 
@@ -139,8 +143,8 @@ Status.
 - With Relay, the URL must contain the exact correct instance path.
 
 Identity, protocol, or end-to-end-encryption failure does not downgrade to
-plaintext. Do not replace a Relay URL with a public Coworker port to bypass the
-error.
+plaintext. Replacing a Relay URL with a public Coworker port does not bypass the
+failure; identity and encryption checks still reject the connection.
 
 ### Codex or Claude is unavailable
 
@@ -175,8 +179,8 @@ An ordinary Codex or Claude `final` remains local. Use **Send to Coworker** or
 
 - Confirm the update URL matches the current Coworker or Relay instance.
 - Check client version and target architecture.
-- A missing signature or signature that does not match the embedded public key
-  must be rejected.
+- An asset with a missing signature or a signature that does not match the
+  embedded public key is rejected.
 - The temporary Relay update adapter permits only fixed paths for the current
   instance, not arbitrary URLs or cross-instance redirects.
 
@@ -193,8 +197,8 @@ First locate the failing side:
 - Check Relay health, DNS, certificates, system time, and instance state.
 - Check whether a token was rotated or an instance revoked.
 - Check whether repeated failures blocked the source IP.
-- Do not confuse connection metadata visible in Relay logs with an ability to
-  decrypt messages.
+- Connection metadata visible in Relay logs does not imply an ability to decrypt
+  message content.
 
 See [Self-hosted Relay](relay.en.md) for deployment, pairing, blocking, backup,
 and recovery. Protocol and certificate-identity failures do not downgrade
@@ -208,8 +212,8 @@ automatically; that is part of the security boundary.
   startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
   Model services and user-authorized Agent network tools may still connect.
 - The preloaded embedding model must match runtime configuration.
-- Rebuild the dependency environment after changing `pyproject.toml` or
-  `uv.lock`.
+- The dependency environment does not pick up changes to `pyproject.toml` or
+  `uv.lock` automatically; a rebuild is required.
 - In mounted-checkout mode, the host and Agent see the same Git workspace.
 
 Inspect the data scope:
@@ -225,13 +229,13 @@ uv run python scripts/cleanup.py backup-delete
 ```
 
 `backup-delete` covers only `data/`, preserves `data/_backups/`, and does not
-remove `.env`, `providers.json`, `.coworker/`, Desktop data, or Docker volumes.
-Read [Data and Trust Boundaries](../architecture/data-boundaries.en.md#inspection-backup-and-cleanup)
-before running it.
+remove `.env`, `providers.json`, `.coworker/`, Desktop data, or Docker volumes;
+the detailed impact scope is in
+[Data and Trust Boundaries](../architecture/data-boundaries.en.md#inspection-backup-and-cleanup).
 
 ## Gather shareable diagnostic information
 
-Include:
+Typical diagnostic information includes:
 
 - Coworker, Desktop, and Relay versions;
 - operating system, CPU architecture, and run method;
@@ -242,7 +246,7 @@ Include:
 - the most recent successful operation;
 - attempted recovery actions and results.
 
-Remove:
+The following items carry credentials or personal information:
 
 - Authorization headers, tokens, API keys, and private keys;
 - complete configuration exports;
@@ -250,7 +254,8 @@ Remove:
 - Relay pairing material and WeChat QR codes;
 - unrelated personal paths and identity information.
 
-Report security vulnerabilities or possible credential exposure privately
-through the [Security Policy](../../SECURITY.en.md), not a public issue.
+Security vulnerabilities and possible credential exposure follow the private
+reporting channel defined by the [Security Policy](../../SECURITY.en.md); a
+public issue is not the channel for them.
 
 [← Back to the project home](../../README.en.md)

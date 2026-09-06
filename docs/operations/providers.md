@@ -10,7 +10,7 @@ Provider。首次调用可能计费；项目不会在向导中主动探测模型
 
 ## 选择模型
 
-对主线模型至少确认：
+主线模型至少需要满足：
 
 - 支持 tool/function calling，并能稳定返回对应 Provider 方言；
 - 上下文窗口覆盖预期短期记忆和工具结果；
@@ -36,7 +36,7 @@ Provider 连接中声明它是否支持工具、图片和视频；系统不会�
 
 ## 配置方式
 
-优先使用首次设置或管理后台；无人值守环境使用 `.env`。常用字段：
+常见做法是通过首次设置或管理后台配置；无人值守环境通常使用 `.env`。常用字段：
 
 ```env
 LLM__DEFAULT_PROVIDER=deepseek
@@ -45,8 +45,8 @@ LLM__DEEPSEEK_API_KEY=...
 LLM__DEEPSEEK_BASE_URL=
 ```
 
-Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网关时仍应选择与其
-实际请求/响应方言匹配的 Provider 类型；“兼容”不保证工具调用、thinking、视频或错误结构
+Base URL 留空时使用对应 Provider 默认值。使用 OpenAI-compatible 网关时，Provider 类型
+仍需与其实际请求/响应方言匹配；“兼容”不保证工具调用、thinking、视频或错误结构
 完全一致。完全未知的 OpenAI-compatible 网关使用 `openai_compatible` 类型：它没有内置
 模型目录，必须在 `providers.json` 中声明 `default_model` 和 `model_capabilities`。
 
@@ -87,8 +87,8 @@ LLM__VISION_THINKING_EFFORT=medium
 （未设置时兜底读取官方 `OPENCODE_API_KEY`）或 `providers.json`。每次请求会带上稳定的
 `x-opencode-session` 以及 `Coworker/<version>` User-Agent，供 OpenCode Go 识别客户端
 并优化 prompt cache。内置目录包含 DeepSeek V4、Kimi K2.5+、GLM-5 系列、MiMo 和 HY
-等 OpenAI 兼容模型；MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，请用
-`type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
+等 OpenAI 兼容模型；MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，不在
+内置目录内，需以 `type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
 
 ## 同类型多实例
 
@@ -135,7 +135,7 @@ LLM__VISION_THINKING_EFFORT=medium
 传入 JSON。定价按 Provider 注册名和模型 ID 精确匹配，不要求该连接由管理后台维护，因而
 可以覆盖 `.env` 或 `providers.json` 中的连接，也可以保留已停用的历史 Provider/模型价格。
 
-输入、输出和可选缓存输入价格均按每百万 Token 填写。缓存输入价留空时使用普通输入价；
+输入、输出和可选缓存输入价格均以每百万 Token 为单位。缓存输入价留空时使用普通输入价；
 不同币种分别累计，不做汇率换算。修改价格立即重算管理端已有 Token 用量，不会修改
 `usage_stats.json`，也不会记录调用发生时的旧价格。
 
@@ -147,18 +147,18 @@ LLM__VISION_THINKING_EFFORT=medium
 - long_term：长期记忆提取（默认由 mem0 后端执行）；
 - fallback：主模型失败后的有序接棒链。
 
-先验证每个专用模型，再加入 fallback。不要把失效 Provider 留在链首制造额外延迟。
+常见做法是先验证每个专用模型，再将其加入 fallback；失效的 Provider 留在链首会为每次接棒制造额外延迟。
 
 ## 常见问题
 
-- **Provider 未注册**：检查 API Key 是否存在，`DEFAULT_PROVIDER` 是否为注册名。
-- **401/403**：检查密钥、Base URL、账户权限和代理是否修改 Header。
-- **404/模型不存在**：模型 ID 会原样传给 Provider；使用服务端实际 ID。
-- **工具调用失败**：确认模型和网关同时支持 tool/function calling。
-- **thinking 参数失败**：关闭该专用模型的 thinking，或改用与模型档位匹配的
-  `thinking_effort`；不支持的档位会导致 Provider 返回 400。
-- **高延迟/高成本**：在管理端“运行分析”按 main、summary、vision、bubble、subconscious
-  和 long_term 区分职责，结合定价覆盖率和 Provider 账单再调整模型分工。
+- **Provider 未注册**：常见原因是 API Key 缺失，或 `DEFAULT_PROVIDER` 不是注册名。
+- **401/403**：常见原因包括密钥、Base URL、账户权限，以及修改 Header 的代理。
+- **404/模型不存在**：模型 ID 会原样传给 Provider，需要与服务端实际 ID 一致。
+- **工具调用失败**：需要模型和网关同时支持 tool/function calling。
+- **thinking 参数失败**：不支持的档位会导致 Provider 返回 400；与模型档位匹配的
+  `thinking_effort` 或关闭该专用模型的 thinking 可以避免。
+- **高延迟/高成本**：管理端“运行分析”按 main、summary、vision、bubble、subconscious
+  和 long_term 区分职责；结合定价覆盖率和 Provider 账单可定位需要调整的模型分工。
 
 完整变量表见[配置与模型](configuration.md)，数据外发范围见
 [数据与信任边界](../architecture/data-boundaries.md)。

@@ -132,6 +132,9 @@ redaction.
 ## Writing and safety
 
 - Begin with the reader outcome, then prerequisites and steps.
+- Describe system behavior, defaults, and consequences instead of commanding
+  the reader: rewrite advice as facts so readers draw conclusions from
+  consequences; tutorial steps and expected outputs are exempt.
 - State success feedback, recovery, and destructive consequences.
 - Verify commands against current scripts and manifests.
 - Never make data deletion, volume deletion, or force-overwrite the first troubleshooting step.

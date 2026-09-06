@@ -22,8 +22,8 @@ Codex 或 Claude 不会阻止本地用户和其他可用 actor 工作。
 ## CPU 与模型
 
 仓库默认在所有平台使用 PyTorch CPU 索引。Windows/Linux 的 NVIDIA CUDA 13.0 需要按
-`pyproject.toml` 注释切换 `torch` source，再重新生成锁和同步依赖。不要把不同平台生成的
-虚拟环境或本地 wheel 缓存直接复制到另一架构。
+`pyproject.toml` 注释切换 `torch` source，再重新生成锁和同步依赖。不同平台生成的虚拟
+环境和本地 wheel 缓存包含架构相关的二进制，复制到另一架构后无法使用。
 
 Docker offline 镜像预置 embedding 模型；配置的 embedding 模型必须与缓存一致。对话模型
 通常来自外部 Provider，不因镜像“offline”而自动离线。
@@ -43,7 +43,7 @@ Docker offline 镜像预置 embedding 模型；配置的 embedding 模型必须�
 
 - Desktop 注册协议和消息信封当前使用版本 `1`；
 - Relay v1 需要 Coworker、Desktop 和 Relay 使用兼容协议；
-- API v0.x 允许响应增加字段，客户端应忽略未知字段；
+- API v0.x 允许响应增加字段，忽略未知字段的客户端保持兼容；
 - `/api/admin/*` 属于同版本 Web 管理端实现契约，不作为独立稳定 SDK；
 - 旧版本默认不持续获得安全修复，见[安全策略](../../SECURITY.md)。
 

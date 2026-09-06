@@ -72,7 +72,7 @@ Relay signs source IP, public origin, instance, and session in session-open. Fro
 context and the decrypted original target, Coworker appends `X-Coworker-Relay-*`, `Forwarded`,
 Original URL/Target, and Request ID. Client-provided duplicates remain first, and the trusted
 boundary is stored in `scope.state.coworker_relay`. Authentication, authorization, and source
-decisions must use trusted context rather than similarly named client headers.
+decisions use the trusted context rather than similarly named client headers.
 
 ## Compatibility commitment
 
@@ -81,4 +81,4 @@ decisions must use trusted context rather than similarly named client headers.
 - New frame types, authentication semantics, or key derivation require a new version or explicit
   capability negotiation.
 - Relay databases carry an explicit schema; non-E2EE-v1 schemas stop startup and require reinitialization.
-- Relay and Coworker should be upgraded together. Only new Desktop versions support this protocol.
+- Relay and Coworker need to be upgraded together; only new Desktop versions support this protocol.

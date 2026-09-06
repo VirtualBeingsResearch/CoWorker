@@ -55,7 +55,7 @@ version:u8 | type:u8 | stream_id:u32be | payload_length:u32be
 
 帧支持客户端证明、客户端就绪、请求开始/正文/结束、响应开始/正文/结束、取消、
 错误、ping 和 pong。Header 使用有序的 `[名称, 值]` 数组，重复值保持原顺序；正文与 SSE 都可分块流式传输。流 ID
-支持并发，接收方必须实施有界队列、背压、帧长和 Header 限制。
+支持并发；接收方实施有界队列、背压、帧长和 Header 限制。
 
 Coworker 解密后统一执行 Relay 暴露策略，仅允许状态、Desktop 注册管理、消息、SSE、
 已发布桌面更新，以及 OpenAI 兼容的 `GET /v1/models` 与 `POST /v1/chat/completions`。原始 Bearer 仍由现有 ASGI 认证验证。
@@ -65,7 +65,7 @@ Coworker 解密后统一执行 Relay 暴露策略，仅允许状态、Desktop �
 Relay 在 session-open 中签名来源 IP、公开 origin、实例和会话。Coworker 根据这个可信
 上下文和解密后的原始 target 追加 `X-Coworker-Relay-*`、`Forwarded`、Original URL/Target
 和 Request ID。客户端已有的同名 Header 保留在前；可信边界写入
-`scope.state.coworker_relay`。认证、授权和来源判断只能读取可信上下文，不能相信客户端
+`scope.state.coworker_relay`。认证、授权和来源判断只读取可信上下文，不信任客户端
 提交的同名 Header。
 
 ## 兼容承诺
@@ -73,4 +73,4 @@ Relay 在 session-open 中签名来源 IP、公开 origin、实例和会话。Co
 - v1 可以增加接收方明确忽略的控制字段，但不能改变签名输入、密钥 purpose 或帧含义。
 - 新帧类型、认证语义或密钥派生变化需要新协议版本或明确能力协商。
 - Relay 数据库 schema 明确标记版本；非 E2EE v1 schema 会停止启动并要求重新初始化。
-- Relay 与 Coworker 应协同升级；只支持此协议的新版 Desktop。
+- Relay 与 Coworker 需要协同升级；此协议只由新版 Desktop 支持。

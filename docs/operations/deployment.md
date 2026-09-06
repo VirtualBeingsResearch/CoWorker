@@ -4,8 +4,8 @@
 
 [← 返回配置与运维](README.md)
 
-Coworker v0.x 适合单机或可信小团队环境，不是公网多租户服务。默认拓扑应让 API 只监听
-回环地址；公网 Desktop 使用 Relay，而不是直接公开 `8000` 端口。
+Coworker v0.x 适合单机或可信小团队环境，不是公网多租户服务。默认拓扑中 API 只监听
+回环地址；公网 Desktop 通过 Relay 访问，而不是直接公开 `8000` 端口。
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
 
 ## Docker Compose + 当前 checkout
 
-已经克隆仓库时，推荐把发布镜像作为执行环境，将当前 checkout 挂载为实际运行的源码与
+已经克隆仓库时，常见做法是把发布镜像作为执行环境，将当前 checkout 挂载为实际运行的源码与
 Agent 工作区。仓库内 `docker-compose.yaml` 会：
 
 - 将宿主机端口绑定到 `127.0.0.1:8000`；
@@ -43,19 +43,19 @@ docker compose ps
 docker compose logs --tail 100 coworker
 ```
 
-首次启动前检查 checkout 中的 `data/`。如果它是源码运行留下的非空目录，
-入口脚本会拒绝覆盖；先按[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)
+首次启动时，如果 checkout 中的 `data/` 是源码运行留下的非空目录，
+入口脚本会拒绝覆盖；需先按[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)
 将其转移到 `coworker-state` 卷。
 
 源码修改后重启容器即可。只有修改 `pyproject.toml`、`uv.lock` 或镜像中的系统依赖时，
 才需要按[开发指南](../development/development.md#使用-offline-镜像开发)重建执行环境。
-将 `.env` 权限限制为运行账户可读。长期运行可继续使用默认的 `offline`
-发布标签；如果部署要求可重现升级或精确回滚，再将 `COWORKER_IMAGE` 固定到版本标签或
+常见做法是将 `.env` 权限限制为运行账户可读。长期运行可继续使用默认的 `offline`
+发布标签；要求可重现升级或精确回滚的部署会将 `COWORKER_IMAGE` 固定到版本标签或
 digest，并保留升级前的数据备份。
 
 ## 源码进程管理
 
-使用专用低权限系统账户和固定工作目录。进程管理器至少需要设置：
+源码部署通常使用专用低权限系统账户和固定工作目录。进程管理器至少需要设置：
 
 - `WorkingDirectory` 为 Coworker checkout；
 - 启动命令为该目录环境中的 `uv run coworker`；
@@ -63,21 +63,21 @@ digest，并保留升级前的数据备份。
 - 环境和密钥来自权限受控的文件或系统密钥服务；
 - 停止时给进程时间保存短期快照并优雅退出。
 
-不要以 root 运行，也不要授予超出工作区的文件权限。先手动执行
+Coworker 进程不需要 root 权限，也不需要工作区之外的文件权限。先手动执行
 `uv run coworker --check`，再交给 systemd、launchd 或其他管理器。
 
 ## 网络与远程访问
 
-- 保持 `API__HOST=127.0.0.1`；容器内部可监听 `0.0.0.0`，但宿主机映射仍应限制到回环。
-- 若在可信内网前置反向代理，代理层终止 TLS，设置精确的 `API__CORS_ORIGINS` 和强
-  `API__COMMUNICATION_TOKEN`，并限制来源网络。将 `API__PUBLIC_URL` 设为浏览器实际访问
-  的公开 origin，使初始化和重启始终返回反向代理地址，而不是内部监听端口。
-- 公网 Desktop 按[自托管 Relay](relay.md)部署。Relay 不是通用 HTTP/TCP 代理。
+- 默认 `API__HOST=127.0.0.1`；容器内部可监听 `0.0.0.0`，宿主机映射默认仍只绑定回环。
+- 若在可信内网前置反向代理，代理层终止 TLS，`API__CORS_ORIGINS` 设为精确值、
+  `API__COMMUNICATION_TOKEN` 使用强随机值，并限制来源网络。`API__PUBLIC_URL` 为浏览器
+  实际访问的公开 origin，初始化和重启因此始终返回反向代理地址，而不是内部监听端口。
+- 公网 Desktop 通过[自托管 Relay](relay.md)访问。Relay 不是通用 HTTP/TCP 代理。
 
 ## 健康、日志与容量
 
-使用 `/status` 判断进程和 Agent 状态；管理员配置通信令牌后，未携带令牌时它只返回基础生命周期
-信息。使用管理后台“诊断与审计”判断后台任务是否持续失败。完整观测方法见
+`/status` 反映进程和 Agent 状态；管理员配置通信令牌后，未携带令牌时它只返回基础生命周期
+信息。管理后台“诊断与审计”显示后台任务是否持续失败。完整观测方法见
 [可观测性与日常运维](observability.md)。
 
 容量没有统一固定值，主要由以下因素决定：
@@ -87,8 +87,8 @@ digest，并保留升级前的数据备份。
 - 浏览器、视频分析和并行 Bubble 的峰值内存；
 - 模型调用速率、Token 和外部 Provider 限制。
 
-为工作区和状态卷设置磁盘监控与独立备份。日志轮转前确认不会删除仍需回溯记忆树的原始
-交互日志。
+常见做法是为工作区和状态卷设置磁盘监控与独立备份；日志轮转会删除旧日志，其中可能
+包含仍需回溯记忆树的原始交互日志。
 
 ## 上线检查
 

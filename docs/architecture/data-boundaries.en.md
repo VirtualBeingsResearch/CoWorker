@@ -20,7 +20,7 @@ The following paths are relative to Coworker's working directory unless configur
 | `relay` fields in Coworker administration configuration | Self-hosted Relay URL, instance ID, instance private key, and pinned Relay public key |
 | Relay's separate data volume | Instance public keys, authentication epochs, pairing state, source-IP bans/failures, audit events, and aggregate traffic statistics |
 
-These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you. Protect them with operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and must be handled as credential files.
+These files may contain conversations, prompts, tool arguments and results, webpage content, file content, and personal information. `.env`, `providers.json`, and the administration configuration are ordinary local files; Coworker core does not encrypt them for you, and their protection comes from operating-system permissions, disk encryption, and a least-privileged account. Configuration export bundles include runtime data and secrets and are credential-equivalent files.
 
 The default configuration does not automatically synchronize the entire `data/` or `.coworker/`
 directory to a project-operated server, and explicitly disables anonymous telemetry from mem0 and
@@ -41,8 +41,8 @@ volume or the host checkout also deletes the corresponding history, state, or mo
 
 - Model calls send the system prompt and the conversations, memories, tool results, and attachment contents needed for the current task. Coworker does not upload the whole working directory unconditionally, but file content read by the agent may later enter model context.
 - Custom system prompt text is administrator-trusted input. It enters the system prompt verbatim
-  and is sent to the model provider; do not paste untrusted external content or put secrets in the
-  template if they must not leave the machine.
+  and is sent to the model provider; anything pasted into the template, including secrets, leaves
+  the machine the same way.
 - `visual_analyze` sends selected images or videos to the configured vision model service.
 - Search tools send queries. Browser tools visit target websites and are subject to those sites' logging, cookie, and session policies.
 - WeCom, Telegram, the Desktop bridge, and other communication or MCP integrations transmit messages, attachments, and protocol metadata to their corresponding services.
@@ -52,15 +52,17 @@ volume or the host checkout also deletes the corresponding history, state, or mo
   valid client request. Relay can still interrupt, delay, or rate-limit connections.
 - Installing dependencies, Playwright browsers, or local embedding models connects to package registries, browser download servers, or model repositories.
 
-If data must not be shared with an external service, do not configure that service for Coworker and do not let the agent read the relevant files. A self-hosted model changes only the model boundary; it does not automatically restrict search, browser, or other integrations.
+If data must not reach an external service, configuring that service for Coworker or letting the
+agent read the relevant files is what sends the data across that boundary. A self-hosted model
+changes only the model boundary; it does not automatically restrict search, browser, or other integrations.
 
 ## Execution and network boundaries
 
-- Coworker is not a security sandbox. Command, file, and browser tools run with the permissions of the operating-system user that started the process. Use a dedicated least-privileged account, container, or virtual machine, and mount only disposable or backed-up directories.
-- Treat webpages, messages, attachments, skills, memory, and model output as untrusted input. Any of them may contain prompt injection or malicious content.
-- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route. Do not expose port 8000 directly. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../../SECURITY.en.md).
-- Use [self-hosted Relay](../operations/relay.en.md) when Desktop needs public access instead of
-  publishing Coworker's port 8000. Relay v1 is a single-node public security boundary, not a
+- Coworker is not a security sandbox. Command, file, and browser tools run with the permissions of the operating-system user that started the process; the reach of those tools is determined by that account's permissions and the mounted directories.
+- Webpages, messages, attachments, skills, memory, and model output are untrusted input. Any of them may contain prompt injection or malicious content.
+- The API binds to `127.0.0.1` by default. The administrator token protects the administration API, but the current v0.x releases do not provide a complete multitenant authorization boundary for every route; exposing port 8000 directly bypasses the loopback-binding protection. Remote deployments require TLS, trusted CORS origins, a strong communication token, and additional network access controls. See the [security policy](../../SECURITY.en.md).
+- Desktop's public access path is [self-hosted Relay](../operations/relay.en.md) rather than a
+  published Coworker port 8000. Relay v1 is a single-node public security boundary, not a
   multitenant isolation platform or general proxy.
 
 ## Inspection, backup, and cleanup
@@ -71,13 +73,13 @@ Stop Coworker first so files are not being written during cleanup. In a source c
 uv run python scripts/cleanup.py status
 ```
 
-When resetting runtime data, prefer backing it up before deletion:
+Resetting runtime data backs it up before deletion:
 
 ```bash
 uv run python scripts/cleanup.py backup-delete
 ```
 
-`cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. For complete removal, inspect and delete each of those locations and `data/_backups/` only after confirming recovery is no longer needed. Container deployments must also inspect bind-mounted directories and named volumes instead of deleting only the container.
+`cleanup.py` handles only runtime files under `data/` and preserves `data/_backups/`, so `backup-delete` is not a secure erase. It also does not remove `.env`, `providers.json`, `.coworker/`, `credentials/`, Desktop application data, or Docker volumes. Complete removal therefore means handling each of those locations and `data/_backups/` individually, after confirming recovery is no longer needed. Deleting a container leaves its bind-mounted directories and named volumes in place.
 
 Relay data is outside `cleanup.py`'s scope. Run `coworker-relay backup` before deletion. Use
 `coworker-relay instance revoke` for one instance; it cascades through its public key,

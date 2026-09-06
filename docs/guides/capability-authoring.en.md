@@ -6,7 +6,8 @@
 
 Coworker has three user-maintained capability assets. A Skill defines how to work, a Palace
 defines when to compose domain capabilities, and a subconscious mode defines when to reflect in
-the background. All may enter model context, so review, test, and version them like code.
+the background. All may enter model context; the common practice is to review, test, and version
+them like code.
 
 | Asset | Main file | Put here | Keep elsewhere |
 |---|---|---|---|
@@ -31,8 +32,9 @@ version: 1
 ```
 
 `name` is required and globally unique. `description` determines when the Agent discovers it.
-Define trigger, inputs, steps, stop conditions, recovery, and prohibited actions. Never include
-tokens, personal data, or unreviewed web instructions.
+A body usually defines trigger, inputs, steps, stop conditions, recovery, and prohibited actions.
+Tokens, personal data, or unreviewed web instructions written into a Skill enter model context
+and persist.
 
 ## Create a Palace
 
@@ -51,7 +53,7 @@ Preserve evidence and recoverability before changing state. Recall facts from ta
 ```
 
 `critical_skills` are injected in full into the Bubble. `related_skills` are listed for on-demand
-loading. `memory_tags` drive recall and writeback. Keep the body thin and stable: mental model,
+loading. `memory_tags` drive recall and writeback. The body stays thin and stable: mental model,
 common traps, and pointers. Put procedures in Skills and facts in long-term memory.
 
 ## Create a subconscious mode
@@ -85,7 +87,7 @@ Chinese main files use `SKILL.md`, `PALACE.md`, and `MODE.md`; English companion
 - Palace: `when_to_attach` and body;
 - Mode: `goal`, `purpose`, `retire_after`, and body.
 
-Keep `name`, tool names, tags, triggers, IDs, and stable metadata identical.
+`name`, tool names, tags, triggers, IDs, and stable metadata stay identical.
 
 ## Validate and iterate
 
@@ -96,7 +98,7 @@ Keep `name`, tool names, tags, triggers, IDs, and stable metadata identical.
 5. Start a subconscious mode manually or at low frequency, then inspect output, cost, and authority.
 6. Review tasks, Bubble/subconscious records, and audit before increasing cadence.
 
-Search for references before renaming or deleting an asset. Treat third-party capability content
-as untrusted input and review it before making it persistent.
+Search for references before renaming or deleting an asset. Third-party capability content is
+untrusted input, and saving it without review persists prompt injection into model context.
 
 [← Back to project home](../../README.en.md)

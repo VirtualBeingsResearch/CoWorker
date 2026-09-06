@@ -4,8 +4,8 @@
 
 [← 返回配置与运维](README.md)
 
-Coworker 有三类不同的“备份”。开始前先确认你要恢复的是短期对话、`data/` 运行数据，
-还是包含配置和外部组件的完整实例。
+Coworker 有三类不同的“备份”，分别对应三种恢复对象：短期对话、`data/` 运行数据，
+以及包含配置和外部组件的完整实例。
 
 | 机制 | 覆盖范围 | 适合 |
 |---|---|---|
@@ -28,8 +28,8 @@ Coworker 有三类不同的“备份”。开始前先确认你要恢复的是�
   `coworker-workspace`、`coworker-state`、`coworker-models` 卷及对应绑定目录；
 - Relay 的 bbolt 数据库、签名密钥、`.env` 和部署文件。
 
-备份包含模型密钥、管理员令牌、Relay 私钥、对话和文件内容，应加密保存并限制访问。
-不要把它提交到 Git、上传到 issue 或放进普通共享网盘。
+备份包含模型密钥、管理员令牌、Relay 私钥、对话和文件内容，与这份敏感度匹配的保存方式
+是加密存储并限制访问。提交到 Git、上传到 issue 或放进普通共享网盘等同于公开这些凭据。
 
 ## 备份和恢复 `data/`
 
@@ -55,12 +55,12 @@ uv run python scripts/cleanup.py restore
 uv run python scripts/cleanup.py restore --from 20260428_123456
 ```
 
-恢复会复制快照文件并覆盖同名当前文件，但不会删除当前目录中快照没有的额外文件。若需要
-精确回到某个时点，应先另存当前状态，再在隔离目录验证恢复结果。
+恢复会复制快照文件并覆盖同名当前文件，但不会删除当前目录中快照没有的额外文件。精确
+回到某个时点的常见做法，是先另存当前状态，再在隔离目录验证恢复结果。
 
 > [!WARNING]
-> `delete` 和 `backup-delete` 会删除 `data/` 中的运行文件。不要在运行进程仍写入时执行，
-> 也不要把 `--yes` 用在未检查范围的自动化中。
+> `delete` 和 `backup-delete` 会删除 `data/` 中的运行文件。运行进程写入期间执行会把
+> 活跃数据一并删除；`--yes` 跳过交互确认，自动化中的范围核对因此只能由调用方完成。
 
 ## 恢复短期上下文
 
@@ -70,7 +70,8 @@ uv run python scripts/cleanup.py restore --from 20260428_123456
 - **完整恢复**：用备份替换当前主线短期上下文，并修剪不完整工具调用链。
 - **删除**：输入 Coworker 姓名确认后，仅删除选中的应急备份文件，且无法撤销。
 
-优先使用摘要恢复。完整恢复前记录当前消息数量、备份文件名和时间。两种方式都会影响后续
+摘要恢复是两种方式中影响较小的一种，常见做法是优先使用它。完整恢复前通常先记录当前
+消息数量、备份文件名和时间。两种方式都会影响后续
 模型上下文，但不会恢复长期记忆数据库、Skill 或配置。
 
 ## Docker 和 Relay
@@ -102,15 +103,16 @@ docker run --rm \
 `/opt/huggingface`。
 
 备份后可以用 `docker start -a coworker` 继续使用原容器。直接 Docker 的镜像更新、卷复用和
-迁移 Compose 流程见[升级与迁移](upgrading.md#直接-docker-升级)。不要在未验证备份时执行
-`docker rm -v coworker`。
+迁移 Compose 流程见[升级与迁移](upgrading.md#直接-docker-升级)。在备份验证完成前，
+`docker rm -v coworker` 会连同匿名卷一起删除工作区、状态和模型缓存。
 
 ### Docker Compose
 
 先用 `docker compose stop` 停止 Coworker，再通过 `docker compose config`、
 `docker volume ls` 和 `docker volume inspect <name>` 解析实际挂载。完整备份必须同时覆盖
 作为工作区的宿主机 checkout（或旧版 `coworker-workspace` 卷）和状态卷；模型缓存可以
-重建，但备份可减少恢复时间。不要只复制容器的可写层。全新主机上先用
+重建，但备份可减少恢复时间。容器的可写层不包含卷中的工作区与状态，仅复制它得不到完整
+备份。全新主机上先用
 `docker compose create --no-build` 创建状态卷；如果主机上已有旧卷，必须先删除或清空它，再在
 Coworker 启动前导入备份，最后验证工作区与状态来自同一备份时点。
 
@@ -128,12 +130,12 @@ coworker-relay backup --output relay-backup.db
 
 ## 恢复演练
 
-至少在重大升级前验证一次：
+演练至少安排在重大升级之前：
 
 1. 在隔离目录或临时主机恢复，不覆盖唯一生产副本；
 2. 使用相同或明确兼容的 Coworker 版本；
 3. 验证 `/status`、身份、记忆、任务和一条测试消息；
-4. 验证 Desktop/Relay 时不要复用会造成冲突的在线实例身份；
+4. 验证 Desktop/Relay 时，复用在线实例身份会让演练实例与生产实例发生冲突；
 5. 记录恢复耗时、缺失项和下一次改进。
 
 [← 返回项目首页](../../README.md)

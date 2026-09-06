@@ -63,7 +63,8 @@ coworker-relay init \
 127.0.0.1:8444 -> relay:8444
 ```
 
-管理端口不得暴露到公网。管理员应通过 SSH 登录 Relay 主机后运行 CLI。最低配置为：
+管理端口不面向公网：Compose 与原生部署都只把它绑定到宿主机回环地址（如
+`127.0.0.1:8444`）；管理操作通过 SSH 登录 Relay 主机后在主机上运行 CLI 完成。最低配置为：
 
 ```text
 RELAY_PUBLIC_URL=http://relay.example.com:8443
@@ -125,8 +126,8 @@ Relay 对入口挑战签名失败按 `instance_id + 来源 IP` 计数；十分�
 重启后仍有效。解禁必须记录原因。验签前还有连接频率、帧大小和全局验签并发限制。Relay
 只转发有上限的二进制块，不理解内部请求或路由。
 
-升级前备份数据库、`.env` 和 Relay 签名密钥。检测到非 E2EE Relay v1 的数据库 schema
-时，进程会停止并要求先备份，再删除旧数据并重新初始化，不会猜测迁移。
+常见做法是升级前备份数据库、`.env` 和 Relay 签名密钥。检测到非 E2EE Relay v1 的数据库
+schema 时，进程会停止并要求先备份，再删除旧数据并重新初始化，不会猜测迁移。
 
 ### 恢复
 
@@ -140,8 +141,8 @@ coworker-relay restore --from <backup.db> --database <relay.db>
 `<relay.db>.before-restore-<UTC 时间戳>`。恢复完成后启动 Relay 并用
 `coworker-relay health` 验证。
 
-Relay v1 是单节点服务，不能让多个副本共享 bbolt 数据卷，也不能把同一实例随机分配到
-多个副本。SIGTERM 会停止新连接、关闭隧道并进行有界退出。
+Relay v1 是单节点服务：多个副本共享同一个 bbolt 数据卷、或把同一实例随机分配到多个
+副本，均不受支持。SIGTERM 会停止新连接、关闭隧道并进行有界退出。
 
 ## 数据与安全边界
 
@@ -149,8 +150,8 @@ Relay v1 是单节点服务，不能让多个副本共享 bbolt 数据卷，也�
   WebSocket。
 - Relay 持久化实例公钥、认证 epoch、配对状态、来源 IP 封禁、审计和聚合流量统计；不缓存
   更新或业务内容。
-- 原始 Token、Authorization、请求路径、Header、正文、消息、附件和更新内容不得进入
-  Relay 日志、数据库、指标、错误响应或崩溃信息。
+- Relay 日志、数据库、指标、错误响应和崩溃信息不包含原始 Token、Authorization、请求
+  路径、Header、正文、消息、附件和更新内容。
 - Coworker 解密后只允许 Desktop 通信、OpenAI 兼容 `/v1/models` 与 `/v1/chat/completions`，以及只读更新路由；管理、日志、备份、发布和
   任意 HTTP/TCP 代理路径不会开放。
 - 原始 Bearer 位于密文请求中，并继续由 Coworker 现有接口认证。

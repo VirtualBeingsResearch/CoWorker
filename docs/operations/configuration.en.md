@@ -14,8 +14,9 @@ configuration.
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
 environment variables. `data/model_runtime_config.json` overrides only the summary, fallbacks, and
 vision settings changed at runtime. When a container or service manager injects environment
-variables, make sure the working directory does not contain conflicting `.env` values. The
-administration page writes only fields that differ from inherited configuration to
+variables, a same-named `.env` in the working directory takes the higher precedence and overrides
+the injected values. The administration page writes only fields that differ from inherited
+configuration to
 `admin_config.json`; saving removes overrides restored to their `.env` or product-default value.
 An explicit empty list remains an override when it differs from the inherited value. Unchanged
 defaults therefore evolve with the product instead of being frozen merely by opening or saving a
@@ -48,8 +49,9 @@ language-transition system notice when it detects a locale change.
 
 The system timezone controls current time in the system prompt and `get_context`, message-time
 prefixes, how alarms interpret timestamps without an explicit offset, and date boundaries in task
-views. Coworker has no separate timezone override and the administration page never changes it; set
-`TZ` through the operating system, container, or service startup environment, then restart the process.
+views. Coworker has no separate timezone override and the administration page never changes it; `TZ`
+comes from the operating system, container, or service startup environment, and a change takes
+effect after a process restart.
 First-run setup displays the process's current timezone read-only as a reference and detects the
 browser's IANA timezone through `Intl.DateTimeFormat` only to display a corresponding `TZ`
 recommendation. It never writes either value into configuration. A reverse proxy does not affect
@@ -136,7 +138,7 @@ as codes.
 | `MEMORY__MEM0_LLM_PROVIDER` | `""` (follows main line) | Independent provider for mem0 extraction; leave empty to follow the runtime active provider, including manual switches and failure fallbacks, or set a Brain provider name or type to reuse its credentials and effective `base_url`. Hot-applied, no restart needed |
 | `MEMORY__MEM0_LLM_MODEL` | `""` (follows main line) | Independent model ID for mem0 extraction. When the provider is also empty, it follows the runtime active model. With an explicit provider and an empty model, it uses that provider's `default_model` (or `LLM__DEFAULT_MODEL`). The model ID is passed through to the API dialect; changes are hot-applied with no restart needed |
 | `MEMORY__MEM0_LLM_THINKING` | `false` | Thinking toggle for the mem0 extraction LLM; injects the matching parameter for known thinking models (extraction is a structured JSON task, so thinking is off by default to avoid burning tokens). Hot-applied, no restart needed |
-| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0; do not switch it directly when existing data is present |
+| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Embedding model used by mem0; switching directly while data exists leaves old vectors mismatched with the new model |
 
 ### Agent
 
@@ -178,8 +180,8 @@ Unknown, duplicate, or conflicting variables fail configuration validation. Use 
 placeholder. Variables may be reordered or omitted; a template with no variables fully
 replaces the built-in prompt. Bracketed headings, including `[CUSTOM]`, are ordinary text
 and may be renamed, split, or removed. Tool schemas are not part of the template and remain
-supplied by the model-call layer. For multiline templates, use **Relationships → Identity
-Profile** in the administration page; save, then perform a safe restart to apply the change.
+supplied by the model-call layer. Multiline templates are edited under **Relationships → Identity
+Profile** in the administration page; a saved change applies through a safe restart.
 The editor has synchronized line numbers and a blank-line count. Each variable card also
 previews the full section and body rendered by the currently running instance.
 
@@ -187,7 +189,7 @@ previews the full section and body rendered by the currently running instance.
 
 | Variable | Default | Description |
 |---|---|---|
-| `API__HOST` | `127.0.0.1` | API listen address; expose it only through an explicitly configured reverse proxy/TLS layer |
+| `API__HOST` | `127.0.0.1` | API listen address; the default bind is loopback-only, and external access goes through an explicitly configured reverse proxy/TLS layer |
 | `API__PORT` | `8000` | API listen port |
 | `API__PUBLIC_URL` | Empty | Browser-facing public HTTP(S) root URL behind a reverse proxy; it may contain only a scheme, host, and optional port, and first-run reconnect prefers it over the internal bind address |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | JSON list of browser origins allowed to access the API; an empty list disables cross-origin requests |
@@ -210,13 +212,14 @@ previews the full section and body rendered by the currently running instance.
 | `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 
-When a reverse proxy serves `/admin`, `/api/*`, and static assets together, set
-`API__PUBLIC_URL` to the origin the browser actually opens, such as
+When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
+corresponds to the origin the browser actually opens, such as
 `https://coworker.example.com`. It does not change the internal `API__HOST` or `API__PORT` bind;
-it keeps first-run and post-restart administrator navigation on the stable public address. Do not
-include `/admin`, another path, query parameters, or credentials. If the frontend and API use
-different origins, add the exact frontend origin to `API__CORS_ORIGINS` as well. When changing the
-internal port, update the reverse-proxy upstream before Coworker becomes ready on the new port.
+it keeps first-run and post-restart administrator navigation on the stable public address.
+`/admin`, other paths, query parameters, and credentials fall outside the scheme, host, and
+optional port. If the frontend and API use different origins, the exact frontend origin also
+belongs in `API__CORS_ORIGINS`. When the internal port changes, the reverse-proxy upstream points
+at the new port before Coworker becomes ready on it.
 
 `CHANNEL_ACCESS` keys are channel names, and all four rule lists contain case-sensitive, full-ID
 participant globs. Deny takes precedence; a non-empty allow list admits only matches; an omitted
@@ -260,7 +263,7 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 | Variable | Default | Description |
 |---|---|---|
 | `COWORKER_BUILD_TARGET` | `offline` | Dockerfile target selected when building the image with Compose: `offline` (default), `runtime`, `with-embedder`, or `lite-offline` |
-| `COWORKER_WITH_MEM0` | `true` | Whether to install the mem0 optional dependency when building the image with Compose; set it to `false` when building the `lite-offline` target |
+| `COWORKER_WITH_MEM0` | `true` | Whether to install the mem0 optional dependency when building the image with Compose; `false` is the matching value for the `lite-offline` target |
 | `COWORKER_BUNDLE_REPOSITORY_URL` | Official Coworker repository | Compatible repository converted to a Git bundle while building the image |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | Repository `HEAD` | Branch, tag, or commit recorded as the bundled checkout |
 | `COWORKER_WORKSPACE_PATH` | `/app` | In-container Git workspace shared by the running source and the Agent |
@@ -273,8 +276,8 @@ instance can bind only one Weixin account. Whoever views the QR code is not auto
 By default, Compose mounts the current local Git checkout directly at `/app`, repository
 initialization never overwrites it, and the entrypoint links `/app/data` to the separate
 `coworker-state` volume. If the checkout already has a non-empty `data/`, the entrypoint refuses to
-overwrite it; follow [Upgrading and Migration](upgrading.en.md#migrate-an-existing-checkout-data-directory)
-to import it into the state volume first. With `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, Docker copies the
+overwrite it; the import into the state volume is covered by
+[Upgrading and Migration](upgrading.en.md#migrate-an-existing-checkout-data-directory). With `COWORKER_WORKSPACE_SOURCE=coworker-workspace`, Docker copies the
 image's `/app` tree into the named volume when it is first created and the entrypoint attaches Git
 metadata from the bundle.
 After an image update, the entrypoint automatically fast-forwards only a clean, non-divergent
@@ -282,8 +285,8 @@ managed workspace that remains on the image's default branch; local changes, com
 branches, and divergent history remain untouched. Other repository settings apply only before the
 workspace is initialized. The `offline` image prevents the startup initializer from accessing the
 network through `COWORKER_REPOSITORY_URL`, but it is not a network sandbox and does not block
-user-authorized Agent requests that use Git, search, a browser, or integrations. Generate
-private-repository bundles in a controlled build environment; do not put credentials in URLs or
+user-authorized Agent requests that use Git, search, a browser, or integrations. Private-repository
+bundles are generated in a controlled build environment; credentials appear in neither URLs nor
 image build arguments.
 
 ## Supported models

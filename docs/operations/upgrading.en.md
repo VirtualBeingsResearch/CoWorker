@@ -5,8 +5,8 @@
 [← Back to Configuration and Operations](README.en.md)
 
 This page is for instances that already contain identity, memory, tasks, or client connections.
-Do not treat an upgrade as a code-only operation. Record the current version, create a backup,
-and check for data-format or protocol changes first.
+An upgrade is more than a code update: recording the current version, creating a backup, and
+checking for data-format or protocol changes are part of the procedure.
 
 ## Before upgrading
 
@@ -15,20 +15,21 @@ and check for data-format or protocol changes first.
 3. Record the Coworker, Desktop, and Relay versions and how each component is deployed.
 4. Back up `data/`, `.coworker/`, configuration, and external components using
    [Backup and Restore](backup-and-restore.en.md).
-5. Keep the currently working commit or image tag. Do not rely on a floating tag as the only rollback point.
+5. Keep the currently working commit or image tag; a floating tag moves with releases and cannot
+   serve as a fixed rollback point.
 
 > [!WARNING]
-> Do not force-sync, reset, or overwrite a working tree with unreviewed changes. Coworker may also
-> have created branches or commits in the checkout.
+> A force-sync, reset, or overwrite discards unreviewed changes in the working tree, including
+> branches or commits Coworker may have created in the checkout.
 
 ## Connect the workspace to your repository
 
 Coworker always works in a complete Git repository, whether the service runs from source, through
 Compose, or directly from Docker. A direct Docker run persists `/app` and its remote configuration
 in the workspace volume, so you do not need to enter the container and configure it first. To
-manage subsequent changes in your own repository, use it as `origin` and keep the official
-Coworker repository or another source as `upstream`. If you track only one repository, `origin`
-alone is sufficient.
+manage subsequent changes in your own repository, the common arrangement is to use it as
+`origin` and keep the official Coworker repository or another source as `upstream`. If you track
+only one repository, `origin` alone is sufficient.
 
 You can give Coworker the repository URL and target branch directly:
 
@@ -51,18 +52,19 @@ git fetch upstream
 git merge upstream/main
 ```
 
-Replace `main` when the upstream uses another default branch. Do not run `git remote add` when a
-remote with that name already exists. Repository URLs must not contain tokens, passwords, or
-private keys. Public repositories need no extra credentials for fetching. Configure dedicated,
-least-privilege Git credentials in the container or runtime account before accessing a private
-repository or pushing, and never send credentials through chat.
+Replace `main` when the upstream uses another default branch. `git remote add` fails when a
+remote with that name already exists. Repository URLs carry no tokens, passwords, or private
+keys. Public repositories need no extra credentials for fetching. Private repositories and pushes
+require dedicated, least-privilege Git credentials configured in the container or runtime account
+beforehand; credentials shared through chat remain in the conversation history.
 
-For recurring synchronization, name the frequency, local branch, upstream branch, and whether to
-push. This prevents a scheduled task from using whichever branch happens to be checked out later.
+Recurring synchronization instructions typically name the frequency, local branch, upstream
+branch, and whether to push; without them, a scheduled task uses whichever branch happens to be
+checked out later.
 
 ## Let Coworker upgrade herself
 
-For a source checkout, the recommended path is to ask Coworker to inspect and perform the upgrade.
+For a source checkout, the common path is to ask Coworker to inspect and perform the upgrade.
 She can use file, code, and command tools to inspect the working tree and remotes, review upstream
 changes, resolve conflicts whose intent is clear, run relevant checks, and call `restart_self`
 separately after the code update is ready.
@@ -86,8 +88,8 @@ For example:
 
 The main line must call the tool by itself; a Bubble cannot trigger it. The check proves only that
 the new code can load configuration and register Providers. It does not prove every integration
-test, data migration, or external service works, so the upgrade task must still back up data,
-review the diff, and run relevant tests first.
+test, data migration, or external service works; backup, diff review, and relevant tests fall
+outside its coverage.
 
 If Coworker is wrapped by a process manager that does not support process replacement, or the
 upgrade changes the container image, system dependencies, launch command, or Python environment,
@@ -135,10 +137,10 @@ docker run --name coworker \
 
 When the managed workspace is on the image's default branch, clean, and eligible for a
 fast-forward, the new image advances it from the embedded Git bundle. Local modifications,
-commits, other branches, and divergent history remain in place. Do not remove
-`coworker-before-upgrade` or the backup until the replacement is verified. Both containers share
-the same state volume, however, so confirm data-format compatibility before returning to the old
-image and restore the pre-upgrade backup when required.
+commits, other branches, and divergent history remain in place. `coworker-before-upgrade` and the
+backup form the rollback path and are the only fallback until the replacement is verified. Both
+containers share the same state volume, however, so returning to the old image presumes
+data-format compatibility, and the pre-upgrade backup is restored when required.
 
 ### Migrate from direct Docker to Compose
 
@@ -210,9 +212,9 @@ docker run --rm \
 docker compose up --no-build -d
 ```
 
-The migrated directory contains administrator tokens, model keys, conversations, and attachments.
-Keep it in a location readable only by the runtime account. Do not remove
-`../coworker-data-before-compose` until the new container is fully verified.
+The migrated directory contains administrator tokens, model keys, conversations, and attachments;
+a location readable only by the runtime account matches that sensitivity.
+`../coworker-data-before-compose` remains the only copy until the new container is fully verified.
 
 Older Compose versions used the `coworker-workspace` named volume by default. On the first upgrade
 to a version that defaults to the current checkout, that volume is not deleted, but the new bind
@@ -224,11 +226,12 @@ current checkout only after its contents have been migrated safely.
 
 ## Data and memory migration
 
-- Do not assume an older release can read data written by a newer release.
+- An older release cannot be assumed to read data written by a newer release.
 - After a memory-tree upgrade, new compression events extend the tree by default. To backfill
   historical logs, use the management console or `POST /backfill_tree`. Backfill makes model calls.
-- Changing the embedding model changes the vector space of long-term memory. Do not switch an
-  existing store unless release notes provide an explicit rebuild path.
+- Changing the embedding model changes the vector space of long-term memory. For an existing
+  store, a direct switch leaves old data mismatched with the new vector space unless release
+  notes provide an explicit rebuild path.
 - Identity, Skills, Palaces, subconscious modes, tasks, and history are not translated when the
   runtime locale changes.
 
@@ -237,12 +240,12 @@ notes about specific legacy formats.
 
 ## Component compatibility
 
-- Go Relay, Python Coworker, and Rust Desktop use Relay protocol version `1`. Upgrade them together
-  when protocol or key derivation changes; see [Relay v1 Protocol](relay-protocol.en.md).
+- Go Relay, Python Coworker, and Rust Desktop use Relay protocol version `1`. Protocol or key
+  derivation changes require upgrading them together; see [Relay v1 Protocol](relay-protocol.en.md).
 - Desktop negotiates a protocol version with Coworker. An old client may continue to work locally
   while being unable to connect to an incompatible Coworker or Relay.
-- A failed Desktop update does not remove the installed version. Missing signatures or platform
-  assets must leave the old version in place.
+- A failed Desktop update does not remove the installed version. An update with missing signatures
+  or platform assets leaves the old version in place.
 
 ## Validate after upgrading
 
@@ -255,9 +258,10 @@ notes about specific legacy formats.
 
 ## Rollback
 
-Code rollback and data restore are separate operations. Switch only the code or image when the old
-release is known to support the current data. If the new release wrote an incompatible format,
-stop the service, preserve the failed state, and restore the complete pre-upgrade backup. Do not
-experiment by deleting `data/` or Docker volumes.
+Code rollback and data restore are separate operations. Switching only the code or image presumes
+the old release supports the current data. If the new release wrote an incompatible format, the
+recovery path is to stop the service, preserve the failed state, and restore the complete
+pre-upgrade backup; deleting `data/` or Docker volumes permanently removes runtime data and is not
+a rollback path.
 
 [← Back to project home](../../README.en.md)

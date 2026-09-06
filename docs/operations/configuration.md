@@ -12,8 +12,8 @@
 
 配置优先级为：管理端保存的 `data/admin_config.json` 高于 `.env`，`.env` 高于
 操作系统环境变量。`data/model_runtime_config.json` 只覆盖在线修改的 summary、
-fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，请确认工作目录中
-没有同名 `.env` 配置。管理端只向 `admin_config.json` 写入相对继承配置实际改变的
+fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，工作目录中的同名 `.env`
+优先级更高，会覆盖注入值。管理端只向 `admin_config.json` 写入相对继承配置实际改变的
 字段；保存时会移除已经恢复为 `.env` 或产品默认值的覆盖项。显式空列表若不同于继承值，
 仍作为有效覆盖保留。因此未修改的默认字段会随版本演进，不会因打开或保存整个设置分组而
 固定在旧值。启动时也会以原子写入自动规范化已有覆盖文件：旧快照中的继承值会被清理，
@@ -38,7 +38,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 系统时区控制 system prompt 和 `get_context` 中的当前时间、消息时间前缀、闹钟对无偏移
 时间的解释，以及任务等界面的日期边界。Coworker 没有独立的时区覆盖配置，管理员界面也
-不会修改时区；请通过操作系统、容器或服务启动环境设置 `TZ`，再重启进程。首次初始化界面
+不会修改时区；`TZ` 来自操作系统、容器或服务启动环境，修改后重启进程生效。首次初始化界面
 只读显示进程当前时区作为对照，并通过 `Intl.DateTimeFormat` 检测浏览器的 IANA
 时区，仅显示相应的 `TZ` 建议，不会写入配置。
 反向代理不会改变检测结果，因为检测发生在管理员浏览器中，而不是代理或服务器上。
@@ -121,7 +121,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__MEM0_LLM_PROVIDER` | `""`（跟随主线） | mem0 记忆提取的独立 provider；留空跟随运行态主线 provider（包括手动切换与失败降级），也可显式指定 Brain provider 名称或类型，复用匹配实例的凭据和有效 `base_url`。修改后热生效，无需重启 |
 | `MEMORY__MEM0_LLM_MODEL` | `""`（跟随主线） | mem0 记忆提取的独立模型 ID；provider 也留空时跟随运行态主线模型。显式指定 provider 但留空模型时，使用该 provider 的 `default_model`（无则 `LLM__DEFAULT_MODEL`）。模型 ID 原样传给对应 API 方言；修改后热生效，无需重启 |
 | `MEMORY__MEM0_LLM_THINKING` | `false` | mem0 抽取 LLM 的 thinking 开关；对已知思考模型注入对应参数（抽取是结构化 JSON 任务，默认关闭避免思考吞 token）。修改后热生效，无需重启 |
-| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 使用的嵌入模型；已有数据不应直接切换模型 |
+| `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 使用的嵌入模型；已有数据时直接切换会让旧向量与新模型不匹配 |
 
 ### Agent
 
@@ -160,14 +160,14 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 完整变量和正文变量不能同时使用，未知、重复或冲突变量会导致配置校验失败。使用 `\{{NAME}}`
 输出字面量占位符。变量可以重排或省略；模板不引用任何变量时会完全替换内置 Prompt。
 方括号标题（包括 `[CUSTOM]`）只是普通正文，可自由改名、拆分或删除。工具 Schema 不属于模板，
-仍由模型调用层提供。建议在管理页面“关系 → 身份档案”编辑多行模板；保存后通过安全重启生效。
+仍由模型调用层提供。多行模板在管理页面“关系 → 身份档案”中编辑；保存后通过安全重启生效。
 编辑器提供同步行号和空白行计数；每个变量卡片还可预览当前运行实例渲染出的完整区段与正文。
 
 ### API、管理端与通信
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `API__HOST` | `127.0.0.1` | API 监听地址；如需对外提供服务，应由显式配置的反向代理/TLS 层接入 |
+| `API__HOST` | `127.0.0.1` | API 监听地址；默认仅回环可达，对外接入经由显式配置的反向代理/TLS 层 |
 | `API__PORT` | `8000` | API 监听端口 |
 | `API__PUBLIC_URL` | 空 | 反向代理后浏览器访问的公开 HTTP(S) 根地址，只能包含 scheme、host 和可选端口；首次初始化重连优先使用它，而不是内部监听地址 |
 | `API__CORS_ORIGINS` | `["http://localhost:8000", "http://127.0.0.1:8000"]` | 允许访问 API 的浏览器来源 JSON 列表；空列表关闭跨域请求 |
@@ -190,12 +190,12 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode` 和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 
-反向代理同时代理 `/admin`、`/api/*` 和静态资源时，将 `API__PUBLIC_URL` 设置为浏览器
+反向代理同时代理 `/admin`、`/api/*` 和静态资源时，`API__PUBLIC_URL` 对应浏览器
 实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或
 `API__PORT` 的内部监听行为，只让首次初始化和重启后的管理员页面继续通过稳定的公开地址
-连接；不要填写 `/admin`、路径、查询参数或凭据。如果前端与 API 使用不同 origin，仍需将
-前端 origin 精确加入 `API__CORS_ORIGINS`。修改内部端口时，也必须在 Coworker 恢复前让
-反向代理 upstream 指向新端口。
+连接；`/admin`、路径、查询参数或凭据都在 scheme、host 和可选端口之外。如果前端与 API
+使用不同 origin，前端 origin 仍需精确加入 `API__CORS_ORIGINS`。修改内部端口时，
+反向代理 upstream 指向新端口先于 Coworker 在新端口恢复。
 
 `CHANNEL_ACCESS` 的键是信道名，四类规则都是大小写敏感的整串 participant ID glob。deny
 优先；allow 非空时只允许命中项；未配置或四个列表都为空时允许全部。该配置可在管理端
@@ -229,7 +229,7 @@ participant ID 为
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `COWORKER_BUILD_TARGET` | `offline` | 使用 Compose 构建镜像时选择的 Dockerfile target：`offline`（默认）、`runtime`、`with-embedder` 或 `lite-offline` |
-| `COWORKER_WITH_MEM0` | `true` | 使用 Compose 构建镜像时是否安装 mem0 可选依赖；构建 `lite-offline` target 时请设为 `false` |
+| `COWORKER_WITH_MEM0` | `true` | 使用 Compose 构建镜像时是否安装 mem0 可选依赖；`lite-offline` target 对应的取值是 `false` |
 | `COWORKER_BUNDLE_REPOSITORY_URL` | 官方 Coworker 仓库 | 构建镜像时转换为 Git bundle 的兼容仓库 |
 | `COWORKER_BUNDLE_REPOSITORY_REF` | 仓库 `HEAD` | 构建时写入 bundle 元数据的分支、tag 或 commit |
 | `COWORKER_WORKSPACE_PATH` | `/app` | 容器内实际运行源码与 Agent 共用的 Git 工作区 |
@@ -241,15 +241,15 @@ participant ID 为
 
 Compose 默认把当前本地 Git checkout 挂载到 `/app`，仓库初始化变量不会覆盖它；入口脚本
 同时把 `/app/data` 链接到独立的 `coworker-state` 卷。若 checkout 中已有非空
-`data/`，入口脚本会拒绝覆盖；先按[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)
-将它导入状态卷。设置
+`data/`，入口脚本会拒绝覆盖；导入状态卷的流程见
+[升级与迁移](upgrading.md#迁移-checkout-中现有的-data)。设置
 `COWORKER_WORKSPACE_SOURCE=coworker-workspace` 后，命名卷首次创建时会从镜像复制 `/app`
 并从 bundle 补齐 Git 元数据。更新镜像时，入口脚本只自动快进干净、未分叉且仍位于镜像
 默认分支的托管工作区；本地修改、提交、其他分支和分叉历史保持不变。其他仓库相关变量只在
 工作区尚未初始化时生效。`offline` 镜像拒绝让启动初始化器从
 `COWORKER_REPOSITORY_URL` 访问网络，但它不是网络沙箱，不会禁止用户明确授权的
-Agent Git、搜索、浏览器或集成请求。自定义私有仓库应在受控构建环境生成 bundle，
-不要把凭据写进 URL 或镜像构建参数。
+Agent Git、搜索、浏览器或集成请求。自定义私有仓库的 bundle 在受控构建环境中生成；
+凭据不出现在 URL 或镜像构建参数中。
 
 ## 支持的模型
 

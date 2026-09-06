@@ -56,7 +56,9 @@ For an individual, she is a companion who stays present. For a team, she becomes
 
 > [!WARNING]
 > Coworker is not a security sandbox. She can execute commands and read or write files with the permissions of the system user running the process.
-> The current v0.x releases should only run locally or on a trusted network. Do not expose port 8000 to the public internet.
+> The current v0.x releases are designed for local or trusted-network use; without a token the API
+> has no authentication and relies on the loopback/trusted-network boundary, and publishing port
+> 8000 directly removes that boundary.
 > See the [security policy](SECURITY.en.md) for details.
 
 ## One runtime, multiple ways in
@@ -115,7 +117,7 @@ A typical collaboration flow:
 `Question in WeCom` → `Recall project context` → `Use tools or collaborate with Codex / Claude Code` → `Synthesize the result` → `Retain it as team memory`
 
 > [!NOTE]
-> `participant_id` provides conversation isolation, not enterprise-grade authorization or tenancy. The current v0.x releases are best suited to local or trusted small-team environments, with human review retained for consequential actions.
+> `participant_id` provides conversation isolation, not enterprise-grade authorization or tenancy. The current v0.x releases are best suited to local or trusted small-team environments, where human review of consequential actions rests with the operator.
 
 ## Her life cycle
 
@@ -214,7 +216,7 @@ integrations may still access the network.
 > memory backend.
 
 > [!NOTE]
-> Intel macOS cannot install the current PyTorch wheel. Run the service through the
+> Intel macOS cannot install the current PyTorch wheel. The service runs through the
 > [Dev Container](docs/development/development.en.md#dev-container) or Docker.
 > On Debian or Ubuntu, use `uv run playwright install --with-deps chromium` if Chromium reports
 > missing system libraries.
@@ -233,9 +235,9 @@ On the first start, the terminal prints an auto-generated administrator token an
 
 <p align="center"><sub>First-time setup wizard · Configure runtime language, Provider, and startup model.</sub></p>
 
-Coworker restarts safely after you save. A brief page disconnect is normal. Treat both the
-administrator token and model API key as secrets: do not send them through chat, commit them to
-Git, or place them in shared documents.
+Coworker restarts safely after you save. A brief page disconnect is normal. The administrator
+token and the model API key are secrets: sending them through chat, committing them to Git, or
+placing them in shared documents exposes them.
 
 ### 3. Send the first message
 
@@ -266,10 +268,10 @@ with Codex or Claude Code, or connect your own tools through
 [API and Channels](docs/channels/api-and-channels.en.md).
 
 > [!TIP]
-> For the complete journey through runtime choices, setup verification, client selection, and
-> recovery, continue with the [First Run guide](docs/getting-started/README.en.md). See the
-> [Configuration Reference](docs/operations/configuration.en.md) for Docker images, environment
-> variables, and persistent volumes.
+> The [First Run guide](docs/getting-started/README.en.md) covers runtime choices, setup
+> verification, client selection, and recovery in full. The
+> [Configuration Reference](docs/operations/configuration.en.md) details Docker images,
+> environment variables, and persistent volumes.
 >
 > After a direct Docker start, `/app` is also a persistent Git workspace. To manage it through your
 > own repository, tell Coworker: “Configure `<my-repository-url>` as `origin`, preserve the official
@@ -309,7 +311,7 @@ data, cleanup scope, and deployment boundaries.
 ## Development and contributing
 
 See [CONTRIBUTING.en.md](CONTRIBUTING.en.md) for the contribution workflow, environment setup, and pre-PR checks.
-Report security issues privately according to [SECURITY.en.md](SECURITY.en.md).
+Security issues are reported privately according to [SECURITY.en.md](SECURITY.en.md).
 
 ```bash
 uv sync --dev

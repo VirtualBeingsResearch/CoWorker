@@ -72,7 +72,7 @@ If the phone requests a verification code, submit it separately:
 
 Confirmation yields a new `weixin:<bot_instance_id>`. The QR recipient is not bound to the new connection; the agent organizes contact relationships itself.
 
-Remove a local connection only after an explicit user request and confirmation:
+A local connection is removed only after an explicit user request and confirmation:
 
 ```json
 {

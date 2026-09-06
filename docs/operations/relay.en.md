@@ -73,8 +73,9 @@ loopback:
 127.0.0.1:8444 -> relay:8444
 ```
 
-Never expose the administration port publicly. Operators should SSH to the Relay host and run the
-CLI there. The minimum configuration is:
+The administration port is not a public surface: both Compose and native deployments bind it only
+to the host loopback (for example `127.0.0.1:8444`); administration runs on the Relay host itself,
+reached over SSH. The minimum configuration is:
 
 ```text
 RELAY_PUBLIC_URL=http://relay.example.com:8443
@@ -142,9 +143,9 @@ produce a persistent one-hour ban. Removing a ban requires an audit reason. Conn
 frame-size, and global signature-verification limits run before expensive verification. Relay
 only forwards bounded binary chunks and cannot interpret inner requests or routes.
 
-Back up the database, `.env`, and Relay signing key before upgrading. When the database schema is
-not E2EE Relay v1, startup stops with backup, removal, and reinitialization instructions instead of
-guessing a migration.
+The usual practice is to back up the database, `.env`, and Relay signing key before upgrading. When
+the database schema is not E2EE Relay v1, startup stops with backup, removal, and reinitialization
+instructions instead of guessing a migration.
 
 ### Restore
 
@@ -158,9 +159,9 @@ Add `--force` when the destination already exists; the previous file is preserve
 `<relay.db>.before-restore-<UTC timestamp>`. Start Relay again and verify it with
 `coworker-relay health`.
 
-Relay v1 is single-node. Do not share one bbolt volume among replicas or randomly load-balance an
-instance across replicas. SIGTERM stops new connections, closes tunnels, and performs a bounded
-shutdown.
+Relay v1 is single-node: sharing one bbolt volume among replicas or randomly load-balancing an
+instance across replicas is not supported. SIGTERM stops new connections, closes tunnels, and
+performs a bounded shutdown.
 
 ## Data and security boundary
 
@@ -168,8 +169,8 @@ shutdown.
   and the per-instance Desktop WebSocket.
 - Relay persists instance public keys, authentication epochs, pairing state, source-IP bans,
   audit events, and aggregate traffic counters. It does not cache updates or business content.
-- Raw tokens, Authorization, request paths, headers, bodies, messages, attachments, and update
-  content must not appear in Relay logs, databases, metrics, errors, or crash output.
+- Relay logs, databases, metrics, errors, and crash output do not contain raw tokens, Authorization,
+  request paths, headers, bodies, messages, attachments, or update content.
 - After decryption, Coworker exposes Desktop communication, OpenAI-compatible `GET /v1/models` and
   `POST /v1/chat/completions`, and read-only update routes. Administration, logs, backups, release
   management, and arbitrary HTTP/TCP proxying stay inaccessible.

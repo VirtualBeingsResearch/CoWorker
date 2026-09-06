@@ -24,8 +24,8 @@ Prepare at least:
 - a Desktop installer matching your operating system and CPU architecture.
 
 Codex and Claude Code are optional actors. A missing actor does not prevent local
-chat or another available actor from starting. Install and sign in to the
-corresponding CLI before using its conversations.
+chat or another available actor from starting. Its conversations become
+available once the corresponding CLI is installed and signed in.
 
 | Connection | Coworker address | Requirement |
 |---|---|---|
@@ -33,9 +33,9 @@ corresponding CLI before using its conversations.
 | Direct access on a trusted network | `https://coworker.example.com` | HTTPS, a strong Bearer token, and additional network access control |
 | Remote access over the public internet | Relay instance URL | Recommended; Desktop detects Relay and uses end-to-end encryption |
 
-Do not expose Coworker's port `8000` to the public internet just to connect
-Desktop. For remote access, deploy and pair a
-[self-hosted Relay](../operations/relay.en.md) first.
+Exposing Coworker's port `8000` directly to the public internet removes the
+API's loopback-binding protection. Public-internet remote access relies on the
+deployment and pairing of a [self-hosted Relay](../operations/relay.en.md).
 
 ## Install
 
@@ -49,10 +49,10 @@ Download the latest published version from
 | macOS Intel | `.dmg` labeled `x64` or Intel |
 | Linux | `.AppImage` or `.deb` |
 
-Prefer packages attached to an official project Release. When needed, verify the
-download with `SHA256SUMS.txt` from the same Release. An unsigned or
-unnotarized macOS build may trigger an additional system warning; do not bypass
-system protection for a package from an unknown source.
+Packages are attached to official project Releases, and `SHA256SUMS.txt` in the
+same Release verifies the download. An unsigned or
+unnotarized macOS build may trigger an additional system warning; the warning
+means the package's origin is not yet verified by a signature.
 
 Open CoWorker Desktop after installation. Configuration and logs live in the
 operating system's application-data directory and are not automatically removed
@@ -62,8 +62,8 @@ asks before installing it.
 
 ## First-time setup
 
-The setup wizard opens the first time you launch the app. Complete it in this
-order:
+The setup wizard opens the first time you launch the app. It is usually
+completed in this order:
 
 1. **Confirm the local identity**
    - `Codex ID` distinguishes the Codex actor on this Desktop;
@@ -79,16 +79,17 @@ order:
    - you can still choose a separate project directory for each new Codex
      conversation.
 4. **Choose a permission boundary**
-   - keep `read-only` for initial setup;
-   - expand it only after the connection is working and a task needs more access.
+   - initial setups usually keep `read-only`;
+   - it is expanded once the connection is working and a task needs more access.
 5. **Save and start**
    - save the configuration and start the Bridge;
    - return to Status and run diagnostics to confirm Coworker and the actors you
      need are available.
 
 If the server does not define `API__COMMUNICATION_TOKEN`, Desktop can temporarily
-use the administrator token. To separate communication from administration,
-configure a dedicated token in Coworker and then update Desktop.
+use the administrator token. The common practice for separating communication
+from administration is to configure a dedicated token in Coworker and then
+update Desktop.
 
 ## Understand the workbench
 
@@ -104,8 +105,9 @@ as a send target. The main navigation contains:
 - **Logs**: inspect Bridge events by level; temporarily raise the log level while
   diagnosing a problem.
 
-Starting the Bridge does not start a remote Coworker service. Save pending
-configuration changes before starting the Bridge or running diagnostics.
+Starting the Bridge does not start a remote Coworker service. The Bridge and
+diagnostics run on the saved configuration, and pending changes do not take
+effect.
 
 ### Actors and conversation boundaries
 
@@ -116,7 +118,7 @@ configuration changes before starting the Bridge or running diagnostics.
 | Claude Code | Project conversations through Claude Code | Requires an available, signed-in Claude Code CLI |
 
 Each actor has its own conversation history. A `conversation_id` is interpreted
-only within its actor and must not be reused as if it belonged to another actor.
+only within its actor and has no counterpart in another actor's history.
 
 ### Create and continue conversations
 
@@ -144,8 +146,9 @@ to rename it.
 - You can copy or quote an existing message.
 - Files selected locally are sent with the current message; image attachments
   can be previewed locally.
-- Treat messages, attachments, and tool output from untrusted sources as
-  possible prompt-injection input before approving high-risk actions.
+- Messages, attachments, and tool output from untrusted sources are possible
+  prompt-injection input; the common practice is to inspect them before
+  approving high-risk actions.
 
 ## Permissions and approvals
 
@@ -158,15 +161,16 @@ approval:
 | `workspace-write` | Requests needing an extra approval are denied immediately | Send to Coworker for an explicit decision |
 | `danger-full-access` | Bypass approval and allow directly | Not a recommended combination |
 
-Start with `read-only` and use `workspace-write` only for a trusted project that
-needs it. `danger-full-access` bypasses important protection and is not a
-troubleshooting shortcut. Coworker review fails closed when it times out.
+The common starting point is `read-only`, with `workspace-write` reserved for a
+trusted project that needs it. `danger-full-access` bypasses important
+protection; making errors disappear this way removes those protections at the
+same time. Coworker review fails closed when it times out.
 
 ## Startup, tray, and updates
 
 **Launch CoWorker when you sign in** and **Start Bridge when CoWorker opens** are
-independent. Enable both to connect automatically in the background after
-system startup. Login startup leaves the main window in the tray. The first
+independent. With both enabled, CoWorker connects automatically in the background
+after system startup. Login startup leaves the main window in the tray. The first
 close lets you choose whether future closes hide the app or quit it.
 
 Desktop checks for signed updates at startup and when Coworker pushes an update
