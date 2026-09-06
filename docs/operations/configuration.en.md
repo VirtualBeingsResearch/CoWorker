@@ -156,7 +156,7 @@ as codes.
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | Maximum image dimension in pixels before sending it to a model; larger images are scaled proportionally |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | Whether to prefix user messages sent to the model with local time |
 | `AGENT__BUBBLE_THINKING` | `true` | Whether to enable parallel Bubble thinking |
-| `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | Maximum number of concurrent Bubble branches |
+| `AGENT__BUBBLE_MAX_CONCURRENT` | `10` | Maximum number of concurrent Bubble branches |
 | `AGENT__CONCURRENCY_HINT_WINDOW_SECONDS` | `180.0` | Sliding window length in seconds for the multi-conversation concurrency hint; conversations heard from within the window count as active |
 | `AGENT__CONCURRENCY_HINT_THRESHOLD` | `2` | The hint to run bubbles in parallel is injected when conversations in the window that no bubble has taken over rise above this threshold; minimum 2 |
 | `AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` | `600.0` | Minimum interval in seconds between two concurrency hints |

@@ -141,7 +141,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__IMAGE_MAX_DIMENSION` | `960` | 图片发送给模型前的最大长边像素，超出则等比缩放 |
 | `AGENT__MESSAGE_TIME_PREFIX` | `true` | 是否给发往模型的用户消息添加本地时间前缀 |
 | `AGENT__BUBBLE_THINKING` | `true` | 是否启用泡泡并行思考 |
-| `AGENT__BUBBLE_MAX_CONCURRENT` | `5` | 泡泡思考最大并发数 |
+| `AGENT__BUBBLE_MAX_CONCURRENT` | `10` | 泡泡思考最大并发数 |
 | `AGENT__CONCURRENCY_HINT_WINDOW_SECONDS` | `180.0` | 多会话并发提示的滑动窗口时长（秒）；窗口内出现过来信的会话视为同时活跃 |
 | `AGENT__CONCURRENCY_HINT_THRESHOLD` | `2` | 窗口内未被泡泡接管的会话数上穿该阈值时，向模型注入泡泡并行提示；最小为 2 |
 | `AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` | `600.0` | 两次并发提示之间的最小间隔（秒） |

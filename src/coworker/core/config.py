@@ -689,7 +689,7 @@ class AgentConfig(_EnvSettings):
     image_max_dimension: int = 960
     message_time_prefix: bool = True
     bubble_thinking: bool = True
-    bubble_max_concurrent: int = Field(default=5, gt=0)
+    bubble_max_concurrent: int = Field(default=10, gt=0)
     # 多会话并发提示：滑动窗口内未接管会话数上穿阈值时，向模型注入泡泡并行提示。
     concurrency_hint_window_seconds: float = Field(default=180.0, gt=0)
     concurrency_hint_threshold: int = Field(default=2, ge=2)
