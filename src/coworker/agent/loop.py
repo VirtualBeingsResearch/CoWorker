@@ -655,11 +655,7 @@ class AgentLoop:
         self._short_term.primary.append(
             Message(
                 role="user",
-                content=tr(
-                    "loop.concurrency_hint",
-                    count=hint.count,
-                    max=bubble_store.max_concurrent,
-                ),
+                content=tr("loop.concurrency_hint", count=hint.count),
                 source="concurrency_hint",
             )
         )

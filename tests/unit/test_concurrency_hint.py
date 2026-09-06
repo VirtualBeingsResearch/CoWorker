@@ -174,7 +174,6 @@ def test_loop_injects_hint_message_into_short_term_context():
     hints = [m for m in mem.primary if m.source == "concurrency_hint"]
     assert len(hints) == 1
     assert "2 conversations" in hints[0].content
-    assert "10 bubbles may run concurrently" in hints[0].content
 
     before = len(mem.primary)
     loop._maybe_inject_concurrency_hint([_event("alice")])
