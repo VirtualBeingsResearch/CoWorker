@@ -32,6 +32,7 @@ from coworker.core.config import (
     load_admin_overrides,
     write_admin_overrides,
 )
+from coworker.core.metrics import Counter, Gauge, MetricsRegistry
 from coworker.i18n import tr
 from coworker.relay.crypto import (
     b64decode,
@@ -232,6 +233,8 @@ class _TLSSession:
                 await self._handle_frame(frame)
 
     async def _handle_frame(self, frame: Frame) -> None:
+        if self.owner._frames is not None:
+            self.owner._frames.inc(direction="inbound")
         if not self.authenticated:
             if frame.kind != FrameType.CLIENT_PROOF or frame.stream_id != 0:
                 raise RelayConnectionError("inner client proof is required")
@@ -468,6 +471,8 @@ class _TLSSession:
         await self.send_frame(Frame(FrameType.RESPONSE_END, stream_id))
 
     async def send_frame(self, frame: Frame) -> None:
+        if self.owner._frames is not None:
+            self.owner._frames.inc(direction="outbound")
         async with self.write_lock:
             plain = frame.encode()
             offset = 0
@@ -522,7 +527,12 @@ def _validated_headers(raw_headers: object) -> list[tuple[bytes, bytes]]:
 
 
 class RelayClient:
-    def __init__(self, app: Any, config: Config) -> None:
+    def __init__(
+        self,
+        app: Any,
+        config: Config,
+        metrics: MetricsRegistry | None = None,
+    ) -> None:
         self._app = app
         self._config = config
         self._supervisor: asyncio.Task[None] | None = None
@@ -543,6 +553,40 @@ class RelayClient:
         self._sessions: dict[str, _TLSSession] = {}
         self._tls_context: ssl.SSLContext | None = None
         self._tls_tempdir: tempfile.TemporaryDirectory[str] | None = None
+        self._metrics = metrics
+        self._connected: Gauge | None
+        self._connects: Counter | None
+        self._reconnects: Counter | None
+        self._frames: Counter | None
+        self._errors: Counter | None
+        if metrics is not None:
+            self._connected = metrics.gauge(
+                "coworker_relay_connected",
+                "1 when the Relay control tunnel is connected.",
+            )
+            self._connects = metrics.counter(
+                "coworker_relay_connects_total",
+                "Successful Relay control-tunnel connections.",
+            )
+            self._reconnects = metrics.counter(
+                "coworker_relay_reconnects_total",
+                "Relay control-tunnel losses that scheduled a reconnect.",
+            )
+            self._frames = metrics.counter(
+                "coworker_relay_frames_total",
+                "Relay protocol frames by direction.",
+                ("direction",),
+            )
+            self._errors = metrics.counter(
+                "coworker_relay_errors_total",
+                "Relay connection errors.",
+            )
+        else:
+            self._connected = None
+            self._connects = None
+            self._reconnects = None
+            self._frames = None
+            self._errors = None
 
     def snapshot(self, *, include_token: bool = False) -> dict[str, object]:
         relay = self._config.relay
@@ -827,6 +871,10 @@ class RelayClient:
                     self._connected_at = _now()
                     self._last_heartbeat = self._connected_at
                     delay = 1.0
+                    if self._connected is not None:
+                        self._connected.set(1)
+                    if self._connects is not None:
+                        self._connects.inc()
                     await self._listen(socket, token)
             except asyncio.CancelledError:
                 raise
@@ -834,11 +882,19 @@ class RelayClient:
                 self._last_error = str(error)[:500]
                 self._status = "disconnected"
                 self._auth_key_synced = False
+                if self._connected is not None:
+                    self._connected.set(0)
+                if self._errors is not None:
+                    self._errors.inc()
+                if self._reconnects is not None:
+                    self._reconnects.inc()
                 logger.warning("Relay E2EE connection lost: {}", self._last_error)
             finally:
                 self._socket = None
                 self._connection_id = ""
                 self._seen_session_ids.clear()
+                if self._connected is not None:
+                    self._connected.set(0)
                 await self._close_sessions()
             if self._stopping:
                 break

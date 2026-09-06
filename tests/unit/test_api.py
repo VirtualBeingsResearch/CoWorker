@@ -57,6 +57,7 @@ def client(tmp_path):
     routes_mod._agent = None
     routes_mod._brain = None
     routes_mod._usage_stats = None
+    routes_mod._channel_traffic = None
     routes_mod._model_config_path = tmp_path / "model_runtime_config.json"
     routes_mod._profile_readme_last_reminded_at = None
     routes_mod._communication_token = ""
@@ -2199,3 +2200,33 @@ class TestDesktopUpdatesAPI:
         stable = client.get("/api/desktop-updates/windows/x86_64/1.0.0-rc.1")
         assert stable.status_code == 200
         assert stable.json()["version"] == "1.0.0"
+
+
+class TestStatusChannelTrafficTotals:
+    def test_full_status_includes_channel_traffic_totals(self, client, tmp_path):
+        import coworker.api.routes as routes_mod
+
+        mock_inbox = MagicMock()
+        mock_inbox.push = AsyncMock()
+        communication = _channel_system(tmp_path, mock_inbox.push)
+        communication.traffic.record(
+            direction="inbound",
+            channel="wecom",
+            participant_id="wecom:single:allowed",
+            status="received",
+            source="wecom",
+        )
+        setup_routes(
+            mock_inbox,
+            MagicMock(),
+            MagicMock(),
+            channels=communication.registry,
+            channel_traffic=communication.traffic,
+        )
+        routes_mod._brain = None
+
+        body = client.get("/status").json()
+
+        assert body["channel_traffic_totals"] == {
+            "wecom": {"inbound": {"received": 1}}
+        }

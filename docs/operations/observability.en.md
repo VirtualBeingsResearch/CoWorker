@@ -12,12 +12,13 @@ connection state.
 
 | Surface | Question answered |
 |---|---|
-| `GET /status` | Is the Agent running or sleeping? With a communication token configured, a valid Bearer also reports the active model and usage |
+| `GET /status` | Is the Agent running or sleeping? With a communication token configured, a valid Bearer also reports the active model, cycle count, usage, and channel message totals |
 | Life Overview | What is the current context, model, and high-level state? |
 | Diagnostics and Audit | Where are background tasks waiting, what failed, and what did an administrator change? |
 | Diagnostics and Audit → Message traffic | Which recent channel messages were received, sent, denied, ignored, or failed delivery? |
 | Life History and `data/logs/` | What model, tool, or message event actually occurred? |
 | `GET /api/debug/tasks` | Are event-loop tasks stuck on the same await? Trusted diagnostics only |
+| `GET /metrics` | Runtime and cumulative metrics in Prometheus text format for scrape-based monitoring |
 | Docker healthcheck / `docker compose ps` | Are the container and HTTP service reachable? |
 
 `pending` often means waiting for a message or timer, not failure. Combine wait location, last
@@ -67,6 +68,52 @@ Amounts are always local estimates, not Provider invoices. They exclude request 
 image/video charges, cache writes, tiers, batch discounts, taxes, and account-level concessions.
 Use the external service as the billing authority.
 
+## Prometheus metrics (`GET /metrics`)
+
+`/metrics` reuses the API port and serves the Prometheus text format (version 0.0.4).
+Authentication matches `/status`: when `API__COMMUNICATION_TOKEN` is explicitly configured the
+scrape must present a valid Bearer token — supply it as `bearer_token` in the Prometheus scrape
+config. Without a configured token the endpoint behaves like the rest of the unauthenticated API
+surface (the API binds to `127.0.0.1` by default; always configure a token before exposing it).
+Set `API__METRICS_ENABLED=false` to disable collection entirely; during first-run setup the
+endpoint redirects to `/admin` like every other path.
+
+Example scrape configuration:
+
+```yaml
+scrape_configs:
+  - job_name: coworker
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["127.0.0.1:8000"]
+    bearer_token: "<API__COMMUNICATION_TOKEN>"
+```
+
+Metrics fall into two classes. Runtime metrics (`coworker_http_requests_total{method,route,status}`,
+`coworker_http_request_duration_seconds`, `coworker_sessions_active{transport}`,
+`coworker_sessions_total{transport,state}`, `coworker_relay_connected`,
+`coworker_relay_connects_total`, `coworker_relay_reconnects_total`,
+`coworker_relay_frames_total{direction}`, `coworker_relay_errors_total`,
+`coworker_model_switches_total{...}`) cover only the current process lifetime and reset on
+restart; the HTTP route label is the route template (e.g. `/ws/{participant_id}`), so raw
+participant IDs never become high-cardinality labels, and streaming responses measure until the
+first body byte. Cumulative metrics come from the persisted aggregates
+(`coworker_llm_calls_total{provider,model,scope}`, `coworker_llm_tokens_total`,
+`coworker_tool_calls_total`, `coworker_tool_results_total`, `coworker_skill_loads_total`,
+`coworker_bubble_runs_total{outcome}`, `coworker_memory_compressions_total{trigger}`,
+`coworker_messages_in_total{source}`, `coworker_task_reminders_total`,
+`coworker_auto_recalls_total`, `coworker_auto_recall_memories_total`,
+`coworker_subconscious_spawned_total`, `coworker_subconscious_done_total`,
+`coworker_channel_messages_total{channel,direction,status}`) and keep accumulating across
+restarts. Two gauges, `coworker_uptime_seconds` and `coworker_agent_cycles_total`, are also
+exposed.
+
+`coworker_channel_messages_total` covers the retained channel-traffic window: records rotated
+out of `channel_traffic.jsonl` no longer contribute, so in-process counters stay monotonic but a
+rebuilt counter after a restart may be lower than before. Labeled series do not duplicate an
+unlabeled total; aggregate with `sum by (...)` on the Prometheus side.
+
 ## Logs and sensitive information
 
 Record time, timezone, participant, Channel, and the first error. Before sharing logs, remove
@@ -92,8 +139,10 @@ Retention must account for:
 - Monthly or before major upgrades: recovery drill, capability review, version and capacity trend.
 
 Alert at least on repeated health failure, low disk, growing failed-task count, unreachable Relay,
-and stale backups. Coworker does not currently expose Prometheus metrics; external monitoring
-should poll lightweight state and host signals instead of indexing sensitive message logs.
+and stale backups. `/metrics` scrape-based monitoring covers most of these signals (Relay
+connectivity, failed-task growth, usage spikes); process and disk signals that remain outside it
+continue to come from host-level monitoring. Do not scrape logs containing sensitive message
+bodies as a default metrics source.
 
 ## Incident response order
 

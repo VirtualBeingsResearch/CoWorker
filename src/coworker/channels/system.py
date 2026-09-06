@@ -10,6 +10,7 @@ from coworker.channels.registry import ChannelRegistry
 from coworker.channels.stream import StreamChannel, StreamProfile, StreamRuntime
 from coworker.channels.traffic import ChannelTrafficStore
 from coworker.core.config import ChannelAccessConfig
+from coworker.core.metrics import MetricsRegistry
 from coworker.core.registration import RegistrationError
 
 
@@ -51,6 +52,7 @@ def create_channel_system(
     activity_path: str | Path | None = None,
     access_config: ChannelAccessConfig | None = None,
     traffic_path: str | Path | None = None,
+    metrics: MetricsRegistry | None = None,
 ) -> ChannelSystem:
     outbox = Path(outbox_dir)
     activity = ChannelActivityStore(activity_path)
@@ -60,6 +62,7 @@ def create_channel_system(
         outbox.parent / "communicate_registrations.json",
         activity,
         traffic,
+        metrics,
     )
     access = ChannelAccessController(access_config, traffic)
     registry = ChannelRegistry(access)

@@ -50,6 +50,7 @@ WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些
 | `GET /backups` | 列出应急短期上下文备份 |
 | `POST /backups/restore` | 以 `full` 或 `summarize` 模式恢复应急备份 |
 | `GET /api/debug/tasks` | 排查事件循环任务；仅用于受信任的诊断环境 |
+| `GET /metrics` | Prometheus 文本格式指标；显式设置令牌后要求 Bearer，未显式设置时不校验，setup 模式重定向到 `/admin` |
 | `GET /v1/models` | OpenAI 兼容模型目录，返回 `coworker` |
 | `POST /v1/chat/completions` | OpenAI 兼容入站；Bearer 短名映射为 `openai:{短名}` |
 

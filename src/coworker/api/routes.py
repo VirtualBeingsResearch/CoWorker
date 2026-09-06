@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from coworker.agent.usage_stats import UsageStatsCollector
     from coworker.brain.brain import Brain
     from coworker.channels.registry import ChannelRegistry
+    from coworker.channels.traffic import ChannelTrafficStore
 
 router = APIRouter()
 
@@ -38,6 +39,7 @@ _inbox: InboxWatcher | None = None
 _agent: AgentLoop | None = None
 _brain: Brain | None = None
 _usage_stats: UsageStatsCollector | None = None
+_channel_traffic: ChannelTrafficStore | None = None
 _model_config_path: Path = Path("data/model_runtime_config.json")
 _communication_token = ""
 # 只有管理员显式设置了 API__COMMUNICATION_TOKEN 才认为通信令牌“已配置”。
@@ -82,13 +84,16 @@ def setup(
     channels: ChannelRegistry | None = None,
     communication_token_explicit: bool | None = None,
     extra_communication_tokens: dict[str, str] | None = None,
+    channel_traffic: ChannelTrafficStore | None = None,
 ) -> None:
     global _inbox, _agent, _brain, _usage_stats, _model_config_path
     global _communication_token, _communication_token_explicit, _channels
+    global _channel_traffic
     _inbox = inbox
     _agent = agent
     _brain = brain
     _usage_stats = usage_stats
+    _channel_traffic = channel_traffic
     _model_config_path = Path(model_config_path)
     _communication_token = communication_token.strip()
     _communication_token_explicit = (
@@ -413,6 +418,8 @@ def _full_status_payload(auth: dict[str, Any] | None = None) -> dict[str, Any]:
         payload["model_config"] = _model_config_response()
     if _usage_stats is not None:
         payload["usage_stats"] = _usage_stats.snapshot()
+    if _channel_traffic is not None:
+        payload["channel_traffic_totals"] = _channel_traffic.totals()
     return payload
 
 
