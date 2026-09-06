@@ -56,7 +56,8 @@
 
 > [!WARNING]
 > Coworker 不是安全沙箱。她可以执行命令，并以运行进程的系统用户权限读写文件。
-> 当前 v0.x 版本只应运行在本机或可信网络中，不要把 8000 端口暴露到公网。
+> 当前 v0.x 版本面向本机或可信网络设计；未配置令牌时接口无认证，仅由回环或可信网络
+> 边界保护，把 `8000` 端口直接暴露到公网会移除这层边界。
 > 详见 [安全策略](SECURITY.md)。
 
 ## 一个运行时，多种进入方式
@@ -115,7 +116,7 @@
 `企业微信中的问题` → `召回项目背景` → `调用工具或协作 Codex / Claude Code` → `汇总结论` → `沉淀为团队记忆`
 
 > [!NOTE]
-> `participant_id` 提供的是对话隔离，不是企业级权限或租户系统。当前 v0.x 更适合本机或受信任的小团队环境，关键操作仍应保留人工复核。
+> `participant_id` 提供的是对话隔离，不是企业级权限或租户系统。当前 v0.x 更适合本机或受信任的小团队环境，关键操作的人工复核由运行者自行决定和执行。
 
 ## 她的生命循环
 
@@ -203,8 +204,8 @@ docker compose up --pull always --no-build
 > `MEMORY_DEFAULT_BACKEND` 用于在镜像中变更默认记忆后端。
 
 > [!NOTE]
-> Intel macOS 无法安装当前版本的 PyTorch wheel，请通过
-> [Dev Container](docs/development/development.md#dev-container) 或 Docker 运行服务。
+> Intel macOS 无法安装当前版本的 PyTorch wheel，服务需通过
+> [Dev Container](docs/development/development.md#dev-container) 或 Docker 运行。
 > Debian / Ubuntu 缺少 Chromium 系统库时，改用
 > `uv run playwright install --with-deps chromium`。
 
@@ -223,7 +224,7 @@ docker compose up --pull always --no-build
 <p align="center"><sub>首次初始化向导 · 配置运行语言、Provider 与启动模型。</sub></p>
 
 保存后 Coworker 会安全重启；页面短暂断开属于正常现象。管理员令牌和模型 API Key
-都属于敏感信息，不要发送到聊天、提交到 Git 或放进共享文档。
+都属于敏感信息，发送到聊天、提交到 Git 或放进共享文档都会造成外泄。
 
 ### 3. 发出第一条消息
 
@@ -249,7 +250,7 @@ curl -X POST http://127.0.0.1:8000/messages \
 [API 与通信入口](docs/channels/api-and-channels.md) 接入自己的工具。
 
 > [!TIP]
-> 想完整了解运行方式、初始化检查、客户端选择和故障恢复，请继续阅读
+> 运行方式、初始化检查、客户端选择和故障恢复的完整说明见
 > [首次运行指南](docs/getting-started/README.md)。Docker 镜像、环境变量和持久卷的
 > 详细说明见[配置参考](docs/operations/configuration.md)。
 >
@@ -289,7 +290,7 @@ curl -X POST http://127.0.0.1:8000/messages \
 ## 开发与贡献
 
 贡献流程、环境准备和 PR 前检查见 [贡献指南](CONTRIBUTING.md)。
-安全问题请按 [安全策略](SECURITY.md) 私下报告。
+安全问题按 [安全策略](SECURITY.md) 描述的渠道私下报告。
 
 ```bash
 uv sync --dev

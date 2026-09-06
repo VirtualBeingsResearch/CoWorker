@@ -4,8 +4,9 @@
 
 [← 返回配置与运维](README.md)
 
-本页提供 Coworker 服务、管理后台、模型、Desktop、Relay 和容器部署的统一排查顺序。先收集
-证据再改变状态；不要把删除 `data/`、配置文件、Docker 卷或重装应用当作第一步。
+本页提供 Coworker 服务、管理后台、模型、Desktop、Relay 和容器部署的统一排查顺序：先收集
+证据，再改变状态。删除 `data/`、配置文件、Docker 卷或重装应用属于破坏性动作，会让待排查
+的状态在取证前消失。
 
 ## 通用检查顺序
 
@@ -13,12 +14,13 @@
    失败？
 2. **记录时间和版本**：记下问题发生时间、Coworker/Desktop 版本、运行方式和最近改动。
 3. **检查状态**：查看终端、管理后台“诊断与审计”、Desktop“状态”或 Relay 健康信息。
-4. **对齐日志**：查看同一时间段最早出现的 ERROR/WARN，不要只看最后一条连锁错误。
+4. **对齐日志**：同一时间段最早出现的 ERROR/WARN 标记问题起点，其后的条目是连锁结果。
 5. **验证配置来源**：确认当前进程实际读取的配置文件、环境和工作目录。
-6. **做最小恢复**：重试单个连接或安全重启；先备份再执行恢复、清理或迁移。
+6. **做最小恢复**：重试单个连接或安全重启；恢复、清理或迁移会改写运行数据，通常以
+   先行的备份为前提。
 
-报告问题时不要附带 Bearer token、API Key、Relay 私钥、二维码内容、完整消息正文或未经
-检查的配置导出包。
+问题报告中可能出现的敏感信息包括 Bearer token、API Key、Relay 私钥、二维码内容、完整
+消息正文和未经检查的配置导出包。
 
 ## Coworker 无法启动
 
@@ -30,12 +32,12 @@ python3 --version
 uv run python scripts/check_version.py
 ```
 
-- Python 必须满足项目要求；
-- 依赖应从当前 checkout 的锁文件安装；
-- 同一个工作目录不要同时启动多个 Coworker 进程；
+- Python 版本满足项目要求；
+- 依赖来自当前 checkout 的锁文件；
+- 同一工作目录同时只运行一个 Coworker 进程；
 - 检查 `data/` 是否可写、磁盘是否已满；
 - 检查 `8000` 端口是否已被其他进程使用；
-- Intel macOS 应通过 Dev Container 或 Docker 运行 Python 服务。
+- Intel macOS 通过 Dev Container 或 Docker 运行 Python 服务。
 
 浏览器工具单独失败但 Agent 能启动时，通常只需安装 Chromium：
 
@@ -49,7 +51,7 @@ Debian/Ubuntu 缺少系统库时：
 uv run playwright install --with-deps chromium
 ```
 
-不要因为浏览器依赖失败就清空记忆或身份数据。
+浏览器依赖失败与记忆、身份数据无关。
 
 ## 管理页面打不开或无法登录
 
@@ -58,14 +60,14 @@ uv run playwright install --with-deps chromium
 - 确认 Coworker 进程仍在运行；
 - 默认地址是 <http://127.0.0.1:8000/admin>；
 - 容器部署确认端口映射和容器健康；
-- 如果从另一台设备访问，不要临时公开 `8000`；应使用受控反向代理或项目支持的 Relay
-  场景。
+- 从另一台设备访问时，直接公开 `8000` 会失去回环绑定这层保护；受控反向代理或项目支持
+  的 Relay 场景是常见的跨设备接入方式。
 
 ### 令牌被拒绝
 
-- 使用当前启动终端显示的有效管理员令牌；
+- 有效管理员令牌由当前启动终端显示；
 - 检查进程是否读取预期工作目录下的 `data/admin_config.json`；
-- 不要混用 Desktop 通信 token、Relay token 和管理员 token；
+- Desktop 通信 token、Relay token 和管理员 token 是三种互不通用的令牌；
 - 浏览器保存了旧 token 时，退出管理会话后重新输入。
 
 首次设置未完成时，普通页面和 API 会被引导到 `/admin`，Agent 主循环和外部 Channel 不会
@@ -84,13 +86,14 @@ uv run playwright install --with-deps chromium
 
 手动输入的模型没有经过在线能力探测。普通文本生成成功并不代表它能执行工具调用。
 
-如果刚更换长期记忆 embedding 模型，停止继续写入并检查迁移要求。已有 Chroma 数据不能
-假定与另一个 embedding 模型兼容。
+刚更换长期记忆 embedding 模型后，新写入会立即使用新模型；已有 Chroma 数据不能假定与
+另一个 embedding 模型兼容，需先确认迁移要求。
 
 ## 记忆、任务或上下文异常
 
-- 短期上下文过大：先在“记忆中心”检查消息尾部和记忆树，再考虑全量压缩。
-- 回溯一直运行：查看 `GET /backfill_tree` 或管理页进度；不要同时执行离线回溯。
+- 短期上下文过大：常见做法是先在“记忆中心”检查消息尾部和记忆树，再决定是否全量压缩。
+- 回溯一直运行：进度见 `GET /backfill_tree` 或管理页；同时执行离线回溯会重复处理相同
+  历史。
 - 长期记忆搜不到：确认 mem0 Provider、embedding 模型和数据库路径没有改变。
 - 重启后缺少近期状态：检查短期快照和 `data/logs`，再查看“运行中心”的应急备份。
 - 任务或闹钟不触发：确认时区、Passive mode、Agent 是否正在运行，以及任务是否已被取消。
@@ -100,7 +103,8 @@ uv run playwright install --with-deps chromium
 - 先用摘要恢复把历史重新注入当前上下文；
 - 只有需要完整替换当前短期上下文时才使用完整恢复。
 
-恢复前记录当前版本、备份文件名和消息数量。应急短期备份不能替代整个运行目录的备份。
+常见做法是在恢复前记录当前版本、备份文件名和消息数量。应急短期备份不能替代整个运行
+目录的备份。
 
 ## Desktop 无法连接
 
@@ -115,8 +119,8 @@ uv run playwright install --with-deps chromium
 - Coworker 的 Desktop Channel runtime 是否正在启动或重启；
 - 使用 Relay 时，地址是否精确包含正确实例路径。
 
-身份、协议或端到端加密失败不会降级为明文直连。不要把 Relay URL 改成公开的 Coworker
-端口来规避错误。
+身份、协议或端到端加密失败不会降级为明文直连。把 Relay URL 改成公开的 Coworker 端口
+规避不了这类失败，身份与加密校验依旧不通过。
 
 ### Codex 或 Claude 不可用
 
@@ -149,7 +153,7 @@ uv run playwright install --with-deps chromium
 
 - 确认更新 URL 与当前 Coworker/Relay 实例一致；
 - 检查客户端版本与目标架构；
-- 签名缺失或与内置公钥不匹配时必须拒绝安装；
+- 签名缺失或与内置公钥不匹配的安装包会被拒绝；
 - Relay 临时更新适配器只允许当前实例固定路径，不接受任意 URL 或跨实例重定向。
 
 更新失败不影响继续使用当前已安装版本。保留日志后再联系发布维护者。
@@ -164,7 +168,7 @@ uv run playwright install --with-deps chromium
 - 检查 Relay 服务健康、DNS、证书、系统时间和实例状态；
 - 检查 token 是否已轮换或实例是否被撤销；
 - 检查来源 IP 是否因连续失败进入封禁；
-- 不要把 Relay 日志中的连接元数据与“能够解密消息”混为一谈。
+- Relay 日志中的连接元数据不代表能够解密消息内容。
 
 部署命令、配对、封禁、备份和恢复见[自托管 Relay](relay.md)。协议或证书身份失败不会
 自动降级；这是安全边界的一部分。
@@ -175,7 +179,7 @@ uv run playwright install --with-deps chromium
 - `offline` 镜像会阻止自动下载缺失的 Hugging Face 内容，并拒绝启动初始化器从 Git
   远端克隆工作区；但它不是网络沙箱，模型服务和用户授权的 Agent 网络工具仍可能联网；
 - 预置 embedding 模型必须与运行时配置一致；
-- 修改 `pyproject.toml` 或 `uv.lock` 后要重新构建依赖环境；
+- 修改 `pyproject.toml` 或 `uv.lock` 后，依赖环境不会自动更新，需要重新构建；
 - 挂载 checkout 模式下，宿主机与 Agent 看到同一个 Git 工作区。
 
 检查数据范围：
@@ -191,12 +195,12 @@ uv run python scripts/cleanup.py backup-delete
 ```
 
 `backup-delete` 只处理 `data/` 范围，仍保留 `data/_backups/`，也不会删除 `.env`、
-`providers.json`、`.coworker/`、Desktop 数据或 Docker 卷。执行前阅读
+`providers.json`、`.coworker/`、Desktop 数据或 Docker 卷；详细影响范围见
 [数据与信任边界](../architecture/data-boundaries.md#查看备份与清理)。
 
 ## 收集可共享的诊断信息
 
-建议提供：
+典型的诊断信息包括：
 
 - Coworker/Desktop/Relay 版本；
 - 操作系统、CPU 架构和运行方式；
@@ -207,7 +211,7 @@ uv run python scripts/cleanup.py backup-delete
 - 最近一次成功操作；
 - 已尝试的恢复动作及结果。
 
-分享前移除：
+以下内容带有凭据或个人信息：
 
 - Authorization Header、token、API Key 和私钥；
 - 完整配置导出包；
@@ -215,7 +219,7 @@ uv run python scripts/cleanup.py backup-delete
 - Relay 配对材料和微信二维码；
 - 不相关的个人路径与身份信息。
 
-安全漏洞或可能泄露凭据的问题请按[安全策略](../../SECURITY.md)私下报告，不要提交公开
-issue。
+安全漏洞或可能泄露凭据的问题属于[安全策略](../../SECURITY.md)定义的私下报告渠道，
+公开 issue 不适用于这类内容。
 
 [← 返回项目首页](../../README.md)

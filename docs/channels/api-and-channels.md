@@ -4,7 +4,7 @@
 
 [← 返回通信与客户端](README.md)
 
-> 当前 v0.x 版本只应在本机或可信网络使用。部署前请阅读
+> 当前 v0.x 版本面向本机或可信网络部署。部署前请阅读
 > [安全策略](../../SECURITY.md)。
 
 所有出站通信先由 `ChannelRegistry` 路由到独立传输信道，例如 Stream、企业微信、Telegram 或微信 Claw。进入 Stream 后，Desktop participant 由 `StreamChannel` 交给内置 Desktop profile 处理。Coworker Desktop 共享 Stream Runtime 的注册、连接、队列与生命周期，并使用现有 participant ID 和消息协议。`list_connections` 聚合各信道及 profile 当前在线或已知可达的通信对象。`/status` 报告运行、模型与用量状态，连接发现通过 `list_connections` 完成。
@@ -23,13 +23,13 @@
 - `modules`：保存完整信道模块贡献的管理接口和热设置应用器。
 
 新增独立传输时继承 `BaseChannel`。只需要传输时可调用
-`channel_system.registry.register(channel)`；同时拥有连接管理或热设置时，应实现
-`ChannelModule` 并调用 `channel_system.install(module)`，一次注册 transport、可选
+`channel_system.registry.register(channel)`；连接管理或热设置经由 `ChannelModule` 提供：
+实现 `ChannelModule` 并调用 `channel_system.install(module)`，一次注册 transport、可选
 `ChannelManagement` 和可选 `ChannelSettings`。Admin 只通过通用
 `/api/admin/channels/{channel}/management` 路由快照与命令；配置热应用遍历模块声明的
 `config_key`，两者都不解释信道私有语义。Channel 负责 participant 解析、原始入站归一化和出站语义；可变连接状态、后台任务及启停逻辑放在它的 `runtime`。如果只是 Stream 上的新协议行为，则继承 `StreamProfile` 并调用 `channel_system.register_stream_profile(profile)`；profile 负责自己的 participant 前缀、能力、入站归一化和出站修饰，并复用 `StreamRuntime`。Desktop 是内置的 Stream profile。注册边界会一次性报告名称、前缀、基类、Runtime 与重复项等全部配置问题。`CommunicateTool` 将模型工具调用转换为 Registry 出站请求。
 
-需要教给 Agent 的稳定信道操作可以由 Channel 覆写 `agent_instructions()` 提供。Registry 只聚合已启用信道贡献的文本，`SystemPromptBuilder` 将其放入缓存稳定的 `[CHANNELS]` 段；不要把动态连接列表或轮询状态注入系统 Prompt。实时 participant 仍通过 `list_connections` 发现，动作解释和执行仍属于目标 Channel，Registry 不检查 `extra` 的信道私有结构。
+需要教给 Agent 的稳定信道操作可以由 Channel 覆写 `agent_instructions()` 提供。Registry 只聚合已启用信道贡献的文本，`SystemPromptBuilder` 将其放入缓存稳定的 `[CHANNELS]` 段；注入动态连接列表或轮询状态会使该段失去缓存稳定性。实时 participant 仍通过 `list_connections` 发现，动作解释和执行仍属于目标 Channel，Registry 不检查 `extra` 的信道私有结构。
 
 最小出站 Channel 只需继承 `BaseChannel` 并实现 `send`；默认已包含空 Runtime、无简写解析、无入站、无连接列表和 activity 辅助方法：
 
@@ -75,7 +75,8 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 管理端“诊断与审计 → 消息流量”展示最近的入站和出站结果，可按方向、状态及文本筛选；页面每 5 秒刷新一次。入站会记录已接收、策略拒绝、处理失败及 Desktop 重复消息，Registry 出站会记录已发送、策略拒绝与投递失败，拒绝通知本身也会记录发送结果。对应的管理 API 是已认证的 `GET /api/admin/channel-traffic`。
 
-结构化记录写入 `AGENT__LOGS_DIR/channel_traffic.jsonl`（默认 `data/logs/channel_traffic.jsonl`），单文件达到 10 MiB 后轮转并保留 6 份备份；普通拒绝日志仍同时进入进程输出和 `AGENT__LOGS_DIR/coworker.log`。流量记录只含时间、方向、信道、规范 participant ID、状态、来源和简短原因，不保存消息正文、附件内容或凭据。participant ID 本身仍可能属于敏感元数据，管理 API 因此要求管理员认证，分享或备份日志时也应按敏感数据处理。
+结构化记录写入 `AGENT__LOGS_DIR/channel_traffic.jsonl`（默认 `data/logs/channel_traffic.jsonl`），单文件达到 10 MiB 后轮转并保留 6 份备份；普通拒绝日志仍同时进入进程输出和 `AGENT__LOGS_DIR/coworker.log`。流量记录只含时间、方向、信道、规范 participant ID、状态、来源和简短原因，不保存消息正文、附件内容或凭据。participant ID 本身仍可能属于敏感元数据，管理 API 因此要求管理员认证，分享或备份的日志
+也因此带有同样的敏感元数据。
 
 这些列表只表达“某个信道方向上是否允许某个规范 participant 地址”，不是身份认证、租户隔离或“哪些人可以唤醒 Agent”的权限模型。群聊、机器人实例等聚合 participant 也只按它们自己的 participant ID 判定，不会推导到真实人员身份。
 
@@ -157,7 +158,7 @@ ws.send("你好！");
 
 ### 泡泡直接转交
 
-绑定了同一 `participant_id`（以及可选 `conversation_id`）的活跃 Bubble 会接收匹配的 WebSocket 或 REST 入站消息，并把直接回复投递回该 ID 的在线流。SSE 是单向出站流：客户端订阅 `/sse/{participant_id}` 后，应通过 `POST /messages` 以相同的 `sender_id` 发送后续消息；它们仍会直接转交给 Bubble。
+绑定了同一 `participant_id`（以及可选 `conversation_id`）的活跃 Bubble 会接收匹配的 WebSocket 或 REST 入站消息，并把直接回复投递回该 ID 的在线流。SSE 是单向出站流：客户端订阅 `/sse/{participant_id}` 后，后续消息通过 `POST /messages` 以相同的 `sender_id` 发送；它们仍会直接转交给 Bubble。
 
 按通信对象启用透明转交时，配置大小写敏感的整串 glob：
 
@@ -175,7 +176,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 只填写其中一项即可只启用该传输层，设为 `[]` 可全部关闭。Desktop 身份不会回退到这条通用规则：它必须显式命中 participant glob，因此默认只透明 `coworker-desktop:d:local:…`，不会透明 `claude` 或 `codex` actor。
 
-支持结构化 `extra` 的出站通道（通用 WebSocket/SSE 与 Desktop）还会在透明转交消息的 `extra.bubble` 中携带来源，前端应优先使用它渲染接管状态，而不是解析提示文案：
+支持结构化 `extra` 的出站通道（通用 WebSocket/SSE 与 Desktop）还会在透明转交消息的 `extra.bubble` 中携带来源，接管状态以 `extra.bubble` 为准，提示文案不是稳定接口：
 
 ```json
 {
@@ -200,7 +201,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 Authorization 的 fetch 流消费通用 SSE，不再依赖无法设置 Header 的原生 `EventSource`。此时
 `GET /status` 未携带有效令牌只返回基础生命周期信息，携带令牌后才返回模型配置与用量；未显式
 设置通信令牌时，这些接口保持引入认证前的行为。Desktop 通信未显式设置令牌时回退使用管理员令牌，
-方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`。需要隔离权限时应显式配置独立令牌。
+方便本机首次连接；两者都未配置时，Desktop 通信会返回 `503`。权限隔离由显式配置独立令牌实现。
 
 浏览器示例：
 
@@ -220,4 +221,4 @@ Coworker 把运行中的生命体暴露为 OpenAI 兼容模型：`GET /v1/models
 
 ## 文件消息
 
-将消息文件放入 `data/inbox/`，Agent 会在轮询时读取并处理。回复会写入 `data/outbox/`，WebSocket 在线用户也会收到推送。
+消息文件放入 `data/inbox/` 后，Agent 会在轮询时读取并处理。回复会写入 `data/outbox/`，WebSocket 在线用户也会收到推送。

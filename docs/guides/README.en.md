@@ -19,10 +19,11 @@ Sign in with the administrator token printed by the startup terminal. An
 automatically generated token is stored in `data/admin_config.json`. It can read
 and modify sensitive configuration and perform restart or recovery operations:
 
-- do not commit it, share it in screenshots, or send it through chat;
-- do not let untrusted browser extensions read the management page;
-- do not expose `/admin` or Coworker's port `8000` directly to the internet;
-- prefer a separate `API__COMMUNICATION_TOKEN` for routine Desktop traffic.
+- a copy in Git, a screenshot, or a chat counts as leaked administrator access;
+- untrusted browser extensions can read the token and configuration shown on the page;
+- `/admin` and Coworker's port `8000` lose their loopback-binding protection when exposed
+  directly to the internet;
+- routine Desktop traffic usually uses a separate `API__COMMUNICATION_TOKEN`.
 
 The confirmation name displayed by the page comes from the current identity.
 Full restore, short-term-memory compression, restart, and other destructive or state-changing
@@ -127,8 +128,8 @@ backfill, memory-tree merging, and other responsibilities. The console displays
 the date on which exact compression tracking began.
 
 A `pending` task often means it is waiting for a message or timer and does not
-automatically mean the runtime is stuck. Combine Diagnostics and Audit, logs,
-and the last successful activity when deciding whether there is a failure.
+automatically mean the runtime is stuck. Diagnostics and Audit, logs, and the
+last successful activity are the inputs for deciding whether there is a failure.
 
 ## Operations: care for work in progress
 
@@ -149,13 +150,13 @@ Memory Center contains:
 - **Memory maintenance**: full compression and background backfill from
   persistent logs.
 
-Full compression calls a model and changes short-context structure. Backfill
-runs in the background. Confirm the model is available first, and do not run
-the offline backfill command at the same time. Removing long-term memory cannot
+Full compression calls a model and changes short-context structure, so it needs
+an available model. Backfill runs in the background; the offline backfill command
+running at the same time contends for the snapshot files. Removing long-term memory cannot
 be undone from the ordinary page, so verify that it is no longer needed.
 
-Pinned context should contain a small amount of stable information that must
-remain visible. Pinning large source documents permanently consumes context.
+Pinned context carries a small amount of stable information that must remain
+visible; pinned large source documents permanently consume context.
 
 ### Runtime Center
 
@@ -179,8 +180,8 @@ Emergency backups recover short-term context after repeated Agent errors:
   confirmation.
 
 These are not disaster backups for all of `data/`, `.coworker/`, or Docker
-volumes. Record the current state before a full restore and prefer summary
-restore when it can recover enough context.
+volumes. Record the current state before a full restore; when summary restore
+can recover enough context, it is the usual first choice.
 
 ### Diagnostics & Audit
 
@@ -225,13 +226,13 @@ This area manages:
 - fallback chain.
 
 A main-model switch applies to later calls and does not interrupt a call already
-in progress. Summary and vision models can use different Providers. Order
-fallback entries from first to last and remove Providers that are no longer
-valid.
+in progress. Summary and vision models can use different Providers. The fallback
+chain is evaluated from first to last; the usual practice is to keep that order
+and remove Providers that are no longer valid.
 
 The first real call may incur cost or expose an incompatible model or gateway.
-Before changing it, confirm the Provider's data boundary, tool-calling support,
-and cost.
+The common practice is to confirm the Provider's data boundary, tool-calling
+support, and cost before changing it.
 
 ### Runtime Settings
 
@@ -264,8 +265,9 @@ This controls communication addresses. It neither identifies real people nor
 decides who may wake the Agent. See [Channel access lists](../channels/api-and-channels.en.md#channel-access-lists)
 for full matching, rejection-response, and logging behavior.
 
-Do not use Desktop development mode in place of correct HTTPS or Relay configuration.
-See [Configuration and Models](../operations/configuration.en.md) for complete
+Desktop development mode covers same-machine local debugging; transport security
+for remote connections comes from HTTPS or Relay configuration. See
+[Configuration and Models](../operations/configuration.en.md) for complete
 environment-variable semantics.
 
 ## Relationships: maintain the companion identity and people
@@ -291,11 +293,10 @@ currently running prompt from the desired template awaiting a safe restart.
 saving the standard empty value explicitly selects the product-standard template.
 
 **Current System Prompt** remains the exact read-only cached version. It excludes
-tool schemas, short-term context, and the current message. Use it to verify that
-identity and system settings entered the prompt, not as a full request audit. A
+tool schemas, short-term context, and the current message. It is for verifying that
+identity and system settings entered the prompt, not a full request audit. A
 complete replacement removes any Identity, language-policy, Skill, Palace, or
-Channel guidance that the template does not reference, so confirm that outcome
-before saving.
+Channel guidance that the template does not reference.
 
 Other line-oriented and source editors in the administration interface use the
 same line numbers, blank-line markers, and counts. This includes model fallback
@@ -307,8 +308,8 @@ personality, task details, and release notes keeps the standard text editor.
 
 People binds one real person’s addresses across channels into a single
 relationship. You can create, rename, or merge people, inspect the profile
-framework, and maintain personalized notes. Verify both sets of addresses
-before a merge. Deleting a person removes the relationship record and cannot be
+framework, and maintain personalized notes. Both sets of addresses are usually
+verified before a merge. Deleting a person removes the relationship record and cannot be
 undone from the ordinary page.
 
 ## Extensions: manage capabilities, remote access, and releases
@@ -323,12 +324,12 @@ Capability Content manages:
 
 The editor manages each asset's main Markdown document and supporting files.
 Chinese and English prose use companion files; stable metadata and tool names
-must not be translated. Before deleting an asset, check whether prompts, other
-assets, or routine workflows still reference it.
+always come from the original file. Before deleting an asset, check whether
+prompts, other assets, or routine workflows still reference it.
 
-Review content copied from the Web, messages, or third parties before writing it
-into these assets. Skills and Palaces enter model context, so malicious
-instructions can become persistent prompt injection.
+Skills and Palaces enter model context; Web, message, or third-party content
+written into them without review can turn malicious instructions into persistent
+prompt injection.
 
 ### Remote Access
 

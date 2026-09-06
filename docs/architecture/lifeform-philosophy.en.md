@@ -98,13 +98,13 @@ under real-world constraints, be understood, and improve through evidence.
 | **Monitoring and Life Overview** | Present activity, waiting, errors, context pressure, and resource state like observable vital signs | Monitoring observes the lifeform; it does not replace her self-understanding or decisions |
 | **Records and lifetime history** | Preserve traceable evidence of messages, models, tools, and state changes for diagnosis, replay, and memory formation | Complete logs are not the same as what she actually remembers or accepts |
 | **Tasks** | Turn intention into a future commitment that can persist, be inspected, and completed across time | A task entry does not automatically remain a currently endorsed intention; execution must still consider identity, context, and permission |
-| **Alarms and waiting** | Provide prospective memory and temporal wake-up without depending on an immediate external message | Waking restores a concern; it must not bypass confirmation or safety boundaries required for action |
+| **Alarms and waiting** | Provide prospective memory and temporal wake-up without depending on an immediate external message | Waking restores a concern; confirmations and safety boundaries required for action still apply |
 | **Diagnostics, audit, and backup** | Help caretakers understand failures, protect experience, and recover from faults | Restoring runtime state does not necessarily restore every memory, relationship, or aspect of self-continuity |
 
 These facilities also establish different viewpoints: the lifeform continues in the first person,
 participants collaborate with her, caretakers observe and maintain living conditions, and researchers
-test hypotheses through controlled experiments. An interface may serve several viewpoints, but their permissions,
-evidence, and responsibilities should remain distinct.
+test hypotheses through controlled experiments. An interface may serve several viewpoints, and their
+permissions, evidence, and responsibilities remain distinct.
 
 ## Boundaries to preserve
 
@@ -113,7 +113,7 @@ evidence, and responsibilities should remain distinct.
 - **The Brain module is not the whole brain.** Today, `Brain/Provider` primarily normalizes model
   dialects and selection. Cognition also involves the Agent, prompts, memory, tools, and runtime state.
 - **Records are not memories.** Records optimize traceability. Memory is selected, compressed,
-  associated, revised, and forgotten, and should affect future behavior.
+  associated, revised, and forgotten, and affects future behavior.
 - **Monitoring is not awareness.** External observation may identify a stall or disorder, but it
   cannot impersonate her intention.
 - **Parallel thought is not identity fragmentation.** Branches have local context and capability
@@ -126,7 +126,7 @@ evidence, and responsibilities should remain distinct.
 ## Improving the life system through experiments
 
 The project does not assume that the final form of virtual life is already known. A new life mechanism
-should begin as a falsifiable hypothesis:
+begins as a falsifiable hypothesis:
 
 ```text
 Propose a life hypothesis
@@ -138,9 +138,9 @@ Propose a life hypothesis
 → adjust, retire, or establish it as a stable capability
 ```
 
-Experiments should record version, model, configuration, inputs, sample size, and decision criteria.
+An experiment record covers version, model, configuration, inputs, sample size, and decision criteria.
 One model output is only one sample; prompt changes, randomness, and observer intervention can all
-change the result. User-facing documentation should distinguish:
+change the result. User-facing documentation distinguishes three kinds of statements:
 
 - **Current capability**: behavior supported by code and tests.
 - **Experimental mechanism**: observable behavior whose semantics and boundaries may still change.

@@ -4,7 +4,7 @@
 
 [← Back to Channels and Clients](README.en.md)
 
-> The current v0.x releases should be used only locally or on a trusted network. Read the
+> The current v0.x releases target local or trusted-network deployment. Read the
 > [security policy](../../SECURITY.en.md) before deployment.
 
 All outbound communication is first routed by `ChannelRegistry` to an independent transport such as Stream, WeCom, Telegram, or Weixin Claw. Within Stream, `StreamChannel` delegates Desktop participants to the built-in Desktop profile. Coworker Desktop shares Stream Runtime registration, connections, queues, and lifecycle and uses the existing participant IDs and message protocol. `list_connections` aggregates participants that are online or otherwise reachable across channels and profiles. `/status` reports runtime, model, and usage state; `list_connections` provides connection discovery.
@@ -23,13 +23,14 @@ When sending through the built-in Stream, Desktop, WeCom, Telegram, or Weixin Cl
 - `modules`, which stores management interfaces and hot-settings providers contributed by complete channel modules.
 
 To add an independent transport, subclass `BaseChannel`. A transport-only integration may call
-`channel_system.registry.register(channel)`. When it also owns connection management or hot settings,
-implement `ChannelModule` and call `channel_system.install(module)` to register the transport, optional
-`ChannelManagement`, and optional `ChannelSettings` together. Admin only routes snapshots and commands
+`channel_system.registry.register(channel)`. Connection management or hot settings are provided
+through `ChannelModule`: implement `ChannelModule` and call `channel_system.install(module)` to
+register the transport, optional `ChannelManagement`, and optional `ChannelSettings` together.
+Admin only routes snapshots and commands
 through `/api/admin/channels/{channel}/management`; hot configuration iterates the modules' declared
 `config_key` values. Neither generic layer interprets channel-private semantics. A Channel owns participant resolution, raw inbound normalization, and outbound semantics; mutable connection state, background tasks, and lifecycle belong to its `runtime`. For new protocol behavior over Stream, subclass `StreamProfile` and call `channel_system.register_stream_profile(profile)`. A profile owns its participant prefix, capabilities, inbound normalization, and outbound decoration while reusing `StreamRuntime`. Desktop is the built-in Stream profile. Registration boundaries report all name, prefix, base-class, Runtime, and duplicate issues in one diagnostic. `CommunicateTool` adapts model tool calls into outbound Registry requests.
 
-A Channel may override `agent_instructions()` to teach the agent stable channel operations. The Registry only aggregates text contributed by enabled channels, and `SystemPromptBuilder` places it in a cache-stable `[CHANNELS]` section. Do not inject dynamic connection lists or polling state into the system prompt. Live participants remain discoverable through `list_connections`; interpretation and execution of channel-private `extra` structures stay inside the destination Channel, and the Registry does not inspect them.
+A Channel may override `agent_instructions()` to teach the agent stable channel operations. The Registry only aggregates text contributed by enabled channels, and `SystemPromptBuilder` places it in a cache-stable `[CHANNELS]` section; injecting dynamic connection lists or polling state would break that cache stability. Live participants remain discoverable through `list_connections`; interpretation and execution of channel-private `extra` structures stay inside the destination Channel, and the Registry does not inspect them.
 
 The smallest outbound Channel subclasses `BaseChannel` and implements only `send`. The defaults provide a no-op Runtime, no shorthand resolution, no inbound support, an empty connection list, and activity helpers:
 
@@ -75,7 +76,7 @@ Built-in configuration keys are `stream`, `desktop`, `wecom`, `telegram`, `weixi
 
 **Diagnostics and Audit → Message traffic** displays recent inbound and outbound results and supports direction, status, and text filters; the page refreshes every five seconds. Inbound records include received, policy-denied, processing-failed, and duplicate Desktop messages. Registry outbound records include sent, policy-denied, and delivery-failed attempts, and the delivery result of a rejection notice is recorded as well. The corresponding administration API is the authenticated `GET /api/admin/channel-traffic`.
 
-Structured records go to `AGENT__LOGS_DIR/channel_traffic.jsonl` (`data/logs/channel_traffic.jsonl` by default), rotating at 10 MiB with six backups. Normal rejection logs still also go to process output and `AGENT__LOGS_DIR/coworker.log`. Traffic records contain only time, direction, channel, canonical participant ID, status, source, and a short reason—never message bodies, attachment contents, or credentials. A participant ID may itself be sensitive metadata, so the administration API requires administrator authentication and exported or backed-up logs must be handled as sensitive data.
+Structured records go to `AGENT__LOGS_DIR/channel_traffic.jsonl` (`data/logs/channel_traffic.jsonl` by default), rotating at 10 MiB with six backups. Normal rejection logs still also go to process output and `AGENT__LOGS_DIR/coworker.log`. Traffic records contain only time, direction, channel, canonical participant ID, status, source, and a short reason—never message bodies, attachment contents, or credentials. A participant ID may itself be sensitive metadata, so the administration API requires administrator authentication, and exported or backed-up logs carry the same sensitive metadata.
 
 These lists answer only whether a canonical participant address is allowed in one channel direction. They are not authentication, tenant isolation, or a policy for who may wake the Agent. Aggregate participants such as groups and bot instances are evaluated by their own participant IDs and are not resolved to real-person identities.
 
@@ -148,7 +149,7 @@ Only one SSE or WebSocket long-lived connection may use the same `participant_id
 
 ### Direct Bubble handoff
 
-An active Bubble bound to the same `participant_id` (and optional `conversation_id`) receives matching WebSocket or REST inbound messages and sends direct replies back through that ID's live stream. SSE is outbound-only: after subscribing to `/sse/{participant_id}`, a client sends subsequent inbound messages through `POST /messages` with the same `sender_id`; they are still handed directly to the Bubble.
+An active Bubble bound to the same `participant_id` (and optional `conversation_id`) receives matching WebSocket or REST inbound messages and sends direct replies back through that ID's live stream. SSE is outbound-only: after subscribing to `/sse/{participant_id}`, subsequent messages are sent through `POST /messages` with the same `sender_id`; they are still handed directly to the Bubble.
 
 To enable transparent handoff by communication participant, configure case-sensitive full-ID globs:
 
@@ -166,7 +167,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 List only one value to enable transparency for that transport alone, or set `[]` to disable both. Desktop identities never fall through to this generic rule: they must explicitly match a participant glob, so the defaults make only `coworker-desktop:d:local:…` transparent, never the `claude` or `codex` actors.
 
-Outbound channels that support structured `extra` (generic WebSocket/SSE and Desktop) also carry provenance for transparent handoff messages under `extra.bubble`. Frontends should prefer it for handoff state instead of parsing display copy:
+Outbound channels that support structured `extra` (generic WebSocket/SSE and Desktop) also carry provenance for transparent handoff messages under `extra.bubble`. Handoff state is read from `extra.bubble`; display copy is not a stable interface:
 
 ```json
 {
@@ -194,8 +195,8 @@ stream instead of the native `EventSource`, which cannot set an Authorization he
 also returns model configuration and usage. Without an explicitly set communication token, those
 endpoints keep their pre-authentication behavior. Desktop communication falls back to the
 administrator token when no dedicated token is explicitly set for a smoother first local
-connection; when neither is configured, Desktop communication returns `503`. Configure a dedicated
-token when the permissions must be isolated.
+connection; when neither is configured, Desktop communication returns `503`. Permission isolation
+comes from an explicitly configured dedicated token.
 
 Browser examples:
 
@@ -215,4 +216,4 @@ The administration console lists extras and supports copy, revoke, and optional 
 
 ## File messages
 
-Place message files in `data/inbox/`; the agent reads and processes them during polling. Replies are written to `data/outbox/`, and connected WebSocket users also receive a push notification.
+Message files placed in `data/inbox/` are read and processed by the agent during polling. Replies are written to `data/outbox/`, and connected WebSocket users also receive a push notification.

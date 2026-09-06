@@ -31,13 +31,13 @@ This documentation covers operation, configuration, communication surfaces, prod
 
 ### [First Run](getting-started/README.en.md)
 
-Choose a run method, complete management setup, verify the instance, and select Desktop, API, or a communication surface.
+From choosing a run method and completing management setup to verifying the instance and selecting Desktop, API, or a communication surface.
 
 - [Platform Support and Component Compatibility](getting-started/platform-support.en.md)
 
 ### [Web Management Console](guides/README.en.md)
 
-Use Life Overview, memory, runtime, models, identity, capability content, remote access, and diagnostics.
+Covers Life Overview, memory, runtime, models, identity, capability content, remote access, and diagnostics.
 
 - [Common Use Cases](guides/use-cases.en.md)
 - [Authoring Capability Content](guides/capability-authoring.en.md)

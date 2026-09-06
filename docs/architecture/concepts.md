@@ -53,7 +53,7 @@ prompt 不复制、不 monkey-patch。
 - 文件工具：`read_file`、`write_file`、`list_directory`、`find_files`、`grep_files`
 - Web 工具：`search_web`、`fetch_url`
 - 浏览器工具：`browser_open`、`browser_screenshot`、`browser_action`、`browser_get_content`、`browser_close`、`browser_list_sessions`
-- 代码工具：`execute_code`、`get_code_result`、`kill_code_job`（`execute_code` 默认最多等 2 秒；`block=true` 仅泡泡上下文生效，主线传入会被忽略。`get_code_result` 只返回当前状态，不负责等待；需要等待时应先调用 `sleep` 再重试）
+- 代码工具：`execute_code`、`get_code_result`、`kill_code_job`（`execute_code` 默认最多等 2 秒；`block=true` 仅泡泡上下文生效，主线传入会被忽略。`get_code_result` 只返回当前状态，不负责等待；需要等待时先调用 `sleep` 再重试）
 - 记忆工具：`query_memory`（综合搜索：query 检索长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`
 - 系统工具：`sleep`、`breathe`、`switch_model`、`get_context`、`restart_self`
 - 闹钟工具：`set_alarm`、`list_alarms`、`cancel_alarm`
@@ -114,7 +114,7 @@ coworker/
 - **手动全量压缩**：`clear_short_term_memory` 会把当前 `primary` 中尚未压缩的实时消息整体压进记忆树，释放上下文空间但不删除记忆；压缩前同样会触发 MODE 中到期的潜意识任务，其中 `summarize` 提炼长期记忆；正在执行工具时会保留末尾 `tool_use` 以维持消息结构。
 - **历史回溯**（升级迁移）：升级后默认不回溯，记忆树从新压缩开始往后长。要把**已有历史**也建成多尺度树，读取全部 `interactions*.jsonl` 分片、按时间分块逐块摘要成叶子、级联重建脊柱（生成叶子数受 `MEMORY__TREE_BACKFILL_MAX_LEAVES` 封顶）。两种方式：
   - **离线**（进程未运行时）：`uv run python -m coworker --backfill-tree`，重建后写回快照退出。
-  - **在线**（运行中）：`POST /backfill_tree`（请求体可带 `{"max_leaves": 64}`）。运维触发、对模型零 token 成本；后台异步重建、不阻塞，逐块打进度日志，可用 `GET /backfill_tree` 轮询进度（`{running, done, total}`），完成后记日志并向 inbox 推送系统消息（重复触发返回 409）。安全性由「临时树构建 + 压缩锁内原子替换」保证：全程不碰活树，替换时保留构建期间新压缩的节点。⚠️ 不要在进程运行时跑离线 CLI——两者会争用快照文件。
+  - **在线**（运行中）：`POST /backfill_tree`（请求体可带 `{"max_leaves": 64}`）。运维触发、对模型零 token 成本；后台异步重建、不阻塞，逐块打进度日志，可用 `GET /backfill_tree` 轮询进度（`{running, done, total}`），完成后记日志并向 inbox 推送系统消息（重复触发返回 409）。安全性由「临时树构建 + 压缩锁内原子替换」保证：全程不碰活树，替换时保留构建期间新压缩的节点。⚠️ 进程运行时跑离线 CLI 会与在线流程争用快照文件。
 
 - **回退**：设 `MEMORY__TREE_ENABLED=false` 即回退到旧的「单条压缩摘要锚点」行为。
 
@@ -168,7 +168,7 @@ memory_tags: [product, bug]                # 按标签召回相关长期记忆
 **工作方式**：
 
 - 系统提示中只常驻 `[PALACES]` 注册表（名字 + `when_to_attach`），保持前缀缓存稳定。
-- 主线遇到匹配某宫殿的专项任务时，用 `bubble_spawn(palaces=[...])` 派生泡泡执行（专项执行建议 `fresh_start=true`，得到干净的领域上下文），可同时挂多个宫殿。
+- 主线遇到匹配某宫殿的专项任务时，用 `bubble_spawn(palaces=[...])` 派生泡泡执行（专项执行通常设置 `fresh_start=true`，得到干净的领域上下文），可同时挂多个宫殿。
 - 泡泡启动时注入：关键 skill 的完整 body、宫殿速记卡、按 `memory_tags` 过滤召回的长期记忆。
 - 泡泡成功收尾时，其结论按宫殿 `memory_tags` 自动写回 mem0（确定性钩子），下次挂同一宫殿时由标签召回自动捞回——宫殿因此随任务执行持续「生长」。
 - 潜意识里有个**宫殿园丁**（subconscious `garden` 模式）：巡检某个宫殿的领域记忆，剪除过期/矛盾/冗余、整合补写。更新主频由 `garden/MODE.md` 里的 `use_threshold`、`every_seconds`、`min_interval_seconds` 控制。园丁串行执行、卡片只读（要改卡片只向主线提建议）。

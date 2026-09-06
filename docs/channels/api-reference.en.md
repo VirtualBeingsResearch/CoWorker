@@ -6,8 +6,9 @@
 
 This page documents HTTP, SSE, and WebSocket contracts for local integrations. See
 [API and Communication Channels](api-and-channels.en.md) for Channel extension and full behavior.
-Coworker v0.x does not provide an enterprise multi-tenant authorization boundary. Do not expose
-the API directly to the public internet.
+Coworker v0.x does not provide an enterprise multi-tenant authorization boundary; an instance
+exposed directly to the public internet is protected only by the default checks listed under
+Authentication scope.
 
 ## OpenAPI
 
@@ -39,7 +40,7 @@ Communication Bearer checks for ordinary REST messages, full status snapshots, t
 profile, the runtime log stream, WebSocket, and SSE connections apply only after
 `API__COMMUNICATION_TOKEN` is explicitly set; without it those endpoints keep their previous
 behavior. Desktop communication falls back to the administrator token when no dedicated token is
-explicitly set. Set `API__COMMUNICATION_TOKEN` for long-running use.
+explicitly set. Long-running deployments typically set a dedicated `API__COMMUNICATION_TOKEN`.
 
 ## Core HTTP endpoints
 
@@ -93,8 +94,8 @@ An ordinary accepted message returns:
 }
 ```
 
-`sender_id` contributes to the persistent conversation-isolation boundary. Keep it stable,
-auditable, and unique to the participant. Attachment `data` is Base64. HTTP success means queued,
+`sender_id` contributes to the persistent conversation-isolation boundary; the boundary holds
+while IDs are stable, auditable, and unique to the participant. Attachment `data` is Base64. HTTP success means queued,
 not that a model response has completed. If the channel's inbound access lists reject `sender_id`,
 the server returns `403` before decoding attachments or queuing the message.
 
@@ -114,8 +115,9 @@ When an administrator has configured a communication token, unauthenticated `/st
 `status`, `is_running`, `is_sleeping`, `setup_mode`, `communication_token_configured`, and
 `authenticated`; it never includes providers, model configuration, or usage. When no token is
 configured or a valid Bearer is supplied, the endpoint returns the full snapshot. The endpoint may
-gain fields when optional modules are available. Clients should tolerate unknown fields.
-Integrations that require an audit trail should retain the raw response and Coworker version.
+gain fields when optional modules are available; clients that tolerate unknown fields keep working
+across versions. Integrations that require an audit trail typically retain the raw response and
+Coworker version.
 
 ## SSE and WebSocket
 
@@ -123,7 +125,7 @@ Integrations that require an audit trail should retain the raw response and Cowo
 - SSE: `GET /sse/{participant_id}` for outbound messages; send inbound messages through
   `POST /messages` with the same ID.
 - Only one SSE or WebSocket connection may use a `participant_id` at a time.
-- SSE sends a comment heartbeat every 15 seconds; proxies should disable response buffering.
+- SSE sends a comment heartbeat every 15 seconds; response buffering in a proxy delays event delivery.
 - Once `API__COMMUNICATION_TOKEN` is explicitly set, every `/ws/{participant_id}` WebSocket and
   `/sse/{participant_id}` SSE connection requires a Bearer; otherwise only `coworker-desktop:*`
   IDs and inner Relay requests require one.
@@ -134,7 +136,7 @@ Integrations that require an audit trail should retain the raw response and Cowo
   explicitly set; the identity page consumes it through an authenticated fetch stream.
 
 Outbound events contain message text and may include structured `extra`, such as Bubble handoff
-state. Prefer `extra.bubble` over parsing localized notice text.
+state. Handoff state is read from `extra.bubble`; localized notice text is not a stable interface.
 
 ## Errors and retries
 
@@ -146,20 +148,22 @@ FastAPI errors usually have this form:
 
 | Status | Response |
 |---|---|
-| `400/422` | Correct request, model, or protocol fields; do not retry unchanged |
-| `401/403` | Check token, authentication scope, and channel access lists; never log the full Authorization value |
-| `404` | Check resource, version, or whether the feature is enabled |
-| `409` | A task or connection already exists; query its state first |
-| `503` | Agent, Channel, or token is not ready; retry with backoff |
+| `400/422` | Caused by request, model, or protocol fields; an unchanged retry fails the same way |
+| `401/403` | Points to the token, authentication scope, or channel access lists; the full Authorization value is a credential, and logging it leaks that credential |
+| `404` | The resource does not exist, or the version or feature is not enabled |
+| `409` | A task or connection already exists; `GET /status` reports the current state |
+| `503` | Agent, Channel, or token is not ready; retries after backoff typically succeed once initialization completes |
 
 Ordinary `/messages` has no general idempotency key. Only the Desktop protocol uses `message_id`
-for bounded deduplication. Custom integrations should avoid repeating side-effecting messages.
+for bounded deduplication; retries therefore produce duplicate side-effecting user messages in
+custom integrations.
 
 ## Management and release endpoints
 
 `/api/admin/*` and `/api/desktop-updates/*` can change configuration, restore state, or publish
-artifacts. Unless you are developing the matching
-official console, prefer the Web UI and read [Web Management Console](../guides/README.en.md) and
-[Data and Trust Boundaries](../architecture/data-boundaries.en.md) first.
+artifacts, and they follow the contract of the matching official console. The Web UI is the regular
+entry point for these operations; see
+[Web Management Console](../guides/README.en.md) and
+[Data and Trust Boundaries](../architecture/data-boundaries.en.md) for context.
 
 [← Back to project home](../../README.en.md)

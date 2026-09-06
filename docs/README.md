@@ -37,7 +37,7 @@
 
 ### [Web 管理后台](guides/README.md)
 
-使用生命总览、记忆、运行、模型、身份、能力内容、远程访问与诊断功能。
+覆盖生命总览、记忆、运行、模型、身份、能力内容、远程访问与诊断功能。
 
 - [典型使用场景](guides/use-cases.md)
 - [能力内容创作](guides/capability-authoring.md)

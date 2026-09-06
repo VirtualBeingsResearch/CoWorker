@@ -22,7 +22,7 @@ Coworker Python 服务、Codex CLI 或 Claude Code CLI。
 - 与操作系统和 CPU 架构匹配的 Desktop 安装包。
 
 Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机聊天或其他可用 actor
-启动。若要使用对应会话，应先安装并登录其 CLI。
+启动。对应 CLI 已安装并登录后，其会话才可用。
 
 | 连接场景 | Coworker 地址 | 要求 |
 |---|---|---|
@@ -30,8 +30,8 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 | 可信网络直连 | `https://coworker.example.com` | HTTPS、强 Bearer token 和额外网络访问控制 |
 | 公网远程使用 | Relay 提供的实例地址 | 推荐方式；Desktop 会识别 Relay 并使用端到端加密 |
 
-不要为了让 Desktop 连通而直接把 Coworker 的 `8000` 端口暴露到公网。远程连接请先按
-[自托管 Relay](../operations/relay.md)完成部署和配对。
+把 Coworker 的 `8000` 端口直接暴露到公网会使接口失去回环绑定保护。公网远程使用依赖
+[自托管 Relay](../operations/relay.md)的部署和配对。
 
 ## 安装
 
@@ -46,9 +46,9 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 | macOS Intel | 标有 `x64` / Intel 的 `.dmg` |
 | Linux | `.AppImage` 或 `.deb` |
 
-优先使用项目正式 Release 中的安装包，并在需要时用同一 Release 的
-`SHA256SUMS.txt` 校验下载内容。macOS 构建若未签名或未公证，系统可能显示额外安全警告；
-不要绕过来源不明安装包的系统保护。
+安装包由项目正式 Release 发布，同一 Release 提供 `SHA256SUMS.txt` 供校验下载内容。
+macOS 构建若未签名或未公证，系统可能显示额外安全警告；这类警告意味着安装包来源尚未经
+签名验证。
 
 首次安装后打开 CoWorker Desktop。配置和日志保存在操作系统应用数据目录，不会因为删除
 安装包而自动清除。升级前无需删除旧版本；应用检测到已发布且签名有效的更新时，会先征求
@@ -56,7 +56,7 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 
 ## 首次配置
 
-应用第一次打开会显示配置向导。建议按以下顺序完成：
+应用第一次打开会显示配置向导。通常按以下顺序完成：
 
 1. **确认本机身份**
    - `Codex ID` 用于区分这台 Desktop 上的 Codex actor；
@@ -70,14 +70,14 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
    - 本机聊天工作区目录用于保存 Local actor 的会话资产；
    - 新建 Codex 会话时仍可单独选择具体项目目录。
 4. **选择权限边界**
-   - 初次使用建议保留 `read-only`；
+   - 初次使用通常保留 `read-only`；
    - 确认配置无误后再按任务需要调整。
 5. **保存并启动**
    - 保存后点击启动 Bridge；
    - 返回“状态”页运行诊断，确认 Coworker 和需要的 actor 均可用。
 
 服务端没有单独配置 `API__COMMUNICATION_TOKEN` 时，Desktop 可以暂时使用管理员令牌。
-需要隔离通信权限与管理权限时，应在 Coworker 设置独立通信令牌，再更新 Desktop。
+需要隔离通信权限与管理权限时，常见做法是在 Coworker 设置独立通信令牌，再更新 Desktop。
 
 ## 认识工作台
 
@@ -88,8 +88,8 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 - **会话**：在 Local、Codex 和 Claude Code 之间切换，新建或继续会话。
 - **日志**：按级别查看 Bridge 运行记录；排障前可以临时提高日志级别。
 
-启动按钮只启动 Bridge，不会替你启动远端 Coworker 服务。配置有未保存修改时，先保存再
-启动或运行诊断。
+启动按钮只启动 Bridge，不会替你启动远端 Coworker 服务。启动和诊断基于已保存的配置，
+未保存的修改不会生效。
 
 ### actor 与会话边界
 
@@ -99,8 +99,8 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 | Codex | 项目开发、代码检查和工具任务 | 需要可用的 Codex CLI；已有 App/CLI 历史可能只读 |
 | Claude Code | 使用 Claude Code 的项目会话 | 需要可用且已登录的 Claude Code CLI |
 
-每个 actor 都有自己的会话历史。同一个 `conversation_id` 只在对应 actor 中解释，不应把
-一个 actor 的会话 ID 当成另一个 actor 的会话。
+每个 actor 都有自己的会话历史。同一个 `conversation_id` 只在对应 actor 中解释，一个
+actor 的会话 ID 在另一个 actor 中没有对应会话。
 
 ### 新建与继续会话
 
@@ -121,7 +121,8 @@ Codex 和 Claude Code 都是可选 actor。缺少其中一个不会阻止本机�
 - 输入框支持 Markdown；界面会本地渲染常用 Markdown、表格、代码和数学内容。
 - 可以复制或引用已有消息。
 - 附件从本机选择后随当前消息发送；图片附件可在本地预览。
-- 从不受信任来源取得的消息、附件和工具输出都可能包含提示注入，应先检查再授权高风险操作。
+- 从不受信任来源取得的消息、附件和工具输出都可能包含提示注入；常见做法是先检查内容
+  再授权高风险操作。
 
 ## 权限与审批
 
@@ -133,13 +134,13 @@ Desktop 把“可以访问什么”和“由谁审批”分开配置：
 | `workspace-write` | 需要额外审批的请求立即拒绝 | 发送给 Coworker 等待明确审批 |
 | `danger-full-access` | 绕过审批并直接允许 | 不建议组合使用 |
 
-推荐从 `read-only` 开始，只在可信项目中使用 `workspace-write`。`danger-full-access`
-会绕过重要保护，不应作为“让报错消失”的排障手段。Coworker 代审超时会 fail closed。
+常见起点是 `read-only`，`workspace-write` 只用于可信项目中确实需要的场景。`danger-full-access`
+会绕过重要保护，用它消除报错的同时这些保护也被移除。Coworker 代审超时会 fail closed。
 
 ## 启动、托盘与更新
 
-“登录系统时启动 CoWorker”和“打开 CoWorker 时启动 Bridge”是两个独立开关。需要开机后
-后台自动连接时同时开启。自动登录启动会把主窗口留在托盘；关闭按钮的行为可选择隐藏到
+“登录系统时启动 CoWorker”和“打开 CoWorker 时启动 Bridge”是两个独立开关。两个开关
+同时开启时，开机后在后台自动连接。自动登录启动会把主窗口留在托盘；关闭按钮的行为可选择隐藏到
 托盘或退出应用。
 
 Desktop 启动时以及 Coworker 发布更新通知时会检查签名更新。检查到新版本后仍需用户确认

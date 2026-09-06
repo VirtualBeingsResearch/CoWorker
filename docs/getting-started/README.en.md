@@ -24,8 +24,8 @@ CPU architectures, Desktop artifacts, and protocol notes.
 Coworker Desktop is not an installer for the Coworker service. It connects to an
 existing instance and integrates Local, Codex, and Claude Code conversations.
 
-Current PyTorch builds do not provide an Intel macOS wheel. Run the Coworker
-service through the [Dev Container](../development/development.en.md#dev-container)
+Current PyTorch builds do not provide an Intel macOS wheel; on this platform the Coworker
+service runs through the [Dev Container](../development/development.en.md#dev-container)
 or Docker. Desktop itself can still use the Intel macOS package.
 
 ## 2. Start Coworker
@@ -45,8 +45,9 @@ You do not need to clone the repository. The image includes the Coworker source,
 environment, Chromium, FFmpeg, and embedding model. Docker automatically creates data volumes for
 the Git workspace, runtime state, and model cache. The command stays attached so you can read the
 administrator token and logs. After stopping it with `Ctrl+C`, run `docker start -a coworker` to
-start the same container again. Do not remove this container or run `docker rm -v` before recording
-its volume names or creating a backup; see
+start the same container again. Until its volume names are recorded or a backup is created, the
+workspace, runtime state, and model cache exist only in the volumes mounted by this container, and
+`docker rm -v` deletes that volume content; see
 [Inspect and back up a direct Docker run](../operations/backup-and-restore.en.md#run-the-docker-image-directly).
 For long-running use, you can migrate to
 [Long-running Deployment](../operations/deployment.en.md#docker-compose-plus-the-current-checkout)
@@ -83,18 +84,19 @@ to rebuild the execution environment.
 > [!WARNING]
 > On startup, Compose points `/app/data` at the separate state volume. If the current checkout has
 > a non-empty `data/` directory created by a source run, the entrypoint exits instead of replacing
-> it. Follow [Migrate an existing checkout data directory](../operations/upgrading.en.md#migrate-an-existing-checkout-data-directory)
-> to preserve and transfer that data; do not delete it merely to make startup succeed.
+> it. That data is preserved and transferred through [Migrate an existing checkout data directory](../operations/upgrading.en.md#migrate-an-existing-checkout-data-directory);
+> deleting it discards the source run's data.
 
 The `offline` image blocks automatic downloads of missing Hugging Face content and prevents the
 startup initializer from cloning a workspace from a Git remote, but it is not a network sandbox.
 Your configured model provider and user-authorized Agent tasks that use Git, search, a browser, or
-integrations may still access the network. Do not delete volumes as a first response to an
-ordinary startup problem.
+integrations may still access the network. Volumes hold runtime state and the model cache; deleting
+them does not address the cause of an ordinary startup problem.
 
 After startup, the default management URL is <http://127.0.0.1:8000/admin>. The Docker commands
 above bind the host side only to `127.0.0.1:8000`, and a source run also binds the API to
-`127.0.0.1` by default. Do not publish port `8000` directly to the public internet.
+`127.0.0.1` by default; publishing port `8000` directly to the public internet bypasses this
+loopback-binding protection.
 
 ## 3. Get the administrator token
 
@@ -105,9 +107,9 @@ When no administrator token exists, the first start:
 3. stores it in `data/admin_config.json`.
 
 Open the management URL and enter the token. It can read and modify runtime
-configuration. Do not send it through chat, commit it to Git, or place it in a
-shared document. Tokens and model API keys stored in configuration files rely
-on operating-system permissions and disk encryption.
+configuration; a copy in chat, Git history, or a shared document counts as a
+leaked administrator credential. Tokens and model API keys stored in
+configuration files rely on operating-system permissions and disk encryption.
 
 ## 4. Complete the setup wizard
 
@@ -186,8 +188,9 @@ curl -X POST http://127.0.0.1:8000/messages \
 ```
 
 If the response is an authentication error, confirm whether the endpoint
-requires a communication token. Do not work around it by exposing the service
-or disabling production authentication.
+requires a communication token. Exposing the service or disabling production
+authentication removes the authentication layer instead of fixing the token
+configuration.
 
 </details>
 
@@ -222,11 +225,12 @@ restart-required settings.
 For a source run, runtime data lives in `data/` by default, while user capability content normally
 lives in `.coworker/`. In a container, they live in the corresponding workspace and state volume.
 Before long-term use, read [Data and Trust Boundaries](../architecture/data-boundaries.en.md) and
-[Backup and Restore](../operations/backup-and-restore.en.md), then establish a backup policy for
-both the workspace and runtime state.
+[Backup and Restore](../operations/backup-and-restore.en.md); a long-term backup policy needs to
+cover both the workspace and runtime state.
 
 When startup, setup, model calls, or client connections fail, start with
-[Troubleshooting](../operations/troubleshooting.en.md). Do not immediately
-delete `data/`, configuration, or Docker volumes.
+[Troubleshooting](../operations/troubleshooting.en.md). `data/`, configuration,
+and Docker volumes hold identity, memory, and runtime state, and deleting them
+discards that data.
 
 [← Back to the project home](../../README.en.md)
