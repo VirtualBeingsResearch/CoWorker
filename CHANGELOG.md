@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.4 - Unreleased
+
+- docs(release): finalize v0.4.3 changelog (#206)
+- fix(web): keep chat SSE connected when hidden and contain error notes (#209)
+- feat(api): add OpenAI-compatible inbound channel (#210)
+- fix(tools): hide visual_analyze from vision-capable main models (#211)
+- feat(admin): add pause/resume controls for the partner main loop (#213)
+- fix(tools): remind auto-notification when polling running code jobs (#215)
+- feat(opencode-go): send x-opencode-session for prompt caching (#214)
+- feat(agent): hint parallel bubbles during multi-conversation bursts (#216)
+- docs: describe system behavior instead of prescriptive guidance (#219)
+
 ## 0.4.3 - 2026-08-27
 
 - docs(release): finalize v0.4.2 changelog (#200)
