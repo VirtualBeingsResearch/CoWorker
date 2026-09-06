@@ -77,7 +77,7 @@ class BubbleStore:
 
     def __init__(
         self,
-        max_concurrent: int = 5,
+        max_concurrent: int = 10,
         timeout_resume_seconds: int = 300,
     ) -> None:
         self._active: dict[str, Bubble] = {}

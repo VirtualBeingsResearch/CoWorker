@@ -338,6 +338,7 @@ task_wakeup = "[task reminder] {{count}} unfinished task(s) interrupted sleep."
 task_details_hint = " has_details=true; use task_get to view details"
 task_pin_label = "Unfinished tasks"
 task_board_more = "... and {{count}} more; use task_list"
+concurrency_hint = "[parallel hint] {{count}} conversations have been active at the same time recently; a good moment to handle them in parallel with bubbles."
 
 [bubble]
 cancelled = "The bubble was cancelled manually"

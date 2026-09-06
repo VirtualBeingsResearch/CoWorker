@@ -81,6 +81,27 @@ export function configFieldPresentation(
     return { editor: 'transport-list' };
   }
 
+  if (
+    path === 'agent.concurrency_hint_window_seconds'
+    || path === 'agent.concurrency_hint_cooldown_seconds'
+  ) {
+    return {
+      editor: 'default',
+      step: 'any',
+      hint: path === 'agent.concurrency_hint_window_seconds'
+        ? '窗口内出现过来信的会话视为同时活跃。'
+        : '两次并发提示之间的最小间隔。',
+    };
+  }
+  if (path === 'agent.concurrency_hint_threshold') {
+    return {
+      editor: 'default',
+      minimum: 2,
+      step: 1,
+      hint: '窗口内未被泡泡接管的会话数上穿该阈值时注入提示。',
+    };
+  }
+
   if (path === 'api.port') {
     return { editor: 'default', minimum: 1, maximum: 65_535, step: 1 };
   }
