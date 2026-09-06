@@ -14,6 +14,7 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.coworker import (
+    CONTROL_PARTICIPANT_ID,
     CoworkerAnnounce,
     CoworkerChannel,
     CoworkerPeerStore,
@@ -51,6 +52,7 @@ def _channel(
     client: httpx.AsyncClient | None = None,
     activity: ChannelActivityStore | None = None,
     max_attachment_bytes: int = 10 * 1024 * 1024,
+    identity_dir: Path | None = None,
 ) -> CoworkerChannel:
     return CoworkerChannel(
         self_id="cw_self",
@@ -61,6 +63,7 @@ def _channel(
         max_attachment_bytes=max_attachment_bytes,
         runtime=CoworkerRuntime(client=client),
         activity=activity or ChannelActivityStore(),
+        identity_dir=identity_dir,
     )
 
 
@@ -390,7 +393,7 @@ def test_list_connections_merges_explicit_and_learned(tmp_path: Path) -> None:
     channel.set_inbound_handler(_noop_handler)
 
     connections = {info.participant_id: info for info in channel.list_connections()}
-    assert set(connections) == {"coworker:ava"}
+    assert set(connections) == {CONTROL_PARTICIPANT_ID, "coworker:ava"}
 
 
 @pytest.mark.asyncio
@@ -409,7 +412,7 @@ async def test_learned_peer_appears_in_list_connections(tmp_path: Path) -> None:
     )
 
     connections = {info.participant_id: info for info in channel.list_connections()}
-    assert set(connections) == {"coworker:bob"}
+    assert set(connections) == {CONTROL_PARTICIPANT_ID, "coworker:bob"}
     assert connections["coworker:bob"].channel == "coworker"
 
 
@@ -608,3 +611,188 @@ def test_coworker_config_validation() -> None:
         CoworkerConfig.model_validate({"self_id": "Not Valid"})
     with pytest.raises(ValueError):
         CoworkerConfig.model_validate({"peers": {"bob": {"base_url": "not-a-url"}}})
+    with pytest.raises(ValueError):
+        CoworkerConfig.model_validate({"self_id": "control"})
+    with pytest.raises(ValueError):
+        CoworkerConfig.model_validate({"peers": {"control": {"base_url": "http://127.0.0.1:8001"}}})
+
+
+@pytest.mark.asyncio
+async def test_control_connect_learns_peer_and_lists_it(tmp_path: Path) -> None:
+    channel = _channel(tmp_path)
+
+    missing = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "connect"},
+        )
+    )
+    assert missing.is_error is True
+
+    reserved = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={
+                "action": "connect",
+                "peer_id": "control",
+                "base_url": "http://127.0.0.1:8001",
+            },
+        )
+    )
+    assert reserved.is_error is True
+
+    result = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={
+                "action": "connect",
+                "peer_id": "bob",
+                "base_url": "http://127.0.0.1:8001",
+                "token": "bob-token",
+                "display_name": "Bob",
+            },
+        )
+    )
+    assert not result.is_error
+    assert "coworker:bob" in result.content
+    connections = {info.participant_id: info for info in channel.list_connections()}
+    assert "coworker:bob" in connections
+    assert connections["coworker:bob"].display_name == "Bob"
+    assert channel.capabilities_for(CONTROL_PARTICIPANT_ID).extra is True
+
+
+@pytest.mark.asyncio
+async def test_control_forget_learned_peer_requires_confirmation(
+    tmp_path: Path,
+) -> None:
+    channel = _channel(tmp_path, peers={"ava": _peer_config()})
+    await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={
+                "action": "connect",
+                "peer_id": "bob",
+                "base_url": "http://127.0.0.1:8001",
+            },
+        )
+    )
+
+    explicit = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "forget", "peer_id": "ava", "confirm": True},
+        )
+    )
+    assert explicit.is_error is True
+
+    unconfirmed = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "forget", "peer_id": "bob"},
+        )
+    )
+    assert unconfirmed.is_error is True
+    assert "coworker:bob" in {
+        info.participant_id for info in channel.list_connections()
+    }
+
+    forgotten = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "forget", "peer_id": "bob", "confirm": True},
+        )
+    )
+    assert not forgotten.is_error
+    assert {info.participant_id for info in channel.list_connections()} == {
+        CONTROL_PARTICIPANT_ID,
+        "coworker:ava",
+    }
+
+
+def test_reconfigure_replaces_explicit_peers(tmp_path: Path) -> None:
+    from coworker.core.config import CoworkerConfig
+
+    channel = _channel(tmp_path, peers={"bob": _peer_config()})
+    channel.reconfigure(
+        CoworkerConfig.model_validate(
+            {
+                "self_id": "ava",
+                "peers": {"ada": {"base_url": "http://127.0.0.1:8002"}},
+            }
+        )
+    )
+    assert channel.self_id == "ava"
+    ids = {info.participant_id for info in channel.list_connections()}
+    assert "coworker:ada" in ids
+    assert "coworker:bob" not in ids
+
+
+@pytest.mark.asyncio
+async def test_control_connect_reports_localized_validation_errors(tmp_path: Path) -> None:
+    channel = _channel(tmp_path)
+
+    bad_url = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={"action": "connect", "peer_id": "bob", "base_url": "not-a-url"},
+        )
+    )
+    assert bad_url.is_error is True
+    assert "Value error" not in bad_url.content
+    assert "HTTP(S)" in bad_url.content
+    assert "bob" in bad_url.content
+
+    long_name = await channel.send(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            extra={
+                "action": "connect",
+                "peer_id": "bob",
+                "base_url": "http://127.0.0.1:8001",
+                "display_name": "x" * 81,
+            },
+        )
+    )
+    assert long_name.is_error is True
+    assert "Value error" not in long_name.content
+    assert "80" in long_name.content
+    assert "coworker:bob" not in {
+        info.participant_id for info in channel.list_connections()
+    }
+
+
+def test_reconfigure_persists_hot_applied_self_id(tmp_path: Path) -> None:
+    from coworker.core.config import CoworkerConfig
+
+    identity_dir = tmp_path / "identity"
+    identity_dir.mkdir()
+    self_id_file = identity_dir / "coworker_self_id.txt"
+    self_id_file.write_text("cw_generated", encoding="utf-8")
+    channel = _channel(tmp_path, identity_dir=identity_dir)
+    assert channel.self_id == "cw_self"
+
+    channel.reconfigure(CoworkerConfig.model_validate({"self_id": "ava"}))
+    assert channel.self_id == "ava"
+    assert self_id_file.read_text(encoding="utf-8") == "ava"
+
+    # 清空管理端配置时身份不变，重启后仍从文件读到热应用过的值。
+    channel.reconfigure(CoworkerConfig.model_validate({}))
+    assert channel.self_id == "ava"
+    assert self_id_file.read_text(encoding="utf-8") == "ava"
+
+    # 文件被删除后，任何一次带 self_id 的热保存都会自愈。
+    self_id_file.unlink()
+    channel.reconfigure(CoworkerConfig.model_validate({"self_id": "ava"}))
+    assert self_id_file.read_text(encoding="utf-8") == "ava"
+
+
+def test_reconfigure_self_id_persist_failure_does_not_raise(tmp_path: Path) -> None:
+    from coworker.core.config import CoworkerConfig
+
+    blocker = tmp_path / "identity"
+    blocker.write_text("not a directory", encoding="utf-8")
+    channel = _channel(tmp_path, identity_dir=blocker)
+
+    channel.reconfigure(CoworkerConfig.model_validate({"self_id": "ava"}))
+    assert channel.self_id == "ava"
+

@@ -244,6 +244,14 @@ Coworker. Participant IDs use
 [Telegram](../channels/telegram.en.md) for complete configuration, Privacy Mode, attachment limits,
 and troubleshooting.
 
+The Coworker peer channel can be hot-added, updated, or removed from
+**Runtime Settings → Peer Coworker**, including this instance's `self_id`,
+callback URL, and dedicated inbound token. Saving applies immediately without a
+restart. Tokens stay masked in the administration API. The agent can also store
+a learned peer with `coworker:control` (`coworker_peers.json`) and then
+`communicate`; explicit configuration wins over learned records. See
+[Coworker peer messaging](../channels/coworker.en.md).
+
 The Weixin Claw module registers its transport, management interface, and hot-settings provider
 together. A confirmed scan stores the connection in
 `MEMORY__DB_PATH/weixin_connections.json` and immediately starts one

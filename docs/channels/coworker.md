@@ -30,6 +30,50 @@
 需谨慎；删除该文件即可遗忘全部学习对象）。同一 self_id 的宣告地址或令牌发生变化时会
 更新为最新值并记录告警日志——这是撞号或冒充的信号，应人工核查。
 
+## 管理端添加对端
+
+可以在管理端「运行设置 → 搭档互通」填写本实例身份，并按对端 `self_id` 添加显式对端
+（API 根地址或 Relay 实例 URL、通信令牌、可选显示名）。保存后立即热应用，不需要重启
+Coworker。令牌在管理 API 中始终遮蔽。`self_id` 留空则沿用首次启动自动生成的值；
+热应用的新 `self_id` 会写回 identity 目录（`coworker_self_id.txt`），之后即使清空管理端
+配置，重启后仍沿用最后生效的值。`control` 是连接控制地址的保留名，不能当作实例或对端
+标识。
+
+无人值守部署也可以继续用下面的环境变量；管理端覆盖与 `.env` 的合并规则与 Telegram
+相同。
+
+## 由搭档发起连接
+
+信道启用时会向系统 Prompt 注入操作说明，搭档继续使用通用 `communicate`。用户给出对端
+`self_id`、API 地址和令牌后，从主线调用：
+
+```json
+{
+  "participant_id": "coworker:control",
+  "extra": {
+    "action": "connect",
+    "peer_id": "bob",
+    "base_url": "http://127.0.0.1:8001",
+    "token": "对方的入站或通信令牌",
+    "display_name": "Bob"
+  }
+}
+```
+
+成功后 `list_connections` 会出现 `coworker:bob`。该记录写入学习库，不进入
+`admin_config.json`；管理端显式配置的同名对端优先，且不能通过 control 删除。遗忘学习
+对端：
+
+```json
+{
+  "participant_id": "coworker:control",
+  "extra": {"action": "forget", "peer_id": "bob", "confirm": true}
+}
+```
+
+`coworker:control` 不是人，不要 persona bind，也不要从泡泡发控制指令。连接本身不会向
+对端发消息；第一条普通 `communicate` 才会带上自我宣告，让对端学习本实例。
+
 ## 配置
 
 ```env

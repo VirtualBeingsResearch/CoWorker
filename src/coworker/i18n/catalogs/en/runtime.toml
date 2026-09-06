@@ -132,6 +132,9 @@ control_name = "Weixin Claw connection control"
 peer_conflict = "Coworker peer {{participant}} announced a different callback URL or token than the learned record; updated to the latest values. If unexpected, check for a self_id collision or impersonation."
 store_load_failed = "Failed to load the Coworker peer store: {{error}}"
 store_save_failed = "Failed to save the Coworker peer store: {{error}}"
+self_id_persist_failed = "Failed to persist the Coworker peer self_id: {{error}}"
+control_name = "Coworker peer connection control"
+config_type_invalid = "Coworker settings require CoworkerConfig"
 
 [channel.openai]
 control_name = "OpenAI-compatible extra-token control"
@@ -207,6 +210,7 @@ display_name_too_long = "Coworker peer display_name must be at most 80 character
 self_id_invalid = "Coworker peer self_id '{{self_id}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
 peers_must_be_object = "Coworker peers must be an object keyed by the remote self_id"
 peer_id_invalid = "Coworker peer id '{{peer}}' is invalid; use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter"
+peer_id_reserved = "Coworker peer id '{{peer}}' is reserved and cannot be used as an instance or peer id"
 peer_relay_token_invalid = "Peer '{{peer}}' uses a Relay instance URL, so its token must be the remote cwct_v1_-format communication token"
 
 [config.telegram]

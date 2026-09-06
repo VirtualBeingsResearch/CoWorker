@@ -270,6 +270,13 @@ function settingsValidationMessage(
     if (pricingError === 'cached_rate') return t('缓存输入价必须留空或填写非负数。');
     if (pricingError === 'duplicate') return t('同一个 Provider 中不能重复配置模型价格。');
   }
+  if (group === 'coworker') {
+    for (const peer of Object.values(draft.coworker?.peers || {})) {
+      if (!String((peer as Json)?.base_url || '').trim()) {
+        return t('每个搭档对端都必须填写 API 地址。');
+      }
+    }
+  }
   return '';
 }
 

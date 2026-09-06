@@ -229,6 +229,15 @@ def update_communication_token(token: str, explicit: bool | None = None) -> None
     )
 
 
+def update_coworker_peer_auth(*, inbound_token: str = "", self_id: str = "") -> None:
+    """Replace the dedicated coworker inbound token and advertised self_id."""
+
+    global _coworker_inbound_token, _coworker_self_id
+    _coworker_inbound_token = inbound_token.strip()
+    if self_id:
+        _coworker_self_id = self_id
+
+
 def update_communication_token_table(
     tokens: dict[str, str],
     *,

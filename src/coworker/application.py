@@ -32,8 +32,8 @@ from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
 from coworker.channels.coworker import (
     CoworkerAnnounce,
-    CoworkerChannel,
     CoworkerPeerStore,
+    create_coworker_module,
     resolve_coworker_self_id,
 )
 from coworker.channels.inbound import AttachmentStore
@@ -759,9 +759,9 @@ async def _main() -> bool:
     coworker_announce_token = config.coworker.inbound_token or (
         config.api.communication_token if config.api.communication_token else ""
     )
-    coworker_channel = CoworkerChannel(
+    coworker_module = create_coworker_module(
+        config.coworker,
         self_id=coworker_self_id,
-        peers=config.coworker.peers,
         learned=CoworkerPeerStore(Path(config.memory.db_path) / "coworker_peers.json"),
         attachments=AttachmentStore(
             Path(config.agent.inbox_dir).parent / "attachments"
@@ -771,10 +771,12 @@ async def _main() -> bool:
             token=coworker_announce_token,
             display_name=identity.name or coworker_self_id,
         ),
-        max_attachment_bytes=config.coworker.max_attachment_bytes,
         activity=channel_system.activity,
+        fallback_base_url=coworker_announce_base_url,
+        fallback_token=config.api.communication_token or "",
+        identity_dir=config.agent.identity_dir,
     )
-    channel_system.registry.register(coworker_channel)
+    channel_system.install(coworker_module)
     logger.info(f"Coworker peer channel ready: self_id={coworker_self_id}")
     weixin_module: WeixinModule | None = None
     openai_module: OpenAIModule | None = None

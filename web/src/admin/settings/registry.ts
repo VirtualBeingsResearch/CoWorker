@@ -1,4 +1,5 @@
 import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
+import { CoworkerSettingsPanel } from './panels/CoworkerSettingsPanel';
 import { TelegramSettingsPanel } from './panels/TelegramSettingsPanel';
 import { WeComSettingsPanel } from './panels/WeComSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
@@ -8,6 +9,10 @@ const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
   channel_access: {
     label: '信道访问',
     component: ChannelAccessSettingsPanel,
+  },
+  coworker: {
+    label: '搭档互通',
+    component: CoworkerSettingsPanel,
   },
   weixin: {
     label: '微信 Claw',

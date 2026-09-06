@@ -38,6 +38,7 @@ SECRET_PATHS = {
     "relay.instance_private_key",
     "desktop_updates.admin_token",
     "desktop_updates.feed_token",
+    "coworker.inbound_token",
     "llm.anthropic_api_key",
     "llm.openai_api_key",
     "llm.deepseek_api_key",
@@ -77,6 +78,9 @@ _TELEGRAM_BOT_SECRET_RE = re.compile(
 )
 _WECOM_BOT_SECRET_RE = re.compile(
     r"wecom\.bots\.([a-z][a-z0-9_-]{0,31})\.secret"
+)
+_COWORKER_PEER_SECRET_RE = re.compile(
+    r"coworker\.peers\.([a-z][a-z0-9_-]{0,31})\.token"
 )
 _COMMUNICATION_EXTRA_SECRET_RE = re.compile(
     r"^api\.communication_tokens\.([a-z][a-z0-9_-]{0,31})$"
@@ -260,6 +264,8 @@ class AdminConfigService:
         _preserve_telegram_bot_tokens(safe_changes, current_overrides)
         _remove_wecom_bot_secrets(safe_changes)
         _preserve_wecom_bot_secrets(safe_changes, current_overrides)
+        _remove_coworker_peer_tokens(safe_changes)
+        _preserve_coworker_peer_tokens(safe_changes, current_overrides)
         _strip_communication_token_secrets(safe_changes)
         _preserve_communication_tokens(safe_changes, current_overrides)
 
@@ -300,6 +306,7 @@ class AdminConfigService:
                 and not _MANAGED_PROVIDER_SECRET_RE.fullmatch(secret_path)
                 and not _TELEGRAM_BOT_SECRET_RE.fullmatch(secret_path)
                 and not _WECOM_BOT_SECRET_RE.fullmatch(secret_path)
+                and not _COWORKER_PEER_SECRET_RE.fullmatch(secret_path)
                 and not _COMMUNICATION_EXTRA_SECRET_RE.fullmatch(secret_path)
             ):
                 raise ConfigUpdateError(
@@ -402,6 +409,7 @@ class AdminConfigService:
         desired_base["channel_access"] = inherited["channel_access"]
         desired_base["telegram"] = inherited["telegram"]
         desired_base["wecom"] = inherited["wecom"]
+        desired_base["coworker"] = inherited["coworker"]
         inherited_api = inherited.get("api")
         desired_api = dict(desired_base.get("api") or {})
         desired_api["communication_tokens"] = dict(
@@ -763,6 +771,18 @@ def _mask_config_secrets(data: JsonObject) -> dict[str, SecretStatus]:
                     f"wecom.bots.{instance_id}.secret",
                 )
 
+    coworker = data.get("coworker")
+    peers = coworker.get("peers", {}) if isinstance(coworker, dict) else {}
+    if isinstance(peers, dict):
+        for peer_id, peer in peers.items():
+            if isinstance(peer, dict):
+                _mask_secret(
+                    peer,
+                    "token",
+                    statuses,
+                    f"coworker.peers.{peer_id}.token",
+                )
+
     api = data.get("api")
     extras = api.get("communication_tokens", {}) if isinstance(api, dict) else {}
     if isinstance(extras, dict):
@@ -992,6 +1012,34 @@ def _preserve_wecom_bot_secrets(
         secret = current_bot.get("secret")
         if isinstance(secret, str) and secret:
             changed_bot["secret"] = secret
+
+
+def _remove_coworker_peer_tokens(data: JsonObject) -> None:
+    peers = _get_path(data, "coworker.peers")
+    if not isinstance(peers, dict):
+        return
+    for peer in peers.values():
+        if isinstance(peer, dict):
+            peer.pop("token", None)
+
+
+def _preserve_coworker_peer_tokens(
+    changes: JsonObject,
+    current_overrides: JsonObject,
+) -> None:
+    """Retain only peer tokens already owned by the admin override file."""
+
+    changed_peers = _get_path(changes, "coworker.peers")
+    current_peers = _get_path(current_overrides, "coworker.peers")
+    if not isinstance(changed_peers, dict) or not isinstance(current_peers, dict):
+        return
+    for peer_id, changed_peer in changed_peers.items():
+        current_peer = current_peers.get(peer_id)
+        if not isinstance(changed_peer, dict) or not isinstance(current_peer, dict):
+            continue
+        token = current_peer.get("token")
+        if isinstance(token, str) and token:
+            changed_peer["token"] = token
 
 
 def _set_source_token(data: JsonObject, source_id: str, value: str) -> None:

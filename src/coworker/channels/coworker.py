@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import (
@@ -23,12 +24,14 @@ from coworker.channels.base import (
     ConnectionInfo,
 )
 from coworker.channels.inbound import AttachmentStore, InboundEnvelope
-from coworker.core.config import CoworkerPeerConfig
+from coworker.core.config import CoworkerConfig, CoworkerPeerConfig
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 from coworker.relay.consumer import RelayConsumerError, relay_request
 
 COWORKER_PREFIX = "coworker:"
+CONTROL_PARTICIPANT_ID = f"{COWORKER_PREFIX}control"
+RESERVED_PEER_IDS = frozenset({"control"})
 _SELF_ID_FILE = "coworker_self_id.txt"
 _SELF_ID_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
@@ -118,6 +121,16 @@ class CoworkerPeerStore:
             )
             self._save()
         return conflict
+
+    def forget(self, peer_id: str) -> bool:
+        """Remove a learned peer; return False when it was not stored."""
+
+        with self._lock:
+            if peer_id not in self._peers:
+                return False
+            del self._peers[peer_id]
+            self._save()
+            return True
 
     def _load(self) -> dict[str, LearnedPeer]:
         if self._path is None or not self._path.is_file():
@@ -213,6 +226,9 @@ class CoworkerChannel(BaseChannel):
         runtime: CoworkerRuntime | None = None,
         activity: ChannelActivityStore | None = None,
         timeout_seconds: float = 20.0,
+        fallback_base_url: str = "",
+        fallback_token: str = "",
+        identity_dir: str | Path | None = None,
     ) -> None:
         super().__init__(runtime=runtime or CoworkerRuntime(), activity=activity)
         self._capabilities = ChannelCapabilities(conversation_id=True, attachments=True)
@@ -223,12 +239,67 @@ class CoworkerChannel(BaseChannel):
         self._announce = announce
         self._max_attachment_bytes = max_attachment_bytes
         self._timeout_seconds = timeout_seconds
+        self._fallback_base_url = fallback_base_url.rstrip("/")
+        self._fallback_token = fallback_token
+        self._identity_dir = Path(identity_dir) if identity_dir else None
+
+    @property
+    def self_id(self) -> str:
+        return self._self_id
 
     def agent_instructions(self) -> str:
         return tr("prompt.channel.coworker")
 
+    def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
+        if participant_id == CONTROL_PARTICIPANT_ID:
+            return ChannelCapabilities(extra=True)
+        return ChannelCapabilities(conversation_id=True, attachments=True)
+
+    def reconfigure(self, config: CoworkerConfig) -> None:
+        """Replace explicit peers and announce settings without restarting."""
+
+        self._peers = dict(config.peers)
+        if config.self_id:
+            self._self_id = config.self_id
+            # 持久化到 identity 目录：管理端之后清空配置时，重启仍沿用最后生效的身份。
+            self._persist_self_id()
+        self._max_attachment_bytes = config.max_attachment_bytes
+        base_url = config.self_base_url or self._fallback_base_url
+        if self._announce is not None:
+            base_url = base_url or self._announce.base_url
+        if base_url:
+            self._announce = CoworkerAnnounce(
+                base_url=base_url,
+                token=config.inbound_token or self._fallback_token,
+                display_name=(
+                    self._announce.display_name if self._announce is not None else self._self_id
+                ),
+            )
+
+    def _persist_self_id(self) -> None:
+        if self._identity_dir is None:
+            return
+        try:
+            path = self._identity_dir / _SELF_ID_FILE
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.is_file() and path.read_text(encoding="utf-8").strip() == self._self_id:
+                return
+            path.write_text(self._self_id, encoding="utf-8")
+        except OSError as error:
+            logger.warning(
+                tr("channel.coworker.self_id_persist_failed", error=str(error))
+            )
+
     def list_connections(self) -> list[ConnectionInfo]:
-        connections: dict[str, ConnectionInfo] = {}
+        connections: dict[str, ConnectionInfo] = {
+            "control": ConnectionInfo(
+                participant_id=CONTROL_PARTICIPANT_ID,
+                channel=self.name,
+                kind="coworker:control",
+                display_name=tr("channel.coworker.control_name"),
+                active=True,
+            )
+        }
         for peer_id, peer in self._peers.items():
             connections[peer_id] = ConnectionInfo(
                 participant_id=f"{COWORKER_PREFIX}{peer_id}",
@@ -302,6 +373,8 @@ class CoworkerChannel(BaseChannel):
         )
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
+        if request.participant_id == CONTROL_PARTICIPANT_ID:
+            return await self._control(request.extra)
         peer_id = request.participant_id.removeprefix(COWORKER_PREFIX)
         target = self._target_for(peer_id)
         if target is None:
@@ -491,6 +564,190 @@ class CoworkerChannel(BaseChannel):
             token=str(raw.get("token") or ""),
             display_name=str(raw.get("display_name") or ""),
         )
+
+    async def _control(self, extra: dict[str, Any] | None) -> ToolResult:
+        payload = extra or {}
+        action = str(payload.get("action") or "").strip()
+        if action == "connect":
+            return self._connect_peer(payload)
+        if action == "forget":
+            return self._forget_peer(payload)
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.coworker_control_action",
+                action=action,
+            ),
+            is_error=True,
+        )
+
+    def _connect_peer(self, extra: dict[str, Any]) -> ToolResult:
+        peer_id = _peer_id_from_extra(extra)
+        if not peer_id:
+            return _control_error(tr("tool_result.communicate.coworker_control_peer_id"))
+        if peer_id in RESERVED_PEER_IDS:
+            return _control_error(
+                tr("tool_result.communicate.coworker_control_reserved", peer=peer_id)
+            )
+        if peer_id == self._self_id:
+            return _control_error(tr("tool_result.communicate.coworker_control_self"))
+        if peer_id in self._peers:
+            return ToolResult(
+                tool_call_id="",
+                content=tr(
+                    "tool_result.communicate.coworker_control_already_configured",
+                    participant=f"{COWORKER_PREFIX}{peer_id}",
+                ),
+            )
+        if not _SELF_ID_PATTERN.fullmatch(peer_id):
+            return _control_error(tr("config.coworker.peer_id_invalid", peer=peer_id))
+        try:
+            configured = CoworkerPeerConfig(
+                base_url=str(extra.get("base_url") or ""),
+                token=str(extra.get("token") or ""),
+                display_name=str(extra.get("display_name") or ""),
+            )
+        except ValidationError as error:
+            return _control_error(_connect_validation_message(error, peer_id))
+        from coworker.relay.crypto import is_relay_safe_token
+
+        if is_relay_instance_url(configured.base_url) and not is_relay_safe_token(
+            configured.token
+        ):
+            return _control_error(
+                tr("config.coworker.peer_relay_token_invalid", peer=peer_id)
+            )
+        self._learned.upsert(
+            peer_id,
+            base_url=configured.base_url,
+            token=configured.token,
+            display_name=configured.display_name,
+        )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.coworker_control_connected",
+                participant=f"{COWORKER_PREFIX}{peer_id}",
+                base_url=configured.base_url,
+            ),
+        )
+
+    def _forget_peer(self, extra: dict[str, Any]) -> ToolResult:
+        peer_id = _peer_id_from_extra(extra)
+        if not peer_id:
+            return _control_error(tr("tool_result.communicate.coworker_control_peer_id"))
+        if peer_id in self._peers:
+            return _control_error(
+                tr(
+                    "tool_result.communicate.coworker_control_forget_explicit",
+                    participant=f"{COWORKER_PREFIX}{peer_id}",
+                )
+            )
+        if extra.get("confirm") is not True:
+            return _control_error(
+                tr(
+                    "tool_result.communicate.coworker_control_confirm_forget",
+                    participant=f"{COWORKER_PREFIX}{peer_id}",
+                )
+            )
+        if not self._learned.forget(peer_id):
+            return _control_error(
+                tr(
+                    "tool_result.communicate.coworker_control_unknown_peer",
+                    participant=f"{COWORKER_PREFIX}{peer_id}",
+                )
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=tr(
+                "tool_result.communicate.coworker_control_forgotten",
+                participant=f"{COWORKER_PREFIX}{peer_id}",
+            ),
+        )
+
+
+def _peer_id_from_extra(extra: dict[str, Any]) -> str:
+    return str(extra.get("peer_id") or "").strip().removeprefix(COWORKER_PREFIX)
+
+
+def _control_error(content: str) -> ToolResult:
+    return ToolResult(tool_call_id="", content=content, is_error=True)
+
+
+def _connect_validation_message(error: ValidationError, peer_id: str) -> str:
+    """Localize peer-config validation failures for coworker:control responses."""
+
+    for item in error.errors():
+        loc = item.get("loc") or ()
+        if "base_url" in loc:
+            return tr(
+                "tool_result.communicate.coworker_control_base_url_invalid",
+                peer=peer_id,
+            )
+        if "display_name" in loc:
+            return tr("config.coworker.display_name_too_long")
+    return tr("tool_result.communicate.coworker_control_peer_invalid", peer=peer_id)
+
+
+class CoworkerSettings:
+    config_key = "coworker"
+
+    def __init__(self, channel: CoworkerChannel) -> None:
+        self._channel = channel
+
+    async def apply(self, config: object) -> None:
+        if not isinstance(config, CoworkerConfig):
+            raise TypeError(tr("channel.coworker.config_type_invalid"))
+        self._channel.reconfigure(config)
+        from coworker.api.routes import update_coworker_peer_auth
+
+        update_coworker_peer_auth(
+            inbound_token=config.inbound_token,
+            self_id=self._channel.self_id,
+        )
+
+
+@dataclass(frozen=True)
+class CoworkerModule:
+    name = "coworker"
+
+    channel: CoworkerChannel
+    runtime: CoworkerRuntime
+    settings: CoworkerSettings
+    management: None = None
+
+
+def create_coworker_module(
+    config: CoworkerConfig,
+    *,
+    self_id: str,
+    learned: CoworkerPeerStore,
+    attachments: AttachmentStore,
+    announce: CoworkerAnnounce | None,
+    activity: ChannelActivityStore,
+    fallback_base_url: str = "",
+    fallback_token: str = "",
+    identity_dir: str | Path | None = None,
+) -> CoworkerModule:
+    runtime = CoworkerRuntime()
+    channel = CoworkerChannel(
+        self_id=self_id,
+        peers=config.peers,
+        learned=learned,
+        attachments=attachments,
+        announce=announce,
+        max_attachment_bytes=config.max_attachment_bytes,
+        runtime=runtime,
+        activity=activity,
+        fallback_base_url=fallback_base_url,
+        fallback_token=fallback_token,
+        identity_dir=identity_dir,
+    )
+    return CoworkerModule(
+        channel=channel,
+        runtime=runtime,
+        settings=CoworkerSettings(channel),
+    )
 
 
 @dataclass(frozen=True)

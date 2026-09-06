@@ -75,6 +75,8 @@ coworker = '''Coworker 搭档：
 - 通过 `communicate(participant_id="coworker:...")` 发送消息；同一协作话题保留入站消息携带的 `conversation_id`，便于双方关联。
 - 搭档支持文本与附件（图片/文件按附件转交，受总大小上限约束）。
 - 只在确有协作需要时联系对方（委托任务、核对信息、同步进展）；达成目的即停止。
+- `coworker:control` 用来添加或遗忘学习到的对端，不是人，不要 persona bind。用户给出对端 self_id、API 地址和令牌后，从主线调用 `communicate(participant_id="coworker:control", extra={"action":"connect","peer_id":"<self_id>","base_url":"...","token":"..."})`；可选 `display_name`。不要从泡泡发控制指令。
+- 遗忘学习对端：`extra={"action":"forget","peer_id":"<self_id>","confirm":true}`。管理端显式配置的对端不能从这里删除。
 - 实时可用对象用 `list_connections` 查询并复制完整 ID。'''
 openai = '''OpenAI 兼容 HTTP：
 - `openai:control` 是额外通信令牌的控制地址，不是人，不要 persona bind。只从主线用 `communicate(participant_id="openai:control", extra={...})` 签发、轮换、作废或列出 extras；泡泡不要向 control 发令。

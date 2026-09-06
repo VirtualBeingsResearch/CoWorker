@@ -11,12 +11,21 @@ from fastapi.testclient import TestClient
 from coworker.api.admin import router_module as admin
 from coworker.application import _print_setup_admin_token
 from coworker.channels.access import ChannelAccessController
+from coworker.channels.coworker import (
+    CoworkerChannel,
+    CoworkerModule,
+    CoworkerPeerStore,
+    CoworkerRuntime,
+    CoworkerSettings,
+)
+from coworker.channels.inbound import AttachmentStore
 from coworker.channels.module import ChannelModuleRegistry
 from coworker.channels.telegram import TelegramChannel, TelegramModule, TelegramSettings
 from coworker.channels.traffic import ChannelTrafficStore
 from coworker.channels.wecom import WeComChannel, WeComModule, WeComSettings
 from coworker.core.config import (
     Config,
+    CoworkerPeerConfig,
     apply_admin_config_file,
     effective_admin_token,
     effective_communication_token,
@@ -53,6 +62,7 @@ def _client(
     wecom: dict | None = None,
     weixin: dict | None = None,
     telegram: dict | None = None,
+    coworker: dict | None = None,
     channel_access: dict | None = None,
     channel_modules=None,
     relay_client=None,
@@ -76,6 +86,7 @@ def _client(
             "wecom": wecom or {},
             "weixin": weixin or {},
             "telegram": telegram or {},
+            "coworker": coworker or {},
             "channel_access": channel_access or {},
         }
     )
@@ -1693,6 +1704,113 @@ def test_telegram_config_hot_applies_multiple_bots_and_masks_tokens(tmp_path):
     assert set(runner.reconfigure.await_args.args[0].bots) == {"main"}
     saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
     assert set(saved["telegram"]["bots"]) == {"main"}
+
+
+def test_coworker_config_hot_applies_peers_and_masks_tokens(tmp_path):
+    runtime = CoworkerRuntime()
+    channel = CoworkerChannel(
+        self_id="ava",
+        peers={
+            "bob": CoworkerPeerConfig(
+                base_url="http://127.0.0.1:8001",
+                token="bob-existing",
+                display_name="Bob",
+            )
+        },
+        learned=CoworkerPeerStore(tmp_path / "coworker_peers.json"),
+        attachments=AttachmentStore(tmp_path / "attachments"),
+        runtime=runtime,
+        identity_dir=tmp_path / "identity",
+    )
+    modules = ChannelModuleRegistry()
+    modules.register(
+        CoworkerModule(
+            channel=channel,
+            runtime=runtime,
+            settings=CoworkerSettings(channel),
+        )
+    )
+    client, config = _client(
+        tmp_path,
+        coworker={
+            "self_id": "ava",
+            "peers": {
+                "bob": {
+                    "base_url": "http://127.0.0.1:8001",
+                    "token": "bob-existing",
+                    "display_name": "Bob",
+                }
+            },
+        },
+        channel_modules=modules,
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    body = client.get("/api/admin/config", headers=headers).json()
+    assert "coworker" in body["hot_reloadable"]
+    assert body["config"]["coworker"]["peers"]["bob"]["token"] == ""
+    assert body["secret_status"]["coworker.peers.bob.token"]["last4"] == "ting"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "coworker": {
+                    "peers": {
+                        "bob": {
+                            "base_url": "http://127.0.0.1:8001",
+                            "display_name": "Bobby",
+                            "token": "",
+                        },
+                        "ada": {
+                            "base_url": "http://127.0.0.1:8002",
+                            "display_name": "Ada",
+                            "token": "",
+                        },
+                    }
+                }
+            },
+            "secrets": {"coworker.peers.ada.token": "ada-secret"},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_now"] == ["coworker"]
+    assert config.coworker.peers["bob"].token == "bob-existing"
+    assert config.coworker.peers["bob"].display_name == "Bobby"
+    assert config.coworker.peers["ada"].token == "ada-secret"
+    assert "coworker:ada" in {
+        item.participant_id for item in channel.list_connections()
+    }
+    self_id_file = tmp_path / "identity" / "coworker_self_id.txt"
+    assert self_id_file.read_text(encoding="utf-8") == "ava"
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert saved["coworker"]["peers"]["bob"]["display_name"] == "Bobby"
+    assert "token" not in saved["coworker"]["peers"]["bob"]
+    assert saved["coworker"]["peers"]["ada"]["token"] == "ada-secret"
+
+    response = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {
+                "coworker": {
+                    "peers": {
+                        "bob": {
+                            "base_url": "http://127.0.0.1:8001",
+                            "display_name": "Bobby",
+                            "token": "",
+                        }
+                    }
+                }
+            },
+            "secrets": {},
+        },
+    )
+    assert response.status_code == 200
+    assert set(config.coworker.peers) == {"bob"}
+    saved = json.loads((tmp_path / "admin_config.json").read_text(encoding="utf-8"))
+    assert set(saved["coworker"]["peers"]) == {"bob"}
 
 
 def test_mem0_llm_config_hot_applies_and_reconfigures(tmp_path):

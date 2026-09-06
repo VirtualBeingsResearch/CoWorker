@@ -991,6 +991,8 @@ class CoworkerConfig(_EnvSettings):
             return ""
         if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", value):
             raise ValueError(tr("config.coworker.self_id_invalid", self_id=value))
+        if value == "control":
+            raise ValueError(tr("config.coworker.peer_id_reserved", peer=value))
         return value
 
     @field_validator("self_base_url")
@@ -1014,6 +1016,8 @@ class CoworkerConfig(_EnvSettings):
                 r"[a-z][a-z0-9_-]{0,31}", peer_id
             ):
                 raise ValueError(tr("config.coworker.peer_id_invalid", peer=peer_id))
+            if peer_id == "control":
+                raise ValueError(tr("config.coworker.peer_id_reserved", peer=peer_id))
         return value
 
     @model_validator(mode="after")

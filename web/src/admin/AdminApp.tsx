@@ -430,9 +430,9 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
-const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'desktop_updates'];
+const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'coworker', 'desktop_updates'];
 const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
-  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', desktop_updates: '桌面更新',
+  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', coworker: '搭档互通', desktop_updates: '桌面更新',
 };
 const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
@@ -445,6 +445,7 @@ const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   wecom: '每个实例独立保存 Bot ID、Secret 与 WebSocket 地址，可同时连接多个企业微信 Bot。',
   weixin: '个人微信 ClawBot 的全局启用状态；账号配对需初始化后完成。',
   telegram: '每个实例独立保存 Token、长轮询 offset 与已知 chat；同一 chat 可通过多个实例接入。',
+  coworker: '配置本实例身份，并添加其他 Coworker 实例的 API 地址与令牌。',
   desktop_updates: '桌面发布目录、同步来源、周期、容量限制和 Feed 凭据。',
 };
 const BOOTSTRAP_CONFIG_EXCLUSIONS = new Set([
@@ -502,7 +503,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     replaceGroup(group, structuredClone(baseline[group] || {}));
     setSecretInputs(Object.fromEntries(Object.entries(secretInputs).filter(([path]) => !path.startsWith(`${group}.`))));
   };
-  const CustomSettingsPanel = ['channel_access', 'telegram', 'wecom'].includes(group)
+  const CustomSettingsPanel = ['channel_access', 'telegram', 'wecom', 'coworker'].includes(group)
     ? settingsPanelRegistration(group)?.component
     : undefined;
   const setDesktopValidation = useCallback(
@@ -768,7 +769,7 @@ function FirstRun({ data, onComplete }: { data: Json; onComplete: () => void }) 
               <section className="bootstrap-advanced-dialog" role="dialog" aria-modal="true" aria-labelledby="bootstrap-advanced-title">
                 <header><div><span>{t('高级初始化')}</span><h3 id="bootstrap-advanced-title">{t('高级初始化 · 全部参数')}</h3><p>{t('初始化时即可调整运行设置中的完整配置面；未修改的字段继续使用推荐值。')}</p></div><button type="button" className="icon-btn" aria-label={t('关闭高级初始化')} title={t('关闭')} onClick={closeAdvanced} autoFocus><X size={16} /></button></header>
                 <div className="bootstrap-advanced-scroll">
-                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、运行语言、API、Relay、信道、微信与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
+                  <div className="bootstrap-config-intro"><Database size={17} /><p><b>{t('完整配置工作台')}</b><span>{t('共覆盖模型、记忆、Agent、运行语言、API、Relay、信道、微信、搭档互通与桌面更新。敏感值单独写入且不会回显。')}</span></p></div>
                   <BootstrapConfigurationEditor initialGroup={advancedInitialGroup} baseline={configurationBaseline} value={configuration} change={changeConfiguration} replaceGroup={replaceConfigurationGroup} secretInputs={configurationSecrets} setSecretInputs={setConfigurationSecrets} secretStatus={data.defaults?.secret_status || {}} invalidPaths={invalidConfigurationPaths} setJsonValidity={setConfigurationJsonValidity} />
                 </div>
                 <footer><span>{t('这些修改会与基础设置一起保存。')}</span><button type="button" className="primary" onClick={closeAdvanced}>{t('完成')}</button></footer>
@@ -1710,7 +1711,7 @@ function Settings() {
         return <ConfigurationField key={key} path={path} value={value} change={next => change(key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} setJsonValidity={setJsonValidity} hot={isHot(path)} passiveMode={Boolean(draft.agent?.passive_mode)} activeAdminToken={activeAdminToken} />;
       })}{group === 'api' && <ExtraCommunicationTokens tokens={(draft.api?.communication_tokens && typeof draft.api.communication_tokens === 'object' && !Array.isArray(draft.api.communication_tokens)) ? draft.api.communication_tokens : {}} change={next => change('communication_tokens', next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} hot={isHot('api.communication_tokens')} />}</div></>}
       {message && <div className={`notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'telegram' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
+      <div className="panel-actions"><span className={'save-state ' + (dirtyGroups.has(group) ? 'dirty' : '')}>{t(dirtyGroups.has(group) ? '有未保存修改' : '当前分组已同步')}</span><button className="primary" disabled={saving || !dirtyGroups.has(group) || (group === 'desktop_updates' && !!desktopValidationError) || invalidJsonPaths.size > 0} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : group === 'desktop_updates' || group === 'wecom' || group === 'weixin' || group === 'telegram' || group === 'coworker' || group === 'channel_access' ? '保存并立即应用' : '保存覆盖')}</button><button className="ghost" disabled={saving || !dirtyGroups.has(group)} onClick={resetGroup}>{t('放弃本组修改')}</button></div></>}
     </Panel>
   </div>;
 }
@@ -1788,7 +1789,7 @@ function MemoryCenter({ coworkerName, confirmationName }: { coworkerName: string
 
 const MEMORY_ROLE: Record<string, string> = { user: '消息', assistant: '搭档', system: '系统', tool: '工具结果' };
 const MEMORY_SOURCE: Record<string, string> = {
-  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram',
+  file: '文件投递', rest: 'REST API', websocket: 'WebSocket', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', coworker: '搭档互通',
   coworker_desktop: '桌面端', codex: 'Codex', bubble: '气泡', alarm: '闹钟提醒',
   code_job: '代码任务', task_reminder: '任务提醒', system: '系统', '并行思考': '并行思考',
   system_recovery: '系统恢复', system_error: '系统错误', skill_warning: '技能提醒',
@@ -3812,6 +3813,7 @@ const TRAFFIC_SOURCES: Record<string, string> = {
   wecom: 'WeCom',
   weixin: '微信 Claw',
   telegram: 'Telegram',
+  coworker: '搭档互通',
 };
 const TRAFFIC_REASONS: Record<string, string> = {
   policy: '策略拒绝',

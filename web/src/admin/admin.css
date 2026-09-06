@@ -1668,6 +1668,10 @@ html:has(.admin-login),
 .telegram-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 13px; border-left: 2px solid #168ac0; background: color-mix(in oklch, #229ed9 6%, var(--admin-paper)); }
 .telegram-note b { flex: none; font-size: 10px; }
 .telegram-note span { color: var(--admin-muted); font-size: 10px; line-height: 1.55; }
+.coworker-identity { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-paper); }
+.coworker-identity > div:first-child b,
+.coworker-identity > div:first-child small { display: block; }
+.coworker-identity > div:first-child small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; }
 .weixin-settings { display: grid; gap: 14px; }
 .weixin-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 18px; padding: 18px; border: 1px solid var(--admin-line); border-radius: 14px; background: linear-gradient(120deg, color-mix(in oklch, #19ad67 7%, var(--admin-soft)), var(--admin-surface) 70%); }
 .weixin-overview.warning { border-color: color-mix(in oklch, var(--admin-amber) 36%, var(--admin-line)); }

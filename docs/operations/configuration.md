@@ -217,6 +217,12 @@ participant ID 为
 `tg:<instance_id>:<chat_id>`，token 在管理 API 中始终遮蔽。完整配置、Privacy Mode、附件
 限制和排障见 [Telegram](../channels/telegram.md)。
 
+Coworker 搭档信道可以在管理端「运行设置 → 搭档互通」热添加、更新或移除显式对端，并设置
+本实例 `self_id`、回呼地址与专用入站令牌。保存后立即生效，不需要重启。令牌在管理 API
+中始终遮蔽。搭档也可以用 `coworker:control` 把对端写入学习库（`coworker_peers.json`），
+随后用 `communicate` 发信；显式配置优先于学习记录。完整行为见
+[Coworker 搭档互通](../channels/coworker.md)。
+
 微信 Claw 模块会同时注册 transport、管理接口和热设置应用器。扫码成功会把连接保存到
 `MEMORY__DB_PATH/weixin_connections.json`，并立即启动一个
 `weixin:<bot_instance_id>` participant；连接不是 `admin_config.json` 设置。一个 Bot 实例只能绑定一个微信账号。二维码查看者不会与该连接自动绑定，联系人关系仍由搭档组织。未结束的扫码会话在离开并返回管理页后可以恢复。详见[微信 Claw](../channels/weixin-claw.md)。

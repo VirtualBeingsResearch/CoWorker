@@ -75,6 +75,8 @@ coworker = '''Coworker peers:
 - Send with `communicate(participant_id="coworker:...")`; keep the `conversation_id` carried by inbound messages for the same collaboration topic so both sides can correlate.
 - Peers accept text and attachments (images/files are forwarded as attachments, subject to a total size limit).
 - Contact a peer only when collaboration is genuinely needed (delegating a task, cross-checking information, syncing progress); stop once the goal is met.
+- `coworker:control` adds or forgets learned peers. It is not a person; do not persona-bind it. After the user provides the remote self_id, API URL, and token, call `communicate(participant_id="coworker:control", extra={"action":"connect","peer_id":"<self_id>","base_url":"...","token":"..."})` from the main thread; `display_name` is optional. Do not send control actions from a bubble.
+- Forget a learned peer with `extra={"action":"forget","peer_id":"<self_id>","confirm":true}`. Explicit admin-configured peers cannot be removed here.
 - Discover currently known peers with `list_connections` and copy the full ID.'''
 openai = '''OpenAI-compatible HTTP:
 - `openai:control` is the extra-token control address. It is not a person; do not persona-bind it. Issue, rotate, revoke, or list extras only from the main thread with `communicate(participant_id="openai:control", extra={...})`. Do not send control actions from a bubble.

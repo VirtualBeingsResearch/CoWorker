@@ -39,6 +39,55 @@ forget every learned peer). When the announced URL or token for the same
 self_id changes, the newest value is stored and a warning is logged — that is
 the signal of a collision or impersonation and should be investigated.
 
+## Adding peers in the admin console
+
+Use **Runtime Settings → Peer Coworker** to set this instance's identity and add
+explicit peers by remote `self_id` (API root or Relay instance URL, communication
+token, optional display name). Saving hot-applies the change; Coworker does not
+need to restart. Tokens stay masked in the administration API. Leave `self_id`
+empty to keep the first-start generated value; a hot-applied `self_id` is written
+back to the identity directory (`coworker_self_id.txt`), so even after the admin
+override is cleared, a restart keeps the last effective value. `control` is
+reserved for the connection-control address and cannot be an instance or peer id.
+
+Unattended deployments can still use the environment variables below; admin
+overrides merge with `.env` the same way Telegram does.
+
+## Connecting from the agent
+
+The channel injects short instructions into the system prompt; the agent keeps
+using `communicate`. After the user provides the remote `self_id`, API URL, and
+token, call from the main thread:
+
+```json
+{
+  "participant_id": "coworker:control",
+  "extra": {
+    "action": "connect",
+    "peer_id": "bob",
+    "base_url": "http://127.0.0.1:8001",
+    "token": "remote inbound or communication token",
+    "display_name": "Bob"
+  }
+}
+```
+
+On success, `list_connections` includes `coworker:bob`. The record is stored in
+the learned-peer file, not `admin_config.json`. An explicit admin peer of the
+same id wins, and cannot be removed through control. Forget a learned peer with:
+
+```json
+{
+  "participant_id": "coworker:control",
+  "extra": {"action": "forget", "peer_id": "bob", "confirm": true}
+}
+```
+
+`coworker:control` is not a person; do not persona-bind it, and do not send
+control actions from a bubble. Connect does not message the remote; the first
+ordinary `communicate` carries the self-announce so the other side can learn
+this instance.
+
 ## Configuration
 
 ```env
