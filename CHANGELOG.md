@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.4 - Unreleased
+## 0.4.4 - 2026-09-06
 
 - docs(release): finalize v0.4.3 changelog (#206)
 - fix(web): keep chat SSE connected when hidden and contain error notes (#209)
