@@ -32,12 +32,17 @@ TELEGRAM__BOTS={"main":{"enabled":true,"display_name":"主机器人","bot_token"
 | `bot_token` | 空 | BotFather 签发的机密 token；管理 API 和页面不会回显原值 |
 | `api_base_url` | `https://api.telegram.org` | Telegram 机器人 API 根地址，可为每个 Bot 配置不同的官方、自托管或代理地址 |
 | `local_mode` | `false` | 是否按本地机器人 API 服务器模式处理文件路径 |
+| `max_download_mb` | `20` | 单个入站附件的下载上限（MB），范围 1～2000 |
+| `max_upload_mb` | `50` | 单个出站附件的上传上限（MB），范围 1～2000 |
 | `poll_timeout_seconds` | `30` | `getUpdates` 长轮询超时，范围 1～50 秒 |
 
 `api_base_url` 填根地址即可，`/bot` 段由 Coworker 在构造机器人 API 与文件 API 地址时自行
 添加。`local_mode` 仅适用于以 `--local` 启动并与 Coworker 共享文件路径的自托管
 [Telegram 机器人 API 服务器](https://github.com/tdlib/telegram-bot-api)；官方 API 或普通代理
-不使用该模式。保存管理端配置后，新增、删除、启停或修改某个实例会热应用，不需要重启 Coworker。
+不使用该模式。官方 API 的文件下载与上传上限为 20 MiB / 50 MiB，`max_download_mb` 与
+`max_upload_mb` 的默认值与之对齐；自托管机器人 API 服务器支持最大 2000 MB 的文件，连接
+这类服务器时可以把两个上限调高。下载按流式写入附件目录，调高上限不会把整个文件读入内存。
+保存管理端配置后，新增、删除、启停或修改某个实例会热应用，不需要重启 Coworker。
 
 Telegram 机器人 API 的 `getUpdates` 与 webhook 互斥；如果这个 token 之前配置过 webhook，需先
 调用 `deleteWebhook` 清除它。参见 Telegram 的[更新接收说明](https://core.telegram.org/bots/api#getting-updates)。
@@ -82,9 +87,10 @@ Bot 通常只会收到命令、回复和与它相关的消息；关闭后 Bot �
 | 通用回退 | 其他高级媒体、支付、游戏和服务消息 | 明确标注为暂不支持，不丢失整条 update |
 
 目前长轮询只订阅新 `message` 与 `channel_post`；消息编辑、reaction、独立 `poll` / `poll_answer`
-等 Update 不会进入 Coworker。可下载附件在通过信道访问规则后才会下载，单个文件最大 20 MiB，
-并保存到 Coworker 的附件目录；不超过 10 MiB 的图片和 PDF 还会以内联内容交给模型。出站支持
-文本、图片和文件，长文本按 Telegram 的 4096 字符限制自动拆分，单个上传文件最大 50 MiB。
+等 Update 不会进入 Coworker。可下载附件在通过信道访问规则后才会下载，单个文件默认最大
+20 MiB（`max_download_mb` 可调），以流式方式保存到 Coworker 的附件目录；不超过 10 MiB 的
+图片和 PDF 还会以内联内容交给模型。出站支持文本、图片和文件，长文本按 Telegram 的 4096
+字符限制自动拆分，单个上传文件默认最大 50 MiB（`max_upload_mb` 可调）。
 
 Telegram 消息和附件均属于不可信外部输入，可能包含提示注入或恶意文件。Bot 的群组/频道
 权限与信道访问规则共同决定它的消息来源范围：

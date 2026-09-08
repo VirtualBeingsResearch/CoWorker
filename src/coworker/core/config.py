@@ -896,6 +896,8 @@ class TelegramBotConfig(BaseModel):
     bot_token: str = Field(default="", repr=False)
     api_base_url: str = "https://api.telegram.org"
     local_mode: bool = False
+    max_download_mb: int = Field(default=20, ge=1, le=2000)
+    max_upload_mb: int = Field(default=50, ge=1, le=2000)
     poll_timeout_seconds: float = Field(default=30.0, ge=1.0, le=50.0)
 
     @field_validator("display_name")
