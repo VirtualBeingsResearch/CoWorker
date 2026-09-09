@@ -628,7 +628,7 @@ async def test_inbound_media_too_large_appends_skipped_note(tmp_path: Path) -> N
     class _TooLargeClient:
         async def download_media(self, destination: object, **kwargs: object) -> int:
             limits.append(int(kwargs.get("max_bytes")))
-            raise WeixinMediaTooLargeError("too large")
+            raise WeixinMediaTooLargeError(300 * 1024 * 1024, 200 * 1024 * 1024)
 
     runner = _runner(tmp_path)
 
@@ -650,8 +650,48 @@ async def test_inbound_media_too_large_appends_skipped_note(tmp_path: Path) -> N
 
     assert "[视频]" in event.content
     assert "因过大" in event.content
+    assert "300 MB" in event.content
+    assert "200 MB" in event.content
     assert event.attachments == []
     assert limits == [200 * 1024 * 1024]
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_content_length_fast_fail_reports_size(tmp_path: Path) -> None:
+    async def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-length": str(5 * 1024 * 1024)})
+
+    client = WeixinClient(token="secret-token", transport=httpx.MockTransport(handle))
+    runner = WeixinRunner(
+        WeixinConfig(enabled=True, max_download_mb=1),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {
+                "type": 5,
+                "video_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+    await client.close()
+
+    assert "因过大" in event.content
+    assert "5 MB" in event.content
+    assert "1 MB" in event.content
+    assert event.attachments == []
+    assert not (tmp_path / "attachments").exists() or not any(
+        (tmp_path / "attachments").iterdir()
+    )
 
 
 @pytest.mark.asyncio

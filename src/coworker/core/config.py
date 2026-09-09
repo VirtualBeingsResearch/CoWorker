@@ -884,7 +884,7 @@ class WeixinConfig(_EnvSettings):
     model_config = SettingsConfigDict(env_prefix="WEIXIN__", env_file=".env", extra="ignore")
 
     enabled: bool = True
-    max_download_mb: int = Field(default=200, ge=1, le=2000)
+    max_download_mb: int = Field(default=200, ge=1, le=10000)
 
 
 class TelegramBotConfig(BaseModel):

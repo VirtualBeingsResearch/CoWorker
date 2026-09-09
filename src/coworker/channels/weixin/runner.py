@@ -27,6 +27,7 @@ from coworker.channels.weixin.logging import configure_weixin_polling_logs
 from coworker.channels.weixin.media import (
     WeixinMediaTooLargeError,
     extension_for_mime,
+    format_size,
     guess_file_mime,
     resolve_media_key,
     safe_filename,
@@ -415,10 +416,15 @@ class WeixinRunner:
         for ref in _media_refs(message):
             try:
                 attachments.append(await self._download_media(client, ref))
-            except WeixinMediaTooLargeError:
+            except WeixinMediaTooLargeError as error:
                 content = (
                     f"{content}\n"
-                    f"{tr('channel.weixin.attachment_skipped', filename=ref.filename)}"
+                    f"{tr(
+                        'channel.weixin.attachment_skipped',
+                        filename=ref.filename,
+                        size=format_size(error.size),
+                        limit=format_size(error.limit),
+                    )}"
                 )
             except Exception as error:
                 logger.warning(

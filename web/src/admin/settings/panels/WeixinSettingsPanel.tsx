@@ -229,8 +229,8 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
     <section className="weixin-limits">
       <label>
         <span>{t('下载上限（MB）')}</span>
-        <input className="admin-input" type="number" min="1" max="2000" step="1" aria-label={t('下载上限（MB）')} value={value.max_download_mb ?? 200} onChange={event => change('max_download_mb', Number(event.target.value))} />
-        <small>{t('入站图片、文件和视频单个附件的下载上限；超过时跳过下载并在消息中标注，范围 1–2000。')}</small>
+        <input className="admin-input" type="number" min="1" max="10000" step="1" aria-label={t('下载上限（MB）')} value={value.max_download_mb ?? 200} onChange={event => change('max_download_mb', Number(event.target.value))} />
+        <small>{t('入站图片、文件和视频单个附件的下载上限；超过时跳过下载并在消息中标注大小与上限，范围 1–10000。')}</small>
       </label>
     </section>
     <div className="weixin-account-list">{connections.length ? connections.map((connection: Json) => <article key={connection.bot_instance_id}>

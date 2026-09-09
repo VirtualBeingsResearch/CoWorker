@@ -12,7 +12,7 @@ import httpx
 from coworker.channels.weixin.media import (
     WEIXIN_MEDIA_MAX_BYTES,
     WeixinMediaTooLargeError,
-    decrypt_aes_ecb,
+    decrypt_aes_ecb_file,
 )
 from coworker.version import __version__
 
@@ -129,11 +129,14 @@ class WeixinClient:
     ) -> int:
         """Download one CDN media item into ``destination``; return its plaintext size.
 
-        CDN payloads are AES-128-ECB encrypted; when ``aes_key`` is ``None`` the
-        bytes are written as downloaded. Mirrors the official
-        ``@tencent-weixin/openclaw-weixin`` client: ``full_url`` wins over a URL
-        built from ``encrypt_query_param``, and the request carries no iLink
-        auth headers.
+        The encrypted payload streams to a sibling ``.enc`` file and is then
+        decrypted in place chunk by chunk, so memory stays bounded regardless
+        of size. CDN payloads are AES-128-ECB encrypted; when ``aes_key`` is
+        ``None`` the bytes are kept as downloaded. Mirrors the official
+        ``@tencent-weixin/openclaw-weixin`` client: ``full_url`` wins over a
+        URL built from ``encrypt_query_param``, and the request carries no
+        iLink auth headers. Oversized payloads raise
+        ``WeixinMediaTooLargeError`` carrying the observed size and the limit.
         """
         if full_url:
             url = full_url
@@ -143,25 +146,33 @@ class WeixinClient:
                 f"?encrypted_query_param={quote(encrypt_query_param, safe='')}"
             )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        encrypted = bytearray()
+        payload_path = destination.with_name(f"{destination.name}.enc")
         try:
-            async with self._http.stream("GET", url) as response:
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
-                    encrypted.extend(chunk)
-                    if len(encrypted) > max_bytes:
-                        raise WeixinMediaTooLargeError(
-                            f"CDN media exceeds {max_bytes} bytes"
-                        )
+            received = 0
+            with payload_path.open("wb") as handle:
+                async with self._http.stream("GET", url) as response:
+                    response.raise_for_status()
+                    declared = response.headers.get("content-length", "")
+                    if declared.isdigit() and int(declared) > max_bytes:
+                        raise WeixinMediaTooLargeError(int(declared), max_bytes)
+                    async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
+                        received += len(chunk)
+                        if received > max_bytes:
+                            raise WeixinMediaTooLargeError(
+                                max(received, int(declared) if declared.isdigit() else 0),
+                                max_bytes,
+                            )
+                        handle.write(chunk)
             if aes_key is not None:
-                plaintext = decrypt_aes_ecb(bytes(encrypted), aes_key)
+                size = decrypt_aes_ecb_file(payload_path, destination, aes_key)
             else:
-                plaintext = bytes(encrypted)
-            destination.write_bytes(plaintext)
+                size = payload_path.stat().st_size
+                payload_path.replace(destination)
         except Exception:
+            payload_path.unlink(missing_ok=True)
             destination.unlink(missing_ok=True)
             raise
-        return len(plaintext)
+        return size
 
     async def _post(
         self,

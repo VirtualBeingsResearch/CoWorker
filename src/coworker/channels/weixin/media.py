@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image, UnidentifiedImageError
 
 WEIXIN_MEDIA_MAX_BYTES = 100 * 1024 * 1024
+_DECRYPT_CHUNK_BYTES = 1024 * 1024
 
 _EXTENSION_TO_MIME = {
     ".pdf": "application/pdf",
@@ -73,6 +74,11 @@ class WeixinMediaError(ValueError):
 
 class WeixinMediaTooLargeError(WeixinMediaError):
     """A media payload exceeded the accepted size limit."""
+
+    def __init__(self, size: int, limit: int) -> None:
+        self.size = size
+        self.limit = limit
+        super().__init__(f"CDN media size {size} bytes exceeds limit {limit} bytes")
 
 
 def resolve_media_key(aeskey_hex: str | None, media_aes_key: str | None) -> bytes | None:
@@ -131,6 +137,30 @@ def decrypt_aes_ecb(ciphertext: bytes, key: bytes) -> bytes:
         )
     except ValueError as error:
         raise WeixinMediaError(f"PKCS7 unpadding failed: {error}") from error
+
+
+def decrypt_aes_ecb_file(source: Path, destination: Path, key: bytes) -> int:
+    """Stream-decrypt an AES-128-ECB file to ``destination``; return its plaintext size.
+
+    Memory stays bounded by the chunk size regardless of file size.
+    """
+    decryptor = Cipher(algorithms.AES(key), modes.ECB()).decryptor()
+    unpadder = padding.PKCS7(128).unpadder()
+    try:
+        with source.open("rb") as src, destination.open("wb") as dst:
+            while chunk := src.read(_DECRYPT_CHUNK_BYTES):
+                dst.write(unpadder.update(decryptor.update(chunk)))
+            dst.write(unpadder.update(decryptor.finalize()) + unpadder.finalize())
+    except ValueError as error:
+        raise WeixinMediaError(f"PKCS7 unpadding failed: {error}") from error
+    return destination.stat().st_size
+
+
+def format_size(num_bytes: int) -> str:
+    """Render a byte count for user-facing notes, e.g. ``250.5 MB`` or ``2.1 GB``."""
+    if num_bytes >= 1024 * 1024 * 1024:
+        return f"{round(num_bytes / (1024 * 1024 * 1024), 1):g} GB"
+    return f"{round(num_bytes / (1024 * 1024), 1):g} MB"
 
 
 def sniff_image_mime(data: bytes) -> str:

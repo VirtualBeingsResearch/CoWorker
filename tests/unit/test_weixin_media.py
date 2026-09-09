@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import padding
@@ -11,7 +12,9 @@ from PIL import Image
 from coworker.channels.weixin.media import (
     WeixinMediaError,
     decrypt_aes_ecb,
+    decrypt_aes_ecb_file,
     extension_for_mime,
+    format_size,
     guess_file_mime,
     resolve_media_key,
     safe_filename,
@@ -68,6 +71,30 @@ def test_decrypt_aes_ecb_round_trip_and_padding_errors() -> None:
         decrypt_aes_ecb(_encrypt_aes_ecb(plaintext, key), b"fedcba9876543210")
     with pytest.raises(WeixinMediaError):
         decrypt_aes_ecb(b"\x00" * 16, key)
+
+
+def test_decrypt_aes_ecb_file_streams_large_payload(tmp_path: Path) -> None:
+    key = b"0123456789abcdef"
+    plaintext = (b"weixin-media-payload" * 60_000)[: 3 * 1024 * 1024 + 7]
+    source = tmp_path / "payload.enc"
+    source.write_bytes(_encrypt_aes_ecb(plaintext, key))
+    destination = tmp_path / "payload.bin"
+
+    size = decrypt_aes_ecb_file(source, destination, key)
+
+    assert size == len(plaintext)
+    assert destination.read_bytes() == plaintext
+    bad_source = tmp_path / "bad.enc"
+    bad_source.write_bytes(b"not block aligned")
+    with pytest.raises(WeixinMediaError):
+        decrypt_aes_ecb_file(bad_source, tmp_path / "bad.bin", key)
+
+
+def test_format_size_uses_readable_units() -> None:
+    assert format_size(200 * 1024 * 1024) == "200 MB"
+    assert format_size(300 * 1024 * 1024 + 512 * 1024) == "300.5 MB"
+    assert format_size(3 * 1024 * 1024 * 1024 + 200 * 1024 * 1024) == "3.2 GB"
+    assert format_size(0) == "0 MB"
 
 
 def test_sniff_image_mime_detects_png_and_falls_back() -> None:
