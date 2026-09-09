@@ -34,14 +34,20 @@ Each instance accepts these fields:
 | `bot_token` | Empty | Secret token issued by BotFather; the administration API and UI never echo its value |
 | `api_base_url` | `https://api.telegram.org` | Telegram Bot API root; each Bot may use a different official, self-hosted, or proxied endpoint |
 | `local_mode` | `false` | Interpret file paths using local Bot API Server semantics |
+| `max_download_mb` | `20` | Per-attachment download limit in MB, from 1 to 2000 |
+| `max_upload_mb` | `50` | Per-attachment upload limit in MB, from 1 to 2000 |
 | `poll_timeout_seconds` | `30` | `getUpdates` long-poll timeout, from 1 to 50 seconds |
 
 Set `api_base_url` to the root; Coworker adds the `/bot` segment itself when it builds the Bot API
 and file API URLs separately. `local_mode` applies only to a self-hosted
 [Telegram Bot API Server](https://github.com/tdlib/telegram-bot-api) that runs with `--local` and
-shares file paths with Coworker; the official API and a regular proxy do not use it. Adding,
-removing, enabling, disabling, or editing an instance in the administration console is hot-applied
-and does not require a Coworker restart.
+shares file paths with Coworker; the official API and a regular proxy do not use it. The official
+API caps file downloads at 20 MiB and uploads at 50 MiB, which is what the `max_download_mb` and
+`max_upload_mb` defaults align with; a self-hosted Bot API Server supports files up to 2000 MB, so
+raise both limits when connecting to one. Downloads stream into the attachment directory, so a
+higher limit does not read the whole file into memory. Adding, removing, enabling, disabling, or
+editing an instance in the administration console is hot-applied and does not require a Coworker
+restart.
 
 Telegram Bot API `getUpdates` and webhooks are mutually exclusive. If the token previously had a
 webhook, call `deleteWebhook` first. See Telegram's
@@ -91,10 +97,11 @@ Inbound messages are handled at these levels:
 
 Long polling currently subscribes only to new `message` and `channel_post` updates. Message edits,
 reactions, and standalone `poll` / `poll_answer` updates do not enter Coworker. Downloadable
-attachments are fetched only after channel access checks pass. One inbound file is limited to 20
-MiB and saved under Coworker's attachment directory; images and PDFs up to 10 MiB are also supplied
-inline to the model. Outbound handling supports text, images, and files. Text is split at Telegram's
-4096-character limit, and one uploaded file is limited to 50 MiB.
+attachments are fetched only after channel access checks pass. One inbound file defaults to 20 MiB
+(configurable via `max_download_mb`) and streams into Coworker's attachment directory; images and
+PDFs up to 10 MiB are also supplied inline to the model. Outbound handling supports text, images,
+and files. Text is split at Telegram's 4096-character limit, and one uploaded file defaults to
+50 MiB (configurable via `max_upload_mb`).
 
 Telegram messages and attachments are untrusted external input that may contain prompt injection
 or malicious files. The Bot's group/channel permissions and channel access rules together define

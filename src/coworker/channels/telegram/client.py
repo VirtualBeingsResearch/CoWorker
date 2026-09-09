@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
+import httpx
 from telegram import Bot
 
 from coworker.i18n import tr
@@ -12,6 +15,7 @@ DEFAULT_API_BASE_URL = "https://api.telegram.org"
 DEFAULT_POLL_TIMEOUT_SECONDS = 30.0
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class TelegramFileTooLargeError(ValueError):
@@ -28,6 +32,8 @@ class TelegramClient:
         *,
         local_mode: bool = False,
         bot: Bot | None = None,
+        max_download_bytes: int = MAX_DOWNLOAD_BYTES,
+        max_upload_bytes: int = MAX_UPLOAD_BYTES,
     ) -> None:
         root = api_base_url.rstrip("/")
         self._bot = bot or Bot(
@@ -37,9 +43,15 @@ class TelegramClient:
             local_mode=local_mode,
         )
         self._local_mode = local_mode
+        self._max_download_bytes = max_download_bytes
+        self._max_upload_bytes = max_upload_bytes
         self._initialized = False
+        self._file_http: httpx.AsyncClient | None = None
 
     async def close(self) -> None:
+        if self._file_http is not None:
+            await self._file_http.aclose()
+            self._file_http = None
         if not self._initialized:
             return
         self._initialized = False
@@ -93,13 +105,13 @@ class TelegramClient:
                 tr("channel.telegram.attachment_missing", path=path)
             )
         size = path.stat().st_size
-        if size > MAX_UPLOAD_BYTES:
+        if size > self._max_upload_bytes:
             raise TelegramFileTooLargeError(
                 tr(
                     "channel.telegram.attachment_too_large",
                     filename=path.name,
                     size=size,
-                    limit=MAX_UPLOAD_BYTES,
+                    limit=self._max_upload_bytes,
                 )
             )
         filename = Path(str(attachment.get("filename") or path.name)).name
@@ -133,31 +145,107 @@ class TelegramClient:
     async def download_file(
         self,
         file_id: str,
+        destination: Path,
         *,
-        max_bytes: int = MAX_DOWNLOAD_BYTES,
-    ) -> bytes:
+        max_bytes: int | None = None,
+    ) -> int:
+        """Stream the file to ``destination`` and return its size in bytes.
+
+        On any failure the partial file at ``destination`` is removed before
+        the error propagates.
+        """
+
+        limit = self._max_download_bytes if max_bytes is None else max_bytes
         telegram_file = await self._bot.get_file(file_id)
         if (
             isinstance(telegram_file.file_size, int)
-            and telegram_file.file_size > max_bytes
+            and telegram_file.file_size > limit
         ):
             raise TelegramFileTooLargeError(
                 tr(
                     "channel.telegram.download_too_large",
                     size=telegram_file.file_size,
-                    limit=max_bytes,
+                    limit=limit,
                 )
             )
-        buffer = await telegram_file.download_as_bytearray(
-            read_timeout=60.0,
-            write_timeout=60.0,
-        )
-        if len(buffer) > max_bytes:
-            raise TelegramFileTooLargeError(
-                tr(
-                    "channel.telegram.download_too_large",
-                    size=len(buffer),
-                    limit=max_bytes,
+        file_path = str(telegram_file.file_path or "")
+        if not file_path:
+            raise RuntimeError(tr("channel.telegram.file_path_missing"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        total = -1
+        try:
+            if _is_local_file(file_path):
+                total = await asyncio.to_thread(
+                    _copy_capped, Path(file_path), destination, limit
                 )
+            else:
+                total = await self._download_to(
+                    _encoded_file_url(file_path),
+                    destination,
+                    limit,
+                )
+        finally:
+            if total < 0:
+                destination.unlink(missing_ok=True)
+        return total
+
+    async def _download_to(self, url: str, destination: Path, limit: int) -> int:
+        total = 0
+        async with self._file_http_client().stream("GET", url) as response:
+            if response.status_code != 200:
+                raise RuntimeError(
+                    tr(
+                        "channel.telegram.download_http_failed",
+                        status=response.status_code,
+                    )
+                )
+            with destination.open("wb") as handle:
+                async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
+                    total += len(chunk)
+                    if total > limit:
+                        raise TelegramFileTooLargeError(
+                            tr(
+                                "channel.telegram.download_too_large",
+                                size=total,
+                                limit=limit,
+                            )
+                        )
+                    handle.write(chunk)
+        return total
+
+    def _file_http_client(self) -> httpx.AsyncClient:
+        if self._file_http is None:
+            self._file_http = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                follow_redirects=True,
             )
-        return bytes(buffer)
+        return self._file_http
+
+
+def _is_local_file(path: str) -> bool:
+    """Mirror python-telegram-bot's local Bot API Server path detection."""
+
+    try:
+        return Path(path).is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def _copy_capped(source: Path, destination: Path, limit: int) -> int:
+    total = 0
+    with source.open("rb") as src, destination.open("wb") as dst:
+        while chunk := src.read(_DOWNLOAD_CHUNK_BYTES):
+            total += len(chunk)
+            if total > limit:
+                raise TelegramFileTooLargeError(
+                    tr("channel.telegram.download_too_large", size=total, limit=limit)
+                )
+            dst.write(chunk)
+    return total
+
+
+def _encoded_file_url(file_path: str) -> str:
+    parts = urlsplit(file_path)
+    return urlunsplit(
+        (parts.scheme, parts.netloc, quote(parts.path), parts.query, parts.fragment)
+    )

@@ -68,9 +68,16 @@ class _FakeClient:
     ) -> None:
         self.attachments.append((chat_id, attachment, message_thread_id))
 
-    async def download_file(self, file_id: str) -> bytes:
+    async def download_file(
+        self,
+        file_id: str,
+        destination: Path,
+        *,
+        max_bytes: int | None = None,
+    ) -> int:
         self.downloads.append(file_id)
-        return b"telegram-image"
+        destination.write_bytes(b"telegram-image")
+        return len(b"telegram-image")
 
 
 def _config(**bots: dict) -> TelegramConfig:
@@ -160,20 +167,141 @@ async def test_local_mode_sends_a_shared_file_path(tmp_path: Path) -> None:
     )
 
 
+class _FakeStreamResponse:
+    def __init__(self, chunks: list[bytes], status_code: int) -> None:
+        self._chunks = chunks
+        self.status_code = status_code
+
+    async def aiter_bytes(self, chunk_size: int):
+        for chunk in self._chunks:
+            yield chunk
+
+    async def __aenter__(self) -> _FakeStreamResponse:
+        return self
+
+    async def __aexit__(self, *args: object) -> bool:
+        return False
+
+
+class _FakeHttp:
+    def __init__(self, chunks: list[bytes], status_code: int = 200) -> None:
+        self._chunks = chunks
+        self._status_code = status_code
+        self.requests: list[tuple[str, str]] = []
+
+    def stream(self, method: str, url: str) -> _FakeStreamResponse:
+        self.requests.append((method, url))
+        return _FakeStreamResponse(self._chunks, self._status_code)
+
+
 @pytest.mark.asyncio
-async def test_client_rejects_oversize_download_before_loading_bytes() -> None:
+async def test_client_rejects_oversize_download_before_transferring_bytes(
+    tmp_path: Path,
+) -> None:
     bot = AsyncMock()
-    telegram_file = SimpleNamespace(
+    bot.get_file.return_value = SimpleNamespace(
         file_size=MAX_DOWNLOAD_BYTES + 1,
-        download_as_bytearray=AsyncMock(),
+        file_path="https://api.example/file/botsecret/docs/large.bin",
     )
-    bot.get_file.return_value = telegram_file
     client = TelegramClient("secret", bot=bot)
+    destination = tmp_path / "out.bin"
 
     with pytest.raises(TelegramFileTooLargeError):
-        await client.download_file("large")
+        await client.download_file("large", destination)
 
-    telegram_file.download_as_bytearray.assert_not_awaited()
+    bot.get_file.assert_awaited_once()
+    assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_streams_remote_file_to_disk(tmp_path: Path) -> None:
+    bot = AsyncMock()
+    bot.get_file.return_value = SimpleNamespace(
+        file_size=None,
+        file_path="https://api.example/file/botsecret/documents/report name.pdf",
+    )
+    client = TelegramClient("secret", bot=bot)
+    http = _FakeHttp([b"report", b"-data"])
+    client._file_http = http  # type: ignore[assignment]  # noqa: SLF001
+    destination = tmp_path / "out.bin"
+
+    size = await client.download_file("file-id", destination)
+
+    assert size == 11
+    assert destination.read_bytes() == b"report-data"
+    assert http.requests == [
+        ("GET", "https://api.example/file/botsecret/documents/report%20name.pdf")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_download_over_limit_aborts_and_removes_the_partial_file(
+    tmp_path: Path,
+) -> None:
+    bot = AsyncMock()
+    bot.get_file.return_value = SimpleNamespace(
+        file_size=None,
+        file_path="https://api.example/file/botsecret/docs/big.bin",
+    )
+    client = TelegramClient("secret", bot=bot, max_download_bytes=8)
+    client._file_http = _FakeHttp([b"12345678", b"90"])  # type: ignore[assignment]  # noqa: SLF001
+    destination = tmp_path / "out.bin"
+
+    with pytest.raises(TelegramFileTooLargeError):
+        await client.download_file("file-id", destination)
+
+    assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_reports_http_status_without_the_file_url(tmp_path: Path) -> None:
+    bot = AsyncMock()
+    bot.get_file.return_value = SimpleNamespace(
+        file_size=None,
+        file_path="https://api.example/file/botsecret/docs/x.bin",
+    )
+    client = TelegramClient("secret", bot=bot)
+    client._file_http = _FakeHttp([], status_code=404)  # type: ignore[assignment]  # noqa: SLF001
+    destination = tmp_path / "out.bin"
+
+    with pytest.raises(RuntimeError, match="404"):
+        await client.download_file("file-id", destination)
+
+    assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_copies_a_local_bot_api_file(tmp_path: Path) -> None:
+    source = tmp_path / "local.bin"
+    source.write_bytes(b"local-bytes")
+    bot = AsyncMock()
+    bot.get_file.return_value = SimpleNamespace(file_size=None, file_path=str(source))
+    client = TelegramClient("secret", local_mode=True, bot=bot)
+    destination = tmp_path / "attachments" / "out.bin"
+
+    size = await client.download_file("file-id", destination)
+
+    assert size == len(b"local-bytes")
+    assert destination.read_bytes() == b"local-bytes"
+
+
+@pytest.mark.asyncio
+async def test_send_attachment_enforces_configured_upload_limit(tmp_path: Path) -> None:
+    path = tmp_path / "video.mp4"
+    path.write_bytes(b"v" * 100)
+    bot = AsyncMock()
+    client = TelegramClient("secret", bot=bot, max_upload_bytes=50)
+
+    with pytest.raises(TelegramFileTooLargeError):
+        await client.send_attachment(1, {"type": "file", "path": str(path)})
+
+    bot.send_document.assert_not_awaited()
+
+    await TelegramClient("secret", bot=bot, max_upload_bytes=100).send_attachment(
+        1,
+        {"type": "file", "path": str(path)},
+    )
+    bot.send_document.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -502,6 +630,26 @@ def test_config_supports_multiple_bots_and_custom_api_roots() -> None:
     )
     with pytest.raises(ValueError):
         _config(**{"Bad.Name": {"bot_token": "three"}})
+
+
+def test_config_attachment_limits_validate_and_wire_into_the_client() -> None:
+    config = TelegramBotConfig.model_validate(
+        {
+            "bot_token": "token",
+            "max_download_mb": 2000,
+            "max_upload_mb": 2000,
+        }
+    )
+    client = telegram_runner_module._default_client_factory(config)  # noqa: SLF001
+
+    assert config.max_download_mb == 2000
+    assert config.max_upload_mb == 2000
+    assert client._max_download_bytes == 2000 * 1024 * 1024  # noqa: SLF001
+    assert client._max_upload_bytes == 2000 * 1024 * 1024  # noqa: SLF001
+    with pytest.raises(ValueError):
+        TelegramBotConfig.model_validate({"bot_token": "token", "max_download_mb": 0})
+    with pytest.raises(ValueError):
+        TelegramBotConfig.model_validate({"bot_token": "token", "max_upload_mb": 2001})
 
 
 def test_multiple_bots_and_api_roots_load_from_environment(

@@ -341,18 +341,11 @@ class _TelegramBotRuntime:
         client: TelegramClient,
         media: adapter.TelegramMedia,
     ) -> AttachmentData:
-        buffer = await client.download_file(media.file_id)
         filename = _safe_filename(media.filename)
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
-        while True:
-            destination = self._attachments_dir / f"{secrets.randbelow(1_000_000):06d}_{filename}"
-            try:
-                with destination.open("xb") as handle:
-                    handle.write(buffer)
-                break
-            except FileExistsError:
-                continue
-        inline = len(buffer) <= _INLINE_BASE64_LIMIT and (
+        destination = self._reserve_attachment_path(filename)
+        size = await client.download_file(media.file_id, destination)
+        inline = size <= _INLINE_BASE64_LIMIT and (
             media.media_type.startswith("image/")
             or media.media_type == "application/pdf"
         )
@@ -360,8 +353,20 @@ class _TelegramBotRuntime:
             filename=filename,
             media_type=media.media_type,
             saved_path=str(destination),
-            data=base64.b64encode(buffer).decode("ascii") if inline else None,
+            data=base64.b64encode(destination.read_bytes()).decode("ascii")
+            if inline
+            else None,
         )
+
+    def _reserve_attachment_path(self, filename: str) -> Path:
+        while True:
+            candidate = self._attachments_dir / f"{secrets.randbelow(1_000_000):06d}_{filename}"
+            try:
+                handle = candidate.open("xb")
+            except FileExistsError:
+                continue
+            handle.close()
+            return candidate
 
     def _is_configured(self) -> bool:
         return bool(self._config.enabled and self._config.bot_token)
@@ -559,6 +564,8 @@ def _default_client_factory(config: TelegramBotConfig) -> TelegramClient:
         config.bot_token,
         config.api_base_url,
         local_mode=config.local_mode,
+        max_download_bytes=config.max_download_mb * 1024 * 1024,
+        max_upload_bytes=config.max_upload_mb * 1024 * 1024,
     )
 
 

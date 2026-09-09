@@ -209,7 +209,7 @@ previews the full section and body rendered by the currently running instance.
 | `DESKTOP_UPDATES__SYNC_MAX_ASSET_BYTES` | `2147483648` | Maximum bytes allowed for one downloaded asset |
 | `DESKTOP_UPDATES__SYNC_MAX_RUN_BYTES` | `4294967296` | Maximum total bytes allowed for one synchronization run |
 | `WECOM__BOTS` | `{}` | JSON object of multiple WeCom Bots keyed by stable `instance_id`; each item accepts `enabled`, `bot_id`, `secret`, and `ws_url` (`ws_url` empty uses the SDK default). The legacy flat form (`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`) is still accepted and folds into a `default` instance |
-| `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, and `poll_timeout_seconds` |
+| `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, `max_download_mb`, `max_upload_mb`, and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
