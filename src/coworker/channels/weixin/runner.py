@@ -458,6 +458,7 @@ class WeixinRunner:
                 encrypt_query_param=ref.encrypt_query_param,
                 aes_key=resolve_media_key(ref.aeskey_hex, ref.media_aes_key),
                 full_url=ref.full_url,
+                max_bytes=self._config.max_download_mb * 1024 * 1024,
             )
         except Exception:
             destination.unlink(missing_ok=True)

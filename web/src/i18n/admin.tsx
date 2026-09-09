@@ -890,6 +890,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '上传上限（MB）': 'Upload limit (MB)',
   '官方 API 为 20；自托管服务器可调高，最高 2000。': 'The official API allows 20; raise it for a self-hosted server, up to 2000.',
   '官方 API 为 50；自托管服务器可调高，最高 2000。': 'The official API allows 50; raise it for a self-hosted server, up to 2000.',
+  '入站图片、文件和视频单个附件的下载上限；超过时跳过下载并在消息中标注，范围 1–2000。': 'Per-attachment download limit for inbound images, files, and video; oversized items are skipped and noted in the message. Range 1–2000.',
   '长轮询超时（秒）': 'Long-poll timeout (seconds)',
   '自托管机器人 API 服务器': 'Self-hosted Bot API Server',
   '仅当服务以 --local 启动并与 Coworker 共享文件路径时开启；官方 API 或普通代理保持关闭。': 'Enable only when the server runs with --local and shares file paths with Coworker; keep this off for the official API or a regular proxy.',

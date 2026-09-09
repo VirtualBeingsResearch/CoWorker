@@ -623,8 +623,11 @@ async def test_inbound_media_download_failure_appends_note(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_inbound_media_too_large_appends_skipped_note(tmp_path: Path) -> None:
+    limits: list[int] = []
+
     class _TooLargeClient:
         async def download_media(self, destination: object, **kwargs: object) -> int:
+            limits.append(int(kwargs.get("max_bytes")))
             raise WeixinMediaTooLargeError("too large")
 
     runner = _runner(tmp_path)
@@ -648,6 +651,44 @@ async def test_inbound_media_too_large_appends_skipped_note(tmp_path: Path) -> N
     assert "[视频]" in event.content
     assert "因过大" in event.content
     assert event.attachments == []
+    assert limits == [200 * 1024 * 1024]
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_honors_configured_download_limit(tmp_path: Path) -> None:
+    limits: list[int] = []
+
+    class _RecordingClient:
+        async def download_media(self, destination: Path, **kwargs: object) -> int:
+            limits.append(int(kwargs.get("max_bytes")))
+            destination.write_bytes(b"video")
+            return 5
+
+    runner = WeixinRunner(
+        WeixinConfig(enabled=True, max_download_mb=1),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
+
+    event = await _collect_inbound(
+        runner,
+        _RecordingClient(),  # type: ignore[arg-type]
+        [
+            {
+                "type": 5,
+                "video_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+
+    assert limits == [1 * 1024 * 1024]
+    assert len(event.attachments) == 1
+    assert event.attachments[0].media_type == "video/mp4"
 
 
 @pytest.mark.asyncio

@@ -189,6 +189,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WECOM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个企业微信 Bot 的 JSON 对象；每项支持 `enabled`、`bot_id`、`secret` 和 `ws_url`（`ws_url` 留空使用 SDK 默认地址）。仍兼容旧版扁平写法（`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`，会自动归为 `default` 实例） |
 | `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode`、`max_download_mb`、`max_upload_mb` 和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
+| `WEIXIN__MAX_DOWNLOAD_MB` | `200` | 微信 Claw 入站图片/文件/视频单个附件的下载上限（MB），超过时跳过下载并在消息中标注；范围 1–2000 |
 
 反向代理同时代理 `/admin`、`/api/*` 和静态资源时，`API__PUBLIC_URL` 对应浏览器
 实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或
