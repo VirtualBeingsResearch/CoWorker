@@ -747,6 +747,7 @@ async def _main() -> bool:
             config.weixin,
             Path(config.memory.db_path),
             channel_system.activity,
+            attachments_dir=Path(config.agent.inbox_dir).parent / "attachments",
         )
         channel_system.install(weixin_module)
         channel_system.install(
