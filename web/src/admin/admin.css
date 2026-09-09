@@ -1707,6 +1707,11 @@ html:has(.admin-login),
 .weixin-account-copy input { max-width: 320px; min-height: 32px; padding: 4px 8px; font-weight: 650; }
 .weixin-account-copy code { margin-top: 5px; color: var(--admin-muted); font-size: 9px; }
 .weixin-account-copy small { margin-top: 3px; color: var(--admin-muted); font-size: 9px; }
+.weixin-limits { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }
+.weixin-limits > label > span, .weixin-limits > label > small { display: block; }
+.weixin-limits > label > span { margin-bottom: 6px; color: var(--admin-muted); font-size: 10px; }
+.weixin-limits > label > small { margin-top: 4px; color: var(--admin-muted); font-size: 9px; line-height: 1.45; }
+.weixin-limits input { width: 100%; max-width: 220px; }
 .provider-editor { grid-column: 1 / -1; display: grid; gap: 10px; }
 .provider-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .provider-editor-head b,

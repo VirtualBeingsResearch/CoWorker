@@ -98,6 +98,6 @@ Bound instances are stored in `MEMORY__DB_PATH/weixin_connections.json` rather t
 
 The identity-page ChatDock keeps the QR image as chat presentation data in localStorage, so it survives page navigation without adding QR resources to the terminal chat interface.
 
-Inbound Weixin Claw messages currently extract text and voice transcripts; images, files, and video reach the agent as localized placeholders. Normal outbound traffic is currently text-only.
+Inbound Weixin Claw messages currently extract text and voice transcripts. Images, files, and video are downloaded from the Weixin CDN after access control succeeds, decrypted with the AES key carried by the message, and passed to the agent as attachments (the localized placeholder stays in the message text). Voice messages skip the CDN download and use their transcript text only. The per-attachment download limit is configured by `weixin.max_download_mb` (environment variable `WEIXIN__MAX_DOWNLOAD_MB`, default 200 MB, at most 10 GB, adjustable on the `/admin` Weixin settings page); oversized items are noted with the attachment size and the current limit, while download or decryption failures are noted as undelivered attachments. The underlying error remains in runtime logs; download URLs, AES keys, and exception details are not exposed to the agent, and the current message is not discarded. Normal outbound traffic is currently text-only.
 
 Protocol compatibility follows Tencent's [openclaw-weixin](https://github.com/Tencent/openclaw-weixin) implementation.

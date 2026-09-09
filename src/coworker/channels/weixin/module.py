@@ -155,6 +155,7 @@ def create_weixin_module(
     config: WeixinConfig,
     data_dir: Path,
     activity: ChannelActivityStore,
+    attachments_dir: Path | None = None,
 ) -> WeixinModule:
     repository = WeixinConnectionRepository(data_dir / "weixin_connections.json")
     connection_count = len(repository.list())
@@ -170,6 +171,7 @@ def create_weixin_module(
         repository.list(),
         data_dir / "weixin_state.json",
         activity,
+        attachments_dir=attachments_dir,
     )
     connections = WeixinConnectionManager(messaging, repository)
     runtime = WeixinModuleRuntime(messaging, connections)

@@ -3,16 +3,24 @@ from __future__ import annotations
 import base64
 import secrets
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
+from coworker.channels.weixin.media import (
+    WEIXIN_MEDIA_MAX_BYTES,
+    WeixinMediaTooLargeError,
+    decrypt_aes_ecb_file,
+)
 from coworker.version import __version__
 
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
+DEFAULT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 DEFAULT_BOT_TYPE = "3"
 DEFAULT_LONG_POLL_TIMEOUT_SECONDS = 35.0
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 _ILINK_APP_ID = "bot"
 _MESSAGE_TYPE_BOT = 2
 _MESSAGE_STATE_FINISH = 2
@@ -108,6 +116,63 @@ class WeixinClient:
                 f"Weixin sendmessage ret={response.get('ret')} "
                 f"errmsg={response.get('errmsg', '')}"
             )
+
+    async def download_media(
+        self,
+        destination: Path,
+        *,
+        encrypt_query_param: str = "",
+        aes_key: bytes | None = None,
+        full_url: str = "",
+        cdn_base_url: str = DEFAULT_CDN_BASE_URL,
+        max_bytes: int = WEIXIN_MEDIA_MAX_BYTES,
+    ) -> int:
+        """Download one CDN media item into ``destination``; return its plaintext size.
+
+        The encrypted payload streams to a sibling ``.enc`` file and is then
+        decrypted in place chunk by chunk, so memory stays bounded regardless
+        of size. CDN payloads are AES-128-ECB encrypted; when ``aes_key`` is
+        ``None`` the bytes are kept as downloaded. Mirrors the official
+        ``@tencent-weixin/openclaw-weixin`` client: ``full_url`` wins over a
+        URL built from ``encrypt_query_param``, and the request carries no
+        iLink auth headers. Oversized payloads raise
+        ``WeixinMediaTooLargeError`` carrying the observed size and the limit.
+        """
+        if full_url:
+            url = full_url
+        else:
+            url = (
+                f"{cdn_base_url.rstrip('/')}/download"
+                f"?encrypted_query_param={quote(encrypt_query_param, safe='')}"
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload_path = destination.with_name(f"{destination.name}.enc")
+        try:
+            received = 0
+            with payload_path.open("wb") as handle:
+                async with self._http.stream("GET", url) as response:
+                    response.raise_for_status()
+                    declared = response.headers.get("content-length", "")
+                    if declared.isdigit() and int(declared) > max_bytes:
+                        raise WeixinMediaTooLargeError(int(declared), max_bytes)
+                    async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
+                        received += len(chunk)
+                        if received > max_bytes:
+                            raise WeixinMediaTooLargeError(
+                                max(received, int(declared) if declared.isdigit() else 0),
+                                max_bytes,
+                            )
+                        handle.write(chunk)
+            if aes_key is not None:
+                size = decrypt_aes_ecb_file(payload_path, destination, aes_key)
+            else:
+                size = payload_path.stat().st_size
+                payload_path.replace(destination)
+        except Exception:
+            payload_path.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise
+        return size
 
     async def _post(
         self,

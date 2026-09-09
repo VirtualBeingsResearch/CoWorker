@@ -226,6 +226,13 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
       </div>
     </section>}
     {managementError && <div className="notice error" role="alert">{managementError}</div>}
+    <section className="weixin-limits">
+      <label>
+        <span>{t('下载上限（MB）')}</span>
+        <input className="admin-input" type="number" min="1" max="10000" step="1" aria-label={t('下载上限（MB）')} value={value.max_download_mb ?? 200} onChange={event => change('max_download_mb', Number(event.target.value))} />
+        <small>{t('入站图片、文件和视频单个附件的下载上限；超过时跳过下载并在消息中标注大小与上限，范围 1–10000。')}</small>
+      </label>
+    </section>
     <div className="weixin-account-list">{connections.length ? connections.map((connection: Json) => <article key={connection.bot_instance_id}>
       <div className="weixin-account-mark"><UserRound size={18} /></div>
       <div className="weixin-account-copy"><input aria-label={t('连接名称')} defaultValue={connection.display_name || ''} onBlur={event => { if (event.target.value !== (connection.display_name || '')) void updateConnection(connection.bot_instance_id, { display_name: event.target.value }); }} placeholder={t('给这个 ClawBot 连接命名')} /><code>{connection.bot_instance_id}</code><small>{connection.weixin_user_id ? t('登录微信 ID：{{id}}', { id: connection.weixin_user_id }) : t('微信账号标识未返回')}</small></div>

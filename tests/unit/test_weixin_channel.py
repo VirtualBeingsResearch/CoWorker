@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import logging
 from pathlib import Path
@@ -8,6 +10,8 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image
 
 from coworker.channels.access import ChannelAccessController
@@ -19,6 +23,7 @@ from coworker.channels.weixin.client import (
 )
 from coworker.channels.weixin.connections import WeixinConnectionManager
 from coworker.channels.weixin.logging import configure_weixin_polling_logs
+from coworker.channels.weixin.media import WeixinMediaTooLargeError
 from coworker.channels.weixin.module import WeixinManagement, create_weixin_module
 from coworker.channels.weixin.repository import (
     WeixinConnection,
@@ -26,7 +31,7 @@ from coworker.channels.weixin.repository import (
 )
 from coworker.channels.weixin.runner import WeixinRunner
 from coworker.core.config import ChannelAccessConfig, WeixinConfig
-from coworker.core.types import CommunicateRequest
+from coworker.core.types import CommunicateRequest, IncomingEvent
 
 
 def _connection() -> WeixinConnection:
@@ -412,6 +417,335 @@ def test_module_owns_connection_and_runtime_paths(tmp_path: Path) -> None:
     assert module.name == "weixin"
     assert module.management is not None
     assert module.settings.config_key == "weixin"
+
+
+def _encrypt_aes_ecb(plaintext: bytes, key: bytes) -> bytes:
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
+
+
+def _cdn_client(payload: bytes, urls: list[str], key: bytes) -> WeixinClient:
+    async def handle(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200, content=_encrypt_aes_ecb(payload, key))
+
+    return WeixinClient(token="secret-token", transport=httpx.MockTransport(handle))
+
+
+def _png_bytes() -> bytes:
+    output = io.BytesIO()
+    with Image.new("RGB", (2, 2), color=(10, 20, 30)) as image:
+        image.save(output, format="PNG")
+    return output.getvalue()
+
+
+async def _collect_inbound(
+    runner: WeixinRunner,
+    client: WeixinClient,
+    item_list: list[dict[str, object]],
+) -> IncomingEvent:
+    events: list[IncomingEvent] = []
+
+    async def collect(event: IncomingEvent) -> None:
+        events.append(event)
+
+    runner.set_inbound_handler(collect)
+    await runner._publish_message(  # noqa: SLF001
+        "bot-1",
+        {
+            "message_type": 1,
+            "from_user_id": "user-1",
+            "context_token": "context-1",
+            "message_id": "message-1",
+            "item_list": item_list,
+        },
+        client,
+    )
+    assert len(events) == 1
+    return events[0]
+
+
+@pytest.mark.asyncio
+async def test_inbound_image_is_downloaded_decrypted_and_attached(tmp_path: Path) -> None:
+    key = b"0123456789abcdef"
+    plaintext = _png_bytes()
+    urls: list[str] = []
+    client = _cdn_client(plaintext, urls, key)
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {"type": 1, "text_item": {"text": "看这张图"}},
+            {
+                "type": 2,
+                "image_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(key).decode("ascii"),
+                    }
+                },
+            },
+        ],
+    )
+    await client.close()
+
+    assert "[图片]" in event.content
+    assert len(event.attachments) == 1
+    attachment = event.attachments[0]
+    assert attachment.media_type == "image/png"
+    assert attachment.filename.endswith(".png")
+    assert attachment.data == base64.b64encode(plaintext).decode("ascii")
+    saved = Path(attachment.saved_path)
+    assert saved.read_bytes() == plaintext
+    assert urls == [
+        "https://novac2c.cdn.weixin.qq.com/c2c/download"
+        "?encrypted_query_param=ENC-PARAM"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_inbound_image_prefers_hex_aeskey_over_media_key(tmp_path: Path) -> None:
+    hex_key = "0123456789abcdef0987654321fedcba"
+    plaintext = _png_bytes()
+    urls: list[str] = []
+    client = _cdn_client(plaintext, urls, bytes.fromhex(hex_key))
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {
+                "type": 2,
+                "image_item": {
+                    "aeskey": hex_key,
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"wrong-wrong-wrong!").decode("ascii"),
+                    },
+                },
+            }
+        ],
+    )
+    await client.close()
+
+    assert len(event.attachments) == 1
+    assert event.attachments[0].saved_path and (
+        Path(event.attachments[0].saved_path).read_bytes() == plaintext
+    )
+
+
+@pytest.mark.asyncio
+async def test_inbound_file_item_keeps_filename_and_guessed_mime(tmp_path: Path) -> None:
+    key = b"fedcba9876543210"
+    plaintext = b"%PDF-1.4 minimal"
+    client = _cdn_client(plaintext, [], key)
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {
+                "type": 4,
+                "file_item": {
+                    "file_name": "..\\report.pdf",
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(key).decode("ascii"),
+                    },
+                },
+            }
+        ],
+    )
+    await client.close()
+
+    assert len(event.attachments) == 1
+    attachment = event.attachments[0]
+    assert attachment.media_type == "application/pdf"
+    assert attachment.filename == "report.pdf"
+    assert Path(attachment.saved_path).name.endswith("_report.pdf")
+    assert attachment.data == base64.b64encode(plaintext).decode("ascii")
+
+
+@pytest.mark.asyncio
+async def test_inbound_image_without_cdn_coordinates_stays_placeholder(tmp_path: Path) -> None:
+    client = AsyncMock()
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [{"type": 2, "image_item": {"media": {}}}],
+    )
+
+    assert event.content == "[图片]"
+    assert event.attachments == []
+    client.download_media.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_download_failure_appends_note(tmp_path: Path) -> None:
+    async def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client = WeixinClient(token="secret-token", transport=httpx.MockTransport(handle))
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {
+                "type": 2,
+                "image_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+    await client.close()
+
+    assert "[图片]" in event.content
+    assert "附件下载失败" in event.content
+    assert event.attachments == []
+    assert not (tmp_path / "attachments").exists() or not any(
+        (tmp_path / "attachments").iterdir()
+    )
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_too_large_appends_skipped_note(tmp_path: Path) -> None:
+    limits: list[int] = []
+
+    class _TooLargeClient:
+        async def download_media(self, destination: object, **kwargs: object) -> int:
+            limits.append(int(kwargs.get("max_bytes")))
+            raise WeixinMediaTooLargeError(300 * 1024 * 1024, 200 * 1024 * 1024)
+
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        _TooLargeClient(),  # type: ignore[arg-type]
+        [
+            {
+                "type": 5,
+                "video_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+
+    assert "[视频]" in event.content
+    assert "因过大" in event.content
+    assert "300 MB" in event.content
+    assert "200 MB" in event.content
+    assert event.attachments == []
+    assert limits == [200 * 1024 * 1024]
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_content_length_fast_fail_reports_size(tmp_path: Path) -> None:
+    async def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-length": str(5 * 1024 * 1024)})
+
+    client = WeixinClient(token="secret-token", transport=httpx.MockTransport(handle))
+    runner = WeixinRunner(
+        WeixinConfig(enabled=True, max_download_mb=1),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [
+            {
+                "type": 5,
+                "video_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+    await client.close()
+
+    assert "因过大" in event.content
+    assert "5 MB" in event.content
+    assert "1 MB" in event.content
+    assert event.attachments == []
+    assert not (tmp_path / "attachments").exists() or not any(
+        (tmp_path / "attachments").iterdir()
+    )
+
+
+@pytest.mark.asyncio
+async def test_inbound_media_honors_configured_download_limit(tmp_path: Path) -> None:
+    limits: list[int] = []
+
+    class _RecordingClient:
+        async def download_media(self, destination: Path, **kwargs: object) -> int:
+            limits.append(int(kwargs.get("max_bytes")))
+            destination.write_bytes(b"video")
+            return 5
+
+    runner = WeixinRunner(
+        WeixinConfig(enabled=True, max_download_mb=1),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
+
+    event = await _collect_inbound(
+        runner,
+        _RecordingClient(),  # type: ignore[arg-type]
+        [
+            {
+                "type": 5,
+                "video_item": {
+                    "media": {
+                        "encrypt_query_param": "ENC-PARAM",
+                        "aes_key": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                    }
+                },
+            }
+        ],
+    )
+
+    assert limits == [1 * 1024 * 1024]
+    assert len(event.attachments) == 1
+    assert event.attachments[0].media_type == "video/mp4"
+
+
+@pytest.mark.asyncio
+async def test_inbound_voice_without_transcript_stays_placeholder(tmp_path: Path) -> None:
+    client = AsyncMock()
+    runner = _runner(tmp_path)
+
+    event = await _collect_inbound(
+        runner,
+        client,
+        [{"type": 3, "voice_item": {}}],
+    )
+
+    assert event.content == "[未提供转写的语音消息]"
+    assert event.attachments == []
+    client.download_media.assert_not_awaited()
+
 
 
 def test_weixin_polling_http_logs_only_downgrade_poll_requests() -> None:

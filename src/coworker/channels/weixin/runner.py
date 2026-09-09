@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,12 +24,22 @@ from coworker.channels.weixin.client import (
     credentials_from_login,
 )
 from coworker.channels.weixin.logging import configure_weixin_polling_logs
+from coworker.channels.weixin.media import (
+    WeixinMediaTooLargeError,
+    extension_for_mime,
+    format_size,
+    guess_file_mime,
+    resolve_media_key,
+    safe_filename,
+    sniff_image_mime,
+)
 from coworker.channels.weixin.repository import WeixinConnection
 from coworker.channels.weixin.state import (
     WeixinConnectionState,
     WeixinStateStore,
 )
-from coworker.core.types import IncomingEvent
+from coworker.core.ids import new_compact_id
+from coworker.core.types import AttachmentData, IncomingEvent
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -42,6 +53,7 @@ _FILE_ITEM_TYPE = 4
 _VIDEO_ITEM_TYPE = 5
 _RETRY_SECONDS = 3.0
 _TERMINAL_LOGIN_STATUSES = {"expired", "verify_code_blocked", "binded_redirect"}
+_INLINE_BASE64_LIMIT = 10 * 1024 * 1024
 
 
 @dataclass
@@ -51,6 +63,18 @@ class _LoginSession:
     qrcode_content: str
     image_path: Path
     status: str = "wait"
+
+
+@dataclass(frozen=True)
+class _MediaRef:
+    """Downloadable media extracted from one inbound message item."""
+
+    item_type: int
+    encrypt_query_param: str = ""
+    full_url: str = ""
+    aeskey_hex: str = ""
+    media_aes_key: str = ""
+    filename: str = ""
 
 
 class WeixinRunner:
@@ -64,6 +88,7 @@ class WeixinRunner:
         connections: list[WeixinConnection],
         state_path: Path,
         activity: ChannelActivityStore | None = None,
+        attachments_dir: Path | None = None,
     ) -> None:
         configure_weixin_polling_logs()
         self._config = config.model_copy(deep=True)
@@ -73,6 +98,7 @@ class WeixinRunner:
         self._state_store = WeixinStateStore(state_path)
         self._state_path = state_path
         self._state = self._state_store.load()
+        self._attachments_dir = attachments_dir or state_path.parent / "attachments"
         self._activity = activity or ChannelActivityStore()
         self._inbound_handler: InboundHandler | None = None
         self._clients: dict[str, WeixinClient] = {}
@@ -385,15 +411,99 @@ class WeixinRunner:
         if self._inbound_handler is None:
             logger.warning(tr("channel.weixin.inbound_unhandled"))
             return
+        content = _message_text(message)
+        attachments: list[AttachmentData] = []
+        for ref in _media_refs(message):
+            try:
+                attachments.append(await self._download_media(client, ref))
+            except WeixinMediaTooLargeError as error:
+                content = (
+                    f"{content}\n"
+                    f"{tr(
+                        'channel.weixin.attachment_skipped',
+                        filename=ref.filename,
+                        size=format_size(error.size),
+                        limit=format_size(error.limit),
+                    )}"
+                )
+            except Exception as error:
+                logger.warning(
+                    tr(
+                        "channel.weixin.download_failed",
+                        account=bot_instance_id,
+                        filename=ref.filename,
+                        error=error,
+                    )
+                )
+                content = (
+                    f"{content}\n"
+                    f"{tr('channel.weixin.attachment_unavailable', filename=ref.filename)}"
+                )
         await self._inbound_handler(
             IncomingEvent(
                 participant_id=participant_id,
-                content=_message_text(message),
+                content=content,
                 conversation_id=str(message.get("session_id") or "") or None,
                 source="weixin",
+                attachments=attachments,
                 event_id=str(message.get("message_id") or "") or None,
             )
         )
+
+    async def _download_media(
+        self,
+        client: WeixinClient,
+        ref: _MediaRef,
+    ) -> AttachmentData:
+        self._attachments_dir.mkdir(parents=True, exist_ok=True)
+        stem = safe_filename(ref.filename)
+        destination = self._reserve_attachment_path(stem)
+        try:
+            size = await client.download_media(
+                destination,
+                encrypt_query_param=ref.encrypt_query_param,
+                aes_key=resolve_media_key(ref.aeskey_hex, ref.media_aes_key),
+                full_url=ref.full_url,
+                max_bytes=self._config.max_download_mb * 1024 * 1024,
+            )
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        if ref.item_type == _IMAGE_ITEM_TYPE:
+            media_type = sniff_image_mime(destination.read_bytes())
+            suffix = extension_for_mime(media_type)
+            filename = f"{stem}{suffix}"
+            final_path = destination.with_name(f"{destination.name}{suffix}")
+            if not final_path.exists():
+                destination.rename(final_path)
+                destination = final_path
+        elif ref.item_type == _FILE_ITEM_TYPE:
+            media_type = guess_file_mime(stem)
+            filename = stem
+        else:
+            media_type = "video/mp4"
+            filename = stem
+        inline = size <= _INLINE_BASE64_LIMIT and (
+            media_type.startswith("image/") or media_type == "application/pdf"
+        )
+        return AttachmentData(
+            filename=filename,
+            media_type=media_type,
+            saved_path=str(destination),
+            data=base64.b64encode(destination.read_bytes()).decode("ascii")
+            if inline
+            else None,
+        )
+
+    def _reserve_attachment_path(self, filename: str) -> Path:
+        while True:
+            candidate = self._attachments_dir / f"{secrets.randbelow(1_000_000):06d}_{filename}"
+            try:
+                handle = candidate.open("xb")
+            except FileExistsError:
+                continue
+            handle.close()
+            return candidate
 
     def _connection(self, bot_instance_id: str) -> WeixinConnection:
         connection = self._connections.get(bot_instance_id)
@@ -506,6 +616,65 @@ def _message_text(message: dict[str, Any]) -> str:
         elif item_type in labels:
             parts.append(labels[item_type])
     return "\n".join(parts) or tr("channel.weixin.unsupported")
+
+
+def _item_dict(item: dict[str, Any], key: str) -> dict[str, Any]:
+    payload = item.get(key)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _media_refs(message: dict[str, Any]) -> list[_MediaRef]:
+    """Extract downloadable media from message items.
+
+    Field requirements mirror the official ``@tencent-weixin/openclaw-weixin``
+    client: an image needs CDN coordinates (``encrypt_query_param`` or
+    ``full_url``) with an optional key (plain CDN bytes otherwise), while file
+    and video items additionally require ``media.aes_key``. Voice stays
+    transcript-only, matching the official SILK-transcode boundary.
+    """
+    refs: list[_MediaRef] = []
+    for item in message.get("item_list") or []:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == _IMAGE_ITEM_TYPE:
+            item_payload = _item_dict(item, "image_item")
+            media = _item_dict(item_payload, "media")
+            if not (media.get("encrypt_query_param") or media.get("full_url")):
+                continue
+            refs.append(
+                _MediaRef(
+                    item_type=item_type,
+                    encrypt_query_param=str(media.get("encrypt_query_param") or ""),
+                    full_url=str(media.get("full_url") or ""),
+                    aeskey_hex=str(item_payload.get("aeskey") or ""),
+                    media_aes_key=str(media.get("aes_key") or ""),
+                    filename=f"weixin-image-{new_compact_id()}",
+                )
+            )
+        elif item_type in (_FILE_ITEM_TYPE, _VIDEO_ITEM_TYPE):
+            key = "file_item" if item_type == _FILE_ITEM_TYPE else "video_item"
+            media = _item_dict(_item_dict(item, key), "media")
+            if not (media.get("encrypt_query_param") or media.get("full_url")):
+                continue
+            media_aes_key = str(media.get("aes_key") or "")
+            if not media_aes_key:
+                continue
+            if item_type == _FILE_ITEM_TYPE:
+                fallback = f"weixin-file-{new_compact_id()}"
+                filename = str(_item_dict(item, "file_item").get("file_name") or fallback)
+            else:
+                filename = f"weixin-video-{new_compact_id()}"
+            refs.append(
+                _MediaRef(
+                    item_type=item_type,
+                    encrypt_query_param=str(media.get("encrypt_query_param") or ""),
+                    full_url=str(media.get("full_url") or ""),
+                    media_aes_key=media_aes_key,
+                    filename=filename,
+                )
+            )
+    return refs
 
 
 def _render_qrcode(content: str) -> bytes:
