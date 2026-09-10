@@ -58,6 +58,8 @@ HOT_CONFIG_PATHS = {
     "agent.idle_sleep_seconds",
     "agent.passive_mode",
     "agent.paused",
+    "agent.channel_progress_enabled",
+    "agent.channel_progress_reply_reminder_seconds",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
     "agent.concurrency_hint_window_seconds",
@@ -605,6 +607,13 @@ class AdminConfigService:
                         threshold=desired.agent.concurrency_hint_threshold,
                         cooldown_seconds=desired.agent.concurrency_hint_cooldown_seconds,
                     )
+            elif path == "agent.channel_progress_enabled":
+                builder = getattr(self._dependencies.agent, "_prompt_builder", None)
+                if builder is not None and hasattr(builder, "set_channel_progress_enabled"):
+                    builder.set_channel_progress_enabled(
+                        desired.agent.channel_progress_enabled
+                    )
+                self._dependencies.agent.refresh_system_prompt()
             elif path == "api.communication_token":
                 # 管理后台保存通信令牌后立即替换现有 ASGI 路由的校验值。
                 # 显式清空时回退到管理员令牌，并保持“未显式配置”标记。

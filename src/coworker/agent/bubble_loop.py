@@ -338,6 +338,8 @@ class BubbleMiniLoop:
                 )
             )
 
+            self._inject_reply_reminders()
+
             if not response.tool_calls:
                 nudge = tr("bubble.nudge")
                 self._stm.primary.append(Message(role="user", content=nudge))
@@ -358,6 +360,29 @@ class BubbleMiniLoop:
 
         if not bubble.is_terminal() and cycle >= max_cycles:
             await self._auto_summarize()
+
+    def _progress_coordinator(self):
+        communicate = self._communicate
+        if communicate is None:
+            return None
+        channels = getattr(communicate, "_channels", None)
+        return getattr(channels, "_progress", None)
+
+    def _inject_reply_reminders(self) -> None:
+        progress = self._progress_coordinator()
+        if progress is None:
+            return
+        injected = progress.inject_reply_reminders(
+            self._short_term,
+            participant_id=self._bubble.participant_id or None,
+        )
+        if injected and self._ilog:
+            for content in injected:
+                self._ilog.log_message_in(
+                    participant_id="system",
+                    content=content,
+                    source="system_reminder",
+                )
 
     async def _drain_inbox(self) -> None:
         bubble = self._bubble

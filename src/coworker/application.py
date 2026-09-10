@@ -31,6 +31,7 @@ from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
 from coworker.channels.openai import OpenAIModule, create_openai_module
+from coworker.channels.progress import ChannelProgressCoordinator
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -739,6 +740,8 @@ async def _main() -> bool:
         access_config=config.channel_access,
         traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
     )
+    progress = ChannelProgressCoordinator(channel_system.registry, config)
+    channel_system.registry.set_progress_coordinator(progress)
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None
     openai_module: OpenAIModule | None = None
@@ -878,6 +881,7 @@ async def _main() -> bool:
         thinking_path="data/thinking.md",
         git_commit=current_env.get("git_commit"),
         system_prompt_template=config.agent.system_prompt_template,
+        channel_progress_enabled=config.agent.channel_progress_enabled,
     )
 
     bubble_store: BubbleStore | None = None
@@ -1026,7 +1030,9 @@ async def _main() -> bool:
         bubble_store=bubble_store,
         subconscious=subconscious,
         persona=persona_context,
+        progress=progress,
     )
+    progress.set_setup_predicate(lambda: agent_loop.state.setup_mode)
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)
     desktop_update_runtime = build_runtime_spec(config.desktop_updates)

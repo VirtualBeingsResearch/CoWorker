@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from coworker.agent.interaction_log import InteractionLogger
     from coworker.agent.subconscious import SubconsciousScheduler
     from coworker.brain.brain import Brain
+    from coworker.channels.progress import ChannelProgressCoordinator
     from coworker.core.config import Config
     from coworker.identity.identity import Identity
     from coworker.memory.long_term import LongTermMemory
@@ -64,6 +65,7 @@ class AgentLoop:
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
         persona: PersonaContext | None = None,
+        progress: ChannelProgressCoordinator | None = None,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -94,6 +96,7 @@ class AgentLoop:
             threshold=config.agent.concurrency_hint_threshold,
             cooldown_seconds=config.agent.concurrency_hint_cooldown_seconds,
         )
+        self._progress = progress
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -237,11 +240,7 @@ class AgentLoop:
 
     def resume_from_rest(self) -> bool:
         """Wake a resting loop without adding a message to its context."""
-        if (
-            not self.state.is_running
-            or not self.state.is_sleeping
-            or self._stop_event.is_set()
-        ):
+        if not self.state.is_running or not self.state.is_sleeping or self._stop_event.is_set():
             return False
         # 普通休眠等 message_event，管理端暂停停靠等 resume_event；
         # 两个事件同时触发即可覆盖两种停靠，多余的信号会在下一次
@@ -358,8 +357,10 @@ class AgentLoop:
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
-            and ((self._short_term.primary and self._short_term.primary[-1].role != "user")
-                or not self._short_term.primary)
+            and (
+                (self._short_term.primary and self._short_term.primary[-1].role != "user")
+                or not self._short_term.primary
+            )
         ):
             tick_content = f"<{TICK_TAG}>"
             message = Message(role="user", content=tick_content, source="tick")
@@ -456,6 +457,8 @@ class AgentLoop:
         )
         self._short_term.primary.append(assistant_msg)
 
+        self._inject_reply_reminders()
+
         if response.tool_calls:
             self._consecutive_no_tool_responses = 0
             # 执行工具前先保存快照，使崩溃恢复时能检测到待处理的 tool_call
@@ -548,8 +551,7 @@ class AgentLoop:
         if compressed:
             source = "provider" if observed_input_tokens > 0 else "estimated"
             logger.info(
-                f"Context compression budget reached ({source}); "
-                f"compressed {compressed} message(s)"
+                f"Context compression budget reached ({source}); compressed {compressed} message(s)"
             )
 
     async def _act(self, tool_calls) -> None:
@@ -778,6 +780,37 @@ class AgentLoop:
                 source="cycle",
             )
         logger.debug(f"Task reminder injected: {len(active)} active tasks")
+
+    def _inject_reply_reminders(self) -> None:
+        progress = getattr(self, "_progress", None)
+        if progress is None:
+            return
+        injected = progress.inject_reply_reminders(
+            self._short_term,
+            claimed=self._progress_reminder_claimed,
+        )
+        if injected and self._ilog:
+            for content in injected:
+                self._ilog.log_message_in(
+                    participant_id="system",
+                    content=content,
+                    source="system_reminder",
+                )
+
+    def _progress_reminder_claimed(self, placeholder: object) -> bool:
+        store = self._bubble_store
+        if store is None:
+            return False
+        participant_id = getattr(placeholder, "participant_id", "")
+        if not participant_id:
+            return False
+        return (
+            store.find_active_for_message(
+                participant_id,
+                getattr(placeholder, "conversation_id", None),
+            )
+            is not None
+        )
 
     async def _task_watcher(self) -> None:
         task_store = self._task_store

@@ -205,6 +205,7 @@ class IncomingEvent:
     source: str = "file"
     attachments: list[AttachmentData] = field(default_factory=list)
     event_id: str | None = None
+    speaker_id: str | None = None
 
 
 @dataclass

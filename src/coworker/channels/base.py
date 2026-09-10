@@ -12,6 +12,7 @@ from loguru import logger
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.inbound import InboundEnvelope
+from coworker.channels.progress import ProgressTransport
 from coworker.channels.runtime import DEFAULT_RUNTIME, ChannelRuntime
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
@@ -38,11 +39,17 @@ class ParticipantIdResolutionError(ValueError):
 
 @dataclass(frozen=True)
 class ChannelCapabilities:
-    """Optional outbound fields accepted by a channel."""
+    """Optional fields and behaviors a channel opts into when it registers.
+
+    ``conversation_id``, ``attachments``, and ``extra`` are outbound request
+    fields stripped by :meth:`filter`. ``progress`` is inbound placeholder
+    support and is not a ``communicate`` field.
+    """
 
     conversation_id: bool = False
     attachments: bool = False
     extra: bool = False
+    progress: bool = False
 
     def filter(
         self, request: CommunicateRequest
@@ -201,6 +208,26 @@ class BaseChannel(ABC):
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
         return self._capabilities
+
+    def progress_is_group(self, event: IncomingEvent) -> bool:
+        return False
+
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> ProgressTransport | None:
+        return None
+
+    async def overwrite_progress(
+        self,
+        transport: ProgressTransport,
+        request: CommunicateRequest,
+    ) -> ToolResult:
+        return await self.send(request)
+
+    async def close_progress(self, transport: ProgressTransport, text: str) -> None:
+        return None
 
     def list_connections(self) -> list[ConnectionInfo]:
         return []

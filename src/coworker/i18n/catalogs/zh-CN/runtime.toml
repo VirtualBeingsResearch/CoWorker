@@ -105,6 +105,11 @@ config_type_invalid = "WeCom 设置需要 WeComConfig"
 prepared = "企业微信运行时已准备好 {{count}} 个启用的 Bot 实例"
 instance_unknown = "企业微信 Bot 实例不存在：{{instance}}"
 
+[channel.progress]
+thinking = "正在思考中…"
+replaced = "收到后续消息"
+superseded = "已在本群回复。"
+
 [channel.weixin]
 image = "[图片]"
 voice = "[未提供转写的语音消息]"
@@ -344,6 +349,7 @@ task_details_hint = " has_details=true，请用 task_get 查看"
 task_pin_label = "未完成任务"
 task_board_more = "……以及另外 {{count}} 个，用 task_list 查看"
 concurrency_hint = "[并行提示] 近期有 {{count}} 个会话同时活跃，适合用并行思维（bubble）并发处理"
+reply_reminder = "[回复催促] {{participant}} 已等待 {{seconds}} 秒仍未收到 communicate 回复。若仍需回复，请立即调用 communicate。"
 
 [bubble]
 cancelled = "泡泡被手动取消"
