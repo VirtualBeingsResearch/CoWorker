@@ -276,6 +276,7 @@ class _TelegramBotRuntime:
                 source="telegram",
                 attachments=attachments,
                 event_id=f"telegram:{self.instance_id}:{update_id}",
+                speaker_id=adapter.speaker_id_for(message),
             )
         )
         assert self._state.contacts is not None
@@ -485,6 +486,65 @@ class TelegramRunner:
                 tr("channel.telegram.instance_unknown", instance=instance_id)
             )
         await bot.send(participant_id, message, attachments, conversation_id)
+
+    async def send_progress_message(
+        self,
+        participant_id: str,
+        text: str,
+        conversation_id: str | None,
+    ) -> tuple[int, int, int | None]:
+        instance_id, chat_id = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            raise ValueError(
+                tr("channel.telegram.instance_unknown", instance=instance_id)
+            )
+        client = bot._client
+        if client is None or not bot.ready:
+            raise RuntimeError(
+                tr("channel.telegram.bot_unavailable", instance=instance_id)
+            )
+        thread_id = _thread_id(conversation_id)
+        message_id = await client.send_message(chat_id, text, thread_id)
+        if not isinstance(message_id, int):
+            raise RuntimeError("Telegram send_message returned no message_id")
+        return chat_id, message_id, thread_id
+
+    async def edit_progress_message(
+        self,
+        participant_id: str,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        conversation_id: str | None,
+        extra_chunks: list[str],
+        attachments: list[dict[str, Any]],
+    ) -> None:
+        instance_id, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            raise ValueError(
+                tr("channel.telegram.instance_unknown", instance=instance_id)
+            )
+        client = bot._client
+        if client is None or not bot.ready:
+            raise RuntimeError(
+                tr("channel.telegram.bot_unavailable", instance=instance_id)
+            )
+        await client.edit_message_text(chat_id, message_id, text)
+        thread_id = _thread_id(conversation_id)
+        for chunk in extra_chunks:
+            await client.send_message(chat_id, chunk, thread_id)
+        for attachment in attachments:
+            await client.send_attachment(chat_id, attachment, thread_id)
+        bot._activity.record_sent(participant_id)
+
+    async def delete_progress_message(self, participant_id: str, chat_id: int, message_id: int) -> None:
+        instance_id, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None or bot._client is None:
+            return
+        await bot._client.delete_message(chat_id, message_id)
 
     def resolve_participant(self, participant_id: str) -> str | None:
         instance_hint = ""

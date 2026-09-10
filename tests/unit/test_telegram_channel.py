@@ -101,6 +101,7 @@ async def test_python_telegram_bot_adapter_uses_typed_bot_api() -> None:
     bot.get_updates.return_value = [
         SimpleNamespace(to_dict=lambda: {"update_id": 7, "message": {}})
     ]
+    bot.send_message.return_value = SimpleNamespace(message_id=88)
     client = TelegramClient(
         "secret-token",
         "https://telegram.example/api",
@@ -109,7 +110,7 @@ async def test_python_telegram_bot_adapter_uses_typed_bot_api() -> None:
 
     assert await client.get_me() == {"id": 42, "is_bot": True}
     assert await client.get_updates(7, 30) == [{"update_id": 7, "message": {}}]
-    await client.send_message(-1001, "hello", 19)
+    assert await client.send_message(-1001, "hello", 19) == 88
     await client.close()
 
     bot.initialize.assert_awaited_once()

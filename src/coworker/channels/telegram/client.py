@@ -81,12 +81,31 @@ class TelegramClient:
         chat_id: int,
         text: str,
         message_thread_id: int | None = None,
-    ) -> None:
-        await self._bot.send_message(
+    ) -> int:
+        result = await self._bot.send_message(
             chat_id=chat_id,
             text=text,
             message_thread_id=message_thread_id,
         )
+        message_id = getattr(result, "message_id", None)
+        if not isinstance(message_id, int):
+            raise RuntimeError("Telegram send_message returned no message_id")
+        return message_id
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+    ) -> None:
+        await self._bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        await self._bot.delete_message(chat_id=chat_id, message_id=message_id)
 
     async def send_attachment(
         self,
