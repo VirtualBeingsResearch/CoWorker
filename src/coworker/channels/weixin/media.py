@@ -13,12 +13,13 @@ import base64
 import binascii
 import io
 import mimetypes
-import re
 from pathlib import Path
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image, UnidentifiedImageError
+
+from coworker.channels.filenames import safe_attachment_filename
 
 WEIXIN_MEDIA_MAX_BYTES = 100 * 1024 * 1024
 _DECRYPT_CHUNK_BYTES = 1024 * 1024
@@ -187,11 +188,4 @@ def extension_for_mime(mime: str) -> str:
 
 def safe_filename(value: str) -> str:
     """Clamp a media filename to a filesystem-safe basename."""
-    name = re.split(r"[\\/]+", value or "")[-1].strip(" .")
-    if not name:
-        return "weixin-attachment"
-    if len(name) <= 180:
-        return name
-    suffix = Path(name).suffix[:20]
-    stem_limit = 180 - len(suffix)
-    return f"{Path(name).stem[:stem_limit]}{suffix}"
+    return safe_attachment_filename(value, fallback="weixin-attachment")

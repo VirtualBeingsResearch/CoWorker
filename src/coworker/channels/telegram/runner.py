@@ -15,6 +15,7 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
+from coworker.channels.filenames import safe_attachment_filename
 from coworker.channels.telegram import adapter
 from coworker.channels.telegram.client import (
     TelegramClient,
@@ -341,7 +342,10 @@ class _TelegramBotRuntime:
         client: TelegramClient,
         media: adapter.TelegramMedia,
     ) -> AttachmentData:
-        filename = _safe_filename(media.filename)
+        filename = safe_attachment_filename(
+            media.filename,
+            fallback="telegram-attachment",
+        )
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         destination = self._reserve_attachment_path(filename)
         size = await client.download_file(media.file_id, destination)
@@ -676,12 +680,3 @@ def _thread_id(value: str | None) -> int | None:
             tr("channel.telegram.conversation_invalid", conversation=value)
         )
     return thread_id
-
-
-def _safe_filename(value: str) -> str:
-    name = Path(value).name or "telegram-attachment"
-    if len(name) <= 180:
-        return name
-    suffix = Path(name).suffix[:20]
-    stem_limit = 180 - len(suffix)
-    return f"{Path(name).stem[:stem_limit]}{suffix}"
