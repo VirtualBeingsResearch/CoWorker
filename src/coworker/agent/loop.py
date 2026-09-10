@@ -391,6 +391,10 @@ class AgentLoop:
                 Message(role="user", content=notice, source="model_switch")
             )
 
+        # 催促必须在构建请求前注入：此时上一条 assistant[tool_use] 的 tool_result
+        # 已经就位，插在两者之间会让 provider 拒绝该请求。
+        self._inject_reply_reminders()
+
         messages = self._short_term.build_context()
         if self._ilog:
             self._ilog.log_thinking_start(
@@ -456,8 +460,6 @@ class AgentLoop:
             duration_ms=duration_ms,
         )
         self._short_term.primary.append(assistant_msg)
-
-        self._inject_reply_reminders()
 
         if response.tool_calls:
             self._consecutive_no_tool_responses = 0

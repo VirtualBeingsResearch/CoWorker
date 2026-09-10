@@ -8,18 +8,32 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
+from coworker.agent.bubble_loop import BubbleMiniLoop
+from coworker.agent.inbox_watcher import InboxWatcher
+from coworker.agent.loop import AgentLoop
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import BaseChannel, ChannelCapabilities
-from coworker.channels.progress import ChannelProgressCoordinator, ProgressTransport
+from coworker.channels.progress import (
+    ChannelProgressCoordinator,
+    ProgressPlaceholder,
+    ProgressTransport,
+)
 from coworker.channels.registry import ChannelRegistry
 from coworker.channels.telegram.channel import TelegramChannel
 from coworker.channels.telegram.runner import TelegramRunner
 from coworker.channels.wecom.channel import WeComChannel
 from coworker.channels.wecom.runner import WeComRunner
 from coworker.core.config import AgentConfig, TelegramConfig, WeComConfig
-from coworker.core.types import CommunicateRequest, IncomingEvent, Message, ToolResult
+from coworker.core.types import (
+    AgentState,
+    CommunicateRequest,
+    IncomingEvent,
+    Message,
+    ToolResult,
+)
 from coworker.i18n import locale_context, tr
 from coworker.identity.identity import Identity
+from coworker.memory.short_term import ShortTermMemory
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.skills.loader import SkillLoader
 from coworker.tools.file_tools import ReadFileTool
@@ -514,3 +528,149 @@ async def test_reply_reminder_skips_claimed_placeholder(tmp_path):
     assert skipped == []
     due = progress.consume_due_reminders()
     assert due and due[0][0] == "wecom:default:single:U123"
+
+
+# ── 催促注入的位置 ──────────────────────────────────────────────────────────
+#
+# 催促是 role="user" 的消息，只能在「上一条 assistant[tool_use] 的 tool_result 已
+# 经就位」之后注入。插在两者之间会让 provider 拿到
+# assistant[tool_use] → user[text] → user[tool_result]，直接拒绝该请求。
+
+def _due_placeholder(participant_id: str) -> ProgressPlaceholder:
+    return ProgressPlaceholder(
+        participant_id=participant_id,
+        conversation_id=None,
+        opened_at=time.monotonic() - 120,
+        transport=ProgressTransport(channel="telegram"),
+    )
+
+
+def _assert_tool_calls_are_paired(messages: list[Message]) -> None:
+    for index, message in enumerate(messages):
+        if message.role != "assistant" or not message.tool_calls:
+            continue
+        expected = ["tool"] * len(message.tool_calls)
+        following = [item.role for item in messages[index + 1 : index + 1 + len(expected)]]
+        assert following == expected, (
+            "每一条 tool_use 后面必须紧跟它自己的 tool_result，实际顺序为 "
+            f"{[item.role for item in messages]}"
+        )
+
+
+class _StubBrain:
+    """按脚本返回响应，并记录每次请求实际看到的上下文。"""
+
+    current_provider_name = "stub"
+    current_model = "stub-model"
+    current_model_has_vision = False
+    thinking = False
+    thinking_effort = None
+
+    def __init__(self, responses: list[SimpleNamespace]) -> None:
+        self._responses = list(responses)
+        self.requests: list[list[Message]] = []
+
+    async def think(self, messages, system_prompt, tools) -> SimpleNamespace:
+        self.requests.append(list(messages))
+        return self._responses.pop(0)
+
+
+def _tool_use_response() -> SimpleNamespace:
+    return SimpleNamespace(
+        content="",
+        reasoning_content=None,
+        tool_calls=[SimpleNamespace(id="t1", name="list_connections", arguments={})],
+        stop_reason="tool_use",
+        model="stub-model",
+        usage={"input_tokens": 1, "output_tokens": 1},
+    )
+
+
+def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
+    loop = AgentLoop.__new__(AgentLoop)
+    config = MagicMock()
+    config.agent.paused = False
+    config.agent.passive_mode = False
+    config.agent.tick = False
+    config.agent.inbox_batch_max = 10
+    loop._config = config
+    loop._inbox = InboxWatcher(str(tmp_path / "inbox"))
+    loop._short_term = ShortTermMemory()
+    loop._long_term = MagicMock()
+    loop._long_term.is_ready.return_value = False
+    loop._tools = MagicMock()
+    loop._tools.get_schemas.return_value = []
+    loop._tools.execute = AsyncMock(return_value=ToolResult(tool_call_id="t1", content="ok"))
+    loop._prompt_builder = MagicMock()
+    loop._prompt_builder.build.return_value = "system"
+    loop._prompt_builder.consume_skill_load_warnings.return_value = []
+    loop._brain = _StubBrain([_tool_use_response()])
+    loop._progress = progress
+    loop._ilog = None
+    loop._snapshot_path = None
+    loop._task_store = None
+    loop._bubble_store = None
+    loop._subconscious = None
+    loop._persona = None
+    loop._last_compress_generation = loop._short_term.compress_generation
+    loop.state = AgentState(current_provider="stub", current_model="stub-model")
+    return loop
+
+
+@pytest.mark.asyncio
+async def test_main_cycle_keeps_tool_results_attached_to_their_tool_calls(tmp_path):
+    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
+    progress._placeholders["tg:main:123"] = _due_placeholder("tg:main:123")
+    loop = _main_loop_for_reminder(tmp_path, progress)
+
+    await loop._cycle()
+
+    primary = loop._short_term.primary
+    assert [message for message in primary if message.source == "system_reminder"], (
+        "到期的占位必须注入催促，否则这个用例没有覆盖要防的场景"
+    )
+    assert [message for message in primary if message.tool_calls], "脚本响应应带一个工具调用"
+    _assert_tool_calls_are_paired(primary)
+
+
+def _bubble_loop_for_reminder(progress, *, participant_id: str) -> BubbleMiniLoop:
+    loop = BubbleMiniLoop.__new__(BubbleMiniLoop)
+    loop._bubble = SimpleNamespace(participant_id=participant_id)
+    # BubbleMiniLoop 通过只读属性暴露 _short_term，真实字段是 _stm。
+    loop._stm = ShortTermMemory()
+    loop._ilog = None
+    loop._communicate = SimpleNamespace(_channels=SimpleNamespace(_progress=progress))
+    return loop
+
+
+def test_unbound_bubble_leaves_reply_reminders_for_the_main_loop():
+    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
+    progress._placeholders["wecom:default:single:U1"] = _due_placeholder(
+        "wecom:default:single:U1"
+    )
+    bubble_loop = _bubble_loop_for_reminder(progress, participant_id="")
+
+    bubble_loop._inject_reply_reminders()
+
+    assert bubble_loop._short_term.primary == []
+    assert progress.consume_due_reminders() == [("wecom:default:single:U1", 120)]
+
+
+def test_bound_bubble_consumes_its_own_reply_reminder():
+    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
+    progress._placeholders["wecom:default:single:U1"] = _due_placeholder(
+        "wecom:default:single:U1"
+    )
+    progress._placeholders["wecom:default:single:U2"] = _due_placeholder(
+        "wecom:default:single:U2"
+    )
+    bubble_loop = _bubble_loop_for_reminder(
+        progress, participant_id="wecom:default:single:U1"
+    )
+
+    bubble_loop._inject_reply_reminders()
+
+    assert [message.source for message in bubble_loop._short_term.primary] == [
+        "system_reminder"
+    ]
+    assert progress.consume_due_reminders() == [("wecom:default:single:U2", 120)]

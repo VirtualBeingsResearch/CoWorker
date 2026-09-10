@@ -280,6 +280,9 @@ class BubbleMiniLoop:
             await self._drain_inbox()
             self._warn_if_bursting(cycle, max_cycles)
             self._stm.reinject_missing_pins()
+            # 催促必须在构建请求前注入：此时上一条 assistant[tool_use] 的 tool_result
+            # 已经就位，插在两者之间会让 provider 拒绝该请求。
+            self._inject_reply_reminders()
             tool_schemas = scoped_tools.get_schemas(
                 model_has_vision=self._brain.current_model_has_vision
             )
@@ -338,8 +341,6 @@ class BubbleMiniLoop:
                 )
             )
 
-            self._inject_reply_reminders()
-
             if not response.tool_calls:
                 nudge = tr("bubble.nudge")
                 self._stm.primary.append(Message(role="user", content=nudge))
@@ -372,9 +373,14 @@ class BubbleMiniLoop:
         progress = self._progress_coordinator()
         if progress is None:
             return
+        participant_id = self._bubble.participant_id
+        if not participant_id:
+            # 未绑定对象的泡泡不能对外回复；若不过滤，它会消费掉其他对象待回复的
+            # 催促使，而真正需要催促的主线拿不到。
+            return
         injected = progress.inject_reply_reminders(
             self._short_term,
-            participant_id=self._bubble.participant_id or None,
+            participant_id=participant_id,
         )
         if injected and self._ilog:
             for content in injected:
