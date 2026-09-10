@@ -82,7 +82,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。群聊发送时不传 `conversation_id` 也始终视为主动消息，不会自动使用缓存的 frame。
 
-开启 `AGENT__CHANNEL_PROGRESS_ENABLED` 后，企业微信单聊会在入站被接受时用同一 `stream_id` 发送 `reply_stream(..., finish=False)` 处理中占位，并持有该 frame；第一次 `communicate` 用同一 `stream_id` 覆盖后 `finish=True`。对方在正式回复前又来一条时，旧占位会被改写成「收到后续消息」，再在最新入站上开新占位。未覆盖的占位会一直留到对应的 `communicate`，休息时不会替模型收口。群聊不开占位：群消息仍按上面的规则把 frame 留给回复引用。流式覆盖失败则降级为普通 `send_message`。超长 markdown 仍按现有分块：第一块覆盖流并结束，其余块继续主动发送。
+开启 `AGENT__CHANNEL_PROGRESS_ENABLED` 后，企业微信单聊会在入站被接受时用同一 `stream_id` 发送 `reply_stream(..., finish=False)` 处理中占位，并持有该 frame；第一次 `communicate` 用同一 `stream_id` 覆盖后 `finish=True`。对方在正式回复前又来一条时，旧占位会被改写成「收到后续消息」，再在最新入站上开新占位。超过 `AGENT__CHANNEL_PROGRESS_TIMEOUT_SECONDS`（默认 600 秒）仍未被覆盖的占位会被换成一句中性说明并结束，同时告知模型占位已不存在；模型之后若再回复，会作为一条新消息发出而不是覆盖占位。进程退出前也会对存活占位做同样处理，避免重启后那条「正在思考中…」永久留在对方那里。群聊不开占位：群消息仍按上面的规则把 frame 留给回复引用。流式覆盖失败则降级为普通 `send_message`。超长 markdown 仍按现有分块：第一块覆盖流并结束，其余块继续主动发送。
 
 企业微信入站消息引用图片、文件、视频或包含图片的图文混排消息时，WeCom Channel 会在访问控制通过后下载引用附件，并与当前消息的附件一起交给 Agent。下载失败时，入站内容会标明对应附件下载失败；底层错误只写入运行日志，不会向 Agent 暴露下载 URL、AES key 或异常详情，当前消息也不会被丢弃。
 
@@ -96,7 +96,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 Telegram 使用 `tg:<instance_id>:<chat_id>` 区分多个 Bot 下的已知聊天，forum topic 的
 `message_thread_id` 作为 `conversation_id`。它支持文本与附件，并只会向已通过入站消息发现的
-chat 发送；完整行为与配置见 [Telegram](telegram.md)。开启处理提示后，Telegram 私聊先发送占位消息，正式回复用 `edit_message_text` 覆盖；对方后续入站会把旧占位改成收口说明，再发新的。群聊、频道，以及微信 Claw、Stream、Desktop 与 OpenAI 兼容信道不显示用户可见占位。
+chat 发送；完整行为与配置见 [Telegram](telegram.md)。开启处理提示后，Telegram 私聊先发送占位消息，正式回复用 `edit_message_text` 覆盖；对方后续入站会把旧占位换成一句说明并结束，再发新的。群聊、频道，以及微信 Claw、Stream、Desktop 与 OpenAI 兼容信道不显示用户可见占位。
 
 需要入站时覆写 `receive_raw`，归一化为 `IncomingEvent` 后调用 `publish_inbound`；需要后台连接时注入实现了 `start` / `stop` 的 `ChannelRuntime`。Registry 会拒绝重复名称、重复 participant 前缀和启动后的迟到注册，让配置错误在启动阶段直接暴露。
 

@@ -79,4 +79,5 @@ openai = '''OpenAI-compatible HTTP:
 progress = '''Processing placeholders:
 - One-to-one WeCom and Telegram chats support in-place updates: the system already showed the recipient a processing placeholder when their message was accepted. Group chats show none; reply to a group with the inbound `conversation_id` as usual.
 - The first `communicate` to that chat overwrites the placeholder. Do not send a separate "got it" or "thinking" notice; reply with the substance directly.
-- If they send again, the system closes the old placeholder with a short "got a follow-up message" notice. Unanswered placeholders stay until you overwrite them; rest does not close them for you.'''
+- If they send again, the system replaces the old placeholder with a short "got a follow-up message" notice and ends it.
+- A placeholder left unanswered for long enough is replaced by the system with a neutral notice and ends. You can still reply with `communicate` afterwards, but it arrives as a new message instead of overwriting the placeholder.'''

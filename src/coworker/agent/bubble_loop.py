@@ -280,8 +280,10 @@ class BubbleMiniLoop:
             await self._drain_inbox()
             self._warn_if_bursting(cycle, max_cycles)
             self._stm.reinject_missing_pins()
-            # 催促必须在构建请求前注入：此时上一条 assistant[tool_use] 的 tool_result
-            # 已经就位，插在两者之间会让 provider 拒绝该请求。
+            # 先结束超时的占位再催促：已经结束的占位不该再催一遍。两者都必须在构建
+            # 请求前注入——此时上一条 assistant[tool_use] 的 tool_result 已经就位，
+            # 插在两者之间会让 provider 拒绝该请求。
+            await self._expire_placeholders()
             self._inject_reply_reminders()
             tool_schemas = scoped_tools.get_schemas(
                 model_has_vision=self._brain.current_model_has_vision
@@ -369,26 +371,42 @@ class BubbleMiniLoop:
         channels = getattr(communicate, "_channels", None)
         return getattr(channels, "_progress", None)
 
+    async def _expire_placeholders(self) -> None:
+        progress = self._progress_coordinator()
+        participant_id = self._bound_participant_id()
+        if progress is None or participant_id is None:
+            return
+        expired = await progress.expire_unanswered(
+            self._short_term,
+            participant_id=participant_id,
+        )
+        self._log_placeholder_notices(expired)
+
     def _inject_reply_reminders(self) -> None:
         progress = self._progress_coordinator()
-        if progress is None:
-            return
-        participant_id = self._bubble.participant_id
-        if not participant_id:
-            # 未绑定对象的泡泡不能对外回复；若不过滤，它会消费掉其他对象待回复的
-            # 催促使，而真正需要催促的主线拿不到。
+        participant_id = self._bound_participant_id()
+        if progress is None or participant_id is None:
             return
         injected = progress.inject_reply_reminders(
             self._short_term,
             participant_id=participant_id,
         )
-        if injected and self._ilog:
-            for content in injected:
-                self._ilog.log_message_in(
-                    participant_id="system",
-                    content=content,
-                    source="system_reminder",
-                )
+        self._log_placeholder_notices(injected)
+
+    def _bound_participant_id(self) -> str | None:
+        # 未绑定对象的泡泡不能对外回复；若不过滤，它会消费掉其他对象待回复的
+        # 催促使，而真正需要催促的主线拿不到。
+        return self._bubble.participant_id or None
+
+    def _log_placeholder_notices(self, notices: list[str]) -> None:
+        if not notices or not self._ilog:
+            return
+        for content in notices:
+            self._ilog.log_message_in(
+                participant_id="system",
+                content=content,
+                source="system_reminder",
+            )
 
     async def _drain_inbox(self) -> None:
         bubble = self._bubble

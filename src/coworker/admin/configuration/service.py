@@ -60,6 +60,7 @@ HOT_CONFIG_PATHS = {
     "agent.paused",
     "agent.channel_progress_enabled",
     "agent.channel_progress_reply_reminder_seconds",
+    "agent.channel_progress_timeout_seconds",
     "agent.inbox_batch_max",
     "agent.bubble_max_concurrent",
     "agent.concurrency_hint_window_seconds",

@@ -51,4 +51,8 @@ test('describes channel processing placeholders in Chinese source copy', () => {
     configFieldPresentation('agent.channel_progress_reply_reminder_seconds').hint,
     /催促/,
   );
+  assert.match(
+    configFieldPresentation('agent.channel_progress_timeout_seconds').hint,
+    /超时|结束/,
+  );
 });

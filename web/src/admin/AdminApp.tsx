@@ -1573,6 +1573,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
   'agent.channel_progress_enabled': '信道处理提示',
   'agent.channel_progress_reply_reminder_seconds': '处理提示催促秒数',
+  'agent.channel_progress_timeout_seconds': '处理提示超时秒数',
   'agent.inbox_dir': '收件箱目录',
   'agent.outbox_dir': '发件箱目录',
   'agent.desktop_registry_dir': '桌面连接注册目录',

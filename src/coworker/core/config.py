@@ -688,6 +688,10 @@ class AgentConfig(_EnvSettings):
     channel_progress_enabled: bool = False
     # Seconds before injecting a model-only reply reminder; 0 disables the reminder.
     channel_progress_reply_reminder_seconds: int = Field(default=60, ge=0)
+    # Seconds after which an unanswered placeholder is closed with a neutral
+    # notice instead of hanging; 0 keeps placeholders until they are overwritten.
+    # Keep it comfortably above channel_progress_reply_reminder_seconds.
+    channel_progress_timeout_seconds: int = Field(default=600, ge=0)
 
     code_hard_timeout: int = 300
     image_max_dimension: int = 960

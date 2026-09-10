@@ -115,7 +115,7 @@ class WeComChannel(BaseChannel):
         # 与 send() 的空消息判定保持一致：纯空白不算正文，拆分函数不会替我们过滤。
         chunks = split_markdown(request.message) if request.message.strip() else []
         if not chunks:
-            # 没有正文：收口占位，再按普通发送的语义回报。
+            # 没有正文：结束占位，再按普通发送的语义回报。
             await self._close_stream(transport, "")
             if not request.attachments:
                 return ToolResult(
@@ -201,7 +201,7 @@ class WeComChannel(BaseChannel):
         )
 
     async def close_progress(self, transport: ProgressTransport, text: str) -> None:
-        # 空文本收口失败时由 runner 内部退回「已回复」文案，这里不再重复兜底。
+        # 空文本结束失败时由 runner 内部退回「已回复」文案，这里不再重复兜底。
         await self._close_stream(transport, text)
 
     async def _close_stream(self, transport: ProgressTransport, text: str) -> None:

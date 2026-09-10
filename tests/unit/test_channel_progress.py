@@ -78,6 +78,7 @@ def _agent_config(**kwargs) -> MagicMock:
     config = MagicMock()
     config.agent.channel_progress_enabled = kwargs.get("enabled", True)
     config.agent.channel_progress_reply_reminder_seconds = kwargs.get("reminder", 60)
+    config.agent.channel_progress_timeout_seconds = kwargs.get("timeout", 600)
     config.agent.paused = kwargs.get("paused", False)
     return config
 
@@ -218,8 +219,11 @@ def test_agent_config_progress_defaults():
     config = AgentConfig(_env_file=None)
     assert config.channel_progress_enabled is False
     assert config.channel_progress_reply_reminder_seconds == 60
+    assert config.channel_progress_timeout_seconds == 600
     with pytest.raises(ValidationError):
         AgentConfig(channel_progress_reply_reminder_seconds=-1, _env_file=None)
+    with pytest.raises(ValidationError):
+        AgentConfig(channel_progress_timeout_seconds=-1, _env_file=None)
 
 
 @pytest.mark.asyncio
@@ -724,7 +728,7 @@ def _gated_stack(channel: BaseChannel):
 @pytest.mark.asyncio
 async def test_concurrent_inbound_leaves_one_placeholder():
     # 企业微信 SDK 逐帧起任务，同一对象的两次开占位会交错：必须串行，
-    # 否则两条占位各自打开、谁都不收口，其中一条永远等不到覆盖。
+    # 否则两条占位各自打开、谁都不结束，其中一条永远等不到覆盖。
     channel = _GatedProgressChannel()
     registry, progress = _gated_stack(channel)
     channel.gate = asyncio.Event()
@@ -1002,3 +1006,103 @@ async def test_wecom_partial_text_delivery_names_the_missing_chunk(tmp_path):
         tr("tool_result.communicate.cut_at_text", preview="B" * 60 + "…")
         in result.content
     )
+
+
+# ── 未回复占位的优雅结束 ────────────────────────────────────────────────────
+
+def _expired_placeholder(participant_id: str) -> ProgressPlaceholder:
+    placeholder = _due_placeholder(participant_id)
+    placeholder.opened_at = time.monotonic() - 700
+    return placeholder
+
+
+@pytest.mark.asyncio
+async def test_unanswered_placeholder_is_closed_after_the_timeout():
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    await progress.on_inbound(
+        IncomingEvent(participant_id="gated:alice", content="hi", source="gated")
+    )
+    progress.live_placeholders()[0].opened_at = time.monotonic() - 700
+    stm = ShortTermMemory()
+
+    expired = await progress.expire_unanswered(stm)
+
+    assert [text for _transport, text in channel.closed] == [tr("channel.progress.expired")]
+    assert progress.live_placeholders() == []
+    assert len(expired) == 1
+    assert stm.primary[-1].source == "system_reminder"
+    assert "gated:alice" in stm.primary[-1].content
+
+
+@pytest.mark.asyncio
+async def test_expiry_notice_says_the_placeholder_is_gone():
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
+    stm = ShortTermMemory()
+
+    await progress.expire_unanswered(stm)
+
+    notice = stm.primary[-1].content
+    # 模型必须知道占位已经不存在：否则它会以为还能覆盖那条「正在思考中…」。
+    assert tr("channel.progress.expired") in notice
+    assert "communicate" in notice
+
+
+@pytest.mark.asyncio
+async def test_timeout_zero_keeps_the_placeholder_hanging():
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    progress._config.agent.channel_progress_timeout_seconds = 0
+    progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
+
+    assert await progress.expire_unanswered(ShortTermMemory()) == []
+
+    assert len(progress.live_placeholders()) == 1
+    assert channel.closed == []
+
+
+@pytest.mark.asyncio
+async def test_expiry_leaves_placeholders_claimed_by_a_bubble():
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
+
+    expired = await progress.expire_unanswered(
+        ShortTermMemory(),
+        claimed=lambda item: item.participant_id == "gated:alice",
+    )
+
+    assert expired == []
+    assert len(progress.live_placeholders()) == 1
+
+
+@pytest.mark.asyncio
+async def test_close_all_placeholders_closes_every_live_one():
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    progress._placeholders["gated:alice"] = _due_placeholder("gated:alice")
+    progress._placeholders["gated:bob"] = _due_placeholder("gated:bob")
+
+    await progress.close_all_placeholders()
+
+    assert len(channel.closed) == 2
+    assert progress.live_placeholders() == []
+
+
+@pytest.mark.asyncio
+async def test_main_cycle_closes_an_expired_placeholder_instead_of_reminding(tmp_path):
+    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
+    progress._placeholders["tg:main:123"] = _expired_placeholder("tg:main:123")
+    loop = _main_loop_for_reminder(tmp_path, progress)
+
+    await loop._cycle()
+
+    named = [
+        message
+        for message in loop._short_term.primary
+        if message.source == "system_reminder"
+    ]
+    assert len(named) == 1 and "tg:main:123" in named[0].content
+    assert progress.live_placeholders() == []

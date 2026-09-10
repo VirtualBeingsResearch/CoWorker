@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
+from coworker.core.types import (
+    CommunicateRequest,
+    IncomingEvent,
+    Message,
+    ToolResult,
+)
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -147,7 +152,7 @@ class ChannelProgressCoordinator:
     async def on_inbound(self, event: IncomingEvent) -> None:
         """Give one inbound message a placeholder; never fail the message itself.
 
-        占位是尽力而为的装饰：解析对象、开占位、收口旧占位的任何失败都只写日志，
+        占位是尽力而为的装饰：解析对象、开占位、结束旧占位的任何失败都只写日志，
         调用方的入站处理链必须照常拿到这条消息。
         """
         if not self._progress_allowed():
@@ -252,8 +257,6 @@ class ChannelProgressCoordinator:
         participant_id: str | None = None,
         claimed: Callable[[ProgressPlaceholder], bool] | None = None,
     ) -> list[str]:
-        from coworker.core.types import Message
-
         injected: list[str] = []
         for pid, seconds in self.consume_due_reminders(
             participant_id=participant_id,
@@ -264,6 +267,94 @@ class ChannelProgressCoordinator:
             short_term.primary.append(message)
             injected.append(content)
         return injected
+
+    async def expire_unanswered(
+        self,
+        short_term: ShortTermMemory | None = None,
+        *,
+        participant_id: str | None = None,
+        claimed: Callable[[ProgressPlaceholder], bool] | None = None,
+    ) -> list[str]:
+        """Gracefully close placeholders that nobody answered in time.
+
+        占位不能永远停在「正在思考中…」：超过时限就换成中性说明并结束，对方至少
+        知道这条消息还没被丢掉。结束同样要回报模型——否则它会以为占位还在等着
+        自己覆盖，或者不知道这条消息至今没回。
+        """
+        timeout = self._config.agent.channel_progress_timeout_seconds
+        if not self._config.agent.channel_progress_enabled or timeout <= 0:
+            return []
+        expired: list[str] = []
+        for placeholder in self._due_for_expiry(
+            timeout,
+            participant_id=participant_id,
+            claimed=claimed,
+        ):
+            await self._close_placeholder(placeholder, tr("channel.progress.expired"))
+            if short_term is None:
+                continue
+            content = tr(
+                "loop.placeholder_expired",
+                participant=placeholder.participant_id,
+                seconds=int(time.monotonic() - placeholder.opened_at),
+                notice=tr("channel.progress.expired"),
+            )
+            short_term.primary.append(
+                Message(role="user", content=content, source="system_reminder")
+            )
+            expired.append(content)
+        return expired
+
+    async def close_all_placeholders(self) -> None:
+        """Close every live placeholder before the process stops.
+
+        进程退出不会自动替对方结束占位，重启后内存里的占位也没了：不管的话那条
+        「正在思考中…」就永久留在对方那里，再也不会有人覆盖它。
+        """
+        for placeholder in list(self._placeholders.values()):
+            await self._close_placeholder(placeholder, tr("channel.progress.expired"))
+
+    def _due_for_expiry(
+        self,
+        timeout: int,
+        *,
+        participant_id: str | None,
+        claimed: Callable[[ProgressPlaceholder], bool] | None,
+    ) -> list[ProgressPlaceholder]:
+        now = time.monotonic()
+        return [
+            placeholder
+            for placeholder in list(self._placeholders.values())
+            if (participant_id is None or placeholder.participant_id == participant_id)
+            and not (claimed is not None and claimed(placeholder))
+            and now - placeholder.opened_at >= timeout
+        ]
+
+    async def _close_placeholder(
+        self,
+        placeholder: ProgressPlaceholder,
+        text: str,
+    ) -> None:
+        try:
+            _, channel = self._target_channel(placeholder.participant_id)
+        except Exception as error:
+            logger.warning(
+                f"channel progress expiry could not resolve "
+                f"participant={placeholder.participant_id}: {error}"
+            )
+            channel = None
+        if channel is not None:
+            try:
+                await asyncio.wait_for(
+                    self._close(placeholder, channel, text),
+                    timeout=_OPEN_TIMEOUT_SECONDS,
+                )
+            except Exception as error:
+                logger.warning(
+                    f"channel progress expiry close failed "
+                    f"participant={placeholder.participant_id}: {error}"
+                )
+        self._discard(placeholder)
 
     def live_placeholders(self) -> list[ProgressPlaceholder]:
         return list(self._placeholders.values())
@@ -280,7 +371,7 @@ class ChannelProgressCoordinator:
         return self._placeholders.get(request.participant_id)
 
     def _discard(self, placeholder: ProgressPlaceholder) -> None:
-        # 按对象身份核验：收口/覆盖都跨着 await，期间可能已经来了新消息并换了占位，
+        # 按对象身份核验：结束/覆盖都跨着 await，期间可能已经来了新消息并换了占位，
         # 直接按 participant_id 删除会把新占位一起删掉，让它永远等不到覆盖。
         if self._placeholders.get(placeholder.participant_id) is placeholder:
             self._placeholders.pop(placeholder.participant_id, None)

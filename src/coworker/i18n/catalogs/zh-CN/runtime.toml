@@ -109,6 +109,7 @@ instance_unknown = "企业微信 Bot 实例不存在：{{instance}}"
 thinking = "正在思考中…"
 replaced = "收到后续消息"
 superseded = "已回复。"
+expired = "这条我还在处理，稍后用新消息回你"
 
 [channel.weixin]
 image = "[图片]"
@@ -350,6 +351,7 @@ task_pin_label = "未完成任务"
 task_board_more = "……以及另外 {{count}} 个，用 task_list 查看"
 concurrency_hint = "[并行提示] 近期有 {{count}} 个会话同时活跃，适合用并行思维（bubble）并发处理"
 reply_reminder = "[回复催促] {{participant}} 已等待 {{seconds}} 秒仍未收到 communicate 回复。若仍需回复，请立即调用 communicate。"
+placeholder_expired = "[处理中提示已结束] {{participant}} 已等待 {{seconds}} 秒，系统把处理中提示换成了「{{notice}}」并结束。这条消息仍未回复，且已经没有可覆盖的处理中提示：如需回复，请用 communicate 发一条新消息。"
 
 [bubble]
 cancelled = "泡泡被手动取消"

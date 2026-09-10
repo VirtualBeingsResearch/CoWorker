@@ -1202,6 +1202,9 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        # 信道还活着时替对方结束未回复的占位：重启后内存里的占位就没了，
+        # 不在这里收尾的话那条「正在思考中…」会永久留在对方那里。
+        await progress.close_all_placeholders()
         await channel_system.registry.stop()
         await relay_client.stop()
         server.should_exit = True

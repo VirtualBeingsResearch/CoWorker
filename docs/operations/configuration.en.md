@@ -153,6 +153,7 @@ as codes.
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
 | `AGENT__CHANNEL_PROGRESS_ENABLED` | `false` | Whether one-to-one chats that declare the `progress` capability (currently WeCom and Telegram private chats; groups never do) show an inbound "thinking" placeholder that the first `communicate` overwrites in place. Off by default; placeholders are skipped while paused or during first-run setup. |
 | `AGENT__CHANNEL_PROGRESS_REPLY_REMINDER_SECONDS` | `60` | When processing placeholders are enabled, inject a model-only reply reminder after this many seconds without a `communicate` to that chat. `0` shows placeholders without reminding the model. |
+| `AGENT__CHANNEL_PROGRESS_TIMEOUT_SECONDS` | `600` | A processing placeholder still unanswered after this many seconds is replaced with a neutral notice and ends (it no longer sits on "thinking"), and the model is told the placeholder is gone. The same handling runs for live placeholders before the process exits. `0` disables the automatic ending and keeps placeholders until they are overwritten. Keep it above the reminder value. |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
 | `AGENT__TICK` | `true` | Whether autonomous ticks run when no external message is present |
 | `AGENT__PASSIVE_MODE` | `false` | Enable Passive mode. On first startup and restart, the main loop remains at rest and retains startup notices silently until the next real wakeup; idle timeouts do not wake it |

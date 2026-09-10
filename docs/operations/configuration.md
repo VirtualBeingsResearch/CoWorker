@@ -136,6 +136,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
 | `AGENT__CHANNEL_PROGRESS_ENABLED` | `false` | 是否为已声明 `progress` 能力的私聊会话（当前为企业微信、Telegram 一对一会话；群聊不发）在入站后立即显示「正在思考中」占位，并由第一次 `communicate` 覆盖同一条。默认关闭；暂停或首次 setup 期间不发占位。 |
 | `AGENT__CHANNEL_PROGRESS_REPLY_REMINDER_SECONDS` | `60` | 开启处理提示后，超过该秒数仍未对该对象 `communicate` 时向模型注入催促。`0` 表示只显示占位、不催促模型。 |
+| `AGENT__CHANNEL_PROGRESS_TIMEOUT_SECONDS` | `600` | 超过该秒数仍未回复的处理中占位会被换成一句中性说明并结束（不再停在「正在思考中…」），同时告知模型占位已不存在；进程退出前也会对存活占位做同样处理。`0` 表示不自动结束，占位一直保留到被覆盖。建议大于催促秒数。 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
 | `AGENT__TICK` | `true` | 是否启用无外部消息时的自主 tick |
 | `AGENT__PASSIVE_MODE` | `false` | 是否启用 Passive 模式；启用后首次启动和重启都保持休息，启动通知静默保留到下一次真实唤醒，不再按空闲超时自唤醒 |
