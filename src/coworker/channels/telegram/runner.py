@@ -16,6 +16,7 @@ from coworker.channels.access import (
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.filenames import safe_attachment_filename
+from coworker.channels.progress import ProgressTailDelivery
 from coworker.channels.telegram import adapter
 from coworker.channels.telegram.client import (
     TelegramClient,
@@ -547,7 +548,14 @@ class TelegramRunner:
         conversation_id: str | None,
         extra_chunks: list[str],
         attachments: list[dict[str, Any]],
-    ) -> None:
+    ) -> ProgressTailDelivery:
+        """Send what did not fit in the placeholder, reporting how far it got.
+
+        Stops at the first failure and returns the tally instead of raising, so
+        the caller can tell the model exactly which chunk or attachment is still
+        missing. Setup failures (unknown instance, bot down) still raise: none
+        of the tail reached the user in that case.
+        """
         instance_id, _ = adapter.parse_participant(participant_id)
         bot = self._bots.get(instance_id)
         if bot is None:
@@ -560,10 +568,29 @@ class TelegramRunner:
                 tr("channel.telegram.bot_unavailable", instance=instance_id)
             )
         thread_id = _thread_id(conversation_id)
-        for chunk in extra_chunks:
-            await client.send_message(chat_id, chunk, thread_id)
-        for attachment in attachments:
-            await client.send_attachment(chat_id, attachment, thread_id)
+        chunks_sent = 0
+        attachments_sent = 0
+        try:
+            for chunk in extra_chunks:
+                await client.send_message(chat_id, chunk, thread_id)
+                chunks_sent += 1
+            for attachment in attachments:
+                await client.send_attachment(chat_id, attachment, thread_id)
+                attachments_sent += 1
+        except Exception as error:
+            return ProgressTailDelivery(
+                chunks_sent=chunks_sent,
+                chunks_total=len(extra_chunks),
+                attachments_sent=attachments_sent,
+                attachments_total=len(attachments),
+                error=str(error),
+            )
+        return ProgressTailDelivery(
+            chunks_sent=chunks_sent,
+            chunks_total=len(extra_chunks),
+            attachments_sent=attachments_sent,
+            attachments_total=len(attachments),
+        )
 
     async def delete_progress_message(self, participant_id: str, chat_id: int, message_id: int) -> None:
         instance_id, _ = adapter.parse_participant(participant_id)

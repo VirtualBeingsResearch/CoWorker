@@ -11,7 +11,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
-from coworker.channels.progress import ProgressTransport
+from coworker.channels.progress import ProgressTransport, partial_delivery_note
 from coworker.channels.telegram.adapter import parse_participant
 from coworker.channels.telegram.runner import TelegramRunner, split_telegram_text
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
@@ -147,23 +147,24 @@ class TelegramChannel(BaseChannel):
                 content=tr("tool_result.communicate.telegram_failed", error=error),
                 is_error=True,
             )
-        try:
-            await self._runner.send_progress_tail(
-                request.participant_id,
-                transport.telegram_chat_id,
-                request.conversation_id,
-                chunks[1:],
-                request.attachments,
-            )
-        except Exception as error:
-            # 正文已经在原占位消息里：删掉它等于撤回已送达的回复，整条重发又会重复，
-            # 所以如实报告后续失败，但按“已送达”回报。
+        delivery = await self._runner.send_progress_tail(
+            request.participant_id,
+            transport.telegram_chat_id,
+            request.conversation_id,
+            chunks[1:],
+            request.attachments,
+        )
+        if not delivery.complete:
+            # 正文开头已经在原占位消息里：删掉它等于撤回已送达的回复，整条重发又会
+            # 重复。如实报告送到了哪一块、从哪一段起没送到，让模型只补发缺的部分。
             return self._sent(
                 request,
-                content=tr(
-                    "tool_result.communicate.telegram_sent_partial",
-                    participant=request.participant_id,
-                    error=error,
+                content=partial_delivery_note(
+                    sent_key="tool_result.communicate.telegram_sent_partial",
+                    participant_id=request.participant_id,
+                    chunks=chunks,
+                    attachments=request.attachments,
+                    delivery=delivery,
                 ),
             )
         return self._sent(request)

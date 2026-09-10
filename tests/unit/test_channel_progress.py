@@ -865,6 +865,12 @@ async def test_telegram_partial_delivery_keeps_the_reply_and_skips_resend(tmp_pa
     assert client.messages == [(123, tr("channel.progress.thinking"), None)]
     assert result.is_error is False
     assert "upload rejected" in result.content
+    # 模型要能看出送到哪、从哪继续：正文 1/1 块已送达，卡在第一个附件上。
+    assert "1/1" in result.content
+    assert (
+        tr("tool_result.communicate.cut_at_attachment", filename="missing.png")
+        in result.content
+    )
 
 
 @pytest.mark.asyncio
@@ -901,6 +907,12 @@ async def test_wecom_partial_delivery_does_not_resend_the_reply(tmp_path):
     bot._client.send_message.assert_not_called()
     assert result.is_error is False
     assert "missing.txt" in result.content
+    # 正文全部送达，卡在附件上：截断点必须指名道姓。
+    assert "1/1" in result.content
+    assert (
+        tr("tool_result.communicate.cut_at_attachment", filename="missing.txt")
+        in result.content
+    )
 
 
 class _ResolvingChannel(BaseChannel):
@@ -944,3 +956,49 @@ async def test_ambiguous_target_does_not_drop_the_inbound_message():
 
     app.assert_awaited_once()
     assert progress.live_placeholders() == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_partial_text_delivery_names_the_missing_chunk(tmp_path):
+    _runner, bot, client, registry, _progress, _inbox = _telegram_stack(tmp_path)
+    await bot._consume_update(client, _private_update(1))
+    # 首块进占位成功，后续分块失败。
+    client.send_message = AsyncMock(side_effect=RuntimeError("flood control"))
+
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="tg:main:123",
+            message="A" * 4096 + "B" * 100,
+        )
+    )
+
+    assert client.edits == [(123, 1, "A" * 4096)]
+    assert client.deletes == []
+    assert result.is_error is False
+    # 「第 2 块」这种说法模型无法操作，必须给出缺失内容本身的开头。
+    assert "1/2" in result.content
+    assert (
+        tr("tool_result.communicate.cut_at_text", preview="B" * 60 + "…")
+        in result.content
+    )
+
+
+@pytest.mark.asyncio
+async def test_wecom_partial_text_delivery_names_the_missing_chunk(tmp_path):
+    _runner, bot, registry, _progress, _inbox = _wecom_stack(tmp_path)
+    await bot._on_text_like(_frame_single())
+    bot._client.send_message.side_effect = RuntimeError("stream broken")
+
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="wecom:default:single:U123",
+            message="A" * 15_000 + "\n\n" + "B" * 15_000,
+        )
+    )
+
+    assert result.is_error is False
+    assert "1/2" in result.content
+    assert (
+        tr("tool_result.communicate.cut_at_text", preview="B" * 60 + "…")
+        in result.content
+    )

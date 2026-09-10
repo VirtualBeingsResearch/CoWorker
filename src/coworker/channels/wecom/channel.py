@@ -18,7 +18,11 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
-from coworker.channels.progress import ProgressTransport
+from coworker.channels.progress import (
+    ProgressTailDelivery,
+    ProgressTransport,
+    partial_delivery_note,
+)
 from coworker.channels.wecom.adapter import parse_participant
 from coworker.channels.wecom.sender import split_markdown
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
@@ -131,24 +135,60 @@ class WeComChannel(BaseChannel):
                 is_error=True,
             )
         if len(chunks) > 1 or request.attachments:
-            try:
-                await self._runner.send(
-                    request.participant_id,
-                    "\n\n".join(chunks[1:]),
-                    request.attachments,
-                    None,
-                )
-            except Exception as error:
-                # 正文已经在原占位流里：整条重发会重复，如实报告后续失败即可。
+            delivery = await self._send_progress_tail(request, chunks[1:])
+            if not delivery.complete:
+                # 正文开头已经在原占位流里：整条重发会重复，如实报告送到了哪一块、
+                # 从哪一段起没送到，让模型只补发缺的部分。
                 return self._sent(
                     request,
-                    content=tr(
-                        "tool_result.communicate.wecom_sent_partial",
-                        participant=request.participant_id,
-                        error=error,
+                    content=partial_delivery_note(
+                        sent_key="tool_result.communicate.wecom_sent_partial",
+                        participant_id=request.participant_id,
+                        chunks=chunks,
+                        attachments=request.attachments,
+                        delivery=delivery,
                     ),
                 )
         return self._sent(request)
+
+    async def _send_progress_tail(
+        self,
+        request: CommunicateRequest,
+        extra_chunks: list[str],
+    ) -> ProgressTailDelivery:
+        """Send what did not fit in the placeholder stream, one item at a time.
+
+        逐条发送（而不是交给 sender 批量）才能精确报出中断位置：sender 内部同样是
+        逐块发送，只是失败时无从得知已经送出去多少。
+        """
+        chunks_sent = 0
+        attachments_sent = 0
+        try:
+            for chunk in extra_chunks:
+                await self._runner.send(request.participant_id, chunk, [], None)
+                chunks_sent += 1
+            for attachment in request.attachments:
+                await self._runner.send(
+                    request.participant_id,
+                    "",
+                    [attachment],
+                    None,
+                )
+                attachments_sent += 1
+        except Exception as error:
+            return ProgressTailDelivery(
+                chunks_sent=chunks_sent,
+                chunks_total=len(extra_chunks),
+                attachments_sent=attachments_sent,
+                attachments_total=len(request.attachments),
+                error=str(error),
+            )
+        return ProgressTailDelivery(
+            chunks_sent=chunks_sent,
+            chunks_total=len(extra_chunks),
+            attachments_sent=attachments_sent,
+            attachments_total=len(request.attachments),
+        )
 
     def _sent(self, request: CommunicateRequest, *, content: str | None = None) -> ToolResult:
         return ToolResult(

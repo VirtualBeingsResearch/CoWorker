@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -43,6 +44,90 @@ class ProgressPlaceholder:
     opened_at: float
     transport: ProgressTransport
     reminded: bool = False
+
+
+@dataclass(frozen=True)
+class ProgressTailDelivery:
+    """How far a placeholder reply's remaining content got.
+
+    Counts cover only what the caller asked this delivery to send: the first
+    text chunk already went into the placeholder itself.
+    """
+
+    chunks_sent: int = 0
+    chunks_total: int = 0
+    attachments_sent: int = 0
+    attachments_total: int = 0
+    error: str = ""
+
+    @property
+    def complete(self) -> bool:
+        return not self.error
+
+
+_PREVIEW_LIMIT = 60
+
+
+def partial_delivery_note(
+    *,
+    sent_key: str,
+    participant_id: str,
+    chunks: list[str],
+    attachments: list[dict[str, Any]],
+    delivery: ProgressTailDelivery,
+) -> str:
+    """Describe exactly where a partial reply stopped, for the model to resume from.
+
+    A bare "chunk 4 of 6" is not something the model can act on: it never sees
+    how its own text was split. Naming the first unsent chunk (or attachment)
+    by content is what makes "resend only the rest" possible.
+    """
+    return tr(
+        sent_key,
+        participant=participant_id,
+        chunks_sent=delivery.chunks_sent + 1,
+        chunks_total=delivery.chunks_total + 1,
+        attachments_sent=delivery.attachments_sent,
+        attachments_total=delivery.attachments_total,
+        cut=cut_point_note(
+            chunks=chunks,
+            attachments=attachments,
+            delivery=delivery,
+        ),
+        error=delivery.error,
+    )
+
+
+def cut_point_note(
+    *,
+    chunks: list[str],
+    attachments: list[dict[str, Any]],
+    delivery: ProgressTailDelivery,
+) -> str:
+    """Name the first piece of content that never reached the recipient."""
+    if delivery.chunks_sent < delivery.chunks_total:
+        first_missing_chunk = chunks[delivery.chunks_sent + 1]
+        return tr(
+            "tool_result.communicate.cut_at_text",
+            preview=_preview(first_missing_chunk),
+        )
+    first_missing_attachment = attachments[delivery.attachments_sent]
+    return tr(
+        "tool_result.communicate.cut_at_attachment",
+        filename=attachment_display_name(first_missing_attachment),
+    )
+
+
+def attachment_display_name(attachment: dict[str, Any]) -> str:
+    raw = str(attachment.get("filename") or attachment.get("path") or "")
+    return Path(raw).name or str(attachment.get("type") or "attachment")
+
+
+def _preview(text: str, limit: int = _PREVIEW_LIMIT) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[:limit]}…"
 
 
 class ChannelProgressCoordinator:
