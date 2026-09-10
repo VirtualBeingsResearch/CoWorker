@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from loguru import logger
+
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.base import (
     BaseChannel,
@@ -112,62 +114,85 @@ class TelegramChannel(BaseChannel):
     ) -> ToolResult:
         if transport.telegram_chat_id is None or transport.telegram_message_id is None:
             return await self.send(request)
-        chunks = split_telegram_text(request.message)
-        if not chunks and not request.attachments:
-            await self._runner.delete_progress_message(
-                request.participant_id,
-                transport.telegram_chat_id,
-                transport.telegram_message_id,
-            )
-            return ToolResult(
-                tool_call_id="",
-                content=tr(
-                    "tool_result.communicate.telegram_sent",
-                    participant=request.participant_id,
-                ),
-            )
+        # 与 send() 的空消息判定保持一致：纯空白不算正文，拆分函数不会替我们过滤。
+        chunks = split_telegram_text(request.message) if request.message.strip() else []
         if not chunks:
-            await self._runner.delete_progress_message(
-                request.participant_id,
-                transport.telegram_chat_id,
-                transport.telegram_message_id,
-            )
+            # 没有正文就没什么可覆盖的：撤掉占位，再按普通发送的语义回报。
+            await self._discard_placeholder(request.participant_id, transport)
+            if not request.attachments:
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.communicate.message_empty"),
+                    is_error=True,
+                )
             await self._runner.send(
                 request.participant_id,
                 "",
                 request.attachments,
                 request.conversation_id,
             )
-            return ToolResult(
-                tool_call_id="",
-                content=tr(
-                    "tool_result.communicate.telegram_sent",
-                    participant=request.participant_id,
-                ),
-            )
+            return self._sent(request)
         try:
             await self._runner.edit_progress_message(
                 request.participant_id,
                 transport.telegram_chat_id,
                 transport.telegram_message_id,
                 chunks[0],
-                request.conversation_id,
-                chunks[1:],
-                request.attachments,
             )
         except Exception as error:
+            # 正文没能写进占位，用户什么也没收到：撤掉占位后交给协调器降级为普通发送。
+            await self._discard_placeholder(request.participant_id, transport)
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.communicate.telegram_failed", error=error),
                 is_error=True,
             )
+        try:
+            await self._runner.send_progress_tail(
+                request.participant_id,
+                transport.telegram_chat_id,
+                request.conversation_id,
+                chunks[1:],
+                request.attachments,
+            )
+        except Exception as error:
+            # 正文已经在原占位消息里：删掉它等于撤回已送达的回复，整条重发又会重复，
+            # 所以如实报告后续失败，但按“已送达”回报。
+            return self._sent(
+                request,
+                content=tr(
+                    "tool_result.communicate.telegram_sent_partial",
+                    participant=request.participant_id,
+                    error=error,
+                ),
+            )
+        return self._sent(request)
+
+    def _sent(self, request: CommunicateRequest, *, content: str | None = None) -> ToolResult:
         return ToolResult(
             tool_call_id="",
-            content=tr(
+            content=content
+            or tr(
                 "tool_result.communicate.telegram_sent",
                 participant=request.participant_id,
             ),
         )
+
+    async def _discard_placeholder(
+        self,
+        participant_id: str,
+        transport: ProgressTransport,
+    ) -> None:
+        if transport.telegram_chat_id is None or transport.telegram_message_id is None:
+            return
+        try:
+            await self._runner.delete_progress_message(
+                participant_id,
+                transport.telegram_chat_id,
+                transport.telegram_message_id,
+            )
+        except Exception as error:
+            logger.warning(f"telegram placeholder cleanup failed participant={participant_id}: {error}")
 
     async def close_progress(self, transport: ProgressTransport, text: str) -> None:
         if transport.telegram_chat_id is None or transport.telegram_message_id is None:
@@ -179,9 +204,6 @@ class TelegramChannel(BaseChannel):
                     transport.telegram_chat_id,
                     transport.telegram_message_id,
                     text,
-                    None,
-                    [],
-                    [],
                 )
                 return
             except Exception:

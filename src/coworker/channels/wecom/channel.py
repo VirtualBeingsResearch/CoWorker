@@ -20,6 +20,7 @@ from coworker.channels.base import (
 )
 from coworker.channels.progress import ProgressTransport
 from coworker.channels.wecom.adapter import parse_participant
+from coworker.channels.wecom.sender import split_markdown
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
@@ -105,42 +106,68 @@ class WeComChannel(BaseChannel):
         transport: ProgressTransport,
         request: CommunicateRequest,
     ) -> ToolResult:
+        if transport.frame is None or not transport.stream_id:
+            return await self.send(request)
+        # 与 send() 的空消息判定保持一致：纯空白不算正文，拆分函数不会替我们过滤。
+        chunks = split_markdown(request.message) if request.message.strip() else []
+        if not chunks:
+            # 没有正文：收口占位，再按普通发送的语义回报。
+            await self._close_stream(transport, "")
+            if not request.attachments:
+                return ToolResult(
+                    tool_call_id="",
+                    content=tr("tool_result.communicate.message_empty"),
+                    is_error=True,
+                )
+            await self._runner.send(request.participant_id, "", request.attachments, None)
+            return self._sent(request)
         try:
-            await self._runner.send(
-                request.participant_id,
-                request.message,
-                request.attachments,
-                request.conversation_id,
-                reply_frame=transport.frame,
-                reply_stream_id=transport.stream_id,
-            )
-            return ToolResult(
-                tool_call_id="",
-                content=tr(
-                    "tool_result.communicate.wecom_sent",
-                    participant=request.participant_id,
-                ),
-            )
+            await self._close_stream(transport, chunks[0])
         except Exception as error:
+            # 正文没能写进占位，用户什么也没收到：交给协调器降级为普通发送。
             return ToolResult(
                 tool_call_id="",
                 content=tr("tool_result.communicate.wecom_failed", error=error),
                 is_error=True,
             )
+        if len(chunks) > 1 or request.attachments:
+            try:
+                await self._runner.send(
+                    request.participant_id,
+                    "\n\n".join(chunks[1:]),
+                    request.attachments,
+                    None,
+                )
+            except Exception as error:
+                # 正文已经在原占位流里：整条重发会重复，如实报告后续失败即可。
+                return self._sent(
+                    request,
+                    content=tr(
+                        "tool_result.communicate.wecom_sent_partial",
+                        participant=request.participant_id,
+                        error=error,
+                    ),
+                )
+        return self._sent(request)
+
+    def _sent(self, request: CommunicateRequest, *, content: str | None = None) -> ToolResult:
+        return ToolResult(
+            tool_call_id="",
+            content=content
+            or tr(
+                "tool_result.communicate.wecom_sent",
+                participant=request.participant_id,
+            ),
+        )
 
     async def close_progress(self, transport: ProgressTransport, text: str) -> None:
-        if text:
-            await self._close_stream(transport, text)
-            return
-        try:
-            await self._close_stream(transport, "")
-        except Exception:
-            await self._close_stream(transport, tr("channel.progress.superseded"))
+        # 空文本收口失败时由 runner 内部退回「已回复」文案，这里不再重复兜底。
+        await self._close_stream(transport, text)
 
     async def _close_stream(self, transport: ProgressTransport, text: str) -> None:
         if transport.frame is None or not transport.stream_id:
             return
-        await self._runner.close_progress_stream(
+        await self._runner.write_progress_stream(
             transport.participant_id or "",
             frame=transport.frame,
             stream_id=transport.stream_id,

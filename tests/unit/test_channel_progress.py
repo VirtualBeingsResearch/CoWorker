@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 from coworker.agent.bubble_loop import BubbleMiniLoop
 from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.loop import AgentLoop
+from coworker.channels import progress as progress_module
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import BaseChannel, ChannelCapabilities
 from coworker.channels.progress import (
@@ -674,3 +676,271 @@ def test_bound_bubble_consumes_its_own_reply_reminder():
         "system_reminder"
     ]
     assert progress.consume_due_reminders() == [("wecom:default:single:U2", 120)]
+
+
+# ── 占位生命周期：并发、身份、失败 ────────────────────────────────────────────
+
+class _GatedProgressChannel(BaseChannel):
+    """开占位可控时机的信道，用来制造交错。"""
+
+    name = "gated"
+    participant_prefix = "gated:"
+
+    def __init__(self, *, progress: bool = True) -> None:
+        super().__init__(capabilities=ChannelCapabilities(progress=progress))
+        self.opened: list[ProgressTransport] = []
+        self.closed: list[tuple[ProgressTransport, str]] = []
+        self.gate: asyncio.Event | None = None
+
+    async def send(self, request: CommunicateRequest) -> ToolResult:
+        return ToolResult(tool_call_id="", content="sent")
+
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> ProgressTransport | None:
+        if self.gate is not None:
+            await self.gate.wait()
+        transport = ProgressTransport(
+            channel=self.name,
+            participant_id=event.participant_id,
+        )
+        self.opened.append(transport)
+        return transport
+
+    async def close_progress(self, transport: ProgressTransport, text: str) -> None:
+        self.closed.append((transport, text))
+
+
+def _gated_stack(channel: BaseChannel):
+    registry = ChannelRegistry()
+    registry.register(channel)
+    progress = ChannelProgressCoordinator(registry, _agent_config())
+    registry.set_progress_coordinator(progress)
+    return registry, progress
+
+
+@pytest.mark.asyncio
+async def test_concurrent_inbound_leaves_one_placeholder():
+    # 企业微信 SDK 逐帧起任务，同一对象的两次开占位会交错：必须串行，
+    # 否则两条占位各自打开、谁都不收口，其中一条永远等不到覆盖。
+    channel = _GatedProgressChannel()
+    registry, progress = _gated_stack(channel)
+    channel.gate = asyncio.Event()
+
+    first = asyncio.create_task(
+        progress.on_inbound(
+            IncomingEvent(participant_id="gated:alice", content="one", source="gated")
+        )
+    )
+    await asyncio.sleep(0)
+    second = asyncio.create_task(
+        progress.on_inbound(
+            IncomingEvent(participant_id="gated:alice", content="two", source="gated")
+        )
+    )
+    await asyncio.sleep(0)
+    channel.gate.set()
+    await asyncio.gather(first, second)
+
+    assert len(channel.opened) == 2
+    assert len(channel.closed) == 1
+    assert [item.participant_id for item in progress.live_placeholders()] == ["gated:alice"]
+
+
+class _InterleavingProgressChannel(_GatedProgressChannel):
+    """覆盖过程中放行一条新入站，制造「新占位已就位」的交错。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.progress: ChannelProgressCoordinator | None = None
+
+    async def overwrite_progress(
+        self,
+        transport: ProgressTransport,
+        request: CommunicateRequest,
+    ) -> ToolResult:
+        assert self.progress is not None
+        await self.progress.on_inbound(
+            IncomingEvent(
+                participant_id=request.participant_id,
+                content="newer",
+                source="gated",
+            )
+        )
+        return await self.send(request)
+
+
+@pytest.mark.asyncio
+async def test_overwrite_keeps_a_placeholder_created_meanwhile():
+    channel = _InterleavingProgressChannel()
+    registry, progress = _gated_stack(channel)
+    channel.progress = progress
+
+    await progress.on_inbound(
+        IncomingEvent(participant_id="gated:alice", content="first", source="gated")
+    )
+    await registry.send(
+        CommunicateRequest(participant_id="gated:alice", message="reply")
+    )
+
+    # 出站恢复后只能丢弃自己那条占位，不能按 participant 把新占位一起删掉。
+    assert [item.participant_id for item in progress.live_placeholders()] == ["gated:alice"]
+    assert len(channel.closed) == 1
+
+
+class _FailingOpenChannel(_GatedProgressChannel):
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> ProgressTransport | None:
+        raise RuntimeError("channel API down")
+
+
+class _SlowOpenChannel(_GatedProgressChannel):
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> ProgressTransport | None:
+        await asyncio.sleep(5)
+        return None
+
+
+@pytest.mark.asyncio
+async def test_inbound_is_still_delivered_when_the_placeholder_fails():
+    channel = _FailingOpenChannel()
+    registry, progress = _gated_stack(channel)
+    app = AsyncMock()
+    registry.set_progress_coordinator(progress)
+    registry.set_inbound_handler(app)
+
+    await channel.publish_inbound(
+        IncomingEvent(participant_id="gated:alice", content="hi", source="gated")
+    )
+
+    app.assert_awaited_once()
+    assert progress.live_placeholders() == []
+
+
+@pytest.mark.asyncio
+async def test_slow_placeholder_does_not_hold_up_inbound(monkeypatch):
+    monkeypatch.setattr(progress_module, "_OPEN_TIMEOUT_SECONDS", 0.05)
+    channel = _SlowOpenChannel()
+    registry, progress = _gated_stack(channel)
+    app = AsyncMock()
+    registry.set_progress_coordinator(progress)
+    registry.set_inbound_handler(app)
+
+    started = time.monotonic()
+    await channel.publish_inbound(
+        IncomingEvent(participant_id="gated:alice", content="hi", source="gated")
+    )
+    elapsed = time.monotonic() - started
+
+    app.assert_awaited_once()
+    assert elapsed < 1.0, f"入站投递被开占位拖住了 {elapsed:.2f}s"
+    assert progress.live_placeholders() == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_partial_delivery_keeps_the_reply_and_skips_resend(tmp_path):
+    _runner, bot, client, registry, _progress, _inbox = _telegram_stack(tmp_path)
+    await bot._consume_update(client, _private_update(1))
+    client.send_attachment = AsyncMock(side_effect=RuntimeError("upload rejected"))
+
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="tg:main:123",
+            message="正式回复",
+            attachments=[{"type": "image", "path": "missing.png"}],
+        )
+    )
+
+    # 正文已经写进原占位消息：不能删掉它，也不能整条重发。
+    assert client.edits == [(123, 1, "正式回复")]
+    assert client.deletes == []
+    assert client.messages == [(123, tr("channel.progress.thinking"), None)]
+    assert result.is_error is False
+    assert "upload rejected" in result.content
+
+
+@pytest.mark.asyncio
+async def test_telegram_empty_reply_reports_the_plain_send_error(tmp_path):
+    _runner, bot, client, registry, _progress, _inbox = _telegram_stack(tmp_path)
+    await bot._consume_update(client, _private_update(1))
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="tg:main:123", message="   ")
+    )
+
+    assert result.is_error is True
+    assert tr("tool_result.communicate.message_empty") in result.content
+    assert client.deletes == [(123, 1)]
+
+
+@pytest.mark.asyncio
+async def test_wecom_partial_delivery_does_not_resend_the_reply(tmp_path):
+    _runner, bot, registry, _progress, _inbox = _wecom_stack(tmp_path)
+    await bot._on_text_like(_frame_single())
+    stream_id = bot._client.reply_stream.await_args.args[1]
+
+    result = await registry.send(
+        CommunicateRequest(
+            participant_id="wecom:default:single:U123",
+            message="正式回复",
+            attachments=[{"type": "file", "path": str(tmp_path / "missing.txt")}],
+        )
+    )
+
+    overwrite = bot._client.reply_stream.await_args
+    assert overwrite.args[1] == stream_id
+    assert overwrite.args[2] == "正式回复"
+    bot._client.send_message.assert_not_called()
+    assert result.is_error is False
+    assert "missing.txt" in result.content
+
+
+class _ResolvingChannel(BaseChannel):
+    """没有可匹配前缀、只能靠 resolve() 认领对象的信道。"""
+
+    def __init__(self, name: str, prefix: str, canonical: str) -> None:
+        super().__init__(capabilities=ChannelCapabilities(progress=True))
+        self.name = name
+        self.participant_prefix = prefix
+        self._canonical = canonical
+
+    def resolve(self, participant_id: str) -> str | None:
+        return self._canonical if participant_id == "ambiguous" else None
+
+    async def send(self, request: CommunicateRequest) -> ToolResult:
+        return ToolResult(tool_call_id="", content="sent")
+
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> ProgressTransport | None:
+        return ProgressTransport(channel=self.name, participant_id=event.participant_id)
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_target_does_not_drop_the_inbound_message():
+    registry = ChannelRegistry()
+    first = _ResolvingChannel("resolver-a", "a:", "wecom:default:single:U1")
+    registry.register(first)
+    registry.register(_ResolvingChannel("resolver-b", "b:", "wecom:default:single:U1"))
+    progress = ChannelProgressCoordinator(registry, _agent_config())
+    registry.set_progress_coordinator(progress)
+    app = AsyncMock()
+    registry.set_inbound_handler(app)
+
+    # 两个信道都认领同一个对象：占位解析会抛歧义错误，但消息本身必须照常投递。
+    await first.publish_inbound(
+        IncomingEvent(participant_id="ambiguous", content="hi", source="a")
+    )
+
+    app.assert_awaited_once()
+    assert progress.live_placeholders() == []

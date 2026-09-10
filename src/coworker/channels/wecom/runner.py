@@ -584,7 +584,7 @@ class WeComRunner:
         bot._drop_matching_frame(chat_id, event.conversation_id, frame)
         return {"frame": frame, "stream_id": stream_id}
 
-    async def close_progress_stream(
+    async def write_progress_stream(
         self,
         participant_id: str,
         *,
@@ -592,6 +592,12 @@ class WeComRunner:
         stream_id: str,
         text: str,
     ) -> None:
+        """Write through the held placeholder stream and finish it.
+
+        Used both to install the reply (non-empty ``text``) and to close a
+        placeholder the model never answered (empty ``text``, which falls back
+        to the "already replied" notice so the stream always terminates).
+        """
         instance_id, _, _ = adapter.parse_participant(participant_id)
         bot = self._bots.get(instance_id)
         if bot is None or bot._client is None:
