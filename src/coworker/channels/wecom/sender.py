@@ -64,16 +64,26 @@ class WeComSender:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None = None,
+        *,
+        reply_frame: dict[str, Any] | None = None,
+        reply_stream_id: str | None = None,
     ) -> None:
         client = self._get_client()
         if client is None:
             raise RuntimeError("WeCom client not started")
         _instance, chat_type, chat_id = adapter.parse_participant(participant_id)
-        frame = (
-            self._take_frame(chat_id, conversation_id)
-            if chat_type == "single" or conversation_id is not None
-            else None
-        )
+        frame: dict[str, Any] | None
+        stream_id: str | None
+        if reply_frame is not None:
+            frame = reply_frame
+            stream_id = reply_stream_id
+        else:
+            frame = (
+                self._take_frame(chat_id, conversation_id)
+                if chat_type == "single" or conversation_id is not None
+                else None
+            )
+            stream_id = None
 
         if message:
             from wecom_aibot_sdk import generate_req_id
@@ -82,16 +92,27 @@ class WeComSender:
                 if frame is not None:
                     await client.reply_stream(
                         frame,
-                        generate_req_id("stream"),
+                        stream_id or generate_req_id("stream"),
                         chunk,
                         finish=True,
                     )
                     frame = None
+                    stream_id = None
                 else:
                     await client.send_message(
                         chat_id,
                         {"msgtype": "markdown", "markdown": {"content": chunk}},
                     )
+        elif reply_frame is not None and frame is not None:
+            from wecom_aibot_sdk import generate_req_id
+
+            await client.reply_stream(
+                frame,
+                stream_id or generate_req_id("stream"),
+                "",
+                finish=True,
+            )
+            frame = None
 
         for att in attachments:
             self._validate_attachment(att)
