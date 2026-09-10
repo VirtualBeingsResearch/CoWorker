@@ -40,6 +40,11 @@ class TestProviderThinkingMappings:
         assert kwargs["reasoning_effort"] == "high"
         assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
+    def test_deepseek_flash_uses_same_thinking_mapping(self):
+        kwargs = _apply(DeepSeekProvider, "deepseek-flash", thinking=True, effort="medium")
+        assert kwargs["reasoning_effort"] == "high"
+        assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+
     def test_deepseek_vision_model_uses_same_thinking_mapping(self):
         kwargs = _apply(
             DeepSeekProvider, "deepseek-v4-flash-vision-exp", thinking=True, effort="medium"

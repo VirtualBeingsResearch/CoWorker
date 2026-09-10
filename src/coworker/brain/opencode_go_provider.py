@@ -14,6 +14,7 @@ from coworker.version import __version__
 # models use its Anthropic-compatible endpoint and are not exposed by this
 # provider; the sets below cover chat.completions and Responses separately.
 _CHAT_COMPLETIONS_MODELS = {
+    "deepseek-flash",
     "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
@@ -44,11 +45,13 @@ _RESPONSES_MODELS = {
 _OPENCODE_GO_MODELS = _CHAT_COMPLETIONS_MODELS | _RESPONSES_MODELS
 
 _VISION_MODELS = {
+    "deepseek-flash",
     "deepseek-v4-flash-vision-exp",
     "kimi-k3",
 }
 
 _DEEPSEEK_MODELS = {
+    "deepseek-flash",
     "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",

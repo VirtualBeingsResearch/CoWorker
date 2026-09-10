@@ -364,8 +364,21 @@ class TestAdaptContentDeepSeek:
         assert result[0]["type"] == "image_url"
         assert result[0]["image_url"]["url"] == "data:image/jpeg;base64,abc"
 
+    def test_flash_model_keeps_image_as_url(self):
+        p = DeepSeekProvider.__new__(DeepSeekProvider)
+        p._current_model = "deepseek-flash"
+        content = [{
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc"},
+            "_filename": "pic.jpg",
+        }]
+        result = p._adapt_content(content, "deepseek-flash")
+        assert result[0]["type"] == "image_url"
+        assert result[0]["image_url"]["url"] == "data:image/jpeg;base64,abc"
+
     def test_vision_capability_only_for_vision_model(self):
         p = DeepSeekProvider.__new__(DeepSeekProvider)
+        assert p.supports_vision("deepseek-flash") is True
         assert p.supports_vision("deepseek-v4-flash-vision-exp") is True
         assert p.supports_vision("deepseek-v4-flash") is False
         assert p.supports_vision("deepseek-v4-pro") is False
