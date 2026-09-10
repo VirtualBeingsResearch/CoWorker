@@ -6,24 +6,19 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.core.types import (
-    CommunicateRequest,
-    IncomingEvent,
-    Message,
-    ToolResult,
-)
+from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
     from coworker.channels.base import BaseChannel
     from coworker.channels.registry import ChannelRegistry
     from coworker.core.config import Config
-    from coworker.memory.short_term import ShortTermMemory
 
 # 开占位是拦在入站链路上的外呼：上限之内失败只是没有占位，
 # 超时则说明通道 API 不健康，不能让上一条消息一直等它。
@@ -142,6 +137,7 @@ class ChannelProgressCoordinator:
         self._registry = registry
         self._config = config
         self._is_setup: Callable[[], bool] = lambda: False
+        self._sink: Callable[[IncomingEvent], Awaitable[Any]] | None = None
         self._placeholders: dict[str, ProgressPlaceholder] = {}
         # 同一对象的开占位必须串行（通道可能并发分发入站），键与占位同量级。
         self._locks: dict[str, asyncio.Lock] = {}
@@ -225,56 +221,41 @@ class ChannelProgressCoordinator:
         self._discard(placeholder)
         return result
 
-    def consume_due_reminders(
-        self,
-        *,
-        participant_id: str | None = None,
-        claimed: Callable[[ProgressPlaceholder], bool] | None = None,
-    ) -> list[tuple[str, int]]:
+    def consume_due_reminders(self) -> list[tuple[ProgressPlaceholder, int]]:
         timeout = self._config.agent.channel_progress_reply_reminder_seconds
         if not self._config.agent.channel_progress_enabled or timeout <= 0:
             return []
         now = time.monotonic()
-        due: list[tuple[str, int]] = []
+        due: list[tuple[ProgressPlaceholder, int]] = []
         for placeholder in self._placeholders.values():
             if placeholder.reminded:
-                continue
-            if participant_id is not None and placeholder.participant_id != participant_id:
-                continue
-            if claimed is not None and claimed(placeholder):
                 continue
             elapsed = int(now - placeholder.opened_at)
             if elapsed < timeout:
                 continue
             placeholder.reminded = True
-            due.append((placeholder.participant_id, elapsed))
+            due.append((placeholder, elapsed))
         return due
 
-    def inject_reply_reminders(
-        self,
-        short_term: ShortTermMemory,
-        *,
-        participant_id: str | None = None,
-        claimed: Callable[[ProgressPlaceholder], bool] | None = None,
-    ) -> list[str]:
-        injected: list[str] = []
-        for pid, seconds in self.consume_due_reminders(
-            participant_id=participant_id,
-            claimed=claimed,
-        ):
-            content = tr("loop.reply_reminder", participant=pid, seconds=seconds)
-            message = Message(role="user", content=content, source="system_reminder")
-            short_term.primary.append(message)
-            injected.append(content)
-        return injected
+    async def emit_reply_reminders(self) -> list[str]:
+        """Tell the model which conversations are still waiting for a reply.
 
-    async def expire_unanswered(
-        self,
-        short_term: ShortTermMemory | None = None,
-        *,
-        participant_id: str | None = None,
-        claimed: Callable[[ProgressPlaceholder], bool] | None = None,
-    ) -> list[str]:
+        通知走入站事件（由 sink 投递给 inbox），不直接往 primary 里插消息：
+        入站链路才会经过泡泡路由，谁负责该对象就落到谁那里；直接 append 还得
+        自己判断泡泡归属，也容易插进 tool_use 与 tool_result 之间。
+        """
+        emitted: list[str] = []
+        for placeholder, seconds in self.consume_due_reminders():
+            content = tr(
+                "loop.reply_reminder",
+                participant=placeholder.participant_id,
+                seconds=seconds,
+            )
+            await self._announce(placeholder, content, source="progress_reminder")
+            emitted.append(content)
+        return emitted
+
+    async def expire_unanswered(self) -> list[str]:
         """Gracefully close placeholders that nobody answered in time.
 
         占位不能永远停在「正在思考中…」：超过时限就换成中性说明并结束，对方至少
@@ -285,23 +266,15 @@ class ChannelProgressCoordinator:
         if not self._config.agent.channel_progress_enabled or timeout <= 0:
             return []
         expired: list[str] = []
-        for placeholder in self._due_for_expiry(
-            timeout,
-            participant_id=participant_id,
-            claimed=claimed,
-        ):
+        for placeholder in self._take_due_for_expiry(timeout):
             await self._close_placeholder(placeholder, tr("channel.progress.expired"))
-            if short_term is None:
-                continue
             content = tr(
                 "loop.placeholder_expired",
                 participant=placeholder.participant_id,
                 seconds=int(time.monotonic() - placeholder.opened_at),
                 notice=tr("channel.progress.expired"),
             )
-            short_term.primary.append(
-                Message(role="user", content=content, source="system_reminder")
-            )
+            await self._announce(placeholder, content, source="progress_expired")
             expired.append(content)
         return expired
 
@@ -310,25 +283,66 @@ class ChannelProgressCoordinator:
 
         进程退出不会自动替对方结束占位，重启后内存里的占位也没了：不管的话那条
         「正在思考中…」就永久留在对方那里，再也不会有人覆盖它。
-        """
-        for placeholder in list(self._placeholders.values()):
-            await self._close_placeholder(placeholder, tr("channel.progress.expired"))
 
-    def _due_for_expiry(
-        self,
-        timeout: int,
-        *,
-        participant_id: str | None,
-        claimed: Callable[[ProgressPlaceholder], bool] | None,
-    ) -> list[ProgressPlaceholder]:
-        now = time.monotonic()
-        return [
-            placeholder
+        退出路径包括搭档自己调用 restart 的重启，所以这里不能拖：逐个 await 会让
+        退出时间随等待人数线性增长（每次都可能在网络上等），并发收口则最多等最慢
+        的那个。退出时也不再通知模型——进程即将结束，通知没人消费。
+        """
+        pending = [
+            self._close_placeholder(placeholder, tr("channel.progress.expired"))
             for placeholder in list(self._placeholders.values())
-            if (participant_id is None or placeholder.participant_id == participant_id)
-            and not (claimed is not None and claimed(placeholder))
-            and now - placeholder.opened_at >= timeout
         ]
+        self._placeholders.clear()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    def set_inbound_sink(self, sink: Callable[[IncomingEvent], Awaitable[Any]]) -> None:
+        """Deliver reminders and expiry notices as inbound events."""
+        self._sink = sink
+
+    async def _announce(
+        self,
+        placeholder: ProgressPlaceholder,
+        content: str,
+        *,
+        source: str,
+    ) -> None:
+        sink = self._sink
+        if sink is None:
+            logger.warning(
+                f"channel progress notice dropped (no inbound sink) "
+                f"participant={placeholder.participant_id}"
+            )
+            return
+        try:
+            await sink(
+                IncomingEvent(
+                    participant_id=placeholder.participant_id,
+                    conversation_id=placeholder.conversation_id,
+                    content=content,
+                    source=source,
+                    timestamp=datetime.now(),
+                )
+            )
+        except Exception as error:
+            logger.warning(
+                f"channel progress notice failed participant={placeholder.participant_id}: {error}"
+            )
+
+    def _take_due_for_expiry(self, timeout: int) -> list[ProgressPlaceholder]:
+        """Remove the expired placeholders and hand them to the caller.
+
+        选中即摘除：主循环与泡泡循环可能同时跑一轮维护，先摘除能保证每个占位
+        只被收口一次（重复收口会对着一条已经结束的流再发一次）。
+        """
+        now = time.monotonic()
+        expired: list[ProgressPlaceholder] = []
+        for participant_id, placeholder in list(self._placeholders.items()):
+            if now - placeholder.opened_at < timeout:
+                continue
+            self._placeholders.pop(participant_id, None)
+            expired.append(placeholder)
+        return expired
 
     async def _close_placeholder(
         self,

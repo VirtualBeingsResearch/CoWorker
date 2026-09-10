@@ -741,6 +741,9 @@ async def _main() -> bool:
         traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
     )
     progress = ChannelProgressCoordinator(channel_system.registry, config)
+    # 催促与超时通知以入站事件投递：走 inbox 才会经过泡泡路由，落到真正负责
+    # 该对象的线程，而不是被塞进某一方的上下文里。
+    progress.set_inbound_sink(inbox_watcher.push)
     channel_system.registry.set_progress_coordinator(progress)
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None

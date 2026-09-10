@@ -391,11 +391,9 @@ class AgentLoop:
                 Message(role="user", content=notice, source="model_switch")
             )
 
-        # 先结束超时的占位再催促：已经结束的占位不该再催一遍。两者都必须在构建
-        # 请求前注入——此时上一条 assistant[tool_use] 的 tool_result 已经就位，
-        # 插在两者之间会让 provider 拒绝该请求。
-        await self._expire_placeholders()
-        self._inject_reply_reminders()
+        # 先结束超时的占位再催促：已经结束的占位不该再催一遍。通知本身以入站事件
+        # 投递，下一轮才被 drain，因此不会插进 tool_use 与 tool_result 之间。
+        await self._maintain_placeholders()
 
         messages = self._short_term.build_context()
         if self._ilog:
@@ -785,50 +783,17 @@ class AgentLoop:
             )
         logger.debug(f"Task reminder injected: {len(active)} active tasks")
 
-    async def _expire_placeholders(self) -> None:
+    async def _maintain_placeholders(self) -> None:
+        """End timed-out placeholders, then remind about the ones still waiting.
+
+        两者都以入站事件投递（见 ChannelProgressCoordinator._announce），由泡泡
+        路由决定落到主线还是某个泡泡；这里只负责在每轮请求前驱动一次。
+        """
         progress = getattr(self, "_progress", None)
         if progress is None:
             return
-        expired = await progress.expire_unanswered(
-            self._short_term,
-            claimed=self._progress_reminder_claimed,
-        )
-        self._log_placeholder_notices(expired)
-
-    def _inject_reply_reminders(self) -> None:
-        progress = getattr(self, "_progress", None)
-        if progress is None:
-            return
-        injected = progress.inject_reply_reminders(
-            self._short_term,
-            claimed=self._progress_reminder_claimed,
-        )
-        self._log_placeholder_notices(injected)
-
-    def _log_placeholder_notices(self, notices: list[str]) -> None:
-        if not notices or not self._ilog:
-            return
-        for content in notices:
-            self._ilog.log_message_in(
-                participant_id="system",
-                content=content,
-                source="system_reminder",
-            )
-
-    def _progress_reminder_claimed(self, placeholder: object) -> bool:
-        store = self._bubble_store
-        if store is None:
-            return False
-        participant_id = getattr(placeholder, "participant_id", "")
-        if not participant_id:
-            return False
-        return (
-            store.find_active_for_message(
-                participant_id,
-                getattr(placeholder, "conversation_id", None),
-            )
-            is not None
-        )
+        await progress.expire_unanswered()
+        await progress.emit_reply_reminders()
 
     async def _task_watcher(self) -> None:
         task_store = self._task_store

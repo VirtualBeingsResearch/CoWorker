@@ -59,6 +59,23 @@ class TestBubbleMessageRouter:
         assert router(IncomingEvent(participant_id="system", content="notice", source="system")) is False
         assert bubble.inbox.empty()
 
+    def test_routes_progress_notices_to_the_bubble_that_owns_the_participant(self):
+        # 催促与超时通知是关于某个对象正在等待的会话，谁负责这个会话就该谁看到：
+        # 它们不能进 _INTERNAL_SOURCES，否则会被扣在主线上。
+        store = BubbleStore()
+        bubble = _bubble(store, participant_id="wecom:alice")
+        router = BubbleMessageRouter(store)
+
+        for source in ("progress_reminder", "progress_expired"):
+            event = IncomingEvent(
+                participant_id="wecom:alice",
+                content="[回复催促] wecom:alice 已等待 60 秒",
+                source=source,
+            )
+
+            assert router(event) is True
+            assert bubble.inbox.get_nowait() is event
+
     def test_preserves_attachment_and_conversation_metadata(self):
         store = BubbleStore()
         bubble = _bubble(store, participant_id="alice", conversation_id="conv-1")

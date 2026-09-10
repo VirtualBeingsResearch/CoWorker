@@ -438,7 +438,9 @@ async def test_reply_reminder_injects_until_communicate(tmp_path):
     await bot._on_text_like(_frame_single())
     progress.live_placeholders()[0].opened_at = time.monotonic() - 30
     due = progress.consume_due_reminders()
-    assert due == [("wecom:default:single:U123", due[0][1])]
+    assert [item.participant_id for item, _seconds in due] == [
+        "wecom:default:single:U123"
+    ]
     assert due[0][1] >= 10
     assert progress.consume_due_reminders() == []
 
@@ -503,37 +505,31 @@ def test_system_prompt_progress_section_only_when_enabled(tmp_path):
         assert note not in on.build()
 
 
-def test_loop_reply_reminder_catalog_placeholders():
+@pytest.mark.asyncio
+async def test_loop_reply_reminder_is_emitted_as_an_inbound_event():
     with locale_context("en"):
         text = tr("loop.reply_reminder", participant="wecom:default:single:U123", seconds=60)
     assert "wecom:default:single:U123" in text
     assert "60" in text
-    stm = SimpleNamespace(primary=[])
+    sink = _SinkRecorder()
     config = _agent_config(reminder=1)
     progress = ChannelProgressCoordinator(ChannelRegistry(), config)
-    progress._placeholders[("dm", "wecom:default:single:U123")] = MagicMock(
+    progress.set_inbound_sink(sink)
+    progress._placeholders["wecom:default:single:U123"] = ProgressPlaceholder(
         participant_id="wecom:default:single:U123",
-        reminded=False,
+        conversation_id="conv-1",
         opened_at=time.monotonic() - 5,
+        transport=ProgressTransport(channel="wecom"),
     )
-    injected = progress.inject_reply_reminders(stm)  # type: ignore[arg-type]
-    assert injected
-    assert isinstance(stm.primary[0], Message)
-    assert stm.primary[0].source == "system_reminder"
 
+    emitted = await progress.emit_reply_reminders()
 
-@pytest.mark.asyncio
-async def test_reply_reminder_skips_claimed_placeholder(tmp_path):
-    _runner, bot, _registry, progress, _inbox = _wecom_stack(tmp_path)
-    progress._config.agent.channel_progress_reply_reminder_seconds = 1
-    await bot._on_text_like(_frame_single())
-    progress.live_placeholders()[0].opened_at = time.monotonic() - 30
-    skipped = progress.consume_due_reminders(
-        claimed=lambda item: item.participant_id == "wecom:default:single:U123"
-    )
-    assert skipped == []
-    due = progress.consume_due_reminders()
-    assert due and due[0][0] == "wecom:default:single:U123"
+    assert emitted
+    # 走 inbox 才能被泡泡路由认领：事件必须带上对象与会话 id。
+    assert [event.participant_id for event in sink.events] == ["wecom:default:single:U123"]
+    assert sink.events[0].conversation_id == "conv-1"
+    assert sink.events[0].source == "progress_reminder"
+    assert sink.events[0].content == emitted[0]
 
 
 # ── 催促注入的位置 ──────────────────────────────────────────────────────────
@@ -541,6 +537,16 @@ async def test_reply_reminder_skips_claimed_placeholder(tmp_path):
 # 催促是 role="user" 的消息，只能在「上一条 assistant[tool_use] 的 tool_result 已
 # 经就位」之后注入。插在两者之间会让 provider 拿到
 # assistant[tool_use] → user[text] → user[tool_result]，直接拒绝该请求。
+
+class _SinkRecorder:
+    """Collects the inbound events the coordinator emits."""
+
+    def __init__(self) -> None:
+        self.events: list[IncomingEvent] = []
+
+    async def __call__(self, event: IncomingEvent) -> None:
+        self.events.append(event)
+
 
 def _due_placeholder(participant_id: str) -> ProgressPlaceholder:
     return ProgressPlaceholder(
@@ -620,6 +626,8 @@ def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
     loop._persona = None
     loop._last_compress_generation = loop._short_term.compress_generation
     loop.state = AgentState(current_provider="stub", current_model="stub-model")
+    # 与 application.py 一致：通知以入站事件投递给这个循环自己的 inbox。
+    progress.set_inbound_sink(loop._inbox.push)
     return loop
 
 
@@ -632,11 +640,17 @@ async def test_main_cycle_keeps_tool_results_attached_to_their_tool_calls(tmp_pa
     await loop._cycle()
 
     primary = loop._short_term.primary
-    assert [message for message in primary if message.source == "system_reminder"], (
-        "到期的占位必须注入催促，否则这个用例没有覆盖要防的场景"
-    )
     assert [message for message in primary if message.tool_calls], "脚本响应应带一个工具调用"
     _assert_tool_calls_are_paired(primary)
+    # 催促以入站事件排在下一轮，而不是直接插进上下文——插进上下文就有可能落在
+    # tool_use 与 tool_result 之间，provider 会拒绝整个请求。
+    assert [
+        message for message in primary if message.source == "system_reminder"
+    ] == []
+    queued = await loop._inbox.get_pending()
+    assert [event.source for event in queued] == ["progress_reminder"], (
+        "到期的占位必须发出催促，否则这个用例没有覆盖要防的场景"
+    )
 
 
 def _bubble_loop_for_reminder(progress, *, participant_id: str) -> BubbleMiniLoop:
@@ -649,37 +663,23 @@ def _bubble_loop_for_reminder(progress, *, participant_id: str) -> BubbleMiniLoo
     return loop
 
 
-def test_unbound_bubble_leaves_reply_reminders_for_the_main_loop():
+@pytest.mark.asyncio
+async def test_bubble_reminder_goes_to_the_inbound_sink_not_its_own_context():
     progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
+    sink = _SinkRecorder()
+    progress.set_inbound_sink(sink)
     progress._placeholders["wecom:default:single:U1"] = _due_placeholder(
         "wecom:default:single:U1"
     )
     bubble_loop = _bubble_loop_for_reminder(progress, participant_id="")
 
-    bubble_loop._inject_reply_reminders()
+    await bubble_loop._maintain_placeholders()
 
+    # 通知走 inbox：未绑定对象的泡泡既不会污染自己的上下文，也不会把催促
+    # 截留在手里——归属交给泡泡路由判断。
     assert bubble_loop._short_term.primary == []
-    assert progress.consume_due_reminders() == [("wecom:default:single:U1", 120)]
-
-
-def test_bound_bubble_consumes_its_own_reply_reminder():
-    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config())
-    progress._placeholders["wecom:default:single:U1"] = _due_placeholder(
-        "wecom:default:single:U1"
-    )
-    progress._placeholders["wecom:default:single:U2"] = _due_placeholder(
-        "wecom:default:single:U2"
-    )
-    bubble_loop = _bubble_loop_for_reminder(
-        progress, participant_id="wecom:default:single:U1"
-    )
-
-    bubble_loop._inject_reply_reminders()
-
-    assert [message.source for message in bubble_loop._short_term.primary] == [
-        "system_reminder"
-    ]
-    assert progress.consume_due_reminders() == [("wecom:default:single:U2", 120)]
+    assert [event.participant_id for event in sink.events] == ["wecom:default:single:U1"]
+    assert progress.consume_due_reminders() == []
 
 
 # ── 占位生命周期：并发、身份、失败 ────────────────────────────────────────────
@@ -1024,15 +1024,16 @@ async def test_unanswered_placeholder_is_closed_after_the_timeout():
         IncomingEvent(participant_id="gated:alice", content="hi", source="gated")
     )
     progress.live_placeholders()[0].opened_at = time.monotonic() - 700
-    stm = ShortTermMemory()
+    sink = _SinkRecorder()
+    progress.set_inbound_sink(sink)
 
-    expired = await progress.expire_unanswered(stm)
+    expired = await progress.expire_unanswered()
 
     assert [text for _transport, text in channel.closed] == [tr("channel.progress.expired")]
     assert progress.live_placeholders() == []
     assert len(expired) == 1
-    assert stm.primary[-1].source == "system_reminder"
-    assert "gated:alice" in stm.primary[-1].content
+    assert [event.source for event in sink.events] == ["progress_expired"]
+    assert "gated:alice" in sink.events[0].content
 
 
 @pytest.mark.asyncio
@@ -1040,11 +1041,12 @@ async def test_expiry_notice_says_the_placeholder_is_gone():
     channel = _GatedProgressChannel()
     registry, progress = _gated_stack(channel)
     progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
-    stm = ShortTermMemory()
+    sink = _SinkRecorder()
+    progress.set_inbound_sink(sink)
 
-    await progress.expire_unanswered(stm)
+    await progress.expire_unanswered()
 
-    notice = stm.primary[-1].content
+    notice = sink.events[0].content
     # 模型必须知道占位已经不存在：否则它会以为还能覆盖那条「正在思考中…」。
     assert tr("channel.progress.expired") in notice
     assert "communicate" in notice
@@ -1056,26 +1058,27 @@ async def test_timeout_zero_keeps_the_placeholder_hanging():
     registry, progress = _gated_stack(channel)
     progress._config.agent.channel_progress_timeout_seconds = 0
     progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
+    sink = _SinkRecorder()
+    progress.set_inbound_sink(sink)
 
-    assert await progress.expire_unanswered(ShortTermMemory()) == []
+    assert await progress.expire_unanswered() == []
 
     assert len(progress.live_placeholders()) == 1
     assert channel.closed == []
+    assert sink.events == []
 
 
 @pytest.mark.asyncio
-async def test_expiry_leaves_placeholders_claimed_by_a_bubble():
+async def test_expiry_survives_a_missing_inbound_sink():
     channel = _GatedProgressChannel()
     registry, progress = _gated_stack(channel)
     progress._placeholders["gated:alice"] = _expired_placeholder("gated:alice")
 
-    expired = await progress.expire_unanswered(
-        ShortTermMemory(),
-        claimed=lambda item: item.participant_id == "gated:alice",
-    )
+    # 没有 sink（例如单测里只构造了协调器）也不能抛：占位照样要结束。
+    await progress.expire_unanswered()
 
-    assert expired == []
-    assert len(progress.live_placeholders()) == 1
+    assert progress.live_placeholders() == []
+    assert [text for _transport, text in channel.closed] == [tr("channel.progress.expired")]
 
 
 @pytest.mark.asyncio
@@ -1099,10 +1102,11 @@ async def test_main_cycle_closes_an_expired_placeholder_instead_of_reminding(tmp
 
     await loop._cycle()
 
-    named = [
-        message
-        for message in loop._short_term.primary
-        if message.source == "system_reminder"
-    ]
-    assert len(named) == 1 and "tg:main:123" in named[0].content
     assert progress.live_placeholders() == []
+    # 通知走 inbox：本轮 drain 已经结束，所以它以入站事件排在下一条。
+    queued = await loop._inbox.get_pending()
+    assert [event.source for event in queued] == ["progress_expired"]
+    assert "tg:main:123" in queued[0].content
+    assert [
+        message for message in loop._short_term.primary if message.source == "system_reminder"
+    ] == []
