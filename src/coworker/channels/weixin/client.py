@@ -169,9 +169,12 @@ class WeixinClient:
                 size = payload_path.stat().st_size
                 payload_path.replace(destination)
         except Exception:
-            payload_path.unlink(missing_ok=True)
             destination.unlink(missing_ok=True)
             raise
+        finally:
+            # 密文副本只服务于解密/改名：无论成功与否都不能留在附件目录里，
+            # 否则每个加密附件都会多出一份等大的 .enc 文件。
+            payload_path.unlink(missing_ok=True)
         return size
 
     async def _post(
