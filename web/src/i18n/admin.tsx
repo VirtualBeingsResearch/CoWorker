@@ -654,7 +654,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '主动模式自唤醒间隔（秒）': 'Active-mode self-wake interval (seconds)',
   '信道处理提示': 'Channel processing placeholder',
   '处理提示催促秒数': 'Placeholder reply reminder (seconds)',
-  '开启后，企业微信与 Telegram 入站会立即显示处理中提示，正式回复覆盖同一条。': 'When enabled, WeCom and Telegram show a processing placeholder on inbound messages; the first real reply overwrites the same message.',
+  '开启后，企业微信与 Telegram 的私聊会立即显示处理中提示，正式回复覆盖同一条；群聊不显示。': 'When enabled, WeCom and Telegram private chats show a processing placeholder on inbound messages; the first real reply overwrites the same message. Group chats show none.',
   '超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。': 'If there is still no communicate after this many seconds, remind the model. 0 shows the placeholder without reminding.',
   'Passive 模式（开发者控制）': 'Passive mode (developer control)',
   '空闲唤醒策略': 'Idle wake policy',

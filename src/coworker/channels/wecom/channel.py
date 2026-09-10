@@ -8,6 +8,7 @@ into WeCom reachables), including the latest send and receive times.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from coworker.channels.access import ChannelAccessController
@@ -47,12 +48,19 @@ class WeComChannel(BaseChannel):
     def resolve(self, participant_id: str) -> str | None:
         return self._runner.resolve_participant(participant_id)
 
-    def progress_is_group(self, event: IncomingEvent) -> bool:
+    def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
+        """Offer placeholders to one-to-one chats only.
+
+        A group reply quotes the inbound frame through ``conversation_id``,
+        which an in-place placeholder would consume before the model replies.
+        """
         try:
-            _, chat_type, _ = parse_participant(event.participant_id)
+            _, chat_type, _ = parse_participant(participant_id)
         except ValueError:
-            return False
-        return chat_type == "group"
+            chat_type = ""
+        if chat_type == "single":
+            return self._capabilities
+        return replace(self._capabilities, progress=False)
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
         try:

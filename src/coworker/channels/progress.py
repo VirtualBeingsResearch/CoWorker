@@ -34,22 +34,20 @@ class ProgressTransport:
 @dataclass
 class ProgressPlaceholder:
     participant_id: str
-    speaker_id: str | None
     conversation_id: str | None
-    is_group: bool
     opened_at: float
     transport: ProgressTransport
     reminded: bool = False
 
 
 class ChannelProgressCoordinator:
-    """Track live inbound placeholders and match them to communicate/rest."""
+    """Track one live inbound placeholder per direct conversation."""
 
     def __init__(self, registry: ChannelRegistry, config: Config) -> None:
         self._registry = registry
         self._config = config
         self._is_setup: Callable[[], bool] = lambda: False
-        self._placeholders: dict[tuple[str, ...], ProgressPlaceholder] = {}
+        self._placeholders: dict[str, ProgressPlaceholder] = {}
 
     def set_setup_predicate(self, predicate: Callable[[], bool]) -> None:
         self._is_setup = predicate
@@ -61,8 +59,7 @@ class ChannelProgressCoordinator:
         if channel is None or not channel.capabilities_for(canonical).progress:
             return
         event = _with_participant(event, canonical)
-        key = self._key(event, channel)
-        existing = self._placeholders.get(key)
+        existing = self._placeholders.get(event.participant_id)
         if existing is not None:
             await self._close(existing, channel, tr("channel.progress.replaced"))
             self._discard(existing)
@@ -76,11 +73,9 @@ class ChannelProgressCoordinator:
             return
         if transport is None:
             return
-        self._placeholders[key] = ProgressPlaceholder(
+        self._placeholders[event.participant_id] = ProgressPlaceholder(
             participant_id=event.participant_id,
-            speaker_id=event.speaker_id,
             conversation_id=event.conversation_id,
-            is_group=channel.progress_is_group(event),
             opened_at=time.monotonic(),
             transport=transport,
         )
@@ -165,36 +160,11 @@ class ChannelProgressCoordinator:
             and not self._is_setup()
         )
 
-    def _key(self, event: IncomingEvent, channel: BaseChannel) -> tuple[str, ...]:
-        if channel.progress_is_group(event):
-            return ("group", event.participant_id, event.speaker_id or "")
-        return ("dm", event.participant_id)
-
     def _match(self, request: CommunicateRequest) -> ProgressPlaceholder | None:
-        live = [
-            placeholder
-            for placeholder in self._placeholders.values()
-            if placeholder.participant_id == request.participant_id
-        ]
-        if not live:
-            return None
-        if request.conversation_id:
-            hits = [
-                placeholder
-                for placeholder in live
-                if placeholder.conversation_id == request.conversation_id
-            ]
-            if hits:
-                return max(hits, key=lambda item: item.opened_at)
-        return max(live, key=lambda item: item.opened_at)
-
-    def _placeholder_key(self, placeholder: ProgressPlaceholder) -> tuple[str, ...]:
-        if placeholder.is_group:
-            return ("group", placeholder.participant_id, placeholder.speaker_id or "")
-        return ("dm", placeholder.participant_id)
+        return self._placeholders.get(request.participant_id)
 
     def _discard(self, placeholder: ProgressPlaceholder) -> None:
-        self._placeholders.pop(self._placeholder_key(placeholder), None)
+        self._placeholders.pop(placeholder.participant_id, None)
 
     def _target_channel(
         self,

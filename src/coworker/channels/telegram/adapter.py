@@ -66,18 +66,6 @@ def conversation_id_for(message: dict[str, Any]) -> str | None:
     return str(thread_id) if isinstance(thread_id, int) else None
 
 
-def speaker_id_for(message: dict[str, Any]) -> str | None:
-    sender = message.get("sender_chat")
-    if not isinstance(sender, dict):
-        sender = message.get("from")
-    if not isinstance(sender, dict):
-        return None
-    sender_id = sender.get("id")
-    if sender_id is None or sender_id == "":
-        return None
-    return str(sender_id)
-
-
 def message_content(message: dict[str, Any], media: TelegramMedia | None) -> str:
     text = _message_body(message, media)
     chat = message.get("chat")

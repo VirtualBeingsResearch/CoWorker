@@ -269,37 +269,16 @@ async def test_wecom_same_dm_second_inbound_moves_placeholder(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_wecom_group_same_speaker_moves_only_that_stream(tmp_path):
-    _runner, bot, _registry, progress, _inbox = _wecom_stack(tmp_path)
-    first = _frame_group("A", "rA")
-    second = _frame_group("A", "rA2")
-    other = _frame_group("B", "rB")
-    await bot._on_text_like(first)
-    await bot._on_text_like(other)
-    await bot._on_text_like(second)
-    live = progress.live_placeholders()
-    assert {item.speaker_id for item in live} == {"A", "B"}
-    a_placeholder = next(item for item in live if item.speaker_id == "A")
-    assert a_placeholder.conversation_id == "rA2"
-    close_a = next(
-        call
-        for call in bot._client.reply_stream.await_args_list
-        if call.args[0] is first and call.kwargs.get("finish") is True
-    )
-    assert close_a.args[2] == tr("channel.progress.replaced")
+async def test_wecom_group_inbound_opens_no_placeholder(tmp_path):
+    _runner, bot, registry, progress, inbox = _wecom_stack(tmp_path)
+    frame = _frame_group("A", "rA")
+    await bot._on_text_like(frame)
+    inbox.assert_awaited_once()
+    bot._client.reply_stream.assert_not_called()
+    bot._client.send_message.assert_not_called()
+    assert progress.live_placeholders() == []
 
-
-@pytest.mark.asyncio
-async def test_wecom_group_two_speakers_and_rest_closes_sibling(tmp_path):
-    _runner, bot, registry, progress, _inbox = _wecom_stack(tmp_path)
-    frame_a = _frame_group("A", "rA")
-    frame_b = _frame_group("B", "rB")
-    await bot._on_text_like(frame_a)
-    await bot._on_text_like(frame_b)
-    assert len(progress.live_placeholders()) == 2
-    stream_a = bot._client.reply_stream.await_args_list[0].args[1]
-    stream_b = bot._client.reply_stream.await_args_list[1].args[1]
-
+    # The group frame stays cached, so a reply can still quote it.
     await registry.send(
         CommunicateRequest(
             participant_id="wecom:default:group:TEAM",
@@ -307,59 +286,10 @@ async def test_wecom_group_two_speakers_and_rest_closes_sibling(tmp_path):
             conversation_id="rA",
         )
     )
-    overwrite = bot._client.reply_stream.await_args
-    assert overwrite.args[0] is frame_a
-    assert overwrite.args[1] == stream_a
-    assert overwrite.kwargs["finish"] is True
-    assert {item.speaker_id for item in progress.live_placeholders()} == {"B"}
-
-    await registry.send(
-        CommunicateRequest(
-            participant_id="wecom:default:group:TEAM",
-            message="reply B",
-            conversation_id="rB",
-        )
-    )
-    overwrite_b = bot._client.reply_stream.await_args
-    assert overwrite_b.args[0] is frame_b
-    assert overwrite_b.args[1] == stream_b
-    assert progress.live_placeholders() == []
-
-
-@pytest.mark.asyncio
-async def test_wecom_group_later_reply_leaves_earlier_placeholder(tmp_path):
-    _runner, bot, registry, progress, _inbox = _wecom_stack(tmp_path)
-    frame_a = _frame_group("A", "rA")
-    frame_b = _frame_group("B", "rB")
-    await bot._on_text_like(frame_a)
-    await bot._on_text_like(frame_b)
-    stream_a = bot._client.reply_stream.await_args_list[0].args[1]
-    stream_b = bot._client.reply_stream.await_args_list[1].args[1]
-    await registry.send(
-        CommunicateRequest(
-            participant_id="wecom:default:group:TEAM",
-            message="reply B first",
-            conversation_id="rB",
-        )
-    )
-    overwrite_b = bot._client.reply_stream.await_args
-    assert overwrite_b.args[0] is frame_b
-    assert overwrite_b.args[1] == stream_b
-    assert overwrite_b.args[2] == "reply B first"
-    assert {item.speaker_id for item in progress.live_placeholders()} == {"A"}
-
-    await registry.send(
-        CommunicateRequest(
-            participant_id="wecom:default:group:TEAM",
-            message="reply A next",
-            conversation_id="rA",
-        )
-    )
-    overwrite_a = bot._client.reply_stream.await_args
-    assert overwrite_a.args[0] is frame_a
-    assert overwrite_a.args[1] == stream_a
-    assert overwrite_a.args[2] == "reply A next"
-    assert progress.live_placeholders() == []
+    reply = bot._client.reply_stream.await_args
+    assert reply.args[0] is frame
+    assert reply.args[2] == "reply A"
+    assert reply.kwargs["finish"] is True
 
 
 @pytest.mark.asyncio
@@ -384,11 +314,26 @@ async def test_weixin_source_does_not_send_placeholder(tmp_path):
     bot._client.send_message.assert_not_called()
 
 
-def test_wecom_and_telegram_declare_progress_capability():
+def test_progress_capability_is_limited_to_one_to_one_chats():
     wecom = WeComChannel(MagicMock())
-    telegram = TelegramChannel(MagicMock())
     assert wecom.capabilities_for("wecom:default:single:U123").progress is True
+    assert wecom.capabilities_for("wecom:default:group:TEAM").progress is False
+
+    runner = MagicMock()
+    runner.contact_for.return_value = None
+    telegram = TelegramChannel(runner)
+    # An unknown chat falls back to Telegram's ID convention: users are
+    # positive, groups, supergroups and channels are negative.
     assert telegram.capabilities_for("tg:main:123").progress is True
+    assert telegram.capabilities_for("tg:main:-1001").progress is False
+
+    runner.contact_for.side_effect = lambda participant: SimpleNamespace(
+        kind="private" if participant == "tg:main:123" else "supergroup"
+    )
+    assert telegram.capabilities_for("tg:main:123").progress is True
+    assert telegram.capabilities_for("tg:main:-1001").progress is False
+    # Only the placeholder bit is withheld; other capabilities are unaffected.
+    assert telegram.capabilities_for("tg:main:-1001").attachments is True
 
 
 def test_progress_close_copy_is_meaningful_in_both_locales():
@@ -451,24 +396,19 @@ async def test_telegram_placeholder_edit_and_same_speaker_replace(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_telegram_group_speakers_keep_separate_placeholders(tmp_path):
+async def test_telegram_group_inbound_opens_no_placeholder(tmp_path):
     _runner, bot, client, registry, progress, _inbox = _telegram_stack(tmp_path)
     await bot._consume_update(client, _group_update(1, user_id=11))
     await bot._consume_update(client, _group_update(2, user_id=22))
-    live = progress.live_placeholders()
-    assert {item.speaker_id for item in live} == {"11", "22"}
-    assert len(client.messages) == 2
-    await registry.send(
-        CommunicateRequest(
-            participant_id="tg:main:-1001",
-            message="to 11",
-            conversation_id=None,
-        )
+    assert client.messages == []
+    assert progress.live_placeholders() == []
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="tg:main:-1001", message="to the group")
     )
-    # Most recent live placeholder is speaker 22.
-    assert client.edits[0][1] == 2
-    await registry.send(CommunicateRequest(participant_id="tg:main:-1001", message="to 11 later"))
-    assert len(client.edits) == 2
+    assert result.is_error is False
+    assert client.edits == []
+    assert client.messages == [(-1001, "to the group", None)]
 
 
 @pytest.mark.asyncio

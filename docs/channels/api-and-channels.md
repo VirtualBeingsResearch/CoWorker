@@ -59,7 +59,7 @@ channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 
 应用内置的 Stream、Desktop、WeCom、Telegram 与微信 Claw 共享 `channels.activity`。自定义 Channel 如果也要让 `list_connections` 跨重启保留最近收发时间，可在构造时传入 `activity=channels.activity`，并只在入站已接受或出站已成功后调用 `record_received` / `_record_sent`；失败尝试不会污染活动时间。
 
-Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments`、`extra` 和入站 `progress` 占位。前三项是出站字段，默认仅支持 `message`；Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。`progress` 不是 `communicate` 字段：Channel 在注册时声明后，协调器才会为该通道打开占位，并由第一次 `communicate` 原地覆盖。
+Channel 通过 `ChannelCapabilities` 声明是否支持 `conversation_id`、`attachments`、`extra` 和入站 `progress` 占位。前三项是出站字段，默认仅支持 `message`；Registry 会在发送前统一省略目标不支持的可选字段：只要仍有正文或其他受支持内容，就继续投递，并在工具结果中明确告诉 AI 哪些字段未传递；不会因附件或 `extra` 不受支持而丢掉正文。`progress` 不是 `communicate` 字段：Channel 按 participant 声明后，协调器才会为该会话打开占位，并由第一次 `communicate` 原地覆盖；只支持一对一会话的 Channel 可以对群聊 participant 直接不声明该项。
 
 ## 信道访问列表
 
@@ -82,7 +82,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 企业微信单聊不提供 `conversation_id`，回复时自动使用该用户最新的新鲜 frame。群聊入站事件会把 frame 的 `req_id`（缺失时使用 `msgid`）作为 `conversation_id` 展示给 AI，回复时传回该值即可精确使用对应 frame；如果指定 frame 已过期或不存在，则改用主动消息发送，不会误用同一群聊的其他 frame。群聊发送时不传 `conversation_id` 也始终视为主动消息，不会自动使用缓存的 frame。
 
-开启 `AGENT__CHANNEL_PROGRESS_ENABLED` 后，企业微信会在入站被接受时用同一 `stream_id` 发送 `reply_stream(..., finish=False)` 处理中占位，并持有该 frame；第一次 `communicate` 用同一 `stream_id` 覆盖后 `finish=True`。同一发送者在正式回复前又来一条时，旧占位会被改写成「收到后续消息」，再在最新入站上开新占位。群里不同发送者的占位互不抢占；未覆盖的占位会一直留到对应的 `communicate`，休息时不会替模型收口。不带 `conversation_id` 时覆盖该会话里最新的占位，因此可以先回后面的人，再带上更早那条的 `conversation_id` 回前面的人。流式覆盖失败则降级为普通 `send_message`。超长 markdown 仍按现有分块：第一块覆盖流并结束，其余块继续主动发送。
+开启 `AGENT__CHANNEL_PROGRESS_ENABLED` 后，企业微信单聊会在入站被接受时用同一 `stream_id` 发送 `reply_stream(..., finish=False)` 处理中占位，并持有该 frame；第一次 `communicate` 用同一 `stream_id` 覆盖后 `finish=True`。对方在正式回复前又来一条时，旧占位会被改写成「收到后续消息」，再在最新入站上开新占位。未覆盖的占位会一直留到对应的 `communicate`，休息时不会替模型收口。群聊不开占位：群消息仍按上面的规则把 frame 留给回复引用。流式覆盖失败则降级为普通 `send_message`。超长 markdown 仍按现有分块：第一块覆盖流并结束，其余块继续主动发送。
 
 企业微信入站消息引用图片、文件、视频或包含图片的图文混排消息时，WeCom Channel 会在访问控制通过后下载引用附件，并与当前消息的附件一起交给 Agent。下载失败时，入站内容会标明对应附件下载失败；底层错误只写入运行日志，不会向 Agent 暴露下载 URL、AES key 或异常详情，当前消息也不会被丢弃。
 
@@ -96,7 +96,7 @@ CHANNEL_ACCESS={"wecom":{"inbound_allow":["wecom:trusted:*"],"inbound_deny":["we
 
 Telegram 使用 `tg:<instance_id>:<chat_id>` 区分多个 Bot 下的已知聊天，forum topic 的
 `message_thread_id` 作为 `conversation_id`。它支持文本与附件，并只会向已通过入站消息发现的
-chat 发送；完整行为与配置见 [Telegram](telegram.md)。开启处理提示后，Telegram 先发送占位消息，正式回复用 `edit_message_text` 覆盖；同一发送者后续入站会把旧占位改成收口说明，再发新的。微信 Claw、Stream、Desktop 与 OpenAI 兼容信道不显示用户可见占位。
+chat 发送；完整行为与配置见 [Telegram](telegram.md)。开启处理提示后，Telegram 私聊先发送占位消息，正式回复用 `edit_message_text` 覆盖；对方后续入站会把旧占位改成收口说明，再发新的。群聊、频道，以及微信 Claw、Stream、Desktop 与 OpenAI 兼容信道不显示用户可见占位。
 
 需要入站时覆写 `receive_raw`，归一化为 `IncomingEvent` 后调用 `publish_inbound`；需要后台连接时注入实现了 `start` / `stop` 的 `ChannelRuntime`。Registry 会拒绝重复名称、重复 participant 前缀和启动后的迟到注册，让配置错误在启动阶段直接暴露。
 

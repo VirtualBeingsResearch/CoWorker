@@ -43,7 +43,8 @@ class ChannelCapabilities:
 
     ``conversation_id``, ``attachments``, and ``extra`` are outbound request
     fields stripped by :meth:`filter`. ``progress`` is inbound placeholder
-    support and is not a ``communicate`` field.
+    support and is not a ``communicate`` field; channels report it per
+    participant, so a chat that cannot show one simply withholds it.
     """
 
     conversation_id: bool = False
@@ -208,9 +209,6 @@ class BaseChannel(ABC):
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
         return self._capabilities
-
-    def progress_is_group(self, event: IncomingEvent) -> bool:
-        return False
 
     async def open_progress(
         self,

@@ -108,7 +108,7 @@ instance_unknown = "WeCom Bot instance does not exist: {{instance}}"
 [channel.progress]
 thinking = "Thinking…"
 replaced = "Got a follow-up message."
-superseded = "Already replied in this group."
+superseded = "Already replied."
 
 [channel.weixin]
 image = "[image]"

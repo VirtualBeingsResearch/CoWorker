@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.base import (
     BaseChannel,
@@ -35,17 +37,28 @@ class TelegramChannel(BaseChannel):
     def resolve(self, participant_id: str) -> str | None:
         return self._runner.resolve_participant(participant_id)
 
-    def progress_is_group(self, event: IncomingEvent) -> bool:
+    def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
+        """Offer placeholders in private chats only.
+
+        A group message cannot be overwritten in place without deciding which
+        member it belongs to, so those chats keep the normal send path.
+        """
+        if self._is_private_chat(participant_id):
+            return self._capabilities
+        return replace(self._capabilities, progress=False)
+
+    def _is_private_chat(self, participant_id: str) -> bool:
+        contact = self._runner.contact_for(participant_id)
+        if contact is not None:
+            return contact.kind == "private"
+        # A chat's first update is published before its contact is recorded, so
+        # fall back to Telegram's ID convention: users are positive, groups,
+        # supergroups and channels are negative.
         try:
-            _, chat_id = parse_participant(event.participant_id)
+            _, chat_id = parse_participant(participant_id)
         except ValueError:
             return False
-        if event.speaker_id is None:
-            return False
-        try:
-            return int(event.speaker_id) != chat_id
-        except ValueError:
-            return True
+        return chat_id > 0
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
         if not request.message.strip() and not request.attachments:

@@ -106,7 +106,7 @@ export function configFieldPresentation(
   if (path === 'agent.channel_progress_enabled') {
     return {
       editor: 'default',
-      hint: '开启后，企业微信与 Telegram 入站会立即显示处理中提示，正式回复覆盖同一条。',
+      hint: '开启后，企业微信与 Telegram 的私聊会立即显示处理中提示，正式回复覆盖同一条；群聊不显示。',
     };
   }
 

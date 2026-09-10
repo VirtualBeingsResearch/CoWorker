@@ -151,7 +151,7 @@ as codes.
 | `AGENT__SYSTEM_PROMPT_TEMPLATE` | Empty | System prompt template. Empty or whitespace-only values use the product-standard template; maximum 100,000 characters. A saved administration override requires a safe restart |
 | `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `52428800` | Maximum bytes in one interaction-log shard. At the limit, the active `interactions.jsonl` is archived under an increasing number and a new file is used. Set to `0` to disable rotation. |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | Idle sleep interval in seconds |
-| `AGENT__CHANNEL_PROGRESS_ENABLED` | `false` | Whether channels that declare the `progress` capability (currently WeCom and Telegram) show an inbound "thinking" placeholder that the first `communicate` overwrites in place. Off by default; placeholders are skipped while paused or during first-run setup. |
+| `AGENT__CHANNEL_PROGRESS_ENABLED` | `false` | Whether one-to-one chats that declare the `progress` capability (currently WeCom and Telegram private chats; groups never do) show an inbound "thinking" placeholder that the first `communicate` overwrites in place. Off by default; placeholders are skipped while paused or during first-run setup. |
 | `AGENT__CHANNEL_PROGRESS_REPLY_REMINDER_SECONDS` | `60` | When processing placeholders are enabled, inject a model-only reply reminder after this many seconds without a `communicate` to that chat. `0` shows placeholders without reminding the model. |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | Inbox polling interval |
 | `AGENT__TICK` | `true` | Whether autonomous ticks run when no external message is present |

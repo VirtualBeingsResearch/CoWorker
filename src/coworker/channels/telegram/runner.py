@@ -276,7 +276,6 @@ class _TelegramBotRuntime:
                 source="telegram",
                 attachments=attachments,
                 event_id=f"telegram:{self.instance_id}:{update_id}",
-                speaker_id=adapter.speaker_id_for(message),
             )
         )
         assert self._state.contacts is not None
@@ -545,6 +544,17 @@ class TelegramRunner:
         if bot is None or bot._client is None:
             return
         await bot._client.delete_message(chat_id, message_id)
+
+    def contact_for(self, participant_id: str) -> TelegramContact | None:
+        """Return the known chat behind a ``tg:<instance>:<chat_id>`` address."""
+        try:
+            instance_id, chat_id = adapter.parse_participant(participant_id)
+        except ValueError:
+            return None
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            return None
+        return bot.contact_for_chat(chat_id)
 
     def resolve_participant(self, participant_id: str) -> str | None:
         instance_hint = ""

@@ -108,7 +108,7 @@ instance_unknown = "企业微信 Bot 实例不存在：{{instance}}"
 [channel.progress]
 thinking = "正在思考中…"
 replaced = "收到后续消息"
-superseded = "已在本群回复。"
+superseded = "已回复。"
 
 [channel.weixin]
 image = "[图片]"

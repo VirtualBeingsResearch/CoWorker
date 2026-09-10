@@ -392,12 +392,4 @@ def frame_to_event(
         timestamp=datetime.now(),
         source="wecom",
         attachments=attachments,
-        speaker_id=speaker_id_for(frame),
     )
-
-
-def speaker_id_for(frame: dict[str, Any]) -> str | None:
-    userid = frame.get("body", {}).get("from", {}).get("userid")
-    if userid is None or userid == "":
-        return None
-    return str(userid)

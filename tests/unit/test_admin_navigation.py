@@ -42,7 +42,7 @@ def test_channel_progress_config_labels_have_english_translations() -> None:
     for phrase in (
         "信道处理提示",
         "处理提示催促秒数",
-        "开启后，企业微信与 Telegram 入站会立即显示处理中提示，正式回复覆盖同一条。",
+        "开启后，企业微信与 Telegram 的私聊会立即显示处理中提示，正式回复覆盖同一条；群聊不显示。",
         "超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。",
     ):
         assert f"'{phrase}':" in i18n
