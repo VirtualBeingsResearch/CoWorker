@@ -789,3 +789,23 @@ def test_weixin_polling_http_logs_only_downgrade_poll_requests() -> None:
     assert updates.levelno == logging.DEBUG
     assert snapshot.levelno == logging.DEBUG
     assert command.levelno == logging.INFO
+
+
+@pytest.mark.asyncio
+async def test_download_media_leaves_no_ciphertext_copy(tmp_path: Path) -> None:
+    key = b"0123456789abcdef"
+    plaintext = b"decrypted-payload"
+    client = _cdn_client(plaintext, [], key)
+    destination = tmp_path / "attachment.bin"
+
+    size = await client.download_media(
+        destination,
+        full_url="https://cdn.example/x",
+        aes_key=key,
+    )
+    await client.close()
+
+    assert size == len(plaintext)
+    assert destination.read_bytes() == plaintext
+    # 密文副本只服务于解密：成功路径也不能把它留在附件目录里。
+    assert [item.name for item in tmp_path.iterdir()] == ["attachment.bin"]

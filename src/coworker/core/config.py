@@ -684,6 +684,14 @@ class AgentConfig(_EnvSettings):
     # 恢复后一起处理。运行时可通过管理 API 热切换，随覆盖配置持久化，
     # 重启后保持暂停。
     paused: bool = False
+    # Optional inbound thinking placeholders on channels that can overwrite in place.
+    channel_progress_enabled: bool = False
+    # Seconds before injecting a model-only reply reminder; 0 disables the reminder.
+    channel_progress_reply_reminder_seconds: int = Field(default=60, ge=0)
+    # Seconds after which an unanswered placeholder is closed with a neutral
+    # notice instead of hanging; 0 keeps placeholders until they are overwritten.
+    # Keep it comfortably above channel_progress_reply_reminder_seconds.
+    channel_progress_timeout_seconds: int = Field(default=600, ge=0)
 
     code_hard_timeout: int = 300
     image_max_dimension: int = 960

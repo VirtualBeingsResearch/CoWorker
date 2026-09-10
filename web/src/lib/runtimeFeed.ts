@@ -53,7 +53,7 @@ export function activityStateFromEvents(events: RuntimeLogEvent[]): { state: str
 
 // 运行日志的「展示行」模型 —— 把 append-only 的后端日志事件（interactions.jsonl，经
 // RuntimeEventCollector 初级处理）归并成可变的行：thinking 是长态（thinking_start →
-// llm_response 收口的生命周期），tool_call 与 tool_result 按 tool-call id 配对、在同一行
+// llm_response 结束的生命周期），tool_call 与 tool_result 按 tool-call id 配对、在同一行
 // 原地结算（调用中 → 成功/失败）。communicate / get_skill 从 tool_call 派生专属行。
 export type FeedKind =
   | 'msg_in'
@@ -260,7 +260,7 @@ function toolPendingRow(e: RuntimeLogEvent): FeedRow {
   };
 }
 
-// sleep 工具调用 → 休息长态行（与 thinking 相反的缓慢蓝色呼吸 + z·z·z），由其 tool_result 收口为「已唤醒」
+// sleep 工具调用 → 休息长态行（与 thinking 相反的缓慢蓝色呼吸 + z·z·z），由其 tool_result 结束为「已唤醒」
 function sleepRow(e: RuntimeLogEvent): FeedRow {
   const secs = clean((e.arguments || {}).seconds);
   const waitsForEvent = secs === '0';
@@ -279,7 +279,7 @@ function sleepRow(e: RuntimeLogEvent): FeedRow {
   };
 }
 
-// 收口休息行（sleep 的 tool_result 抵达＝醒来；提前唤醒也走此路）
+// 结束休息行（sleep 的 tool_result 抵达＝醒来；提前唤醒也走此路）
 function concludeSleep(row: FeedRow, wakeContent?: string): void {
   row.status = 'done';
   row.icon = '☀️';
@@ -298,7 +298,7 @@ function rawRow(e: RuntimeLogEvent): FeedRow {
   return { key: seqKey(e), kind: 'raw', ts: e.ts, icon: '·', tag: t('原始事件'), text: cut(text) };
 }
 
-/** 收口思考行：可选地用模型这一轮的输出（llm_response.content）作为「思考完成」文案。 */
+/** 结束思考行：可选地用模型这一轮的输出（llm_response.content）作为「思考完成」文案。 */
 function concludeThinking(row: FeedRow, conclusion?: string, completedAt?: string, effort?: string): void {
   row.status = 'done';
   row.icon = '💡';
@@ -308,7 +308,7 @@ function concludeThinking(row: FeedRow, conclusion?: string, completedAt?: strin
   recordDuration(row, completedAt);
 }
 
-/** 收口仍处于 active 的思考行（除非本次事件本身就是 thinking_start）。 */
+/** 结束仍处于 active 的思考行（除非本次事件本身就是 thinking_start）。 */
 function settleThinking(rows: FeedRow[], keepActive: boolean, completedAt?: string): void {
   if (keepActive) return;
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -377,7 +377,7 @@ export function deriveFeedRows(events: RuntimeLogEvent[]): FeedRow[] {
       continue;
     }
 
-    // —— 长态终点：llm_response 收口当前思考行（以其内容为完成文案）——
+    // —— 长态终点：llm_response 结束当前思考行（以其内容为完成文案）——
     if (type === 'llm_response') {
       const active = lastActiveThinking(rows);
       if (active) concludeThinking(active, e.content, e.ts, e.thinking_effort);
@@ -385,7 +385,7 @@ export function deriveFeedRows(events: RuntimeLogEvent[]): FeedRow[] {
       continue;
     }
 
-    // —— 其余事件：先收口任何悬挂的思考行，再成行 ——
+    // —— 其余事件：先结束任何悬挂的思考行，再成行 ——
     settleThinking(rows, false, e.ts);
 
     switch (type) {

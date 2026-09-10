@@ -26,6 +26,8 @@ const POSITIVE_INTEGER_FIELDS = new Set([
 const NON_NEGATIVE_INTEGER_FIELDS = new Set([
   'agent.idle_sleep_seconds',
   'agent.bubble_timeout_resume_seconds',
+  'agent.channel_progress_reply_reminder_seconds',
+  'agent.channel_progress_timeout_seconds',
   'relay.auth_epoch',
 ]);
 
@@ -102,6 +104,13 @@ export function configFieldPresentation(
     };
   }
 
+  if (path === 'agent.channel_progress_enabled') {
+    return {
+      editor: 'default',
+      hint: '开启后，企业微信与 Telegram 的私聊会立即显示处理中提示，正式回复覆盖同一条；群聊不显示。',
+    };
+  }
+
   if (path === 'api.port') {
     return { editor: 'default', minimum: 1, maximum: 65_535, step: 1 };
   }
@@ -124,7 +133,11 @@ export function configFieldPresentation(
         ? context.passiveMode
           ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
           : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
-        : undefined,
+        : path === 'agent.channel_progress_reply_reminder_seconds'
+          ? '超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。'
+          : path === 'agent.channel_progress_timeout_seconds'
+            ? '超过该秒数仍未回复时，处理中提示会被换成一句中性说明并结束，不会再一直停在「正在思考中…」；0 表示一直保留到你覆盖。建议大于催促秒数。'
+            : undefined,
     };
   }
   if (INTEGER_FIELDS.has(path)) {

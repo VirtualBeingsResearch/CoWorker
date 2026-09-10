@@ -31,6 +31,7 @@ from coworker.api.routes import setup as setup_routes
 from coworker.brain.brain import Brain
 from coworker.brain.factory import build_provider
 from coworker.channels.openai import OpenAIModule, create_openai_module
+from coworker.channels.progress import ChannelProgressCoordinator
 from coworker.channels.stream.desktop import (
     DesktopDispatcher,
     DesktopProfile,
@@ -739,6 +740,11 @@ async def _main() -> bool:
         access_config=config.channel_access,
         traffic_path=Path(config.agent.logs_dir) / "channel_traffic.jsonl",
     )
+    progress = ChannelProgressCoordinator(channel_system.registry, config)
+    # 催促与超时通知以入站事件投递：走 inbox 才会经过泡泡路由，落到真正负责
+    # 该对象的线程，而不是被塞进某一方的上下文里。
+    progress.set_inbound_sink(inbox_watcher.push)
+    channel_system.registry.set_progress_coordinator(progress)
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None
     openai_module: OpenAIModule | None = None
@@ -878,6 +884,7 @@ async def _main() -> bool:
         thinking_path="data/thinking.md",
         git_commit=current_env.get("git_commit"),
         system_prompt_template=config.agent.system_prompt_template,
+        channel_progress_enabled=config.agent.channel_progress_enabled,
     )
 
     bubble_store: BubbleStore | None = None
@@ -1026,7 +1033,9 @@ async def _main() -> bool:
         bubble_store=bubble_store,
         subconscious=subconscious,
         persona=persona_context,
+        progress=progress,
     )
+    progress.set_setup_predicate(lambda: agent_loop.state.setup_mode)
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)
     desktop_update_runtime = build_runtime_spec(config.desktop_updates)
@@ -1196,6 +1205,9 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        # 信道还活着时替对方结束未回复的占位：重启后内存里的占位就没了，
+        # 不在这里收尾的话那条「正在思考中…」会永久留在对方那里。
+        await progress.close_all_placeholders()
         await channel_system.registry.stop()
         await relay_client.stop()
         server.should_exit = True

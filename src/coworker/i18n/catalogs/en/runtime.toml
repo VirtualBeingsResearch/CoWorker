@@ -105,6 +105,12 @@ config_type_invalid = "WeCom settings require WeComConfig"
 prepared = "WeCom runtime prepared with {{count}} enabled Bot instances"
 instance_unknown = "WeCom Bot instance does not exist: {{instance}}"
 
+[channel.progress]
+thinking = "Thinking…"
+replaced = "Got a follow-up message."
+superseded = "Already replied."
+expired = "Still working on this; I'll reply in a new message"
+
 [channel.weixin]
 image = "[image]"
 voice = "[voice message without transcript]"
@@ -344,6 +350,8 @@ task_details_hint = " has_details=true; use task_get to view details"
 task_pin_label = "Unfinished tasks"
 task_board_more = "... and {{count}} more; use task_list"
 concurrency_hint = "[parallel hint] {{count}} conversations have been active at the same time recently; a good moment to handle them in parallel with bubbles."
+reply_reminder = "[reply reminder] {{participant}} has been waiting {{seconds}} seconds without a communicate reply. Reply with communicate now if a response is still needed."
+placeholder_expired = "[placeholder ended] {{participant}} waited {{seconds}} seconds, so the system replaced the processing placeholder with \"{{notice}}\" and ended it. That message is still unanswered and there is no placeholder left to overwrite: send a new message with communicate if a reply is still needed."
 
 [bubble]
 cancelled = "The bubble was cancelled manually"

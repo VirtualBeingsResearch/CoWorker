@@ -222,7 +222,7 @@ class TestBudgetRebalance:
 
     @pytest.mark.asyncio
     async def test_promote_leaf_clamps_oversized_leaf_summary(self):
-        # 新叶子摘要器若忽略预算，进入树时也必须被本地 token 估算兜底收口。
+        # 新叶子摘要器若忽略预算，进入树时也必须由本地 token 估算兜底修正。
         tree = MemoryBlockTree(spine_cap_tokens=80, leaf_budget_tokens=8)
 
         await tree.promote_leaf(

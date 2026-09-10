@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from typing import Any
 
 from loguru import logger
 
@@ -20,7 +21,7 @@ from coworker.channels.base import (
 from coworker.channels.inbound import InboundEnvelope
 from coworker.channels.runtime import ChannelRuntime
 from coworker.core.registration import RegistrationError
-from coworker.core.types import CommunicateRequest, ToolResult
+from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
 from coworker.i18n import tr
 
 _PARTICIPANT_SUGGESTION_DISTANCE = 4
@@ -33,6 +34,8 @@ class ChannelRegistry:
         self._channels: list[BaseChannel] = []
         self._fallback: BaseChannel | None = None
         self._inbound_handler: InboundHandler | None = None
+        self._app_inbound_handler: InboundHandler | None = None
+        self._progress: Any | None = None
         self._runtime_tasks: dict[int, asyncio.Task[None]] = {}
         self._access = access if access is not None else ChannelAccessController()
 
@@ -63,6 +66,25 @@ class ChannelRegistry:
         return bool(self._runtime_tasks)
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
+        self._app_inbound_handler = handler
+        self._bind_inbound()
+
+    def set_progress_coordinator(self, coordinator: Any | None) -> None:
+        self._progress = coordinator
+        self._bind_inbound()
+
+    def _bind_inbound(self) -> None:
+        if self._progress is None:
+            handler = self._app_inbound_handler
+        else:
+            async def handler(event: IncomingEvent) -> Any:
+                coordinator = self._progress
+                if coordinator is not None:
+                    await coordinator.on_inbound(event)
+                app = self._app_inbound_handler
+                if app is not None:
+                    await app(event)
+
         self._inbound_handler = handler
         for channel in self._channels:
             channel.set_inbound_handler(handler)
@@ -202,7 +224,14 @@ class ChannelRegistry:
             replace(request, participant_id=canonical)
         )
         try:
-            result = await target.send(outbound)
+            if self._progress is not None:
+                result = await self._progress.overwrite_or_send(
+                    outbound,
+                    target.send,
+                    target,
+                )
+            else:
+                result = await target.send(outbound)
         except Exception as error:
             self._access.traffic.record(
                 direction="outbound",

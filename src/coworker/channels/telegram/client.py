@@ -81,12 +81,31 @@ class TelegramClient:
         chat_id: int,
         text: str,
         message_thread_id: int | None = None,
-    ) -> None:
-        await self._bot.send_message(
+    ) -> int:
+        result = await self._bot.send_message(
             chat_id=chat_id,
             text=text,
             message_thread_id=message_thread_id,
         )
+        message_id = getattr(result, "message_id", None)
+        if not isinstance(message_id, int):
+            raise RuntimeError("Telegram send_message returned no message_id")
+        return message_id
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+    ) -> None:
+        await self._bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        await self._bot.delete_message(chat_id=chat_id, message_id=message_id)
 
     async def send_attachment(
         self,
@@ -156,24 +175,26 @@ class TelegramClient:
         """
 
         limit = self._max_download_bytes if max_bytes is None else max_bytes
-        telegram_file = await self._bot.get_file(file_id)
-        if (
-            isinstance(telegram_file.file_size, int)
-            and telegram_file.file_size > limit
-        ):
-            raise TelegramFileTooLargeError(
-                tr(
-                    "channel.telegram.download_too_large",
-                    size=telegram_file.file_size,
-                    limit=limit,
-                )
-            )
-        file_path = str(telegram_file.file_path or "")
-        if not file_path:
-            raise RuntimeError(tr("channel.telegram.file_path_missing"))
         destination.parent.mkdir(parents=True, exist_ok=True)
         total = -1
+        # 调用方已经把 destination 预留成一个空文件，所以取文件信息与各项校验
+        # 都必须留在 try 内，否则早失败会把那个空文件留在附件目录里。
         try:
+            telegram_file = await self._bot.get_file(file_id)
+            if (
+                isinstance(telegram_file.file_size, int)
+                and telegram_file.file_size > limit
+            ):
+                raise TelegramFileTooLargeError(
+                    tr(
+                        "channel.telegram.download_too_large",
+                        size=telegram_file.file_size,
+                        limit=limit,
+                    )
+                )
+            file_path = str(telegram_file.file_path or "")
+            if not file_path:
+                raise RuntimeError(tr("channel.telegram.file_path_missing"))
             if _is_local_file(file_path):
                 total = await asyncio.to_thread(
                     _copy_capped, Path(file_path), destination, limit

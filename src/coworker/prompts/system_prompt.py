@@ -63,6 +63,7 @@ class SystemPromptBuilder:
         thinking_path: str | Path = "data/thinking.md",
         git_commit: str | None = None,
         system_prompt_template: str = "",
+        channel_progress_enabled: bool = False,
     ) -> None:
         self._identity = identity
         self._tools = tool_registry
@@ -74,6 +75,7 @@ class SystemPromptBuilder:
         self._system_prompt_template = validate_system_prompt_template(
             system_prompt_template
         )
+        self._channel_progress_enabled = channel_progress_enabled
         # Runtime locale changes require a process restart.  Capture the locale
         # with the builder so temporary locale contexts used by background work
         # cannot switch an existing agent's system prompt or invalidate its cache.
@@ -122,10 +124,15 @@ class SystemPromptBuilder:
             )
             sections["CHANNELS"] = ""
             if channel_instructions:
-                sections["CHANNELS"] = (
+                channel_block = (
                     f"[CHANNELS]\n{tr('prompt.channels_intro')}\n\n"
                     + "\n\n".join(channel_instructions)
                 )
+                if self._channel_progress_enabled:
+                    channel_block = (
+                        f"{channel_block}\n\n{tr('prompt.channel.progress')}"
+                    )
+                sections["CHANNELS"] = channel_block
 
             skills_text = self._skills.format_for_prompt()
             sections["SKILLS"] = (
@@ -170,6 +177,13 @@ class SystemPromptBuilder:
         if not self._thinking_path.is_file():
             return ""
         return self._thinking_path.read_text(encoding="utf-8").strip()
+
+    def set_channel_progress_enabled(self, enabled: bool) -> None:
+        if self._channel_progress_enabled == enabled:
+            return
+        self._channel_progress_enabled = enabled
+        self._cached_prompt = None
+        self._cached_sections = None
 
     def refresh(self) -> None:
         """Invalidate and reload prompt inputs after context cache invalidation."""

@@ -41,3 +41,18 @@ test('selects structured editors for list-like settings', () => {
     'transport-list',
   );
 });
+
+test('describes channel processing placeholders in Chinese source copy', () => {
+  assert.match(
+    configFieldPresentation('agent.channel_progress_enabled').hint,
+    /处理中提示/,
+  );
+  assert.match(
+    configFieldPresentation('agent.channel_progress_reply_reminder_seconds').hint,
+    /催促/,
+  );
+  assert.match(
+    configFieldPresentation('agent.channel_progress_timeout_seconds').hint,
+    /超时|结束/,
+  );
+});

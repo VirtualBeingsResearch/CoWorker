@@ -532,3 +532,19 @@ async def test_collect_attachments_text_returns_empty(tmp_path):
     assert collected.attachments == []
     assert collected.failure_notices == []
     client.download_file.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_save_buffer_sanitizes_media_filenames(tmp_path: Path) -> None:
+    attachment = await adapter._save_buffer(  # noqa: SLF001
+        b"payload",
+        "../../evil:name?.png",
+        "image/png",
+        tmp_path,
+    )
+
+    saved = Path(attachment.saved_path)
+    assert saved.parent == tmp_path
+    assert saved.name.endswith("evil_name_.png")
+    assert saved.read_bytes() == b"payload"
+    assert attachment.filename == "evil_name_.png"

@@ -335,22 +335,67 @@ class _WeComBotRuntime:
         chat_id: str,
         conversation_id: str | None,
     ) -> dict[str, Any] | None:
-        if conversation_id:
-            item = self._frame_cache.pop((chat_id, conversation_id), None)
-        else:
-            matching_keys = [key for key in self._frame_cache if key[0] == chat_id]
-            latest_key = max(
-                matching_keys,
-                key=lambda key: self._frame_cache[key][1],
-                default=None,
-            )
-            item = self._frame_cache.pop(latest_key, None) if latest_key else None
+        item = self._pop_frame_item(chat_id, conversation_id)
         if item is None:
             return None
         frame, expires = item
         if time.monotonic() >= expires:
             return None
         return frame
+
+    def _peek_fresh_frame(
+        self,
+        chat_id: str,
+        conversation_id: str | None,
+    ) -> dict[str, Any] | None:
+        key = self._frame_key(chat_id, conversation_id)
+        if key is None:
+            return None
+        item = self._frame_cache.get(key)
+        if item is None:
+            return None
+        frame, expires = item
+        if time.monotonic() >= expires:
+            return None
+        return frame
+
+    def _drop_matching_frame(
+        self,
+        chat_id: str,
+        conversation_id: str | None,
+        frame: dict[str, Any],
+    ) -> None:
+        key = self._frame_key(chat_id, conversation_id)
+        if key is None:
+            return
+        item = self._frame_cache.get(key)
+        if item is not None and item[0] is frame:
+            self._frame_cache.pop(key, None)
+
+    def _frame_key(
+        self,
+        chat_id: str,
+        conversation_id: str | None,
+    ) -> tuple[str, str] | None:
+        if conversation_id:
+            key = (chat_id, conversation_id)
+            return key if key in self._frame_cache else None
+        matching_keys = [cached for cached in self._frame_cache if cached[0] == chat_id]
+        return max(
+            matching_keys,
+            key=lambda cached: self._frame_cache[cached][1],
+            default=None,
+        )
+
+    def _pop_frame_item(
+        self,
+        chat_id: str,
+        conversation_id: str | None,
+    ) -> tuple[dict[str, Any], float] | None:
+        key = self._frame_key(chat_id, conversation_id)
+        if key is None:
+            return None
+        return self._frame_cache.pop(key, None)
 
     def _sweep_frames(self) -> None:
         now = time.monotonic()
@@ -368,12 +413,17 @@ class _WeComBotRuntime:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None = None,
+        *,
+        reply_frame: dict[str, Any] | None = None,
+        reply_stream_id: str | None = None,
     ) -> None:
         await self._sender.send(
             participant_id,
             message,
             attachments,
             conversation_id,
+            reply_frame=reply_frame,
+            reply_stream_id=reply_stream_id,
         )
         self._activity.record_sent(participant_id)
 
@@ -496,6 +546,9 @@ class WeComRunner:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None = None,
+        *,
+        reply_frame: dict[str, Any] | None = None,
+        reply_stream_id: str | None = None,
     ) -> None:
         instance_id, _, _ = adapter.parse_participant(participant_id)
         bot = self._bots.get(instance_id)
@@ -503,7 +556,63 @@ class WeComRunner:
             raise ValueError(
                 tr("channel.wecom.instance_unknown", instance=instance_id)
             )
-        await bot.send(participant_id, message, attachments, conversation_id)
+        await bot.send(
+            participant_id,
+            message,
+            attachments,
+            conversation_id,
+            reply_frame=reply_frame,
+            reply_stream_id=reply_stream_id,
+        )
+
+    async def open_progress(
+        self,
+        event: IncomingEvent,
+        text: str,
+    ) -> dict[str, Any] | None:
+        instance_id, _, chat_id = adapter.parse_participant(event.participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None or bot._client is None:
+            return None
+        frame = bot._peek_fresh_frame(chat_id, event.conversation_id)
+        if frame is None:
+            return None
+        from wecom_aibot_sdk import generate_req_id
+
+        stream_id = generate_req_id("stream")
+        await bot._client.reply_stream(frame, stream_id, text, finish=False)
+        bot._drop_matching_frame(chat_id, event.conversation_id, frame)
+        return {"frame": frame, "stream_id": stream_id}
+
+    async def write_progress_stream(
+        self,
+        participant_id: str,
+        *,
+        frame: dict[str, Any],
+        stream_id: str,
+        text: str,
+    ) -> None:
+        """Write through the held placeholder stream and finish it.
+
+        Used both to install the reply (non-empty ``text``) and to close a
+        placeholder the model never answered (empty ``text``, which falls back
+        to the "already replied" notice so the stream always terminates).
+        """
+        instance_id, _, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None or bot._client is None:
+            raise RuntimeError("WeCom client not started")
+        try:
+            await bot._client.reply_stream(frame, stream_id, text, finish=True)
+        except Exception:
+            if text:
+                raise
+            await bot._client.reply_stream(
+                frame,
+                stream_id,
+                tr("channel.progress.superseded"),
+                finish=True,
+            )
 
     def resolve_participant(self, participant_id: str) -> str | None:
         instance_hint = ""

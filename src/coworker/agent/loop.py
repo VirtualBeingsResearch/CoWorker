@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from coworker.agent.interaction_log import InteractionLogger
     from coworker.agent.subconscious import SubconsciousScheduler
     from coworker.brain.brain import Brain
+    from coworker.channels.progress import ChannelProgressCoordinator
     from coworker.core.config import Config
     from coworker.identity.identity import Identity
     from coworker.memory.long_term import LongTermMemory
@@ -64,6 +65,7 @@ class AgentLoop:
         bubble_store: BubbleStore | None = None,
         subconscious: SubconsciousScheduler | None = None,
         persona: PersonaContext | None = None,
+        progress: ChannelProgressCoordinator | None = None,
     ) -> None:
         self._brain = brain
         self._short_term = short_term
@@ -94,6 +96,7 @@ class AgentLoop:
             threshold=config.agent.concurrency_hint_threshold,
             cooldown_seconds=config.agent.concurrency_hint_cooldown_seconds,
         )
+        self._progress = progress
         self._last_compress_generation = short_term.compress_generation
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -237,11 +240,7 @@ class AgentLoop:
 
     def resume_from_rest(self) -> bool:
         """Wake a resting loop without adding a message to its context."""
-        if (
-            not self.state.is_running
-            or not self.state.is_sleeping
-            or self._stop_event.is_set()
-        ):
+        if not self.state.is_running or not self.state.is_sleeping or self._stop_event.is_set():
             return False
         # 普通休眠等 message_event，管理端暂停停靠等 resume_event；
         # 两个事件同时触发即可覆盖两种停靠，多余的信号会在下一次
@@ -358,8 +357,10 @@ class AgentLoop:
             and not events
             and not reinjected_pins
             and (not last_assistant or last_assistant.stop_reason != "tool_use")
-            and ((self._short_term.primary and self._short_term.primary[-1].role != "user")
-                or not self._short_term.primary)
+            and (
+                (self._short_term.primary and self._short_term.primary[-1].role != "user")
+                or not self._short_term.primary
+            )
         ):
             tick_content = f"<{TICK_TAG}>"
             message = Message(role="user", content=tick_content, source="tick")
@@ -389,6 +390,10 @@ class AgentLoop:
             self._short_term.primary.append(
                 Message(role="user", content=notice, source="model_switch")
             )
+
+        # 先结束超时的占位再催促：已经结束的占位不该再催一遍。通知本身以入站事件
+        # 投递，下一轮才被 drain，因此不会插进 tool_use 与 tool_result 之间。
+        await self._maintain_placeholders()
 
         messages = self._short_term.build_context()
         if self._ilog:
@@ -548,8 +553,7 @@ class AgentLoop:
         if compressed:
             source = "provider" if observed_input_tokens > 0 else "estimated"
             logger.info(
-                f"Context compression budget reached ({source}); "
-                f"compressed {compressed} message(s)"
+                f"Context compression budget reached ({source}); compressed {compressed} message(s)"
             )
 
     async def _act(self, tool_calls) -> None:
@@ -778,6 +782,18 @@ class AgentLoop:
                 source="cycle",
             )
         logger.debug(f"Task reminder injected: {len(active)} active tasks")
+
+    async def _maintain_placeholders(self) -> None:
+        """End timed-out placeholders, then remind about the ones still waiting.
+
+        两者都以入站事件投递（见 ChannelProgressCoordinator._announce），由泡泡
+        路由决定落到主线还是某个泡泡；这里只负责在每轮请求前驱动一次。
+        """
+        progress = getattr(self, "_progress", None)
+        if progress is None:
+            return
+        await progress.expire_unanswered()
+        await progress.emit_reply_reminders()
 
     async def _task_watcher(self) -> None:
         task_store = self._task_store

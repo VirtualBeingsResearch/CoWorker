@@ -8,7 +8,7 @@ import { t, useAdminI18n } from '../i18n/admin';
 export type RuntimeLogFeed = { events: RuntimeLogEvent[]; error?: string | null };
 
 // 身份证背面 · 运行日志（只展示实时事件流）：每类型专属图标与动效，
-// 工具调用↔结果同行合并，thinking 长态生命周期（thinking_start→llm_response 收口），
+// 工具调用↔结果同行合并，thinking 长态生命周期（thinking_start→llm_response 结束），
 // 上滑看历史不被拉回 + 回到最新药丸，新消息巨型 emoji 冲屏。无标题/页脚，纯日志。
 
 const KIND_CLASS: Record<string, string> = {

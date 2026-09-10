@@ -15,6 +15,8 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
+from coworker.channels.filenames import safe_attachment_filename
+from coworker.channels.progress import ProgressTailDelivery
 from coworker.channels.telegram import adapter
 from coworker.channels.telegram.client import (
     TelegramClient,
@@ -341,7 +343,10 @@ class _TelegramBotRuntime:
         client: TelegramClient,
         media: adapter.TelegramMedia,
     ) -> AttachmentData:
-        filename = _safe_filename(media.filename)
+        filename = safe_attachment_filename(
+            media.filename,
+            fallback="telegram-attachment",
+        )
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         destination = self._reserve_attachment_path(filename)
         size = await client.download_file(media.file_id, destination)
@@ -486,6 +491,125 @@ class TelegramRunner:
             )
         await bot.send(participant_id, message, attachments, conversation_id)
 
+    async def send_progress_message(
+        self,
+        participant_id: str,
+        text: str,
+        conversation_id: str | None,
+    ) -> tuple[int, int, int | None]:
+        instance_id, chat_id = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            raise ValueError(
+                tr("channel.telegram.instance_unknown", instance=instance_id)
+            )
+        client = bot._client
+        if client is None or not bot.ready:
+            raise RuntimeError(
+                tr("channel.telegram.bot_unavailable", instance=instance_id)
+            )
+        thread_id = _thread_id(conversation_id)
+        message_id = await client.send_message(chat_id, text, thread_id)
+        if not isinstance(message_id, int):
+            raise RuntimeError("Telegram send_message returned no message_id")
+        return chat_id, message_id, thread_id
+
+    async def edit_progress_message(
+        self,
+        participant_id: str,
+        chat_id: int,
+        message_id: int,
+        text: str,
+    ) -> None:
+        """Turn the placeholder message into the reply's first chunk.
+
+        Separate from :meth:`send_progress_tail` so the caller can tell "the
+        reply never reached the user" from "the reply landed, later parts
+        failed"; the two need opposite recovery.
+        """
+        instance_id, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            raise ValueError(
+                tr("channel.telegram.instance_unknown", instance=instance_id)
+            )
+        client = bot._client
+        if client is None or not bot.ready:
+            raise RuntimeError(
+                tr("channel.telegram.bot_unavailable", instance=instance_id)
+            )
+        await client.edit_message_text(chat_id, message_id, text)
+        bot._activity.record_sent(participant_id)
+
+    async def send_progress_tail(
+        self,
+        participant_id: str,
+        chat_id: int,
+        conversation_id: str | None,
+        extra_chunks: list[str],
+        attachments: list[dict[str, Any]],
+    ) -> ProgressTailDelivery:
+        """Send what did not fit in the placeholder, reporting how far it got.
+
+        Stops at the first failure and returns the tally instead of raising, so
+        the caller can tell the model exactly which chunk or attachment is still
+        missing. Setup failures (unknown instance, bot down) still raise: none
+        of the tail reached the user in that case.
+        """
+        instance_id, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            raise ValueError(
+                tr("channel.telegram.instance_unknown", instance=instance_id)
+            )
+        client = bot._client
+        if client is None or not bot.ready:
+            raise RuntimeError(
+                tr("channel.telegram.bot_unavailable", instance=instance_id)
+            )
+        thread_id = _thread_id(conversation_id)
+        chunks_sent = 0
+        attachments_sent = 0
+        try:
+            for chunk in extra_chunks:
+                await client.send_message(chat_id, chunk, thread_id)
+                chunks_sent += 1
+            for attachment in attachments:
+                await client.send_attachment(chat_id, attachment, thread_id)
+                attachments_sent += 1
+        except Exception as error:
+            return ProgressTailDelivery(
+                chunks_sent=chunks_sent,
+                chunks_total=len(extra_chunks),
+                attachments_sent=attachments_sent,
+                attachments_total=len(attachments),
+                error=str(error),
+            )
+        return ProgressTailDelivery(
+            chunks_sent=chunks_sent,
+            chunks_total=len(extra_chunks),
+            attachments_sent=attachments_sent,
+            attachments_total=len(attachments),
+        )
+
+    async def delete_progress_message(self, participant_id: str, chat_id: int, message_id: int) -> None:
+        instance_id, _ = adapter.parse_participant(participant_id)
+        bot = self._bots.get(instance_id)
+        if bot is None or bot._client is None:
+            return
+        await bot._client.delete_message(chat_id, message_id)
+
+    def contact_for(self, participant_id: str) -> TelegramContact | None:
+        """Return the known chat behind a ``tg:<instance>:<chat_id>`` address."""
+        try:
+            instance_id, chat_id = adapter.parse_participant(participant_id)
+        except ValueError:
+            return None
+        bot = self._bots.get(instance_id)
+        if bot is None:
+            return None
+        return bot.contact_for_chat(chat_id)
+
     def resolve_participant(self, participant_id: str) -> str | None:
         instance_hint = ""
         chat_hint = participant_id
@@ -583,12 +707,3 @@ def _thread_id(value: str | None) -> int | None:
             tr("channel.telegram.conversation_invalid", conversation=value)
         )
     return thread_id
-
-
-def _safe_filename(value: str) -> str:
-    name = Path(value).name or "telegram-attachment"
-    if len(name) <= 180:
-        return name
-    suffix = Path(name).suffix[:20]
-    stem_limit = 180 - len(suffix)
-    return f"{Path(name).stem[:stem_limit]}{suffix}"

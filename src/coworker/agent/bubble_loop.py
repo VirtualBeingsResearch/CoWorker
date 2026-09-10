@@ -280,6 +280,9 @@ class BubbleMiniLoop:
             await self._drain_inbox()
             self._warn_if_bursting(cycle, max_cycles)
             self._stm.reinject_missing_pins()
+            # 先结束超时的占位再催促：已经结束的占位不该再催一遍。通知本身以入站
+            # 事件投递，下一轮才被 drain，因此不会插进 tool_use 与 tool_result 之间。
+            await self._maintain_placeholders()
             tool_schemas = scoped_tools.get_schemas(
                 model_has_vision=self._brain.current_model_has_vision
             )
@@ -358,6 +361,26 @@ class BubbleMiniLoop:
 
         if not bubble.is_terminal() and cycle >= max_cycles:
             await self._auto_summarize()
+
+    def _progress_coordinator(self):
+        communicate = self._communicate
+        if communicate is None:
+            return None
+        channels = getattr(communicate, "_channels", None)
+        return getattr(channels, "_progress", None)
+
+    async def _maintain_placeholders(self) -> None:
+        """End timed-out placeholders, then remind about the ones still waiting.
+
+        通知以入站事件投递，由泡泡路由决定归属：这个泡泡负责的对象会回到自己的
+        inbox，其余交给主线或其他泡泡。因此这里不需要按对象过滤，未绑定对象的
+        泡泡也不会再误消费别人的催促使。
+        """
+        progress = self._progress_coordinator()
+        if progress is None:
+            return
+        await progress.expire_unanswered()
+        await progress.emit_reply_reminders()
 
     async def _drain_inbox(self) -> None:
         bubble = self._bubble

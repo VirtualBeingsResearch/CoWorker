@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from coworker.channels.filenames import safe_attachment_filename
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
 from coworker.i18n import tr
@@ -124,11 +125,14 @@ async def _save_buffer(
     attachments_dir: Path,
 ) -> AttachmentData:
     attachments_dir.mkdir(parents=True, exist_ok=True)
-    dest = attachments_dir / f"{new_compact_id()}_{filename}"
+    # 文件名直接来自对方消息：先收敛成安全的 basename，避免 Windows 非法字符
+    # 写入失败，也避免 `../` 之类的相对路径把文件写到附件目录之外。
+    safe_name = safe_attachment_filename(filename, fallback="attachment")
+    dest = attachments_dir / f"{new_compact_id()}_{safe_name}"
     dest.write_bytes(buffer)
     inline = len(buffer) <= _INLINE_BASE64_LIMIT and media_type.startswith("image/")
     return AttachmentData(
-        filename=filename,
+        filename=safe_name,
         media_type=media_type,
         saved_path=str(dest),
         data=base64.b64encode(buffer).decode("ascii") if inline else None,
