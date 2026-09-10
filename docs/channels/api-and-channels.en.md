@@ -60,7 +60,7 @@ channels.registry.register(BaseChannel.from_sender("team:", send_to_team))
 
 The built-in Stream, Desktop, WeCom, Telegram, and Weixin Claw implementations share `channels.activity`. A custom Channel that wants `list_connections` activity to survive restarts can receive `activity=channels.activity` and call `record_received` / `_record_sent` only after accepting inbound traffic or completing outbound delivery; failed attempts do not advance activity timestamps.
 
-A Channel declares support for `conversation_id`, `attachments`, and `extra` through `ChannelCapabilities`; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message.
+A Channel declares support for `conversation_id`, `attachments`, `extra`, and inbound `progress` placeholders through `ChannelCapabilities`. The first three are outbound fields; the default accepts `message` only. Before delivery, the Registry omits unsupported optional fields. As long as a message or other supported content remains, delivery continues and the tool result tells the AI exactly which fields were not passed. Unsupported attachments or `extra` therefore never discard a valid message. `progress` is not a `communicate` field: the coordinator opens placeholders only for channels that opt in at registration, and the first `communicate` overwrites that placeholder in place.
 
 ## Channel access lists
 
@@ -82,6 +82,8 @@ These lists answer only whether a canonical participant address is allowed in on
 
 WeCom direct messages do not expose a `conversation_id`; replies automatically use the user's latest fresh frame. Group-chat events expose the frame `req_id` as `conversation_id`, falling back to `msgid` when needed. Passing that value back selects the exact reply frame. If the requested frame is missing or expired, WeCom sends an active message instead of replying through another frame from the same group. A group send without `conversation_id` is also always proactive and never uses a cached frame automatically.
 
+When `AGENT__CHANNEL_PROGRESS_ENABLED` is on, WeCom sends an inbound processing placeholder with `reply_stream(..., finish=False)` on the same `stream_id` and holds that frame. The first `communicate` overwrites it with `finish=True`. If the same speaker sends again before a real reply, the old placeholder is overwritten with a short "got a follow-up message" notice, and a new placeholder opens on the latest inbound. Placeholders from different group speakers do not steal each other and stay until the matching `communicate`; rest does not close them. Without `conversation_id`, the latest placeholder in that chat is overwritten, so the agent can reply to the newest speaker first and then pass an earlier `conversation_id` for the previous one. A failed stream update falls back to a normal `send_message`. Oversized markdown still splits as today: the first chunk overwrites and finishes the stream, and later chunks are sent as new messages.
+
 When an inbound WeCom message quotes an image, file, video, or mixed message containing images, the WeCom Channel downloads the quoted attachments after access control succeeds and passes them to the Agent together with attachments on the current message. On failure, the inbound content identifies the attachment that could not be downloaded. The underlying error remains in runtime logs; download URLs, AES keys, and exception details are not exposed to the Agent, and the current message is not discarded.
 
 WeCom AI Bots currently do not support mentioning group members through the API, so the WeCom Channel does not provide member mentions.
@@ -91,7 +93,10 @@ WeCom supports connecting multiple Bot instances at once (see `wecom.bots.<insta
 Telegram uses `tg:<instance_id>:<chat_id>` to distinguish known chats reached through multiple Bots,
 and maps a forum topic's `message_thread_id` to `conversation_id`. It supports text and attachments
 and sends only to chats discovered through inbound messages. See [Telegram](telegram.en.md) for the
-complete behavior and configuration.
+complete behavior and configuration. With processing placeholders enabled, Telegram sends a placeholder
+message and overwrites it with `edit_message_text`; a second inbound from the same speaker edits the
+old placeholder into a short close notice and sends a new one. Weixin Claw, Stream, Desktop, and the OpenAI-compatible channel
+do not show a user-visible placeholder.
 
 For inbound traffic, override `receive_raw`, normalize the payload into an `IncomingEvent`, then call `publish_inbound`. For background connections, inject a `ChannelRuntime` that implements `start` and `stop`. The Registry rejects duplicate names, duplicate participant prefixes, and late registration after startup so configuration mistakes fail during composition.
 

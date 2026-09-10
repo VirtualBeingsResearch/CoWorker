@@ -134,6 +134,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__SYSTEM_PROMPT_TEMPLATE` | 空 | System Prompt 模板；空值或纯空白使用产品标准模板，最长 100,000 字符。保存管理端覆盖后需安全重启 |
 | `AGENT__INTERACTION_LOG_ROTATION_BYTES` | `52428800` | 单个交互日志分片的最大字节数；达到阈值后当前 `interactions.jsonl` 会归档为递增编号分片并继续写入新文件。设为 `0` 可关闭轮转。 |
 | `AGENT__IDLE_SLEEP_SECONDS` | `30` | 空闲休眠秒数 |
+| `AGENT__CHANNEL_PROGRESS_ENABLED` | `false` | 是否为已声明 `progress` 能力的 Channel（当前为企业微信、Telegram）在入站后立即显示「正在思考中」占位，并由第一次 `communicate` 覆盖同一条。默认关闭；暂停或首次 setup 期间不发占位。 |
+| `AGENT__CHANNEL_PROGRESS_REPLY_REMINDER_SECONDS` | `60` | 开启处理提示后，超过该秒数仍未对该对象 `communicate` 时向模型注入催促。`0` 表示只显示占位、不催促模型。 |
 | `AGENT__INBOX_POLL_INTERVAL` | `2.0` | inbox 轮询间隔 |
 | `AGENT__TICK` | `true` | 是否启用无外部消息时的自主 tick |
 | `AGENT__PASSIVE_MODE` | `false` | 是否启用 Passive 模式；启用后首次启动和重启都保持休息，启动通知静默保留到下一次真实唤醒，不再按空闲超时自唤醒 |
