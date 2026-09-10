@@ -29,3 +29,23 @@ def test_workspace_labels_have_english_translations() -> None:
         ("扩展", "Extensions"),
     ):
         assert f"'{chinese}': '{english}'" in source
+
+
+def test_channel_progress_config_labels_have_english_translations() -> None:
+    admin_app = (REPOSITORY_ROOT / "web/src/admin/AdminApp.tsx").read_text(encoding="utf-8")
+    i18n = (REPOSITORY_ROOT / "web/src/i18n/admin.tsx").read_text(encoding="utf-8")
+    presentation = (
+        REPOSITORY_ROOT / "web/src/admin/settings/configFieldPresentation.ts"
+    ).read_text(encoding="utf-8")
+    assert "'agent.channel_progress_enabled': '信道处理提示'" in admin_app
+    assert "'agent.channel_progress_reply_reminder_seconds': '处理提示催促秒数'" in admin_app
+    for phrase in (
+        "信道处理提示",
+        "处理提示催促秒数",
+        "开启后，企业微信与 Telegram 入站会立即显示处理中提示，正式回复覆盖同一条。",
+        "超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。",
+    ):
+        assert f"'{phrase}':" in i18n
+        if "communicate" in phrase or "Telegram" in phrase:
+            assert phrase in presentation
+

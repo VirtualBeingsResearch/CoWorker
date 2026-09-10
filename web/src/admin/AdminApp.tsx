@@ -1571,6 +1571,8 @@ const CONFIG_LABELS: Record<string, string> = {
   'memory.auto_recall_limit': '单次自动召回数量',
   'agent.passive_mode': 'Passive 模式（开发者控制）',
   'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
+  'agent.channel_progress_enabled': '信道处理提示',
+  'agent.channel_progress_reply_reminder_seconds': '处理提示催促秒数',
   'agent.inbox_dir': '收件箱目录',
   'agent.outbox_dir': '发件箱目录',
   'agent.desktop_registry_dir': '桌面连接注册目录',
