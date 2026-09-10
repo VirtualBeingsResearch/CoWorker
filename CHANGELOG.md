@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.5 - Unreleased
+## 0.4.5 - 2026-09-10
 
 - docs(release): finalize v0.4.4 changelog (#223)
 - feat(telegram): configurable attachment limits with streaming downloads (#224)
