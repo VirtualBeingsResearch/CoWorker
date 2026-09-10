@@ -70,6 +70,7 @@ def test_model_catalog_does_not_construct_api_client(monkeypatch):
 
 def test_deepseek_catalog_includes_vision_model():
     models = available_models("deepseek")
+    assert "deepseek-flash" in models
     assert "deepseek-v4-flash-vision-exp" in models
     assert "deepseek-v4-flash" in models
     assert "deepseek-v4-pro" in models
@@ -86,6 +87,7 @@ def test_opencode_go_catalog_includes_supported_vision_model():
     models = available_models("opencode-go")
     assert "gpt-5.6-luna" in models
     assert "grok-4.5" in models
+    assert "deepseek-flash" in models
     assert "deepseek-v4-flash-vision-exp" in models
     assert "muse-spark-1.2-contributor" not in models
     assert "ox-alpha-free" not in models

@@ -96,7 +96,7 @@ entries. Older entries lack the field and are read with it absent.
 official `OPENCODE_API_KEY` environment variable) or a `providers.json` key.
 Each request sends a stable `x-opencode-session` header and a `Coworker/<version>`
 User-Agent so OpenCode Go can identify the client and optimize prompt caching.
-The built-in catalog covers the OpenAI-compatible DeepSeek V4, Kimi K2.5+, GLM-5, MiMo, and HY
+The built-in catalog covers the OpenAI-compatible DeepSeek Flash and V4, Kimi K2.5+, GLM-5, MiMo, and HY
 models. OpenCode Go serves MiniMax/Qwen through its Anthropic-compatible endpoint; those models
 are not in this catalog and are configured with `type: anthropic` and
 `base_url: https://opencode.ai/zen/go`.

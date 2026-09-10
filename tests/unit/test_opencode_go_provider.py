@@ -79,6 +79,32 @@ def test_deepseek_vision_model_uses_image_url_content():
     ]
 
 
+def test_deepseek_flash_model_uses_image_url_content():
+    provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
+    content = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": "abc",
+            },
+            "_filename": "photo.jpg",
+        }
+    ]
+
+    result = provider._adapt_content(content, "deepseek-flash")
+
+    assert provider.supports_vision("deepseek-flash") is True
+    assert "deepseek-flash" in provider.list_models()
+    assert result == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,abc"},
+        }
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("model_id", "thinking", "expected_reasoning"),

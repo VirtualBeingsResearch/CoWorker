@@ -86,7 +86,7 @@ LLM__VISION_THINKING_EFFORT=medium
 （`https://opencode.ai/zen/go/v1`），密钥来自 `LLM__OPENCODE_GO_API_KEY`
 （未设置时兜底读取官方 `OPENCODE_API_KEY`）或 `providers.json`。每次请求会带上稳定的
 `x-opencode-session` 以及 `Coworker/<version>` User-Agent，供 OpenCode Go 识别客户端
-并优化 prompt cache。内置目录包含 DeepSeek V4、Kimi K2.5+、GLM-5 系列、MiMo 和 HY
+并优化 prompt cache。内置目录包含 DeepSeek Flash 与 V4、Kimi K2.5+、GLM-5 系列、MiMo 和 HY
 等 OpenAI 兼容模型；MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，不在
 内置目录内，需以 `type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
 

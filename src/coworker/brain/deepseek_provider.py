@@ -7,13 +7,18 @@ from coworker.brain.openai_chat import parse_tool_arguments as _parse_tool_argum
 from coworker.brain.thinking import ThinkingEffort
 
 _DEEPSEEK_MODELS = {
+    "deepseek-flash",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
     "deepseek-v4-flash-vision-exp",
 }
 
-# DeepSeek text models don't accept image input; only the vision-exp model does.
-_VISION_MODELS = {"deepseek-v4-flash-vision-exp"}
+# deepseek-flash and the vision-exp model take image input natively; the
+# other DeepSeek text models don't and degrade images to text.
+_VISION_MODELS = {
+    "deepseek-flash",
+    "deepseek-v4-flash-vision-exp",
+}
 
 # Models that support extended thinking; require reasoning_effort param.
 _THINKING_MODELS = _DEEPSEEK_MODELS
