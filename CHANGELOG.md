@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.5 - Unreleased
+
+- docs(release): finalize v0.4.4 changelog (#223)
+- feat(telegram): configurable attachment limits with streaming downloads (#224)
+- feat(weixin): deliver inbound media as attachments with configurable size limit (#225)
+- feat(brain): support deepseek-flash model (#226)
+- feat(channels): show inbound processing placeholders in one-to-one chats (#227)
+
 ## 0.4.4 - 2026-09-06
 
 - docs(release): finalize v0.4.3 changelog (#206)
