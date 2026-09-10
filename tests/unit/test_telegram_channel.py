@@ -942,3 +942,38 @@ def test_split_telegram_text_obeys_limit_and_prefers_newlines() -> None:
     assert chunks[0] == "first line"
     assert "".join(chunks) == "first line" + "x" * 20
     assert all(len(chunk) <= 12 for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_download_removes_the_reserved_file_when_get_file_fails(
+    tmp_path: Path,
+) -> None:
+    bot = AsyncMock()
+    bot.get_file.side_effect = RuntimeError("file is gone")
+    client = TelegramClient("secret", bot=bot)
+    destination = tmp_path / "reserved.bin"
+    destination.write_bytes(b"")  # 调用方 _reserve_attachment_path 预留的空文件
+
+    with pytest.raises(RuntimeError, match="gone"):
+        await client.download_file("file-id", destination)
+
+    assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_removes_the_reserved_file_when_the_size_check_rejects_it(
+    tmp_path: Path,
+) -> None:
+    bot = AsyncMock()
+    bot.get_file.return_value = SimpleNamespace(
+        file_size=MAX_DOWNLOAD_BYTES + 1,
+        file_path="https://api.example/file/botsecret/docs/large.bin",
+    )
+    client = TelegramClient("secret", bot=bot)
+    destination = tmp_path / "reserved.bin"
+    destination.write_bytes(b"")
+
+    with pytest.raises(TelegramFileTooLargeError):
+        await client.download_file("large", destination)
+
+    assert not destination.exists()
