@@ -35,6 +35,10 @@ _SUMMARY_CHARS_PER_TOKEN = 6
 # 由 cap 大小自然决定（cap 越大 K 越大）、绝不写死。
 _LEAF_BUDGET_FLOOR = 400
 
+# 摘要首次超出预算（或为空）后的重试上限，不含首次尝试：每次重试带上一版结果与目标值
+# 重新提示摘要器收窄（memory.retry_over / memory.retry_empty），仍不达标才走安全阀截断。
+SUMMARY_BUDGET_RETRIES = 3
+
 
 def _summary_text_tokens_and_source(result: SummaryLike) -> tuple[str, int, TokenCountSource]:
     if isinstance(result, SummaryResult):
@@ -357,7 +361,7 @@ class MemoryBlockTree:
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(3):
+        for _ in range(1 + SUMMARY_BUDGET_RETRIES):
             result = await summarize(text, prompt)
             last, last_tokens, last_source = _summary_text_tokens_and_source(result)
             if not self._summary_is_empty(last) and last_tokens <= budget:

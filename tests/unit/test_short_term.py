@@ -521,6 +521,23 @@ class TestShortTermMemory:
         assert "不要解释" in retry_hint
 
     @pytest.mark.asyncio
+    async def test_compress_tree_allows_three_over_budget_retries(self):
+        # 前三次摘要都超预算：第 3 次重试（第 4 次调用）才收窄达标，不应提前放弃。
+        from unittest.mock import AsyncMock, MagicMock
+        brain = MagicMock()
+        brain.summarize = AsyncMock(side_effect=["巨" * 1000, "巨" * 1000, "巨" * 1000, "短"])
+        brain.active_provider = None
+
+        mem = ShortTermMemory(max_tokens=10)
+        for i in range(8):
+            mem.primary.append(Message(role="user", content=f"msg {i} " * 5))
+
+        await mem.compress_now(brain)
+
+        assert brain.summarize.await_count == 4
+        assert mem.tree.nodes[0].summary == "短"
+
+    @pytest.mark.asyncio
     async def test_compress_tree_retries_empty_leaf_summary(self):
         from unittest.mock import AsyncMock, MagicMock
         brain = MagicMock()

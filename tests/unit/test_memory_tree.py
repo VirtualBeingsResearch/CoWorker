@@ -490,6 +490,22 @@ class TestHardening:
         assert tree.nodes[0].summary == "短"
 
     @pytest.mark.asyncio
+    async def test_merge_allows_three_over_budget_retries(self):
+        # 连续三次超预算：第 3 次重试（第 4 次调用）收窄达标，不应提前触发安全阀截断。
+        tree = new_tree(spine_cap_tokens=1, leaf_budget_tokens=10)
+        hints: list[str] = []
+
+        async def shrink_late(text: str, hint: str) -> str:
+            hints.append(hint)
+            return "巨" * 20 if len(hints) < 4 else "短"
+
+        await tree.promote_leaf(leaf(0), summarize=shrink_late)
+        await tree.promote_leaf(leaf(1), summarize=shrink_late)  # 触发合并 → 预算内重试
+
+        assert len(hints) == 4
+        assert tree.nodes[0].summary == "短"
+
+    @pytest.mark.asyncio
     async def test_merge_retries_empty_summary(self):
         tree = new_tree(spine_cap_tokens=1, leaf_budget_tokens=10)
         hints: list[str] = []

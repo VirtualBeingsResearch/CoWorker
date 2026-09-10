@@ -20,7 +20,7 @@ from coworker.core.types import (
     estimate_content_tokens,
 )
 from coworker.i18n import bind_locale, tr
-from coworker.memory.memory_tree import MemoryBlockTree, MemoryNode
+from coworker.memory.memory_tree import SUMMARY_BUDGET_RETRIES, MemoryBlockTree, MemoryNode
 
 if TYPE_CHECKING:
     from coworker.agent.log_store import LogStore
@@ -480,7 +480,7 @@ class ShortTermMemory:
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(3):
+        for _ in range(1 + SUMMARY_BUDGET_RETRIES):
             raw = await brain.summarize(
                 messages,
                 context_hint=hint,
@@ -518,7 +518,7 @@ class ShortTermMemory:
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(3):
+        for _ in range(1 + SUMMARY_BUDGET_RETRIES):
             raw = await summarize(text, hint)
             last, last_tokens, last_source = ShortTermMemory._summary_text_tokens_and_source(raw)
             if last.strip() and last_tokens <= budget:
