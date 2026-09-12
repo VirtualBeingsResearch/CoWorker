@@ -35,6 +35,14 @@ _SUMMARY_CHARS_PER_TOKEN = 6
 # 由 cap 大小自然决定（cap 越大 K 越大）、绝不写死。
 _LEAF_BUDGET_FLOOR = 400
 
+# 摘要首次超出预算（或为空）后的重试上限，不含首次尝试：每次重试带上一版结果与目标值
+# 重新提示摘要器收窄（memory.retry_over / memory.retry_empty），仍不达标才走安全阀截断。
+SUMMARY_BUDGET_RETRIES = 3
+
+# 摘要预算容差：摘要 token ≤ 节点预算 × (1 + 容差) 即视为达标（不重试、不截断）。
+# token 计数依赖启发式估算，留出误差空间，避免轻微超标触发无意义的重摘要与截断。
+SUMMARY_BUDGET_TOLERANCE = 0.10
+
 
 def _summary_text_tokens_and_source(result: SummaryLike) -> tuple[str, int, TokenCountSource]:
     if isinstance(result, SummaryResult):
@@ -147,11 +155,15 @@ class MemoryBlockTree:
         spine_cap_tokens: int = 32_000,
         leaf_budget_tokens: int | None = None,
         reach_depth: int = _DEFAULT_REACH_DEPTH,
+        summary_budget_retries: int = SUMMARY_BUDGET_RETRIES,
+        summary_budget_tolerance: float = SUMMARY_BUDGET_TOLERANCE,
     ) -> None:
         """``spine_cap_tokens`` 是唯一的预算旋钮（硬约束）。``leaf_budget_tokens`` 默认 None →
         由 cap **内部导出**（见 ``_derive_leaf_budget``）；传具体值则作显式覆盖（测试/高级用法）。
         ``reach_depth`` 控制高层合并向下够细、以及节点保留后代子树的层数：2=「低两层」（默认，
         子+孙）、1=仅直接子。也是 ``children`` 子树的剪枝深度上限（越大越保真、快照越大）。
+        ``summary_budget_retries`` / ``summary_budget_tolerance`` 控制单节点摘要的达标判定：
+        token ≤ 预算 × (1 + 容差) 即达标；超出才重试（上限 retries 次），再超出走安全阀截断。
         """
         self.nodes: list[MemoryNode] = []
         self._spine_cap_tokens = spine_cap_tokens
@@ -162,6 +174,10 @@ class MemoryBlockTree:
             else self._derive_leaf_budget(spine_cap_tokens)
         )
         self._reach_depth = max(1, reach_depth)
+        self._summary_budget_retries = max(0, int(summary_budget_retries))
+        if not 0 <= summary_budget_tolerance < 1:
+            raise ValueError("summary_budget_tolerance must be in [0, 1)")
+        self._summary_budget_tolerance = float(summary_budget_tolerance)
 
     # ---- 预算 ------------------------------------------------------------
 
@@ -195,6 +211,17 @@ class MemoryBlockTree:
         与 ``_level_cap`` 的 K 导出闭环：K 进位即自然把脊柱压在 cap 内。
         """
         return self._leaf_budget
+
+    def budget_limit(self, budget: int) -> int:
+        """单节点摘要的达标上限：预算 × (1 + 容差)，取整到 token。摘要验收、入树钳制与
+        超大节点判定共用。round 而非 int()：吸收二进制浮点在整数边界的抖动
+        （如容差 0.7 时 10×1.7 = 16.999…，截断会错拒 17 token）。"""
+        return round(budget * (1 + self._summary_budget_tolerance))
+
+    @property
+    def summary_budget_retries(self) -> int:
+        """摘要首次超出达标上限后的重试上限（不含首次尝试）。"""
+        return self._summary_budget_retries
 
     def _set_budget(
         self,
@@ -357,10 +384,10 @@ class MemoryBlockTree:
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(3):
+        for _ in range(1 + self._summary_budget_retries):
             result = await summarize(text, prompt)
             last, last_tokens, last_source = _summary_text_tokens_and_source(result)
-            if not self._summary_is_empty(last) and last_tokens <= budget:
+            if not self._summary_is_empty(last) and last_tokens <= self.budget_limit(budget):
                 return last, last_tokens, last_source
             if self._summary_is_empty(last):
                 prompt = tr(
@@ -383,7 +410,7 @@ class MemoryBlockTree:
         if self._summary_is_empty(last):
             fallback = self._empty_summary_fallback()
             return fallback, estimate_content_tokens(fallback), "estimated"
-        clamped = self._clamp_summary_to_estimate(last, budget)
+        clamped = self._clamp_summary_to_estimate(last, self.budget_limit(budget))
         if clamped != last:
             return clamped, estimate_content_tokens(clamped), "estimated"
         return clamped, last_tokens, last_source
@@ -426,11 +453,12 @@ class MemoryBlockTree:
         )
 
     def _clamp_node_summary_to_budget(self, node: MemoryNode) -> MemoryNode:
-        """把新进入树的节点摘要收进当前单节点预算。"""
+        """把新进入树的节点摘要收进达标上限（预算 × (1 + 容差)）。"""
         budget = self.node_budget()
-        if budget < 8 or node.token_estimate <= budget:
+        limit = self.budget_limit(budget)
+        if budget < 8 or node.token_estimate <= limit:
             return node
-        summary = self._clamp_summary_to_estimate(node.summary, budget)
+        summary = self._clamp_summary_to_estimate(node.summary, limit)
         return replace(
             node,
             summary=summary,
@@ -529,7 +557,7 @@ class MemoryBlockTree:
             return True
         if any(self._summary_is_empty(n.summary) for n in self.nodes):
             return True
-        if any(n.token_estimate > self.node_budget() for n in self.nodes):
+        if any(n.token_estimate > self.budget_limit(self.node_budget()) for n in self.nodes):
             return True
         if len(self.nodes) < 2:
             return any(n.level > self._level_cap() for n in self.nodes)
@@ -568,7 +596,9 @@ class MemoryBlockTree:
                 n.level = K
         await self._fib_carry(summarize)
         for i, n in enumerate(list(self.nodes)):
-            if n.token_estimate > self.node_budget() or self._summary_is_empty(n.summary):
+            if n.token_estimate > self.budget_limit(self.node_budget()) or self._summary_is_empty(
+                n.summary
+            ):
                 self.nodes[i] = await self._resummarize_node_to_budget(n, summarize)
 
         new_signature = (
@@ -670,6 +700,8 @@ class MemoryBlockTree:
             spine_cap_tokens=self._spine_cap_tokens,
             leaf_budget_tokens=self._leaf_budget_override,
             reach_depth=self._reach_depth,
+            summary_budget_retries=self._summary_budget_retries,
+            summary_budget_tolerance=self._summary_budget_tolerance,
         )
 
     def serialize(self) -> dict[str, Any]:

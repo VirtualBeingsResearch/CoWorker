@@ -231,7 +231,7 @@ class TestBudgetRebalance:
         )
 
         assert len(tree.nodes) == 1
-        assert tree.nodes[0].token_estimate <= tree.node_budget()
+        assert tree.nodes[0].token_estimate <= tree.budget_limit(tree.node_budget())
         assert tree.spine_tokens() <= tree._spine_cap_tokens
 
 
@@ -488,6 +488,95 @@ class TestHardening:
         assert "最后一句必须是接续状态" in hints[1]
         assert "不要解释" in hints[1]
         assert tree.nodes[0].summary == "短"
+
+    @pytest.mark.asyncio
+    async def test_merge_allows_three_over_budget_retries(self):
+        # 连续三次超预算：第 3 次重试（第 4 次调用）收窄达标，不应提前触发安全阀截断。
+        tree = new_tree(spine_cap_tokens=1, leaf_budget_tokens=10)
+        hints: list[str] = []
+
+        async def shrink_late(text: str, hint: str) -> str:
+            hints.append(hint)
+            return "巨" * 20 if len(hints) < 4 else "短"
+
+        await tree.promote_leaf(leaf(0), summarize=shrink_late)
+        await tree.promote_leaf(leaf(1), summarize=shrink_late)  # 触发合并 → 预算内重试
+
+        assert len(hints) == 4
+        assert tree.nodes[0].summary == "短"
+
+    @pytest.mark.asyncio
+    async def test_summary_within_tolerance_accepted_without_retry(self):
+        # 预算 10、容差 0.1 → 达标上限 11：11 token 摘要一次通过；12 token 才重试并钳到上限。
+        from coworker.core.types import estimate_content_tokens
+
+        tree = new_tree(spine_cap_tokens=1, leaf_budget_tokens=10)
+        calls: list[str] = []
+
+        async def fixed_over_by_one(text: str, hint: str) -> str:
+            calls.append(hint)
+            return "概" * 11
+
+        summary, tokens, _source = await tree._summarize_with_budget(
+            "原文", "提示", 10, fixed_over_by_one
+        )
+
+        assert len(calls) == 1  # 落在容差带内 → 不重试
+        assert summary == "概" * 11 and tokens == 11
+
+        async def always_over_by_two(text: str, hint: str) -> str:
+            calls.append(hint)
+            return "概" * 12
+
+        summary, tokens, _source = await tree._summarize_with_budget(
+            "原文", "提示", 10, always_over_by_two
+        )
+
+        assert len(calls) == 5  # 12 > 11 → 首次 + 3 次重试
+        assert estimate_content_tokens(summary) <= 11  # 安全阀钳到达标上限
+
+    @pytest.mark.asyncio
+    async def test_promote_keeps_summary_within_tolerance(self):
+        # 入树钳制同样按达标上限：11 token 叶子原样保留；15 token 被钳进 11。
+        from coworker.core.types import estimate_content_tokens
+
+        tree = new_tree(spine_cap_tokens=10_000, leaf_budget_tokens=10)
+
+        async def summarize(text: str, hint: str) -> str:
+            return "短"
+
+        within = MemoryNode(
+            level=0, summary="概" * 11, t_start=BASE, t_end=BASE, msg_count=1, token_estimate=11
+        )
+        await tree.promote_leaf(within, summarize=summarize)
+        assert tree.nodes[0].summary == "概" * 11
+
+        over = MemoryNode(
+            level=0, summary="概" * 15, t_start=BASE, t_end=BASE, msg_count=1, token_estimate=15
+        )
+        await tree.promote_leaf(over, summarize=summarize)
+        assert estimate_content_tokens(tree.nodes[-1].summary) <= 11
+
+    def test_needs_rebalance_uses_tolerance_for_oversized_node(self):
+        tree = new_tree(spine_cap_tokens=10_000, leaf_budget_tokens=10)
+        tree.nodes.append(
+            MemoryNode(
+                level=0, summary="概" * 11, t_start=BASE, t_end=BASE, msg_count=1, token_estimate=11
+            )
+        )
+        assert not tree.needs_rebalance()  # 11 ≤ 10 × 1.1 → 不算超大
+        tree.nodes[0].token_estimate = 12
+        assert tree.needs_rebalance()  # 12 > 11 → 超大
+
+    def test_summary_budget_policy_carried_by_clone_empty(self):
+        tree = new_tree(summary_budget_retries=1, summary_budget_tolerance=0.25)
+        clone = tree.clone_empty()
+        assert clone.summary_budget_retries == 1
+        assert clone._summary_budget_tolerance == 0.25
+
+    def test_rejects_tolerance_at_or_above_one(self):
+        with pytest.raises(ValueError):
+            new_tree(summary_budget_tolerance=1.0)
 
     @pytest.mark.asyncio
     async def test_merge_retries_empty_summary(self):
