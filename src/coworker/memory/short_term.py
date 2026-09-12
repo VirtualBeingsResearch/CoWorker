@@ -20,7 +20,12 @@ from coworker.core.types import (
     estimate_content_tokens,
 )
 from coworker.i18n import bind_locale, tr
-from coworker.memory.memory_tree import SUMMARY_BUDGET_RETRIES, MemoryBlockTree, MemoryNode
+from coworker.memory.memory_tree import (
+    SUMMARY_BUDGET_RETRIES,
+    SUMMARY_BUDGET_TOLERANCE,
+    MemoryBlockTree,
+    MemoryNode,
+)
 
 if TYPE_CHECKING:
     from coworker.agent.log_store import LogStore
@@ -70,6 +75,8 @@ class ShortTermMemory:
         tree_spine_cap_fraction: float = 0.40,
         tree_backfill_concurrency: int = 5,
         tree_merge_reach_depth: int = 2,
+        summary_budget_retries: int = SUMMARY_BUDGET_RETRIES,
+        summary_budget_tolerance: float = SUMMARY_BUDGET_TOLERANCE,
     ) -> None:
         if not 0 < compress_ratio < 1:
             raise ValueError("compress_ratio must be between 0 and 1")
@@ -90,9 +97,13 @@ class ShortTermMemory:
         # 提升为树叶并按时间尺度级联合并；脊柱活在 primary 之外，由 build_context 渲染。
         self._tree_enabled = tree_enabled
         self._log_store = log_store
+        # 摘要重试/容差只存于记忆树（budget_limit / summary_budget_retries），
+        # 由构造参数透传；两处摘要循环从 self.tree（或回溯目标树）读取，避免两份配置漂移。
         self.tree = MemoryBlockTree(
             spine_cap_tokens=int(max_tokens * tree_spine_cap_fraction),
             reach_depth=tree_merge_reach_depth,
+            summary_budget_retries=max(0, int(summary_budget_retries)),
+            summary_budget_tolerance=float(summary_budget_tolerance),
         )
         self._compress_lock = asyncio.Lock()
         self._compression_listeners: list[Callable[[dict[str, Any]], None]] = []
@@ -476,11 +487,12 @@ class ShortTermMemory:
         compression_usage: _CompressionUsage | None = None,
     ) -> tuple[str, int, TokenCountSource]:
         budget = self.tree.node_budget()
+        limit = self.tree.budget_limit(budget)
         hint = self._tree_leaf_context_hint(context_hint, budget)
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(1 + SUMMARY_BUDGET_RETRIES):
+        for _ in range(1 + self.tree.summary_budget_retries):
             raw = await brain.summarize(
                 messages,
                 context_hint=hint,
@@ -491,7 +503,7 @@ class ShortTermMemory:
             if compression_usage is not None:
                 compression_usage.record(raw)
             last, last_tokens, last_source = self._summary_text_tokens_and_source(raw)
-            if last.strip() and last_tokens <= budget:
+            if last.strip() and last_tokens <= limit:
                 return last, last_tokens, last_source
             hint = self._tree_retry_context_hint(
                 context_hint,
@@ -513,15 +525,17 @@ class ShortTermMemory:
         text: str,
         context_hint: str,
         budget: int,
+        retries: int,
+        limit: int,
     ) -> tuple[str, int, TokenCountSource]:
         hint = context_hint
         last = ""
         last_tokens = 0
         last_source: TokenCountSource = "estimated"
-        for _ in range(1 + SUMMARY_BUDGET_RETRIES):
+        for _ in range(1 + retries):
             raw = await summarize(text, hint)
             last, last_tokens, last_source = ShortTermMemory._summary_text_tokens_and_source(raw)
-            if last.strip() and last_tokens <= budget:
+            if last.strip() and last_tokens <= limit:
                 return last, last_tokens, last_source
             hint = ShortTermMemory._tree_retry_context_hint(
                 context_hint,
@@ -951,6 +965,8 @@ class ShortTermMemory:
                                 budget=budget,
                             ),
                             budget,
+                            retries=tree.summary_budget_retries,
+                            limit=tree.budget_limit(budget),
                         )
                     t_start, t_end = self._chunk_span(chunk)
                     node = MemoryNode(

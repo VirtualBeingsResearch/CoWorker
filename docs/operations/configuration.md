@@ -115,6 +115,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__TREE_BACKFILL_MAX_LEAVES` | `64` | `--backfill-tree` 一次性回溯历史生成的叶子数上限 |
 | `MEMORY__TREE_BACKFILL_CONCURRENCY` | `5` | 回溯时叶子摘要/归约合并的并发上限 |
 | `MEMORY__TREE_MERGE_REACH_DEPTH` | `2` | 高层合并向下读取的细节层数；`2` 表示低两层 |
+| `MEMORY__SUMMARY_BUDGET_RETRIES` | `3` | 压缩摘要首次超出节点预算后的重试上限（不含首次）；仍不达标才按达标上限（预算 × (1 + 容差)）截断 |
+| `MEMORY__SUMMARY_BUDGET_TOLERANCE` | `0.10` | 摘要预算容差：摘要 token ≤ 节点预算 × (1 + 容差) 即视为达标，不重试、不截断 |
 | `MEMORY__AUTO_RECALL_ENABLED` | `true` | 是否在收到消息时自动检索长期记忆 |
 | `MEMORY__AUTO_RECALL_RELEVANCE_THRESHOLD` | `0.5` | mem0 查询结果的最低相关度分数（0-1）；自动回忆、`query_memory` 和管理端搜索统一使用，修改后热生效 |
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | 每次自动回忆最多注入条数 |

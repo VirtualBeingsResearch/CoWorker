@@ -31,3 +31,19 @@ def test_invalid_default_backend_falls_back_to_mem0(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("MEMORY__BACKEND", raising=False)
     config = MemoryConfig(_env_file=None)
     assert config.backend == "mem0"
+
+
+def test_summary_budget_retry_and_tolerance_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MEMORY__SUMMARY_BUDGET_RETRIES", raising=False)
+    monkeypatch.delenv("MEMORY__SUMMARY_BUDGET_TOLERANCE", raising=False)
+    config = MemoryConfig(_env_file=None)
+    assert config.summary_budget_retries == 3
+    assert config.summary_budget_tolerance == pytest.approx(0.10)
+
+
+def test_summary_budget_retry_and_tolerance_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORY__SUMMARY_BUDGET_RETRIES", "5")
+    monkeypatch.setenv("MEMORY__SUMMARY_BUDGET_TOLERANCE", "0.25")
+    config = MemoryConfig(_env_file=None)
+    assert config.summary_budget_retries == 5
+    assert config.summary_budget_tolerance == pytest.approx(0.25)

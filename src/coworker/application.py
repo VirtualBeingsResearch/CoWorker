@@ -391,6 +391,8 @@ def _build_stm_kwargs(config: Config, log_store: LogStore) -> dict:
         tree_spine_cap_fraction=config.memory.tree_spine_cap_fraction,
         tree_backfill_concurrency=config.memory.tree_backfill_concurrency,
         tree_merge_reach_depth=config.memory.tree_merge_reach_depth,
+        summary_budget_retries=config.memory.summary_budget_retries,
+        summary_budget_tolerance=config.memory.summary_budget_tolerance,
     )
 
 

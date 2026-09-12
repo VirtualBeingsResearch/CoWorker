@@ -537,6 +537,44 @@ class TestShortTermMemory:
         assert brain.summarize.await_count == 4
         assert mem.tree.nodes[0].summary == "短"
 
+    def test_summary_budget_policy_flows_into_tree(self):
+        mem = ShortTermMemory(
+            max_tokens=1000,
+            summary_budget_retries=2,
+            summary_budget_tolerance=0.25,
+        )
+        assert mem.tree.summary_budget_retries == 2
+        assert mem.tree._summary_budget_tolerance == 0.25
+
+        default_mem = ShortTermMemory(max_tokens=1000)
+        assert default_mem.tree.summary_budget_retries == 3
+        assert default_mem.tree._summary_budget_tolerance == 0.10
+
+    def test_summary_budget_tolerance_rejects_invalid(self):
+        with pytest.raises(ValueError):
+            ShortTermMemory(max_tokens=1000, summary_budget_tolerance=1.5)
+
+    @pytest.mark.asyncio
+    async def test_compression_accepts_summary_within_budget_tolerance(self):
+        # 预算 10、容差 0.1 → 上限 11：11 token 摘要一次通过，不重试也不截断。
+        from unittest.mock import AsyncMock, MagicMock
+
+        from coworker.memory.memory_tree import MemoryBlockTree
+
+        brain = MagicMock()
+        brain.summarize = AsyncMock(return_value="概" * 11)
+
+        mem = ShortTermMemory(max_tokens=10)
+        mem.tree = MemoryBlockTree(spine_cap_tokens=10_000, leaf_budget_tokens=10)
+
+        summary, tokens, _source = await mem._summarize_messages_to_tree_budget(
+            brain, [Message(role="user", content="hi")], context_hint="x"
+        )
+
+        assert brain.summarize.await_count == 1
+        assert summary == "概" * 11
+        assert tokens == 11
+
     @pytest.mark.asyncio
     async def test_compress_tree_retries_empty_leaf_summary(self):
         from unittest.mock import AsyncMock, MagicMock

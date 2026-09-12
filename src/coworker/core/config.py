@@ -367,6 +367,10 @@ class MemoryConfig(_EnvSettings):
     tree_backfill_max_leaves: int = 64  # `--backfill-tree` 一次性回溯生成叶子数上限
     tree_backfill_concurrency: int = 5  # 回溯时叶子摘要/归约合并的并发上限
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
+    # 压缩摘要首次超出节点预算后的重试上限（不含首次）；仍不达标才按达标上限截断。
+    summary_budget_retries: int = Field(default=3, ge=0)
+    # 摘要预算容差：摘要 token ≤ 节点预算 × (1 + 容差) 即视为达标，不重试、不截断。
+    summary_budget_tolerance: float = Field(default=0.10, ge=0, lt=1)
 
     auto_recall_enabled: bool = True
     auto_recall_relevance_threshold: float = Field(default=0.5, ge=0, le=1)
