@@ -45,6 +45,7 @@ def create_openai_module(
         extras=extras,
         person_store=person_store,
         timeout_seconds=float(api.compat_timeout_seconds),
+        tool_result_fold_chars=api.compat_tool_result_fold_chars,
         attachments_dir=attachments_dir,
     )
     return OpenAIModule(channel=channel, extras=extras)

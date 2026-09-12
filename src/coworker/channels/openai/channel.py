@@ -26,6 +26,7 @@ from coworker.channels.openai.waiters import (
     OpenAICompletion,
     OpenAISessionTable,
     OpenAITurn,
+    _PendingClientCall,
 )
 from coworker.core.communication_tokens import (
     CONTROL_PARTICIPANT_ID,
@@ -62,6 +63,9 @@ _IMAGE_EXTENSIONS = {
 # Fold per-request system / tools past this size so pinned content stays cheap.
 _FOLD_THRESHOLD = 1500
 _FOLD_HEAD_CHARS = 400
+# Fold a single client tool result past this size; the full text goes to a
+# detail file the coworker can read_file on demand.
+_TOOL_RESULT_FOLD_CHARS = 2000
 _PROMPT_STATE_LIMIT = 200
 _ORIGIN_LIMIT = 200
 _SLICE_CACHE_LIMIT = 64
@@ -440,6 +444,7 @@ class OpenAIChannel(BaseChannel):
         runtime: ChannelRuntime | None = None,
         person_store: PersonStore | None = None,
         timeout_seconds: float = 180,
+        tool_result_fold_chars: int = _TOOL_RESULT_FOLD_CHARS,
         native_tool_names: set[str] | None = None,
         attachments_dir: str | Path | None = None,
     ) -> None:
@@ -451,6 +456,7 @@ class OpenAIChannel(BaseChannel):
         self._sessions = OpenAISessionTable()
         self._person_store = person_store
         self.timeout_seconds = timeout_seconds
+        self.tool_result_fold_chars = tool_result_fold_chars
         self._native_tool_names = set(native_tool_names or ())
         if attachments_dir is not None:
             root = Path(attachments_dir)
@@ -901,15 +907,30 @@ class OpenAIChannel(BaseChannel):
 
     def _tool_results_body(self, turn: OpenAITurn, results: dict[str, str]) -> str:
         items = [
-            tr(
-                "channel.openai.tool_result_item",
-                call_id=item.openai_id,
-                name=item.name,
-                content=results.get(item.openai_id, ""),
-            )
+            self._tool_result_item(item, results.get(item.openai_id, ""))
             for item in turn.pending_calls()
         ]
         return tr("channel.openai.tool_results", items="\n\n".join(items))
+
+    def _tool_result_item(self, item: _PendingClientCall, content: str) -> str:
+        if len(content) <= self.tool_result_fold_chars:
+            return tr(
+                "channel.openai.tool_result_item",
+                call_id=item.openai_id,
+                name=item.name,
+                content=content,
+            )
+        path = self._details.write_detail(
+            _fold_key(f"tool-result-{item.name}", content), content
+        )
+        return tr(
+            "channel.openai.tool_result_item_folded",
+            call_id=item.openai_id,
+            name=item.name,
+            limit=self.tool_result_fold_chars,
+            path=str(path),
+            head=_head_lines(content, _FOLD_HEAD_CHARS),
+        )
 
     def _inbound_body(
         self,

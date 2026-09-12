@@ -151,6 +151,7 @@ pin_pointer = "This window uses system digest {{system_digest}} and tools digest
 pin_absent = "(none)"
 tool_results = "Client tool results for this window:\n{{items}}"
 tool_result_item = "{{call_id}} ({{name}}):\n{{content}}"
+tool_result_item_folded = "{{call_id}} ({{name}}): result folded because it exceeds {{limit}} characters. The complete result is saved at {{path}}; read it with read_file (paged). Preview:\n{{head}}"
 
 [channel.telegram]
 attachment_type_invalid = "Telegram does not support attachment type '{{type}}'"
