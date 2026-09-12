@@ -1500,6 +1500,105 @@ async def test_tool_followup_arrives_as_inbound_mail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_oversize_tool_result_folds_to_detail_file(tmp_path) -> None:
+    channel = OpenAIChannel(
+        extras=ExtraTokenStore(),
+        attachments_dir=tmp_path / "attachments",
+    )
+    received: list[IncomingEvent] = []
+
+    async def capture(event: IncomingEvent) -> None:
+        received.append(event)
+
+    channel.set_inbound_handler(capture)
+    task = asyncio.create_task(
+        channel.open_user_turn(
+            participant_id="openai:api",
+            conversation_id="win",
+            user_text="fetch report",
+            system_text="",
+            catalog={"fetch_report": {"name": "fetch_report"}},
+        )
+    )
+    await asyncio.sleep(0)
+    await channel.call_client_tool(
+        name="fetch_report",
+        arguments={"query": "q"},
+        participant_id="openai:api",
+        conversation_id="win",
+    )
+    completion = await task
+    assert completion.kind == "tool_calls"
+    call_id = completion.tool_calls[0].id
+    payload = "HEAD" + ("x" * 5000) + "TAIL-SENTINEL"
+    followup = asyncio.create_task(
+        channel.open_tool_followup(
+            participant_id="openai:api",
+            conversation_id="win",
+            results={call_id: payload},
+        )
+    )
+    await asyncio.sleep(0)
+    folded = "\n".join(event.content for event in received[1:])
+    assert call_id in folded
+    assert "read_file" in folded
+    assert payload[:100] in folded
+    assert "TAIL-SENTINEL" not in folded
+    files = list((tmp_path / "openai" / "detail").glob("tool-result-*.txt"))
+    assert len(files) == 1
+    assert files[0].stem in folded
+    assert files[0].read_text(encoding="utf-8") == payload
+    await channel.send(
+        CommunicateRequest(
+            participant_id="openai:api",
+            conversation_id="win",
+            message="done",
+            extra={"end_turn": True},
+        )
+    )
+    followup_completion = await followup
+    assert followup_completion.kind == "stop"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_fold_threshold_is_configurable(tmp_path) -> None:
+    payload = "y" * 600
+    turn = OpenAITurn(
+        participant_id="openai:api",
+        conversation_id="win",
+        catalog={"fetch": {"name": "fetch"}},
+        timeout_seconds=1.0,
+    )
+    pending = turn.register_client_call("fetch", {})
+    results = {pending.openai_id: payload}
+    small_cap = OpenAIChannel(
+        extras=ExtraTokenStore(),
+        attachments_dir=tmp_path / "small" / "attachments",
+        tool_result_fold_chars=100,
+    )
+    large_cap = OpenAIChannel(
+        extras=ExtraTokenStore(),
+        attachments_dir=tmp_path / "large" / "attachments",
+        tool_result_fold_chars=10_000,
+    )
+    with locale_context("en"):
+        folded = small_cap._tool_results_body(turn, results)
+        inline = large_cap._tool_results_body(turn, results)
+    assert "read_file" in folded
+    assert payload not in folded
+    files = list((tmp_path / "small" / "openai" / "detail").glob("*.txt"))
+    assert len(files) == 1
+    assert files[0].stem in folded
+    assert files[0].read_text(encoding="utf-8") == payload
+    assert payload in inline
+    assert not (tmp_path / "large" / "openai" / "detail").exists()
+    with locale_context("zh-CN"):
+        folded_zh = small_cap._tool_results_body(turn, results)
+    assert "已折叠" in folded_zh
+    assert files[0].stem in folded_zh
+
+
+@pytest.mark.asyncio
 async def test_second_tool_round_accepts_accumulated_history() -> None:
     channel = OpenAIChannel(extras=ExtraTokenStore())
     channel.publish_inbound = AsyncMock()

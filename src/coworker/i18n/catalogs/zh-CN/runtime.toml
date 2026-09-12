@@ -151,6 +151,7 @@ pin_pointer = "本窗口的 system digest 为 {{system_digest}}，tools digest �
 pin_absent = "（无）"
 tool_results = "本窗口的客户端工具结果：\n{{items}}"
 tool_result_item = "{{call_id}}（{{name}}）：\n{{content}}"
+tool_result_item_folded = "{{call_id}}（{{name}}）：结果超过 {{limit}} 字符，已折叠。完整结果保存在 {{path}}，可用 read_file 分页阅读。预览：\n{{head}}"
 
 [channel.telegram]
 attachment_type_invalid = "Telegram 不支持附件类型 '{{type}}'"

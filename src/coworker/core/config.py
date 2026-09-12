@@ -404,6 +404,9 @@ class APIConfig(_EnvSettings):
     # JSON object in environment/.env, e.g. {"cursor":"cwct_v1_..."}.
     communication_tokens: dict[str, str] = Field(default_factory=dict)
     compat_timeout_seconds: int = Field(default=180, ge=1, le=3600)
+    # Inline cap for one client tool result; longer results are folded to a
+    # detail file the coworker reads with read_file.
+    compat_tool_result_fold_chars: int = Field(default=2000, ge=1, le=1_000_000)
     # JSON list in environment/.env, e.g.
     # ["https://desktop.example", "http://127.0.0.1:1420"]
     cors_origins: list[str] = Field(
