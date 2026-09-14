@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.6 - Unreleased
+
+- docs(release): finalize v0.4.5 changelog (#229)
+- feat(memory): configurable summary budget retries and tolerance (#230)
+- feat(openai): fold oversized client tool results into readable detail files (#231)
+
 ## 0.4.5 - 2026-09-10
 
 - docs(release): finalize v0.4.4 changelog (#223)
