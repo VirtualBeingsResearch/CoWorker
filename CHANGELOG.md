@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.6 - Unreleased
+## 0.4.6 - 2026-09-15
 
 - docs(release): finalize v0.4.5 changelog (#229)
 - feat(memory): configurable summary budget retries and tolerance (#230)
