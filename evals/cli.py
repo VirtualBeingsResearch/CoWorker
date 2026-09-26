@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 from evals.report import write_report
@@ -74,4 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = asyncio.run(run(scenarios, options))
     print(write_report(run_dir, args.baseline), end="")
     print(f"results: {run_dir}")
+    halted = json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("halted")
+    if halted:
+        print(f"halted: {halted['status']}: {halted['detail']}")
+        return 1
     return 0

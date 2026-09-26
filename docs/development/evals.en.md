@@ -131,9 +131,16 @@ model calls, duration, and failure reasons. When compared with a baseline, a row
 intervals are wide; a single 4/5 versus 5/5 is usually noise.
 
 Besides `completed`, a sample may end as `timeout`, `guard_exceeded` (too many model calls),
-`crashed`, `setup_mode` (no usable model, usually a wrong key or provider name),
-`startup_timeout`, `stream_failed`, or `delivery_failed`. Any non-`completed` sample counts as
-failed; see `coworker.log` in the sample directory for details.
+`crashed`, `startup_timeout`, `stream_failed`, or `delivery_failed`. These count as failed; see
+`coworker.log` in the sample directory for details.
+
+Two statuses mean the model could not be reached, so the sample says nothing about her:
+`setup_mode` (no usable model at startup, usually a wrong key or provider name) and
+`provider_error` (3 model calls in a row failed after Coworker's own retries, for example an
+exhausted quota or a revoked key; the detail quotes the last provider error). They are listed in
+the `unobserved` column and left out of the pass rate. The first such sample also halts the run:
+samples not yet started are skipped, `run.json` records `halted`, the summary says so at the top,
+and the command exits with code 1.
 
 ## Writing a scenario
 

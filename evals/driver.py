@@ -26,6 +26,10 @@ from evals.workspace import ModelTarget, child_env, free_port, prepare
 
 STARTUP_TIMEOUT_SECONDS = 180.0
 POLL_SECONDS = 0.5
+# Each failed call already includes Coworker's own retries and fallbacks, so a few in
+# a row mean the model is unreachable (exhausted quota, bad key), not a passing blip.
+PROVIDER_FAILURE_LIMIT = 3
+_PROVIDER_ERROR_MARKERS = ("exhausted", "Unexpected error in cycle", "LLM call")
 HOST_COMMAND = ("-c", "from coworker.application import run_sync; run_sync()")
 
 
@@ -110,12 +114,30 @@ class _Sample:
             raise SampleAborted("crashed", f"Coworker exited with code {self.proc.returncode}")
         if time.monotonic() > self.deadline:
             raise SampleAborted("timeout", f"exceeded {self.scenario.guard.max_seconds}s")
-        calls = activity(self.workspace).llm_calls
-        if calls > self.scenario.guard.max_llm_calls:
+        state = activity(self.workspace)
+        if state.llm_calls > self.scenario.guard.max_llm_calls:
             raise SampleAborted(
                 "guard_exceeded",
-                f"{calls} LLM calls exceeded max_llm_calls={self.scenario.guard.max_llm_calls}",
+                f"{state.llm_calls} LLM calls exceeded "
+                f"max_llm_calls={self.scenario.guard.max_llm_calls}",
             )
+        if state.failed_calls >= PROVIDER_FAILURE_LIMIT:
+            raise SampleAborted(
+                "provider_error",
+                f"{state.failed_calls} model calls in a row failed; "
+                f"last error: {self._last_provider_error()}",
+            )
+
+    def _last_provider_error(self) -> str:
+        log = self.sample_dir / "coworker.log"
+        try:
+            lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return "unknown"
+        for line in reversed(lines):
+            if any(marker in line for marker in _PROVIDER_ERROR_MARKERS):
+                return line.split(" | ", 2)[-1].strip()[:300]
+        return "unknown"
 
     async def _status(self, client: httpx.AsyncClient) -> dict[str, Any] | None:
         try:

@@ -14,6 +14,7 @@ from typing import Any
 
 from evals.driver import SampleOutcome, run_sample
 from evals.graders import CheckContext, run_check
+from evals.report import UNOBSERVED_STATUSES
 from evals.scenario import Scenario
 from evals.trace import collect
 from evals.workspace import REPO_ROOT, ModelTarget
@@ -91,6 +92,13 @@ def grade(
     }, trace.to_dict()
 
 
+@dataclass
+class _Halt:
+    status: str = ""
+    detail: str = ""
+    skipped: int = 0
+
+
 async def _run_one(
     scenario: Scenario,
     locale: str,
@@ -98,11 +106,17 @@ async def _run_one(
     run_dir: Path,
     options: RunOptions,
     semaphore: asyncio.Semaphore,
-) -> dict[str, Any]:
-    sample_dir = run_dir / "samples" / scenario.id / locale / f"{index:02d}"
-    sample_dir.mkdir(parents=True)
+    halt: _Halt,
+) -> dict[str, Any] | None:
     async with semaphore:
+        if halt.status:
+            halt.skipped += 1
+            return None
+        sample_dir = run_dir / "samples" / scenario.id / locale / f"{index:02d}"
+        sample_dir.mkdir(parents=True)
         outcome = await run_sample(scenario, locale, options.target, sample_dir)
+    if outcome.status in UNOBSERVED_STATUSES and not halt.status:
+        halt.status, halt.detail = outcome.status, outcome.detail
     result, trace = grade(scenario, locale, outcome)
     (sample_dir / "trace.json").write_text(
         json.dumps(trace, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -124,6 +138,7 @@ async def run(scenarios: list[Scenario], options: RunOptions) -> Path:
     (run_dir / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
 
     semaphore = asyncio.Semaphore(max(1, options.jobs))
+    halt = _Halt()
     jobs = []
     for scenario in scenarios:
         locales = [
@@ -131,9 +146,11 @@ async def run(scenarios: list[Scenario], options: RunOptions) -> Path:
         ]
         for locale in locales:
             for index in range(options.samples or scenario.samples):
-                jobs.append(_run_one(scenario, locale, index, run_dir, options, semaphore))
+                jobs.append(_run_one(scenario, locale, index, run_dir, options, semaphore, halt))
     await asyncio.gather(*jobs)
 
     meta["finished_at"] = datetime.now(UTC).isoformat()
+    if halt.status:
+        meta["halted"] = {"status": halt.status, "detail": halt.detail, "skipped": halt.skipped}
     (run_dir / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
     return run_dir

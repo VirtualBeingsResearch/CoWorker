@@ -42,6 +42,28 @@ def test_summarize_counts_failures_and_statuses() -> None:
     assert row["failures"] == {"replied": 2, "status:timeout": 1}
 
 
+def test_unreachable_model_samples_are_not_counted(tmp_path: Path) -> None:
+    rows = summarize([_sample("a", True), _sample("a", False, "provider_error")])
+    (row,) = rows
+    assert (row["passes"], row["samples"], row["pass_all"]) == (1, 1, True)
+    assert row["unobserved"] == {"provider_error": 1} and row["failures"] == {}
+
+    (empty,) = summarize([_sample("b", False, "provider_error")])
+    assert (empty["samples"], empty["pass_all"], empty["mean_llm_calls"]) == (0, False, 0.0)
+    assert compare([empty], summarize([_sample("b", True)])) == []
+
+    meta = {"run_id": "r1", "halted": {"status": "provider_error", "detail": "quota", "skipped": 4}}
+    (tmp_path / "run.json").write_text(json.dumps(meta), "utf-8")
+    sample_dir = tmp_path / "samples" / "b" / "en" / "00"
+    sample_dir.mkdir(parents=True)
+    (sample_dir / "result.json").write_text(
+        json.dumps(_sample("b", False, "provider_error")), "utf-8"
+    )
+    markdown = write_report(tmp_path)
+    assert "**halted** (`provider_error`), 4 samples not started: quota" in markdown
+    assert "| b | en | 0/0 |" in markdown and "provider_error×1 |" in markdown
+
+
 def test_compare_flags_only_disjoint_changes() -> None:
     good = summarize([_sample("a", True)] * 20)
     bad = summarize([_sample("a", False)] * 20)

@@ -9,6 +9,10 @@ from typing import Any
 
 from evals.stats import intervals_disjoint, wilson_interval
 
+# The model could not be reached, so the sample says nothing about her. These
+# samples are reported but left out of the pass rate, and they halt the run.
+UNOBSERVED_STATUSES = frozenset({"provider_error", "setup_mode"})
+
 
 def load_samples(run_dir: Path) -> list[dict[str, Any]]:
     samples = []
@@ -22,7 +26,12 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for sample in samples:
         groups[(sample["scenario"], sample["locale"])].append(sample)
     rows = []
-    for (scenario, locale), items in sorted(groups.items()):
+    for (scenario, locale), group in sorted(groups.items()):
+        items = [item for item in group if item["status"] not in UNOBSERVED_STATUSES]
+        unobserved: dict[str, int] = defaultdict(int)
+        for item in group:
+            if item["status"] in UNOBSERVED_STATUSES:
+                unobserved[item["status"]] += 1
         total = len(items)
         passes = sum(1 for item in items if item["passed"])
         low, high = wilson_interval(passes, total)
@@ -41,13 +50,18 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "passes": passes,
                 "pass_rate": passes / total if total else 0.0,
                 "ci95": [round(low, 3), round(high, 3)],
-                "pass_all": passes == total,
-                "mean_llm_calls": round(sum(i["llm_calls"] for i in items) / total, 1),
-                "mean_real_seconds": round(sum(i["real_seconds"] for i in items) / total, 1),
+                "pass_all": bool(total) and passes == total,
+                "mean_llm_calls": _mean(items, "llm_calls"),
+                "mean_real_seconds": _mean(items, "real_seconds"),
                 "failures": dict(sorted(failures.items())),
+                "unobserved": dict(sorted(unobserved.items())),
             }
         )
     return rows
+
+
+def _mean(items: list[dict[str, Any]], key: str) -> float:
+    return round(sum(item[key] for item in items) / len(items), 1) if items else 0.0
 
 
 def compare(rows: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -55,7 +69,7 @@ def compare(rows: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> list[
     comparisons = []
     for row in rows:
         base = by_key.get((row["scenario"], row["locale"]))
-        if base is None:
+        if base is None or not base["samples"] or not row["samples"]:
             continue
         delta = row["pass_rate"] - base["pass_rate"]
         disjoint = intervals_disjoint(tuple(row["ci95"]), tuple(base["ci95"]))
@@ -86,17 +100,29 @@ def render_markdown(
         f"- target: `{meta.get('provider')}` / `{meta.get('model')}`",
         f"- git: `{meta.get('git_sha', '')[:12]}`" + (" (dirty)" if meta.get("git_dirty") else ""),
         f"- coworker: `{meta.get('coworker_version', '')}`",
+    ]
+    halted = meta.get("halted")
+    if isinstance(halted, dict):
+        lines.append(
+            f"- **halted** (`{halted.get('status')}`), {halted.get('skipped', 0)} samples "
+            f"not started: {halted.get('detail', '')}"
+        )
+    lines += [
         "",
-        "| scenario | locale | pass | 95% CI | all passed | LLM calls | seconds | failures |",
-        "|---|---|---|---|---|---|---|---|",
+        "| scenario | locale | pass | 95% CI | all passed | LLM calls | seconds | failures "
+        "| unobserved |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         failures = ", ".join(f"{name}×{count}" for name, count in row["failures"].items())
+        unobserved = ", ".join(
+            f"{name}×{count}" for name, count in row.get("unobserved", {}).items()
+        )
         lines.append(
             f"| {row['scenario']} | {row['locale']} | {row['passes']}/{row['samples']} "
             f"| {_pct(row['ci95'][0])}–{_pct(row['ci95'][1])} "
             f"| {'yes' if row['pass_all'] else 'no'} | {row['mean_llm_calls']} "
-            f"| {row['mean_real_seconds']} | {failures or '-'} |"
+            f"| {row['mean_real_seconds']} | {failures or '-'} | {unobserved or '-'} |"
         )
     if comparisons:
         lines += [

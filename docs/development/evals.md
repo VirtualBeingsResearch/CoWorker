@@ -116,9 +116,14 @@ NFKC 规范化、大小写折叠并去掉空白，所以 `７ ３ ５ １` 与 `
 `improvement`；5 个样本的区间很宽，单次 4/5 与 5/5 的差异通常只是噪声。
 
 样本状态除 `completed` 外还有：`timeout`、`guard_exceeded`（超过模型调用上限）、`crashed`、
-`setup_mode`（没有可用模型，通常是 key 或 provider 名称有误）、`startup_timeout`、
-`stream_failed` 和 `delivery_failed`。非 `completed` 的样本一律算未通过，详情见样本目录中的
+`startup_timeout`、`stream_failed` 和 `delivery_failed`。这些样本算未通过，详情见样本目录中的
 `coworker.log`。
+
+另有两种状态表示模型不可达，样本并不能说明她的表现：`setup_mode`（启动时没有可用模型，通常是
+key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试之后仍连续 3 次模型调用失败，
+例如额度耗尽或 key 失效；详情中会引用最后一条 provider 错误）。它们列在 `unobserved` 一栏，
+不计入通过率。第一次出现这类样本时整轮运行随即停止：尚未开始的样本被跳过，`run.json` 记录
+`halted`，报告开头注明，命令以退出码 1 结束。
 
 ## 编写新场景
 

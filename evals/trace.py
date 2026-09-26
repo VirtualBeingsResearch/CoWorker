@@ -87,6 +87,7 @@ class Activity:
     messages_in: int
     busy: bool
     main_resting: bool
+    failed_calls: int = 0
 
 
 def activity(workspace: Path) -> Activity:
@@ -95,14 +96,26 @@ def activity(workspace: Path) -> Activity:
     A log whose last entry is ``thinking_start`` is waiting on the model; a trailing
     ``tool_call`` other than ``sleep`` is still executing. The main line rests when its
     last entry is a pending ``sleep`` call (the idle rest is reported by ``/status``).
+
+    A failed model call leaves no entry of its own: its ``thinking_start`` is simply
+    never answered by an ``llm_response`` before the next one. ``failed_calls`` is the
+    longest current run of such unanswered starts in any line of thought.
     """
     llm_calls = 0
     messages_in = 0
     tails: dict[str, dict[str, Any]] = {}
+    awaiting: dict[str, bool] = {}
+    failures: dict[str, int] = {}
     for source, entry in _entries(workspace):
         kind = entry.get("type")
         if kind == "llm_response":
             llm_calls += 1
+            awaiting[source] = False
+            failures[source] = 0
+        elif kind == "thinking_start":
+            if awaiting.get(source):
+                failures[source] = failures.get(source, 0) + 1
+            awaiting[source] = True
         elif kind == "message_in":
             messages_in += 1
         tails[source] = entry
@@ -116,7 +129,11 @@ def activity(workspace: Path) -> Activity:
     main_tail = tails.get("main", {})
     main_resting = main_tail.get("type") == "tool_call" and main_tail.get("name") in RESTING_TOOLS
     return Activity(
-        llm_calls=llm_calls, messages_in=messages_in, busy=busy, main_resting=main_resting
+        llm_calls=llm_calls,
+        messages_in=messages_in,
+        busy=busy,
+        main_resting=main_resting,
+        failed_calls=max(failures.values(), default=0),
     )
 
 
