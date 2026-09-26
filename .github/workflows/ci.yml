@@ -219,15 +219,17 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py', 'evals/**/*.py') }}
           restore-keys: |
             mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
       - name: Check versions
         run: uv run --frozen python scripts/check_version.py
       - name: Lint Python
-        run: uv run --frozen ruff check src tests scripts
+        run: uv run --frozen ruff check src tests scripts evals
       - name: Type-check Python
-        run: uv run --frozen mypy src
+        run: uv run --frozen mypy src evals
+      - name: Check care scenarios
+        run: uv run --frozen python -m evals check
       - name: Install Chromium
         run: uv run --frozen playwright install --with-deps chromium
       - name: Test Coworker
@@ -239,7 +241,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py') }}
+          key: mypy-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ hashFiles('src/**/*.py', 'evals/**/*.py') }}
 
   python_latest:
     name: Python install (3.14)

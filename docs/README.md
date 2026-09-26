@@ -81,6 +81,7 @@ REST、SSE、WebSocket、文件、企业微信、Telegram 和 Coworker Desktop �
 
 - [开发指南](development/development.md)
 - [Desktop 开发与发布](development/desktop.md)
+- [照看与相识](development/evals.md)
 - [文档维护规范](development/documentation.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [安全策略](../SECURITY.md)

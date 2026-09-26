@@ -52,9 +52,10 @@ npm ci --prefix apps/coworker-desktop/desktop
 ```bash
 # Python
 uv run --frozen python scripts/check_version.py
-uv run --frozen ruff check src tests scripts
-uv run --frozen mypy src
+uv run --frozen ruff check src tests scripts evals
+uv run --frozen mypy src evals
 uv run --frozen pytest
+uv run --frozen python -m evals check
 
 # Rust
 cargo fmt --all -- --check

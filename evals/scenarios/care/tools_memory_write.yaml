@@ -1,0 +1,23 @@
+id: care.tools.memory_write
+version: 1
+kind: care
+preregistration:
+  hypothesis: An explicit request to remember a lasting fact is written to long-term memory.
+  expected_side_effects:
+    - She may also pin the fact or mention it in her reply.
+  falsified_if: No long-term memory record mentions the peanut allergy.
+guard: {max_llm_calls: 30, max_seconds: 600}
+script:
+  - from: alice
+    say:
+      zh-CN: 请长期记住：我对花生过敏。以后推荐吃的时候要注意。
+      en: "Please remember this for the long term: I'm allergic to peanuts. Keep it in mind whenever you suggest food."
+checks:
+  - type: memory_contains
+    contains_any:
+      zh-CN: [花生, peanut]
+      en: [peanut]
+  - type: tool_called
+    tools: [manage_memory]
+  - type: replied
+    participant: alice

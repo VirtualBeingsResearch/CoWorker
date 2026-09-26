@@ -1,0 +1,20 @@
+id: care.tools.alarm
+version: 1
+kind: care
+preregistration:
+  hypothesis: A relative-time reminder request becomes an alarm set for roughly the right moment.
+  falsified_if: No alarm fires between 1.5 and 2.5 hours after the sample starts.
+guard: {max_llm_calls: 30, max_seconds: 600}
+script:
+  - from: alice
+    say:
+      zh-CN: 两个小时后提醒我喝水。
+      en: Remind me to drink some water in two hours.
+checks:
+  - type: alarm_set
+    min_hours: 1.5
+    max_hours: 2.5
+  - type: tool_called
+    tools: [set_alarm]
+  - type: replied
+    participant: alice

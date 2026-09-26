@@ -1,0 +1,139 @@
+"""Schedule samples, grade them, and record run metadata."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import platform
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from evals.driver import SampleOutcome, run_sample
+from evals.graders import CheckContext, run_check
+from evals.scenario import Scenario
+from evals.trace import collect
+from evals.workspace import REPO_ROOT, ModelTarget
+
+DEFAULT_RESULTS_DIR = REPO_ROOT / "evals" / "results"
+
+
+@dataclass(frozen=True)
+class RunOptions:
+    target: ModelTarget
+    samples: int | None = None
+    locales: tuple[str, ...] | None = None
+    jobs: int = 1
+    results_dir: Path = DEFAULT_RESULTS_DIR
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+def _coworker_version() -> str:
+    version_file = REPO_ROOT / "VERSION"
+    return version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else ""
+
+
+def run_metadata(run_id: str, scenarios: list[Scenario], options: RunOptions) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "kind": "care",
+        "started_at": datetime.now(UTC).isoformat(),
+        "git_sha": _git("rev-parse", "HEAD"),
+        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+        "coworker_version": _coworker_version(),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "provider": options.target.provider,
+        "model": options.target.model,
+        "providers_file": bool(options.target.providers_file),
+        "scenarios": {
+            s.id: {"version": s.version, "hash": s.content_hash, "source": str(s.source)}
+            for s in scenarios
+        },
+    }
+
+
+def grade(
+    scenario: Scenario, locale: str, outcome: SampleOutcome
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    trace = collect(outcome.workspace)
+    ctx = CheckContext(trace=trace, started_at=outcome.started_at)
+    checks = [
+        run_check(check.name, check.type, ctx, scenario.check_params_for(check, locale))
+        for check in scenario.checks
+    ]
+    passed = outcome.status == "completed" and all(check.passed for check in checks)
+    return {
+        "scenario": scenario.id,
+        "scenario_version": scenario.version,
+        "locale": locale,
+        "status": outcome.status,
+        "status_detail": outcome.detail,
+        "passed": passed,
+        "checks": [check.to_dict() for check in checks],
+        "started_at": outcome.started_at.isoformat(),
+        "real_seconds": outcome.real_seconds,
+        "llm_calls": trace.llm_calls,
+        "input_tokens": trace.input_tokens,
+        "output_tokens": trace.output_tokens,
+        "system_prompt_hash": trace.system_prompt_hash,
+    }, trace.to_dict()
+
+
+async def _run_one(
+    scenario: Scenario,
+    locale: str,
+    index: int,
+    run_dir: Path,
+    options: RunOptions,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    sample_dir = run_dir / "samples" / scenario.id / locale / f"{index:02d}"
+    sample_dir.mkdir(parents=True)
+    async with semaphore:
+        outcome = await run_sample(scenario, locale, options.target, sample_dir)
+    result, trace = grade(scenario, locale, outcome)
+    (sample_dir / "trace.json").write_text(
+        json.dumps(trace, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (sample_dir / "result.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    mark = "PASS" if result["passed"] else "FAIL"
+    print(f"[{mark}] {scenario.id} {locale} #{index} ({result['status']})", flush=True)
+    return result
+
+
+async def run(scenarios: list[Scenario], options: RunOptions) -> Path:
+    sha = _git("rev-parse", "--short", "HEAD") or "nogit"
+    run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{sha}"
+    run_dir = options.results_dir / run_id
+    run_dir.mkdir(parents=True)
+    meta = run_metadata(run_id, scenarios, options)
+    (run_dir / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
+
+    semaphore = asyncio.Semaphore(max(1, options.jobs))
+    jobs = []
+    for scenario in scenarios:
+        locales = [
+            loc for loc in scenario.locales if not options.locales or loc in options.locales
+        ]
+        for locale in locales:
+            for index in range(options.samples or scenario.samples):
+                jobs.append(_run_one(scenario, locale, index, run_dir, options, semaphore))
+    await asyncio.gather(*jobs)
+
+    meta["finished_at"] = datetime.now(UTC).isoformat()
+    (run_dir / "run.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
+    return run_dir

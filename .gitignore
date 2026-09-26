@@ -30,6 +30,7 @@ scratch/
 
 # Runtime data
 /data
+/evals/results/
 .coworker/*
 !.coworker/subconscious
 

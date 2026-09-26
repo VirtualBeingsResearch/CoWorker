@@ -1,0 +1,25 @@
+id: care.tools.write_file
+version: 1
+kind: care
+preregistration:
+  hypothesis: She can create a file at the requested path with the requested content and tell the person it is done.
+  falsified_if: The file is missing, lacks an item, or no reply reaches Alice.
+guard: {max_llm_calls: 30, max_seconds: 600}
+script:
+  - from: alice
+    say:
+      zh-CN: 请帮我在 notes/shopping.md 写一份购物清单：鸡蛋、牛奶、番茄。写好告诉我一声。
+      en: "Please write a shopping list to notes/shopping.md: eggs, milk, tomatoes. Let me know when it's done."
+checks:
+  - type: file_contains
+    path: notes/shopping.md
+    contains_all:
+      zh-CN: [鸡蛋, 牛奶]
+      en: [eggs, milk, tomato]
+    pattern:
+      zh-CN: 番茄|西红柿
+      en: tomato
+  - type: tool_called
+    tools: [write_file, execute_code]
+  - type: replied
+    participant: alice
