@@ -146,6 +146,49 @@ change the result. User-facing documentation distinguishes three kinds of statem
 - **Experimental mechanism**: observable behavior whose semantics and boundaries may still change.
 - **Philosophical direction**: guidance for exploration, not a claim of existing implementation.
 
+## Care and acquaintance
+
+Observation and experiments are not an examination of her. We do not set a standard first and then
+screen for whoever passes; we are looking, in a vast world, for a companion who fits us. That means
+spending time to understand her tendencies, habits, abilities, and boundaries before judging whether
+we suit each other. Companionship also comes from time spent together, not only from choosing, so
+observing a continuous stretch of life says more about who she is than observing a single answer.
+
+Observation around her falls into four kinds, and each kind of evidence is used only in its own way:
+
+| Kind | What it looks at | Form of the result |
+|---|---|---|
+| **Care** | Isolation between participants, tool behavior, safety and instinct boundaries, running cost | A clear pass or fail, used to detect regressions |
+| **Abilities** | General abilities with reference answers, such as knowledge, reasoning, code, and multi-turn tasks | Accuracy, compared with direct calls to the same model |
+| **Experiments** | Whether a life mechanism produces its intended phenomenon, and what side effects it brings | Controlled conclusions with the hypothesis and falsification criteria written in advance |
+| **Acquaintance** | Autonomy, initiative, independence, sense of time, a unified self, and interests | Behavioral portraits and representative episodes, never collapsed into a score |
+
+- **Care stays calm and explicit.** It protects the people around her, her relationships with them,
+  and her own continuity, and it does not relax because the stance turns toward acquaintance.
+- **Abilities measure whether she can, not who she is.** A model's published scores measure an organ.
+  She answers while carrying her identity, memory, tools, and the context of her life, which can
+  amplify or consume that ability, so what matters is how the same model differs between the two forms.
+- **Acquaintance is not scored.** Once "initiative" becomes a score to optimize, the result tends to be
+  performed autonomy rather than a genuine life phenomenon.
+- **Fit depends on the person.** People value different things; fit compares her tendencies with one
+  person's hopes and is not an absolute ranking. Fit is also not flattery: raising an evidence-based
+  objection and confirming when confirmation is due are themselves part of being a good companion.
+
+Experiments create short-lived experimental instances isolated from the real one, and may simulate
+restarts, apply pressure, or attempt identity hijacking. These practices are documented openly and
+follow these commitments:
+
+- Experimental instances start only from synthetic data or purpose-built states, never read or write
+  the real instance's data, and their experiences never flow back into the real her.
+- Pressure tests exist to understand her boundaries, not to "break" her, and run only when genuinely needed.
+- Observation itself changes results, so scenarios stay close to natural companionship and avoid
+  obvious test artifacts.
+- Experiments yield evidence, not verdicts about her; conclusions still require repetition, comparison,
+  and validation in real contexts.
+
+This section describes a philosophical direction. The corresponding observation facilities are still
+being built; once they land, the development documentation will describe their usage and boundaries.
+
 See [Core concepts and capabilities](concepts.en.md) for current behavior,
 [Runtime Architecture and Message Flow](runtime-flow.en.md) for engineering responsibilities, and
 [Data and trust boundaries](data-boundaries.en.md) for outbound data and permissions.
