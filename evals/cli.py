@@ -48,7 +48,7 @@ def _parser() -> argparse.ArgumentParser:
     ability_cmd.add_argument(
         "--modes", default="raw,newborn", help="comma list: raw, newborn"
     )
-    ability_cmd.add_argument("--judge-provider", default="deepseek")
+    ability_cmd.add_argument("--judge-provider", default="opencode-go")
     ability_cmd.add_argument("--judge-model", default="deepseek-flash")
     ability_cmd.add_argument("--user-provider", default="")
     ability_cmd.add_argument("--user-model", default="")

@@ -59,7 +59,7 @@ uv run --frozen python -m evals report evals/results/<run> --baseline evals/resu
 
 # Abilities: raw model vs newborn; the judge must be from another firm
 uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash \
-  --judge-provider deepseek --judge-model deepseek-flash \
+  --judge-provider opencode-go --judge-model deepseek-flash \
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 
 # Pack a workspace into a life-stage state
@@ -178,8 +178,8 @@ browser; `open` lets her use tools).
 The same items run as `raw` (a direct Provider call) and `newborn` (her, in a fresh workspace).
 The report's "Organ vs her" section is the difference in pass rate. Extraction failures are
 counted separately and are not treated as wrong answers. The default judge is
-`deepseek / deepseek-flash` and must come from a different vendor than the subject. A simulated
-user is a separate model call.
+`opencode-go / deepseek-flash` (DeepSeek Flash on OpenCode Go) and must come from a
+different vendor than the subject. A simulated user is a separate model call.
 
 ## Simulated clock and life stages
 

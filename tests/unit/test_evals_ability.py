@@ -40,10 +40,10 @@ def test_code_scoring_runs_main() -> None:
 
 
 def test_judge_rejects_same_vendor() -> None:
-    assert vendor_of("zhipu") != vendor_of("deepseek")
+    assert vendor_of("zhipu") != vendor_of("opencode-go")
     with pytest.raises(ValueError, match="same vendor"):
         ensure_different_vendor(ModelTarget("deepseek", "x"), ModelTarget("deepseek", "y"))
-    ensure_different_vendor(ModelTarget("zhipu", "x"), ModelTarget("deepseek", "y"))
+    ensure_different_vendor(ModelTarget("zhipu", "x"), ModelTarget("opencode-go", "deepseek-flash"))
     verdict = _parse_verdict("PASS\n她记下了时间")
     assert verdict.passed
     assert not _parse_verdict("FAIL\n没有写文件").passed

@@ -50,7 +50,7 @@ uv run --frozen python -m evals report evals/results/<run> --baseline evals/resu
 
 # 本领：裸模型与新生的她，裁判须来自另一家厂商
 uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash \
-  --judge-provider deepseek --judge-model deepseek-flash \
+  --judge-provider opencode-go --judge-model deepseek-flash \
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 
 # 把一次工作目录打成人生阶段状态
@@ -153,7 +153,8 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 
 同一批题目按 `raw`（直接打 Provider）和 `newborn`（新生工作目录里的她）两种方式跑。报告里的
 「Organ vs her」是这两种通过率的差值。抽取失败单独计数，不算答错。裁判默认
-`deepseek / deepseek-flash`，必须和被测模型来自不同厂商。模拟用户同样走独立的模型调用。
+`opencode-go / deepseek-flash`（OpenCode Go 上的 DeepSeek Flash），必须和被测模型来自不同厂商。
+模拟用户同样走独立的模型调用。
 
 ## 模拟时钟与人生阶段
 
