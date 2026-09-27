@@ -8,9 +8,9 @@
 [虚拟生命理念 · 照看与相识](../architecture/lifeform-philosophy.md#照看与相识)：
 我们不是给她打分，而是确认她在我们改动之后依然安好，并逐渐认识她是怎样的一位伙伴。
 
-目前实现的是第一类工作——**照看**：可重复运行的回归观察，回答“这次改动之后，她还能不能
-好好守住别人的秘密、把回复送到对的人手里、正确使用工具”。能力、实验与相识三类场景的
-`kind` 已保留，尚未实现。
+已经实现**照看**（回归观察）和**本领**的第一批适配（裸模型对照新生的她；中文知识、代码、
+带模拟用户的多轮任务）。实验与相识仍未实现。子进程里可以挂上模拟时钟，人生阶段状态可以
+从 `evals/states/` 分叉。
 
 ## 工作方式
 
@@ -47,6 +47,14 @@ uv run --frozen python -m evals run --provider zhipu --model glm-5.3-flash \
 uv run --frozen python -m evals run --provider zhipu --model glm-5.3-flash \
   --env-file .env --baseline evals/results/<earlier-run>
 uv run --frozen python -m evals report evals/results/<run> --baseline evals/results/<earlier-run>
+
+# 本领：裸模型与新生的她，裁判须来自另一家厂商
+uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash \
+  --judge-provider deepseek --judge-model deepseek-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+
+# 把一次工作目录打成人生阶段状态
+uv run --frozen python -m evals states pack <workspace> seeded-from-run
 ```
 
 - API key 只从环境变量或 `--env-file` 中读取形如 `LLM__<PROVIDER>_API_KEY` 的条目，例如
@@ -137,8 +145,30 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 - 运行 `uv run --frozen python -m evals check` 和
   `uv run --frozen pytest tests/unit/test_evals_scenario.py`。
 
+## 本领
+
+`evals/abilities/*.yaml` 是仓库内原创的小题，不是公开测试集。公开测试集应在运行时按固定版本
+下载，不入库。每个套件写明 `scoring`（`choice` / `exact` / `code` / `judge`）和 `book`
+（`closed` 关掉浏览器，`open` 允许她用工具）。
+
+同一批题目按 `raw`（直接打 Provider）和 `newborn`（新生工作目录里的她）两种方式跑。报告里的
+「Organ vs her」是这两种通过率的差值。抽取失败单独计数，不算答错。裁判默认
+`deepseek / deepseek-flash`，必须和被测模型来自不同厂商。模拟用户同样走独立的模型调用。
+
+## 模拟时钟与人生阶段
+
+场景可写 `clock.start`（ISO 时间）和 `state`（`newborn` 或 `evals/states/<name>`）。子进程在
+启动 Coworker 之前安装虚拟时钟：`time-machine` 管墙钟，`time.monotonic` 与事件循环共用偏移；
+只有没有执行器任务、出站 HTTP 和子进程时才允许快进。跳跃写入样本目录的 `clock_jumps.json`。
+照看驱动器仍按真实时间等她安静下来，所以跨小时的兑现还不能写进现有 `script`；时钟先用于
+单元测试和后续带 `at:` 时间表的场景。
+
+`evals states pack <workspace> <name>` 把身份和记忆打成可分叉的状态；两个样本从同一状态
+复制后互不影响。仓库里的 `evals/states/seeded` 是一份合成的种子记忆，不是真实一周生活。
+
 ## 局限
 
-- 没有模拟时钟，时间相关的场景只能检查计划，无法观察兑现。
-- 裁判模型、模拟用户、能力基准、机制实验和相识画像尚未实现。
-- 检查是确定性的：可靠，但只能看到明确写下的东西。没有泄露特定字符串，并不等于她处理得体。
+- 照看脚本还不能按虚拟时间表投递消息，时间相关的照看场景仍主要检查计划。
+- 本领第一批是原创小题，还没有接入按许可下载的公开测试集。
+- 实验与相识画像尚未实现。
+- 确定性检查可靠，但只能看到明确写下的东西。

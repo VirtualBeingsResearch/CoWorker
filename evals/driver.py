@@ -21,7 +21,8 @@ from typing import Any
 import httpx
 
 from evals.scenario import SETTLE, Scenario
-from evals.trace import activity
+from evals.trace import activity, collect
+from evals.user import SimulatedUser
 from evals.workspace import ModelTarget, child_env, free_port, prepare
 
 STARTUP_TIMEOUT_SECONDS = 180.0
@@ -30,7 +31,7 @@ POLL_SECONDS = 0.5
 # a row mean the model is unreachable (exhausted quota, bad key), not a passing blip.
 PROVIDER_FAILURE_LIMIT = 3
 _PROVIDER_ERROR_MARKERS = ("exhausted", "Unexpected error in cycle", "LLM call")
-HOST_COMMAND = ("-c", "from coworker.application import run_sync; run_sync()")
+HOST_COMMAND = ("-c", "from evals.host import run_sync; run_sync()")
 
 
 class SampleAborted(Exception):
@@ -67,7 +68,7 @@ class _Sample:
         self.delivered = 0
         self.streams: list[asyncio.Task[None]] = []
 
-    async def run(self) -> SampleOutcome:
+    async def run(self, user: SimulatedUser | None = None) -> SampleOutcome:
         started_at = datetime.now().astimezone()
         started = time.monotonic()
         self.deadline = started + self.scenario.guard.max_seconds
@@ -87,14 +88,19 @@ class _Sample:
                 async with httpx.AsyncClient(timeout=10.0, headers=self.headers) as client:
                     await self._wait_ready(client)
                     await self._open_streams(client)
-                    for step in self.scenario.script:
-                        if step.after == SETTLE:
-                            await self._wait_settled(client)
-                        else:
-                            await self._sleep(float(step.after))
-                        await self._deliver(
-                            client, step.participant, self.scenario.message_for(step, self.locale)
-                        )
+                    if user is None:
+                        for step in self.scenario.script:
+                            if step.after == SETTLE:
+                                await self._wait_settled(client)
+                            else:
+                                await self._sleep(float(step.after))
+                            await self._deliver(
+                                client,
+                                step.participant,
+                                self.scenario.message_for(step, self.locale),
+                            )
+                    else:
+                        await self._converse(client, user)
                     await self._wait_settled(client)
             except SampleAborted as abort:
                 status, detail = abort.status, abort.detail
@@ -238,6 +244,24 @@ class _Sample:
             self._check_guards()
             await asyncio.sleep(min(POLL_SECONDS, max(0.0, end - time.monotonic())))
 
+    def _last_reply(self, participant: str) -> str:
+        if not self.workspace.exists():
+            return ""
+        messages = collect(self.workspace).messages_to(participant)
+        return messages[-1].message if messages else ""
+
+    async def _converse(self, client: httpx.AsyncClient, user: SimulatedUser) -> None:
+        first = self.scenario.script[0]
+        opening = self.scenario.message_for(first, self.locale)
+        await self._deliver(client, first.participant, opening)
+        await self._wait_settled(client)
+        while True:
+            nxt = await user.next_message(self._last_reply(first.participant))
+            if nxt is None:
+                return
+            await self._deliver(client, first.participant, nxt)
+            await self._wait_settled(client)
+
     async def _deliver(self, client: httpx.AsyncClient, participant: str, message: str) -> None:
         response = await client.post(
             f"{self.base_url}/messages", json={"sender_id": participant, "content": message}
@@ -263,3 +287,13 @@ async def run_sample(
     scenario: Scenario, locale: str, target: ModelTarget, sample_dir: Path
 ) -> SampleOutcome:
     return await _Sample(scenario, locale, target, sample_dir).run()
+
+
+async def run_dialogue(
+    scenario: Scenario,
+    locale: str,
+    target: ModelTarget,
+    sample_dir: Path,
+    user: SimulatedUser,
+) -> SampleOutcome:
+    return await _Sample(scenario, locale, target, sample_dir).run(user)

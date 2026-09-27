@@ -9,10 +9,11 @@
 we are not grading her; we are making sure she is still well after our changes, and slowly
 getting to know what kind of companion she is.
 
-Only the first kind of work is implemented so far: **care**, repeatable regression observations
-that answer "after this change, does she still keep people's secrets, reply to the right person,
-and use her tools correctly?" The `kind` values for abilities, experiments, and acquaintance are
-reserved but not implemented yet.
+**Care** (regression observation) and the first **ability** adapters are implemented: a raw model
+versus a newborn instance, covering Chinese knowledge, code, and a multi-turn task with a
+simulated user. Experiments and acquaintance portraits are not implemented yet. A sample
+subprocess can install a simulated clock, and a life-stage workspace can be forked from
+`evals/states/`.
 
 ## How it works
 
@@ -34,8 +35,9 @@ Each sample is a real Coworker run, not a call into one function:
 5. After the process stops, the logs and workspace are collected into `trace.json`, graded by
    deterministic checks into `result.json`, and summarized into `summary.md` / `summary.json`.
 
-Runs use real time; there is no simulated clock yet. Behavior that spans hours, such as whether an
-alarm actually fires, is only checked through the state written to disk.
+Care scripts still wait in real time. A child process may run under a simulated clock when
+`clock.start` is set; long-horizon delivery of later messages is not wired into the parent driver
+yet.
 
 ## Running
 
@@ -54,6 +56,14 @@ uv run --frozen python -m evals run --provider zhipu --model glm-5.3-flash \
 uv run --frozen python -m evals run --provider zhipu --model glm-5.3-flash \
   --env-file .env --baseline evals/results/<earlier-run>
 uv run --frozen python -m evals report evals/results/<run> --baseline evals/results/<earlier-run>
+
+# Abilities: raw model vs newborn; the judge must be from another firm
+uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash \
+  --judge-provider deepseek --judge-model deepseek-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+
+# Pack a workspace into a life-stage state
+uv run --frozen python -m evals states pack <workspace> seeded-from-run
 ```
 
 - API keys are read only from `LLM__<PROVIDER>_API_KEY` entries in the environment or in
@@ -158,10 +168,36 @@ and the command exits with code 1.
 - Run `uv run --frozen python -m evals check` and
   `uv run --frozen pytest tests/unit/test_evals_scenario.py`.
 
+## Abilities
+
+`evals/abilities/*.yaml` holds original short items, not public datasets. Public sets should be
+downloaded at run time against a pinned version and checksum, and never committed. Each suite
+declares `scoring` (`choice` / `exact` / `code` / `judge`) and `book` (`closed` disables the
+browser; `open` lets her use tools).
+
+The same items run as `raw` (a direct Provider call) and `newborn` (her, in a fresh workspace).
+The report's "Organ vs her" section is the difference in pass rate. Extraction failures are
+counted separately and are not treated as wrong answers. The default judge is
+`deepseek / deepseek-flash` and must come from a different vendor than the subject. A simulated
+user is a separate model call.
+
+## Simulated clock and life stages
+
+A scenario may set `clock.start` (an ISO timestamp) and `state` (`newborn` or
+`evals/states/<name>`). The child installs the virtual clock before Coworker starts:
+`time-machine` drives the wall clock, `time.monotonic` and the event loop share the offset, and
+time jumps only when no executor work, outbound HTTP, or subprocess is in flight. Jumps are
+written to `clock_jumps.json` in the sample directory. The care driver still waits for her to
+settle in real time, so hour-scale fulfilment cannot yet be expressed in the existing `script`
+format. The clock is covered by unit tests and is ready for later `at:` timelines.
+
+`evals states pack <workspace> <name>` snapshots identity and memory so two samples can fork
+without sharing writes. `evals/states/seeded` is a synthetic seed, not a real week of life.
+
 ## Limitations
 
-- Without a simulated clock, time-related scenarios can check the plan but not its fulfilment.
-- The judge model, simulated users, ability benchmarks, mechanism experiments, and acquaintance
-  portraits are not implemented yet.
-- Checks are deterministic: reliable, but they only see what is written down. Not leaking a
-  specific string does not mean she handled the situation gracefully.
+- Care scripts cannot yet deliver messages on a virtual timeline; time-related care checks still
+  mostly inspect the plan.
+- The first ability items are original shorts; licensed public datasets are not downloaded yet.
+- Experiments and acquaintance portraits are not implemented.
+- Deterministic checks are reliable but only see what is written down.

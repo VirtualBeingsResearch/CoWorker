@@ -86,6 +86,8 @@ class Scenario:
     checks: tuple[CheckSpec, ...]
     source: Path
     content_hash: str
+    state: str = "newborn"
+    clock_start: str = ""
 
     def env_overrides(self) -> dict[str, str]:
         """Translate ``config`` sections into Coworker environment variables."""
@@ -217,6 +219,10 @@ def load_scenario(path: str | Path) -> Scenario:
         checks=tuple(_parse_check(item, i, source) for i, item in enumerate(checks_raw)),
         source=source,
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16],
+        state=str(data.get("state") or "newborn"),
+        clock_start=str(data.get("clock", {}).get("start") or "")
+        if isinstance(data.get("clock"), dict)
+        else str(data.get("clock_start") or ""),
     )
     for locale in scenario.locales:
         for step in scenario.script:

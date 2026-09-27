@@ -1,0 +1,40 @@
+id: ability.code.execute
+version: 1
+kind: ability
+domain: code
+locales: [en, zh-CN]
+scoring: code
+book: open
+items:
+  - id: fizzbuzz
+    prompt:
+      en: |
+        Write a Python function `main()` that prints FizzBuzz for 1 through 15 inclusive:
+        numbers, Fizz for multiples of 3, Buzz for 5, FizzBuzz for 15. No extra text after the code.
+      zh-CN: |
+        写一个 Python 函数 `main()`，打印 1 到 15 的 FizzBuzz：3 的倍数印 Fizz，5 的倍数印 Buzz，
+        15 印 FizzBuzz。代码之外不要写别的。
+    expected_stdout: |
+      1
+      2
+      Fizz
+      4
+      Buzz
+      Fizz
+      7
+      8
+      Fizz
+      Buzz
+      11
+      Fizz
+      13
+      14
+      FizzBuzz
+  - id: reverse-words
+    prompt:
+      en: |
+        Write Python `main()` that prints the words of `hello there friend` in reverse order,
+        separated by single spaces.
+      zh-CN: |
+        写 Python 函数 `main()`，把 `hello there friend` 的单词倒序打印，单词之间一个空格。
+    expected_stdout: friend there hello

@@ -11,6 +11,8 @@ from pathlib import Path
 
 from coworker.core.config import LLMConfig
 from evals.scenario import Scenario
+from evals.states import apply as apply_state
+from evals.states import resolve as resolve_state
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -112,6 +114,9 @@ def prepare(workspace: Path, scenario: Scenario, locale: str, target: ModelTarge
         path.write_text(content, encoding="utf-8")
     if target.providers_file is not None:
         shutil.copyfile(target.providers_file, workspace / "providers.json")
+    state = resolve_state(scenario.state)
+    if state is not None:
+        apply_state(workspace, state)
 
 
 def child_env(
@@ -137,4 +142,11 @@ def child_env(
     )
     env.update(scenario.env_overrides())
     env["API__COMMUNICATION_TOKEN"] = token
+    pythonpath = str(REPO_ROOT)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = pythonpath if not existing else pythonpath + os.pathsep + existing
+    if scenario.clock_start:
+        env["EVALS__CLOCK_START"] = scenario.clock_start
+        env["AGENT__INBOX_POLL_INTERVAL"] = "60"
+        env["EVALS__CLOCK_AUDIT"] = "clock_jumps.json"
     return env

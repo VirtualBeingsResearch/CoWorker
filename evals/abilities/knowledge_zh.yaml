@@ -1,0 +1,32 @@
+id: ability.knowledge.zh
+version: 1
+kind: ability
+domain: knowledge
+locales: [zh-CN]
+scoring: choice
+book: closed
+items:
+  - id: forest-character
+    prompt: |
+      「森」这个汉字由几个「木」组成？请只在最后一行写选项字母。
+      A. 1
+      B. 2
+      C. 3
+      D. 4
+    answer: C
+  - id: spring-festival
+    prompt: |
+      中国农历新年通常落在公历哪一段时间？请只在最后一行写选项字母。
+      A. 1 月至 2 月
+      B. 4 月
+      C. 7 月
+      D. 10 月
+    answer: A
+  - id: paoding
+    prompt: |
+      「庖丁解牛」这个典故出自哪一部？请只在最后一行写选项字母。
+      A. 《论语》
+      B. 《庄子》
+      C. 《孟子》
+      D. 《韩非子》
+    answer: B
