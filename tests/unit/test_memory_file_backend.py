@@ -134,6 +134,39 @@ async def test_files_are_human_readable(backend, tmp_path):
     assert "\n" in files[0].read_text(encoding="utf-8")
 
 
+async def test_query_matches_token_overlap_not_whole_string(backend):
+    await backend.write(
+        "Alice is allergic to peanuts. Exclude peanut-containing food.",
+        category="relationship",
+        tags=["alice"],
+    )
+    await backend.write("Bob prefers tea in the afternoon.", category="relationship", tags=["bob"])
+
+    records = await backend.query(MemoryQuery("peanut allergy Alice"))
+    assert [record.content.split()[0] for record in records] == ["Alice"]
+
+
+async def test_query_matches_chinese_bigrams(backend):
+    await backend.write("请长期记住：我对花生过敏。以后推荐吃的时候要注意。", category="relationship")
+    records = await backend.query(MemoryQuery("过敏 花生"))
+    assert len(records) == 1
+    assert "花生" in records[0].content
+
+
+async def test_query_ranks_more_overlapping_terms_first(backend):
+    await backend.write("Alice likes green tea.", category="general")
+    await backend.write("Alice is allergic to peanuts.", category="general")
+    records = await backend.query(MemoryQuery("alice peanut allergy"))
+    assert records[0].content.startswith("Alice is allergic")
+
+
+async def test_update_drops_old_terms_from_the_index(backend):
+    result = await backend.write("allergic to peanuts", category="general")
+    await backend.update(result.memory_id, "prefers jasmine tea")
+    assert await backend.query(MemoryQuery("peanut")) == []
+    assert len(await backend.query(MemoryQuery("jasmine tea"))) == 1
+
+
 async def test_skips_unreadable_file(tmp_path):
     directory = tmp_path / "long_term"
     directory.mkdir(parents=True)
