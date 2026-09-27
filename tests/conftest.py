@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock
+
+# Config reads ``.env`` ahead of process environment. Tests must not pick up
+# the developer's keys sitting in the repository root.
+os.environ.setdefault("COWORKER_IGNORE_DOTENV", "1")
 
 import pytest
 

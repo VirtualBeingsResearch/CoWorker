@@ -185,12 +185,19 @@ class ModelPriceSpec(BaseModel):
         return value
 
 
+def _ignore_dotenv() -> bool:
+    return os.environ.get("COWORKER_IGNORE_DOTENV", "").strip().lower() in {"1", "true", "yes"}
+
+
 class _EnvSettings(BaseSettings):
     """所有配置类的基类：让 .env 文件优先于 OS 环境变量。
 
     pydantic-settings 默认优先级是 env_settings > dotenv_settings，
     会导致 shell/容器里残留的环境变量覆盖 .env。这里把两者顺序对调，
     使 .env 成为最高优先级（仅次于显式传参 init_settings）。
+
+    单元测试设置 ``COWORKER_IGNORE_DOTENV=1``，避免仓库根目录的开发者 ``.env``
+    漏进 Config 构造。
     """
 
     @classmethod
@@ -202,6 +209,8 @@ class _EnvSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        if _ignore_dotenv():
+            return (init_settings, env_settings, file_secret_settings)
         # 顺序靠前者优先：init > .env > 环境变量 > secrets
         return (init_settings, dotenv_settings, env_settings, file_secret_settings)
 

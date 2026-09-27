@@ -26,6 +26,9 @@ uv run mypy src
 uv run pytest
 ```
 
+测试默认设置 `COWORKER_IGNORE_DOTENV=1`，因此不会读取仓库根目录的 `.env`。
+要验证进程会加载 dotenv 时，在该测试里去掉这个变量。
+
 Web 前端需要 Node.js 22.12+（Vite 要求）；桌面端测试因 jsdom 需要 Node.js ^24.15 或
 ≥26。仓库 CI 与 Dev Container 统一使用 Node.js 24。管理界面的构建结果写入
 `src/coworker/web/`，它是随 Python 包发布的静态资源：

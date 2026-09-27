@@ -25,6 +25,10 @@ uv run mypy src
 uv run pytest
 ```
 
+Tests set `COWORKER_IGNORE_DOTENV=1` so they do not read a `.env` file in the
+repository root. Clear that variable in a test that needs to exercise dotenv
+loading.
+
 The web frontend requires Node.js 22.12+ (Vite requirement); desktop tests require Node.js
 ^24.15 or ≥26 because of jsdom. Repository CI and the Dev Container use Node.js 24.
 The administration interface build output is written to `src/coworker/web/`, which is shipped as static assets in the Python package:

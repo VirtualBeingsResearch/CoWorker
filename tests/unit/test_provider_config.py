@@ -553,6 +553,26 @@ def test_register_providers_skips_empty_credentials():
     assert brain.list_providers() == []
 
 
+def test_config_skips_cwd_dotenv_when_ignore_flag_is_set(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COWORKER_IGNORE_DOTENV", "1")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LLM__ZHIPU_API_KEY=should-not-leak\n", encoding="utf-8")
+    config = Config.model_validate({"llm": {"providers_file": ""}})
+    assert config.llm.zhipu_api_key == ""
+
+
+def test_config_reads_cwd_dotenv_when_ignore_flag_is_unset(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("COWORKER_IGNORE_DOTENV", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LLM__ZHIPU_API_KEY=from-dotenv\n", encoding="utf-8")
+    config = Config.model_validate({"llm": {"providers_file": ""}})
+    assert config.llm.zhipu_api_key == "from-dotenv"
+
+
 def test_memory_llm_uses_default_named_provider_endpoint():
     config = Config.model_validate(
         {
