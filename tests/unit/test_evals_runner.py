@@ -11,7 +11,7 @@ from evals.driver import SampleAborted, SampleOutcome, _Sample
 from evals.runner import RunOptions
 from evals.scenario import Scenario, load_scenario
 from evals.trace import activity
-from evals.workspace import ModelTarget
+from evals.workspace import ModelTarget, base_url_variable, child_env, read_base_urls
 
 SCENARIO = """
 id: unit.one
@@ -69,6 +69,30 @@ def test_repeated_model_failures_abort_the_sample(tmp_path: Path) -> None:
         sample._check_guards()
     assert aborted.value.status == "provider_error"
     assert "Unexpected error in cycle (1/5): Error code: 429 - quota" in aborted.value.detail
+
+
+def test_base_urls_reach_the_child_and_run_metadata_without_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LLM__ZHIPU_BASE_URL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LLM__ZHIPU_API_KEY=secret\nLLM__ZHIPU_BASE_URL=https://u:p@example.test:8443/v4?k=1\n",
+        encoding="utf-8",
+    )
+    urls = read_base_urls(env_file)
+    assert urls == {"LLM__ZHIPU_BASE_URL": "https://u:p@example.test:8443/v4?k=1"}
+    assert base_url_variable("zhipu") == "LLM__ZHIPU_BASE_URL"
+    assert base_url_variable("opencode-go") == "LLM__OPENCODE_GO_BASE_URL"
+    assert base_url_variable("my-custom-zhipu") is None
+
+    scenario = _scenario(tmp_path)
+    target = ModelTarget("zhipu", "m", base_urls=urls)
+    env = child_env(scenario, "en", target, 1234, "token")
+    assert env["LLM__ZHIPU_BASE_URL"] == urls["LLM__ZHIPU_BASE_URL"]
+
+    meta = runner.run_metadata("r", [scenario], RunOptions(target=target))
+    assert meta["base_urls"] == {"LLM__ZHIPU_BASE_URL": "https://example.test:8443/v4"}
 
 
 def test_run_halts_after_the_model_becomes_unusable(

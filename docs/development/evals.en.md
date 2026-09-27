@@ -23,7 +23,7 @@ Each sample is a real Coworker run, not a call into one function:
    fixture (`evals/fixtures/identity/`), scenario files, and an optional `providers.json`.
 2. A `coworker` subprocess starts with that directory as its working directory. Every host
    variable with an `AGENT__`, `LLM__`, `API__`, or similar prefix is removed; only the target
-   model, API key, locale, and scenario configuration are injected. The API listens on a random
+   model, API key, endpoint, locale, and scenario configuration are injected. The API listens on a random
    `127.0.0.1` port and uses a communication token generated for that sample.
 3. Every participant first opens `GET /sse/{participant}` like the web chat does, then speaks
    through `POST /messages`. Her replies stream back over SSE and are recorded in the sample's
@@ -57,8 +57,11 @@ uv run --frozen python -m evals report evals/results/<run> --baseline evals/resu
 ```
 
 - API keys are read only from `LLM__<PROVIDER>_API_KEY` entries in the environment or in
-  `--env-file`, for example `LLM__ZHIPU_API_KEY`. No other configuration is read, and keys are
-  never written to results.
+  `--env-file`, for example `LLM__ZHIPU_API_KEY`, and are never written to results. Endpoints
+  come from `LLM__<PROVIDER>_BASE_URL` entries in the same places, or from `--base-url` for the
+  target provider, for example the Zhipu coding plan:
+  `--base-url https://open.bigmodel.cn/api/coding/paas/v4`. No other configuration is read.
+  `run.json` records the endpoints without any user info or query string.
 - For a custom provider, pass a `providers.json` with `--providers-file`; it is copied into every
   sample workspace.
 - `evals/results/` is ignored by git. Its logs contain full model conversations; review them

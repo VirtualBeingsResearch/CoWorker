@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from evals.driver import SampleOutcome, run_sample
 from evals.graders import CheckContext, run_check
@@ -45,6 +46,14 @@ def _coworker_version() -> str:
     return version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else ""
 
 
+def _without_credentials(url: str) -> str:
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
 def run_metadata(run_id: str, scenarios: list[Scenario], options: RunOptions) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -58,6 +67,9 @@ def run_metadata(run_id: str, scenarios: list[Scenario], options: RunOptions) ->
         "provider": options.target.provider,
         "model": options.target.model,
         "providers_file": bool(options.target.providers_file),
+        "base_urls": {
+            name: _without_credentials(url) for name, url in options.target.base_urls.items()
+        },
         "scenarios": {
             s.id: {"version": s.version, "hash": s.content_hash, "source": str(s.source)}
             for s in scenarios

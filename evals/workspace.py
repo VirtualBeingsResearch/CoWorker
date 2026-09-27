@@ -9,6 +9,7 @@ import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from coworker.core.config import LLMConfig
 from evals.scenario import Scenario
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,7 @@ _COWORKER_ENV_PREFIXES = (
     "CHANNEL_ACCESS",
 )
 _KEY_RE = re.compile(r"^LLM__[A-Z0-9_]+_API_KEY$")
+_BASE_URL_RE = re.compile(r"^LLM__[A-Z0-9_]+_BASE_URL$")
 
 # Quiet, offline-friendly defaults; scenario ``config`` overrides them.
 BASE_ENV = {
@@ -53,11 +55,11 @@ class ModelTarget:
     model: str
     providers_file: Path | None = None
     api_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    base_urls: dict[str, str] = field(default_factory=dict)
 
 
-def read_api_keys(env_file: Path | None) -> dict[str, str]:
-    """Collect ``LLM__*_API_KEY`` values from the environment and an optional env file."""
-    keys = {k: v for k, v in os.environ.items() if _KEY_RE.match(k) and v.strip()}
+def _read_env(pattern: re.Pattern[str], env_file: Path | None) -> dict[str, str]:
+    values = {k: v for k, v in os.environ.items() if pattern.match(k) and v.strip()}
     if env_file is not None:
         for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -66,9 +68,27 @@ def read_api_keys(env_file: Path | None) -> dict[str, str]:
             name, value = line.split("=", 1)
             name = name.strip().removeprefix("export ").strip()
             value = value.strip().strip("'\"")
-            if _KEY_RE.match(name) and value:
-                keys[name] = value
-    return keys
+            if pattern.match(name) and value:
+                values[name] = value
+    return values
+
+
+def read_api_keys(env_file: Path | None) -> dict[str, str]:
+    """Collect ``LLM__*_API_KEY`` values from the environment and an optional env file."""
+    return _read_env(_KEY_RE, env_file)
+
+
+def read_base_urls(env_file: Path | None) -> dict[str, str]:
+    """Collect ``LLM__*_BASE_URL`` values from the environment and an optional env file."""
+    return _read_env(_BASE_URL_RE, env_file)
+
+
+def base_url_variable(provider: str) -> str | None:
+    """The ``LLM__<PROVIDER>_BASE_URL`` variable of a built-in provider, if it has one."""
+    field_name = f"{provider.replace('-', '_')}_base_url"
+    if field_name not in LLMConfig.model_fields:
+        return None
+    return f"LLM__{field_name.upper()}"
 
 
 def free_port() -> int:
@@ -104,6 +124,7 @@ def child_env(
     }
     env.update(BASE_ENV)
     env.update(target.api_keys)
+    env.update(target.base_urls)
     env.update(
         {
             "LLM__DEFAULT_PROVIDER": target.provider,

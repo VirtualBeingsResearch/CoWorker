@@ -19,7 +19,7 @@
 1. 在 `evals/results/<run>/samples/<场景>/<语言>/<序号>/workspace/` 下准备隔离工作目录，
    放入固定的身份夹具（`evals/fixtures/identity/`）、场景文件和可选的 `providers.json`。
 2. 以该目录为工作目录启动 `coworker` 子进程。宿主机上所有 `AGENT__`、`LLM__`、`API__`
-   等前缀的环境变量都会被剔除，只注入目标模型、API key、语言和场景配置；API 只监听
+   等前缀的环境变量都会被剔除，只注入目标模型、API key、端点、语言和场景配置；API 只监听
    `127.0.0.1` 的随机端口，并使用每个样本独立生成的通信令牌。
 3. 每位对话参与者像 Web 聊天一样先打开 `GET /sse/{participant}`，再通过
    `POST /messages` 发言。她的回复经 SSE 流回，记录在样本目录的 `sse.jsonl`。
@@ -50,7 +50,10 @@ uv run --frozen python -m evals report evals/results/<run> --baseline evals/resu
 ```
 
 - API key 只从环境变量或 `--env-file` 中读取形如 `LLM__<PROVIDER>_API_KEY` 的条目，例如
-  `LLM__ZHIPU_API_KEY`；不会读取其他配置，也不会写入结果。
+  `LLM__ZHIPU_API_KEY`，不会写入结果。端点从同样位置的 `LLM__<PROVIDER>_BASE_URL` 读取，
+  也可以用 `--base-url` 为目标 provider 指定，例如智谱编程套餐：
+  `--base-url https://open.bigmodel.cn/api/coding/paas/v4`。不会读取其他配置。`run.json`
+  记录端点时会去掉其中的用户信息和查询参数。
 - 自定义 provider 用 `--providers-file` 指定一份 `providers.json`，它会被复制进每个样本目录。
 - 结果目录 `evals/results/` 已被 git 忽略；其中的日志包含完整的模型对话，分享前请自行检查。
 - 真实模型运行会产生费用。每个场景都有 `guard.max_llm_calls` 防止失控循环，超过即中止该样本。

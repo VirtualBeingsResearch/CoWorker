@@ -10,7 +10,13 @@ from pathlib import Path
 from evals.report import write_report
 from evals.runner import DEFAULT_RESULTS_DIR, RunOptions, run
 from evals.scenario import SUPPORTED_LOCALES, ScenarioError, discover
-from evals.workspace import REPO_ROOT, ModelTarget, read_api_keys
+from evals.workspace import (
+    REPO_ROOT,
+    ModelTarget,
+    base_url_variable,
+    read_api_keys,
+    read_base_urls,
+)
 
 DEFAULT_SCENARIOS = REPO_ROOT / "evals" / "scenarios" / "care"
 
@@ -31,6 +37,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     run_cmd.add_argument(
         "--providers-file", type=Path, help="providers.json copied into every workspace"
+    )
+    run_cmd.add_argument(
+        "--base-url", help="endpoint for a built-in provider (sets LLM__<PROVIDER>_BASE_URL)"
     )
     run_cmd.add_argument("--output", type=Path, default=DEFAULT_RESULTS_DIR)
     run_cmd.add_argument("--baseline", type=Path, help="earlier run directory to compare with")
@@ -59,11 +68,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}")
         return 2
 
+    base_urls = read_base_urls(args.env_file)
+    if args.base_url:
+        variable = base_url_variable(args.provider)
+        if variable is None:
+            print(f"error: --base-url needs a built-in provider, not {args.provider!r}; "
+                  "set base_url in --providers-file instead")
+            return 2
+        base_urls[variable] = args.base_url
     target = ModelTarget(
         provider=args.provider,
         model=args.model,
         providers_file=args.providers_file,
         api_keys=read_api_keys(args.env_file),
+        base_urls=base_urls,
     )
     options = RunOptions(
         target=target,
