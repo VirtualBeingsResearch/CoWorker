@@ -15,7 +15,8 @@ from evals.ability import (
 )
 from evals.report import write_report
 from evals.runner import DEFAULT_RESULTS_DIR, RunOptions, run
-from evals.scenario import SUPPORTED_LOCALES, ScenarioError, discover
+from evals.scenario import SUPPORTED_LOCALES, ScenarioError, discover, load_scenario
+from evals.states import live as live_state
 from evals.states import pack as pack_state
 from evals.workspace import (
     REPO_ROOT,
@@ -26,6 +27,7 @@ from evals.workspace import (
 )
 
 DEFAULT_SCENARIOS = REPO_ROOT / "evals" / "scenarios" / "care"
+DEFAULT_LIFE = REPO_ROOT / "evals" / "scenarios" / "life"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -66,6 +68,14 @@ def _parser() -> argparse.ArgumentParser:
     pack_cmd = state_cmds.add_parser("pack", help="pack a workspace into evals/states/<name>")
     pack_cmd.add_argument("workspace", type=Path)
     pack_cmd.add_argument("name")
+    live_cmd = state_cmds.add_parser(
+        "live", help="run a timeline scenario and pack the workspace as a life-stage state"
+    )
+    live_cmd.add_argument("scenario", type=Path)
+    live_cmd.add_argument("name")
+    _add_model_args(live_cmd)
+    live_cmd.add_argument("--locale", choices=SUPPORTED_LOCALES, default="zh-CN")
+    live_cmd.add_argument("--output", type=Path, default=DEFAULT_RESULTS_DIR)
     return parser
 
 
@@ -109,11 +119,28 @@ def main(argv: list[str] | None = None) -> int:
             print(write_report(args.run_dir, args.baseline), end="")
             return 0
         if args.command == "states":
-            dest = pack_state(args.workspace, args.name)
+            if args.states_command == "pack":
+                dest = pack_state(args.workspace, args.name)
+                print(dest)
+                return 0
+            target = _target(args)
+            dest = asyncio.run(
+                live_state(
+                    load_scenario(args.scenario),
+                    args.name,
+                    target,
+                    args.locale,
+                    args.output,
+                )
+            )
             print(dest)
             return 0
         if args.command == "check":
-            paths = args.paths or [str(DEFAULT_SCENARIOS), str(DEFAULT_ABILITIES)]
+            paths = args.paths or [
+                str(DEFAULT_SCENARIOS),
+                str(DEFAULT_LIFE),
+                str(DEFAULT_ABILITIES),
+            ]
             care_paths: list[str | Path] = []
             ability_paths: list[str | Path] = []
             for raw in paths:

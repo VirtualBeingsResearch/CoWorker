@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import os
+import random
 import re
 import shutil
 import socket
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from coworker.core.config import LLMConfig
-from evals.scenario import Scenario
+from evals.duration import parse_duration
+from evals.scenario import Scenario, horizon_seconds
 from evals.states import apply as apply_state
 from evals.states import resolve as resolve_state
 
@@ -117,10 +121,52 @@ def prepare(workspace: Path, scenario: Scenario, locale: str, target: ModelTarge
     state = resolve_state(scenario.state)
     if state is not None:
         apply_state(workspace, state)
+    _write_clock_plan(workspace, scenario, locale)
+
+
+def _write_clock_plan(workspace: Path, scenario: Scenario, locale: str) -> None:
+    if not scenario.clock.start:
+        return
+    origin = datetime.fromisoformat(scenario.clock.start)
+    if scenario.clock.jitter:
+        origin = origin + timedelta(
+            seconds=random.random() * parse_duration(scenario.clock.jitter)
+        )
+    plan = {
+        "origin": origin.isoformat(),
+        "horizon_seconds": horizon_seconds(scenario),
+    }
+    evals_dir = workspace / ".evals"
+    evals_dir.mkdir(parents=True, exist_ok=True)
+    (evals_dir / "clock.json").write_text(
+        json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if not scenario.uses_timeline:
+        return
+    steps: list[dict[str, object]] = []
+    for step in scenario.script:
+        item: dict[str, object] = {
+            "at_seconds": step.at_seconds,
+            "action": step.action,
+        }
+        if step.action != "restart":
+            item["participant"] = step.participant
+            item["say"] = scenario.message_for(step, locale)
+        steps.append(item)
+    (evals_dir / "script.json").write_text(
+        json.dumps({**plan, "locale": locale, "steps": steps}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def child_env(
-    scenario: Scenario, locale: str, target: ModelTarget, port: int, token: str
+    scenario: Scenario,
+    locale: str,
+    target: ModelTarget,
+    port: int,
+    token: str,
+    workspace: Path | None = None,
+    sample_dir: Path | None = None,
 ) -> dict[str, str]:
     env = {
         key: value
@@ -145,8 +191,19 @@ def child_env(
     pythonpath = str(REPO_ROOT)
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = pythonpath if not existing else pythonpath + os.pathsep + existing
-    if scenario.clock_start:
-        env["EVALS__CLOCK_START"] = scenario.clock_start
-        env["AGENT__INBOX_POLL_INTERVAL"] = "60"
-        env["EVALS__CLOCK_AUDIT"] = "clock_jumps.json"
+    origin = ""
+    clock_file = workspace / ".evals" / "clock.json" if workspace is not None else None
+    if clock_file is not None and clock_file.is_file():
+        origin = str(json.loads(clock_file.read_text(encoding="utf-8"))["origin"])
+    elif scenario.clock_start:
+        origin = scenario.clock_start
+    if origin:
+        env["EVALS__CLOCK_START"] = origin
+        if "AGENT__INBOX_POLL_INTERVAL" not in scenario.env_overrides():
+            env["AGENT__INBOX_POLL_INTERVAL"] = "60"
+        env["EVALS__CLOCK_AUDIT"] = (
+            str(sample_dir / "clock_jumps.json") if sample_dir is not None else "clock_jumps.json"
+        )
+    if scenario.uses_timeline:
+        env["EVALS__TIMELINE"] = "1"
     return env

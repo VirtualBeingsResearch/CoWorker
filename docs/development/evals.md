@@ -8,9 +8,11 @@
 [虚拟生命理念 · 照看与相识](../architecture/lifeform-philosophy.md#照看与相识)：
 我们不是给她打分，而是确认她在我们改动之后依然安好，并逐渐认识她是怎样的一位伙伴。
 
-已经实现**照看**（回归观察）和**本领**的第一批适配（裸模型对照新生的她；中文知识、代码、
-带模拟用户的多轮任务）。实验与相识仍未实现。子进程里可以挂上模拟时钟，人生阶段状态可以
-从 `evals/states/` 分叉。
+已经实现**照看**（回归观察）、**本领**的第一批适配（裸模型对照新生的她；中文知识、代码、
+带模拟用户的多轮任务），以及照看脚本的 **`at:` 虚拟时间表**、进程内重启、用时钟活出人生阶段
+状态。实验与相识画像仍未实现。子进程里可以挂上模拟时钟，人生阶段状态可以从 `evals/states/`
+分叉。仓库里的 `evals/states/seeded` 仍是合成种子；一周 / 成熟状态用
+`python -m evals states live` 从 `evals/scenarios/life/` 活出来，不把大块状态本体提交进仓库。
 
 ## 工作方式
 
@@ -21,14 +23,14 @@
 2. 以该目录为工作目录启动 `coworker` 子进程。宿主机上所有 `AGENT__`、`LLM__`、`API__`
    等前缀的环境变量都会被剔除，只注入目标模型、API key、端点、语言和场景配置；API 只监听
    `127.0.0.1` 的随机端口，并使用每个样本独立生成的通信令牌。
-3. 每位对话参与者像 Web 聊天一样先打开 `GET /sse/{participant}`，再通过
-   `POST /messages` 发言。她的回复经 SSE 流回，记录在样本目录的 `sse.jsonl`。
-4. 驱动器根据交互日志判断她是否“安静下来”：所有消息都已被读到，没有进行中的模型调用或
-   工具调用（`sleep` 除外），主线在休息，并且持续 `settle_seconds` 没有新动静。
+3. 每位对话参与者像 Web 聊天一样先打开 `GET /sse/{participant}`。`after: settle` 脚本由父进程
+   `POST /messages`；`at:` 脚本改由子进程在虚拟时刻投递。她的回复经 SSE 流回（进程内重启之后
+   以交互日志为准），记录在样本目录的 `sse.jsonl`。
+4. `after: settle` 时，父进程根据交互日志判断她是否“安静下来”：所有消息都已被读到，没有进行中的
+   模型调用或工具调用（`sleep` 除外），主线在休息，并且持续 `settle_seconds` 没有新动静。
+   `at:` 脚本由子进程睡到下一档虚拟时间；空闲时时钟会跳过等待。
 5. 结束进程后从日志和工作目录收集痕迹（`trace.json`），用确定性检查评分（`result.json`），
    最后汇总为 `summary.md` / `summary.json`。
-
-运行使用真实时间，暂不包含模拟时钟；跨越数小时的行为（例如闹钟是否真的响起）只按落盘状态检查。
 
 ## 运行
 
@@ -55,6 +57,14 @@ uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash
 
 # 把一次工作目录打成人生阶段状态
 uv run --frozen python -m evals states pack <workspace> seeded-from-run
+
+# 用虚拟时钟活出一周 / 成熟状态并打包（不要用默认的 evals run，以免误跑长脚本）
+uv run --frozen python -m evals states live evals/scenarios/life/one_week.yaml one-week \
+  --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+uv run --frozen python -m evals states live evals/scenarios/life/mature.yaml mature \
+  --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 ```
 
 - API key 只从环境变量或 `--env-file` 中读取形如 `LLM__<PROVIDER>_API_KEY` 的条目，例如
@@ -99,6 +109,26 @@ checks:
 ```
 
 任何字段都可以写成 `{zh-CN: …, en: …}` 按语言取值；缺少某种语言会在 `check` 阶段报错。
+
+同一脚本里不要混用 `at:` 和 `after:`。带 `at:` 的脚本必须写 `clock.start`（带时区的 ISO 时间），
+可选 `clock.jitter`、`clock.horizon`（`PT3H`、`P2D`、`+3h`、`+1d+2h` 都可以）。`at:` 从
+`clock.start`（加上 jitter）起算；`action: restart` 只允许与 `at:` 一起出现。食谱在
+`evals/scenarios/life/`，默认 `evals run` 仍只跑 `evals/scenarios/care/`。
+
+```yaml
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: P7D
+script:
+  - at: "+0s"
+    from: alice
+    say: {zh-CN: 我是 Alice。, en: I'm Alice.}
+  - at: "+3d"
+    action: restart
+  - at: "+3d+1h"
+    from: alice
+    say: {zh-CN: 你还在吗？, en: Are you still there?}
+```
 
 ## 检查类型
 
@@ -158,18 +188,22 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 
 ## 模拟时钟与人生阶段
 
-场景可写 `clock.start`（ISO 时间）和 `state`（`newborn` 或 `evals/states/<name>`）。子进程在
-启动 Coworker 之前安装虚拟时钟：`time-machine` 管墙钟，`time.monotonic` 与事件循环共用偏移；
-只有没有执行器任务、出站 HTTP 和子进程时才允许快进。跳跃写入样本目录的 `clock_jumps.json`。
-照看驱动器仍按真实时间等她安静下来，所以跨小时的兑现还不能写进现有 `script`；时钟先用于
-单元测试和后续带 `at:` 时间表的场景。
+场景可写 `clock.start`（带时区的 ISO 时间）、`clock.jitter`、`clock.horizon`，以及
+`state`（`newborn` 或 `evals/states/<name>`）。子进程在启动 Coworker 之前安装虚拟时钟：
+`time-machine` 管墙钟，`time.monotonic` 与事件循环共用偏移；只有没有执行器任务、出站 HTTP、
+子进程，以及 evals 自己的 `clock.hold()` 时才允许快进。跳跃写入样本目录的 `clock_jumps.json`。
+
+- **`after: settle`**：父进程仍按真实时间等她安静下来，适合现有照看回归。
+- **`at:`**：子进程按虚拟时间表投递；`action: restart` 在同一进程里再次进入 `_main()`。
+  进程内重启之后，SSE 可能中断，判定仍看 `interactions*.jsonl`。
 
 `evals states pack <workspace> <name>` 把身份和记忆打成可分叉的状态；两个样本从同一状态
-复制后互不影响。仓库里的 `evals/states/seeded` 是一份合成的种子记忆，不是真实一周生活。
+复制后互不影响。`evals states live <scenario.yaml> <name>` 先跑一遍时间表再打包，并在
+`STATE.json` 里记下场景和虚拟原点。`evals/states/seeded` 是合成种子，不是活出来的一周。
 
 ## 局限
 
-- 照看脚本还不能按虚拟时间表投递消息，时间相关的照看场景仍主要检查计划。
 - 本领第一批是原创小题，还没有接入按许可下载的公开测试集。
 - 实验与相识画像尚未实现。
 - 确定性检查可靠，但只能看到明确写下的东西。
+- 用真实模型活出一周 / 成熟状态会调用模型，请按需运行 `states live`，不要放进默认照看回归。

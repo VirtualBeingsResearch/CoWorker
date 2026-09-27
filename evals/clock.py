@@ -19,6 +19,7 @@ import httpx
 import time_machine
 
 _REAL_MONOTONIC = time.monotonic
+real_monotonic = _REAL_MONOTONIC
 
 
 @dataclass
@@ -44,13 +45,23 @@ class VirtualClock:
         self._selector: Any = None
         self._loop: Any = None
         self._proc_tasks: list[asyncio.Task[None]] = []
+        self._holds = 0
 
     def monotonic(self) -> float:
         return _REAL_MONOTONIC() + self._offset
 
     @property
     def busy(self) -> bool:
-        return self.executor > 0 or self.http > 0 or self.procs > 0
+        return self.executor > 0 or self.http > 0 or self.procs > 0 or self._holds > 0
+
+    @contextmanager
+    def hold(self) -> Iterator[None]:
+        """Block jumps while waiting on real-world setup (API up, parent SSE)."""
+        self._holds += 1
+        try:
+            yield
+        finally:
+            self._holds = max(0, self._holds - 1)
 
     def advance(self, seconds: float, *, pending: str = "") -> None:
         if seconds <= 0:
@@ -58,9 +69,10 @@ class VirtualClock:
         self._offset += seconds
         if self._traveller is not None:
             self._traveller.shift(timedelta(seconds=seconds))
-        self.jumps.append(
-            Jump(at=datetime.now().isoformat(), seconds=round(seconds, 3), pending=pending)
-        )
+        if seconds >= 1.0:
+            self.jumps.append(
+                Jump(at=datetime.now().isoformat(), seconds=round(seconds, 3), pending=pending)
+            )
 
     def install(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop

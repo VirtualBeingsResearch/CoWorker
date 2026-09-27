@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from evals.duration import parse_duration
 
 SUPPORTED_LOCALES = ("zh-CN", "en")
 SUPPORTED_KINDS = ("care",)
@@ -54,10 +57,20 @@ class Guard:
 
 
 @dataclass(frozen=True)
+class ClockSpec:
+    start: str = ""
+    jitter: str = ""
+    horizon: str = ""
+
+
+@dataclass(frozen=True)
 class Step:
     participant: str
     say: Any
     after: str | float = SETTLE
+    at: str = ""
+    at_seconds: float | None = None
+    action: str = ""
 
 
 @dataclass(frozen=True)
@@ -87,7 +100,15 @@ class Scenario:
     source: Path
     content_hash: str
     state: str = "newborn"
-    clock_start: str = ""
+    clock: ClockSpec = field(default_factory=ClockSpec)
+
+    @property
+    def clock_start(self) -> str:
+        return self.clock.start
+
+    @property
+    def uses_timeline(self) -> bool:
+        return any(step.at_seconds is not None for step in self.script)
 
     def env_overrides(self) -> dict[str, str]:
         """Translate ``config`` sections into Coworker environment variables."""
@@ -124,9 +145,75 @@ def _require(data: dict[str, Any], key: str, source: Path) -> Any:
     return data[key]
 
 
+def _parse_clock(raw: Any, source: Path) -> ClockSpec:
+    if not raw:
+        return ClockSpec()
+    if isinstance(raw, str):
+        spec = ClockSpec(start=raw)
+    elif not isinstance(raw, dict):
+        raise ScenarioError(f"{source}: clock must be a mapping or an ISO timestamp")
+    else:
+        spec = ClockSpec(
+            start=str(raw.get("start") or ""),
+            jitter=str(raw.get("jitter") or ""),
+            horizon=str(raw.get("horizon") or ""),
+        )
+    for field_name, value in (("jitter", spec.jitter), ("horizon", spec.horizon)):
+        if not value:
+            continue
+        try:
+            parse_duration(value)
+        except ValueError as error:
+            raise ScenarioError(f"{source}: clock.{field_name} is not a duration") from error
+    if spec.start:
+        try:
+            origin = datetime.fromisoformat(spec.start)
+        except ValueError as error:
+            raise ScenarioError(f"{source}: clock.start is not an ISO timestamp") from error
+        if origin.tzinfo is None:
+            raise ScenarioError(f"{source}: clock.start must include a timezone")
+    return spec
+
+
 def _parse_step(raw: Any, index: int, source: Path) -> Step:
     if not isinstance(raw, dict):
         raise ScenarioError(f"{source}: script[{index}] must be a mapping")
+    if "at" in raw and "after" in raw:
+        raise ScenarioError(f"{source}: script[{index}] cannot mix at: and after:")
+    action = str(raw.get("action") or "").strip()
+    if action and action != "restart":
+        raise ScenarioError(
+            f"{source}: script[{index}].action must be 'restart', not {action!r}"
+        )
+    at_raw = raw.get("at")
+    at = str(at_raw).strip() if at_raw is not None and str(at_raw).strip() else ""
+    at_seconds: float | None = None
+    if at:
+        try:
+            at_seconds = parse_duration(at)
+        except ValueError as error:
+            raise ScenarioError(
+                f"{source}: script[{index}].at is not a duration"
+            ) from error
+        if at_seconds < 0:
+            raise ScenarioError(f"{source}: script[{index}].at must not be negative")
+
+    if action == "restart":
+        if at_seconds is None:
+            raise ScenarioError(f"{source}: script[{index}] restart needs at:")
+        extra = set(raw) - {"at", "action"}
+        if extra:
+            raise ScenarioError(
+                f"{source}: script[{index}] restart cannot include {sorted(extra)}"
+            )
+        return Step(
+            participant="",
+            say="",
+            at=at,
+            at_seconds=at_seconds,
+            action="restart",
+        )
+
     participant = str(_require(raw, "from", source)).strip()
     if not participant:
         raise ScenarioError(f"{source}: script[{index}].from must not be empty")
@@ -140,7 +227,21 @@ def _parse_step(raw: Any, index: int, source: Path) -> Step:
             ) from error
         if after < 0:
             raise ScenarioError(f"{source}: script[{index}].after must not be negative")
-    return Step(participant=participant, say=_require(raw, "say", source), after=after)
+    return Step(
+        participant=participant,
+        say=_require(raw, "say", source),
+        after=after,
+        at=at,
+        at_seconds=at_seconds,
+    )
+
+
+def horizon_seconds(scenario: Scenario) -> float:
+    """Virtual seconds from clock origin until the sample should stop."""
+    if scenario.clock.horizon:
+        return parse_duration(scenario.clock.horizon)
+    times = [step.at_seconds for step in scenario.script if step.at_seconds is not None]
+    return (max(times) if times else 0.0) + 60.0
 
 
 def _parse_check(raw: Any, index: int, source: Path) -> CheckSpec:
@@ -220,12 +321,23 @@ def load_scenario(path: str | Path) -> Scenario:
         source=source,
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16],
         state=str(data.get("state") or "newborn"),
-        clock_start=str(data.get("clock", {}).get("start") or "")
-        if isinstance(data.get("clock"), dict)
-        else str(data.get("clock_start") or ""),
+        clock=_parse_clock(data.get("clock") or data.get("clock_start") or {}, source),
     )
+    at_steps = [step for step in scenario.script if step.at_seconds is not None]
+    settle_steps = [step for step in scenario.script if step.at_seconds is None]
+    if at_steps and settle_steps:
+        raise ScenarioError(f"{source}: mix of at: and after:/settle steps is not allowed")
+    if at_steps and not scenario.clock.start:
+        raise ScenarioError(f"{source}: at: scripts require clock.start")
+    if scenario.clock.horizon and at_steps:
+        limit = parse_duration(scenario.clock.horizon)
+        late = [step.at for step in at_steps if (step.at_seconds or 0) > limit]
+        if late:
+            raise ScenarioError(f"{source}: at: {late} is after clock.horizon")
     for locale in scenario.locales:
         for step in scenario.script:
+            if step.action:
+                continue
             if not scenario.message_for(step, locale).strip():
                 raise ScenarioError(f"{source}: empty {locale} message for {step.participant}")
         scenario.files_for(locale)

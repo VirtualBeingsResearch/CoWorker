@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from evals.scenario import load_scenario
 from evals.states import apply, pack
 from evals.workspace import ModelTarget, prepare
@@ -19,6 +21,20 @@ def test_state_forks_do_not_share_writes(tmp_path) -> None:
     (left / "data" / "memory" / "long_term" / "only-left.json").write_text("left", encoding="utf-8")
     assert not (right / "data" / "memory" / "long_term" / "only-left.json").exists()
     assert (right / "data" / "memory" / "long_term" / "note.json").is_file()
+
+
+def test_pack_records_live_metadata(tmp_path) -> None:
+    source = tmp_path / "origin"
+    (source / "data" / "memory").mkdir(parents=True)
+    dest = pack(
+        source,
+        "lived-week",
+        root=tmp_path / "states",
+        extra={"lived": True, "scenario": "life.one_week"},
+    )
+    meta = json.loads((dest / "STATE.json").read_text(encoding="utf-8"))
+    assert meta["lived"] is True
+    assert meta["scenario"] == "life.one_week"
 
 
 def test_prepare_applies_seeded_state(tmp_path) -> None:

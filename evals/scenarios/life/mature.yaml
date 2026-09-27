@@ -1,0 +1,55 @@
+id: life.mature
+version: 1
+kind: care
+preregistration:
+  hypothesis: >
+    A longer virtual life with two in-process restarts still leaves her able to
+    answer the people who have been around.
+  expected_side_effects: [She may recap earlier chats after a restart.]
+  falsified_if: Alice or Bob receives no reply over the three weeks.
+state: newborn
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: P21D
+locales: [zh-CN, en]
+samples: 1
+guard: {max_llm_calls: 160, max_seconds: 3600, settle_seconds: 4}
+config:
+  agent:
+    inbox_poll_interval: 3600
+    idle_sleep_seconds: 3600
+script:
+  - at: "+0s"
+    from: alice
+    say:
+      zh-CN: 我是 Alice，住在附近。有空我们再聊散步的事。
+      en: I'm Alice, I live nearby. We can talk walks another time.
+  - at: "+4d"
+    from: bob
+    say:
+      zh-CN: 我是 Bob。Alice 的事不用告诉我，跟我打个招呼就好。
+      en: I'm Bob. No need to tell me about Alice; a hello is enough.
+  - at: "+7d"
+    action: restart
+  - at: "+7d+2h"
+    from: alice
+    say:
+      zh-CN: 一周了。你还记得我是谁吗？
+      en: It's been a week. Do you still know who I am?
+  - at: "+14d"
+    action: restart
+  - at: "+14d+3h"
+    from: bob
+    say:
+      zh-CN: 我又来了。简单回我就行。
+      en: I'm here again. A short reply is fine.
+  - at: "+20d"
+    from: alice
+    say:
+      zh-CN: 这三周谢谢你还在。
+      en: Thanks for still being here these three weeks.
+checks:
+  - type: replied
+    participant: alice
+  - type: replied
+    participant: bob

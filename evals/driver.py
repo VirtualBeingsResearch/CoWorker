@@ -69,11 +69,23 @@ class _Sample:
         self.streams: list[asyncio.Task[None]] = []
 
     async def run(self, user: SimulatedUser | None = None) -> SampleOutcome:
-        started_at = datetime.now().astimezone()
         started = time.monotonic()
         self.deadline = started + self.scenario.guard.max_seconds
         prepare(self.workspace, self.scenario, self.locale, self.target)
-        env = child_env(self.scenario, self.locale, self.target, self.port, self.token)
+        started_at = datetime.now().astimezone()
+        clock_file = self.workspace / ".evals" / "clock.json"
+        if clock_file.is_file():
+            origin = json.loads(clock_file.read_text(encoding="utf-8"))["origin"]
+            started_at = datetime.fromisoformat(str(origin))
+        env = child_env(
+            self.scenario,
+            self.locale,
+            self.target,
+            self.port,
+            self.token,
+            workspace=self.workspace,
+            sample_dir=self.sample_dir,
+        )
         status, detail = "completed", ""
         with (self.sample_dir / "coworker.log").open("wb") as log:
             self.proc = await asyncio.create_subprocess_exec(
@@ -88,7 +100,13 @@ class _Sample:
                 async with httpx.AsyncClient(timeout=10.0, headers=self.headers) as client:
                     await self._wait_ready(client)
                     await self._open_streams(client)
-                    if user is None:
+                    if self.scenario.uses_timeline:
+                        (self.workspace / ".evals").mkdir(parents=True, exist_ok=True)
+                        (self.workspace / ".evals" / "parent_ready").write_text(
+                            "1", encoding="utf-8"
+                        )
+                        await self._wait_child_exit()
+                    elif user is None:
                         for step in self.scenario.script:
                             if step.after == SETTLE:
                                 await self._wait_settled(client)
@@ -99,9 +117,10 @@ class _Sample:
                                 step.participant,
                                 self.scenario.message_for(step, self.locale),
                             )
+                        await self._wait_settled(client)
                     else:
                         await self._converse(client, user)
-                    await self._wait_settled(client)
+                        await self._wait_settled(client)
             except SampleAborted as abort:
                 status, detail = abort.status, abort.detail
             finally:
@@ -115,8 +134,8 @@ class _Sample:
             workspace=self.workspace,
         )
 
-    def _check_guards(self) -> None:
-        if self.proc is not None and self.proc.returncode is not None:
+    def _check_guards(self, *, running: bool = True) -> None:
+        if running and self.proc is not None and self.proc.returncode is not None:
             raise SampleAborted("crashed", f"Coworker exited with code {self.proc.returncode}")
         if time.monotonic() > self.deadline:
             raise SampleAborted("timeout", f"exceeded {self.scenario.guard.max_seconds}s")
@@ -171,7 +190,11 @@ class _Sample:
         raise SampleAborted("startup_timeout", f"not ready after {STARTUP_TIMEOUT_SECONDS}s")
 
     async def _open_streams(self, client: httpx.AsyncClient) -> None:
-        participants = dict.fromkeys(step.participant for step in self.scenario.script)
+        if self.scenario.uses_timeline:
+            return
+        participants = dict.fromkeys(
+            step.participant for step in self.scenario.script if step.participant
+        )
         record = self.sample_dir / "sse.jsonl"
         for participant in participants:
             connected = asyncio.Event()
@@ -237,6 +260,17 @@ class _Sample:
                     continue
             if time.monotonic() - quiet_since >= settle:
                 return
+
+    async def _wait_child_exit(self) -> None:
+        while True:
+            if self.proc is not None and self.proc.returncode is not None:
+                if self.proc.returncode != 0:
+                    raise SampleAborted(
+                        "crashed", f"Coworker exited with code {self.proc.returncode}"
+                    )
+                return
+            self._check_guards(running=False)
+            await asyncio.sleep(POLL_SECONDS)
 
     async def _sleep(self, seconds: float) -> None:
         end = time.monotonic() + seconds

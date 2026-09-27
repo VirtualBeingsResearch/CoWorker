@@ -8,7 +8,8 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
-from evals.clock import install_clock
+from evals.clock import install_clock, real_monotonic
+from evals.timeline import sleep_until
 
 from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.tools.alarm_tools import AlarmManager
@@ -85,5 +86,27 @@ async def test_idle_wait_jumps_and_busy_work_does_not(tmp_path) -> None:
             )
             await proc.wait()
             assert time.monotonic() - mono0 < 5
+
+            with clock.hold():
+                mono0 = time.monotonic()
+                pending = asyncio.create_task(asyncio.sleep(3600))
+                await asyncio.sleep(0.2)
+                assert time.monotonic() - mono0 < 5
+                pending.cancel()
+        finally:
+            clock.restore()
+
+
+@pytest.mark.asyncio
+async def test_sleep_until_jumps_idle_hours() -> None:
+    start = datetime(2026, 1, 5, 9, 17).astimezone()
+    with install_clock(start) as clock:
+        clock.install(asyncio.get_running_loop())
+        try:
+            real0 = real_monotonic()
+            await sleep_until(start, 2 * 3600)
+            assert real_monotonic() - real0 < 2
+            delta = (datetime.now().astimezone() - start).total_seconds()
+            assert abs(delta - 2 * 3600) < 5
         finally:
             clock.restore()

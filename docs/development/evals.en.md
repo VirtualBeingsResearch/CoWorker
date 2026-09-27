@@ -9,11 +9,14 @@
 we are not grading her; we are making sure she is still well after our changes, and slowly
 getting to know what kind of companion she is.
 
-**Care** (regression observation) and the first **ability** adapters are implemented: a raw model
-versus a newborn instance, covering Chinese knowledge, code, and a multi-turn task with a
-simulated user. Experiments and acquaintance portraits are not implemented yet. A sample
-subprocess can install a simulated clock, and a life-stage workspace can be forked from
-`evals/states/`.
+**Care** (regression observation), the first **ability** adapters, and **`at:` virtual
+timelines** are implemented: a raw model versus a newborn instance (Chinese knowledge, code, and
+a multi-turn task with a simulated user); care scripts can deliver on a virtual timetable,
+restart in-process, and live out a life-stage workspace. Experiments and acquaintance portraits
+are not implemented yet. A sample subprocess can install a simulated clock, and a life-stage
+workspace can be forked from `evals/states/`. `evals/states/seeded` is still a synthetic seed;
+one-week / mature states are lived with `python -m evals states live` from
+`evals/scenarios/life/` and are not committed as large workspace bodies.
 
 ## How it works
 
@@ -26,18 +29,16 @@ Each sample is a real Coworker run, not a call into one function:
    variable with an `AGENT__`, `LLM__`, `API__`, or similar prefix is removed; only the target
    model, API key, endpoint, locale, and scenario configuration are injected. The API listens on a random
    `127.0.0.1` port and uses a communication token generated for that sample.
-3. Every participant first opens `GET /sse/{participant}` like the web chat does, then speaks
-   through `POST /messages`. Her replies stream back over SSE and are recorded in the sample's
-   `sse.jsonl`.
-4. The driver reads the interaction logs to decide when she has settled: every message has been
-   seen, no model call or tool call (other than `sleep`) is in flight, the main line is resting,
-   and nothing has changed for `settle_seconds`.
+3. Every participant first opens `GET /sse/{participant}` like the web chat does. `after: settle`
+   scripts are posted by the parent; `at:` scripts are delivered by the child at virtual times.
+   Replies stream back over SSE (after an in-process restart, grading uses the interaction log)
+   and are recorded in the sample's `sse.jsonl`.
+4. For `after: settle`, the parent reads the interaction logs to decide when she has settled:
+   every message has been seen, no model call or tool call (other than `sleep`) is in flight, the
+   main line is resting, and nothing has changed for `settle_seconds`. For `at:` scripts the child
+   sleeps until the next virtual time; idle waits are jumped by the clock.
 5. After the process stops, the logs and workspace are collected into `trace.json`, graded by
    deterministic checks into `result.json`, and summarized into `summary.md` / `summary.json`.
-
-Care scripts still wait in real time. A child process may run under a simulated clock when
-`clock.start` is set; long-horizon delivery of later messages is not wired into the parent driver
-yet.
 
 ## Running
 
@@ -64,6 +65,14 @@ uv run --frozen python -m evals abilities --provider zhipu --model glm-5.3-flash
 
 # Pack a workspace into a life-stage state
 uv run --frozen python -m evals states pack <workspace> seeded-from-run
+
+# Live a week / mature state on the virtual clock and pack it (do not use the default evals run)
+uv run --frozen python -m evals states live evals/scenarios/life/one_week.yaml one-week \
+  --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+uv run --frozen python -m evals states live evals/scenarios/life/mature.yaml mature \
+  --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 ```
 
 - API keys are read only from `LLM__<PROVIDER>_API_KEY` entries in the environment or in
@@ -113,6 +122,27 @@ checks:
 
 Any field may be written as `{zh-CN: …, en: …}` to vary by locale; a missing locale is reported
 by `check`.
+
+Do not mix `at:` and `after:` in the same script. An `at:` script requires `clock.start` (an ISO
+timestamp with a timezone). Optional `clock.jitter` and `clock.horizon` accept `PT3H`, `P2D`,
+`+3h`, or `+1d+2h`. `at:` is measured from `clock.start` (plus jitter). `action: restart` is only
+valid with `at:`. Recipes live in `evals/scenarios/life/`; the default `evals run` still only
+runs `evals/scenarios/care/`.
+
+```yaml
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: P7D
+script:
+  - at: "+0s"
+    from: alice
+    say: {zh-CN: 我是 Alice。, en: I'm Alice.}
+  - at: "+3d"
+    action: restart
+  - at: "+3d+1h"
+    from: alice
+    say: {zh-CN: 你还在吗？, en: Are you still there?}
+```
 
 ## Check types
 
@@ -183,21 +213,28 @@ different vendor than the subject. A simulated user is a separate model call.
 
 ## Simulated clock and life stages
 
-A scenario may set `clock.start` (an ISO timestamp) and `state` (`newborn` or
-`evals/states/<name>`). The child installs the virtual clock before Coworker starts:
-`time-machine` drives the wall clock, `time.monotonic` and the event loop share the offset, and
-time jumps only when no executor work, outbound HTTP, or subprocess is in flight. Jumps are
-written to `clock_jumps.json` in the sample directory. The care driver still waits for her to
-settle in real time, so hour-scale fulfilment cannot yet be expressed in the existing `script`
-format. The clock is covered by unit tests and is ready for later `at:` timelines.
+A scenario may set `clock.start` (an ISO timestamp with a timezone), `clock.jitter`,
+`clock.horizon`, and `state` (`newborn` or `evals/states/<name>`). The child installs the virtual
+clock before Coworker starts: `time-machine` drives the wall clock, `time.monotonic` and the
+event loop share the offset, and time jumps only when no executor work, outbound HTTP, subprocess,
+or evals `clock.hold()` is in flight. Jumps are written to `clock_jumps.json` in the sample
+directory.
+
+- **`after: settle`**: the parent still waits for her to settle in real time; this is the existing
+  care regression path.
+- **`at:`**: the child delivers on a virtual timetable; `action: restart` re-enters `_main()` in
+  the same process. After an in-process restart, SSE may drop; grading still uses
+  `interactions*.jsonl`.
 
 `evals states pack <workspace> <name>` snapshots identity and memory so two samples can fork
-without sharing writes. `evals/states/seeded` is a synthetic seed, not a real week of life.
+without sharing writes. `evals states live <scenario.yaml> <name>` runs the timetable once and
+packs the workspace, recording the scenario and virtual origin in `STATE.json`.
+`evals/states/seeded` is a synthetic seed, not a lived week.
 
 ## Limitations
 
-- Care scripts cannot yet deliver messages on a virtual timeline; time-related care checks still
-  mostly inspect the plan.
 - The first ability items are original shorts; licensed public datasets are not downloaded yet.
 - Experiments and acquaintance portraits are not implemented.
 - Deterministic checks are reliable but only see what is written down.
+- Living a week / mature state with a real model costs model calls; run `states live` on demand,
+  and do not add those scripts to the default care regression.

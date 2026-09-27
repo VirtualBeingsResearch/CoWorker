@@ -215,6 +215,12 @@ class DesktopPublishPayload(BaseModel):
 
 
 
+def clear_shutdown() -> None:
+    """Allow ``_main()`` to run again in the same process after a clean teardown."""
+    global _shutting_down
+    _shutting_down = False
+
+
 def signal_shutdown() -> None:
     """进程关闭时调用：唤醒所有 SSE/WS 出站队列，让流式响应主动收尾、释放连接。
     否则它们阻塞在 queue.get() 直到心跳超时，会把 uvicorn 的优雅关闭拖到 graceful 超时
