@@ -329,13 +329,28 @@ class ChannelRegistry:
         return ToolResult(tool_call_id="", content=content, is_error=True)
 
     @staticmethod
+    def _id_aliases(participant_id: str) -> set[str]:
+        aliases = {participant_id}
+        if ":" in participant_id:
+            aliases.add(participant_id.rsplit(":", maxsplit=1)[-1])
+        return aliases
+
+    @staticmethod
     def _similar_participant_ids(
         participant_id: str,
         known_ids: list[str],
     ) -> list[str]:
+        requested_aliases = ChannelRegistry._id_aliases(participant_id)
+        exact = [
+            known_id
+            for known_id in known_ids
+            if ChannelRegistry._id_aliases(known_id) & requested_aliases
+        ]
+        if exact:
+            return exact
         ranked: list[tuple[int, str]] = []
         for known_id in known_ids:
-            aliases = {known_id, known_id.rsplit(":", maxsplit=1)[-1]}
+            aliases = ChannelRegistry._id_aliases(known_id)
             distances = [
                 distance
                 for alias in aliases
