@@ -100,6 +100,18 @@ async def test_background_locale_is_fixed_when_work_is_created() -> None:
     assert rendered == "Monday"
 
 
+def test_rest_source_label_is_web_chat_not_an_api_name() -> None:
+    event = IncomingEvent(participant_id="alice", source="rest", content="hi")
+    with locale_context("zh-CN"):
+        rendered = format_event_text(event)
+    assert rendered.startswith("[来自网页聊天][alice]的消息:")
+    assert "REST" not in rendered and "API" not in rendered
+    with locale_context("en"):
+        rendered = format_event_text(event)
+    assert rendered.startswith("[from web chat][alice] message:")
+    assert "REST" not in rendered and "API" not in rendered
+
+
 def test_incoming_wrapper_changes_language_but_preserves_user_content() -> None:
     event = IncomingEvent(
         participant_id="alice",

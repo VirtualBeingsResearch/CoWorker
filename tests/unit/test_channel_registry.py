@@ -465,6 +465,35 @@ async def test_known_participant_channel_treats_distance_above_four_as_unknown(
 
 
 @pytest.mark.asyncio
+async def test_similar_id_prefers_exact_local_name_over_nearby_prefixed_id(
+    registry: ChannelRegistry,
+) -> None:
+    stream = _FakeChannel(
+        "stream",
+        "",
+        live=("alice",),
+        requires_known_participant=True,
+    )
+    openai = _FakeChannel(
+        "openai",
+        "openai:",
+        live=("openai:api",),
+        requires_known_participant=True,
+    )
+    registry.register(stream)
+    registry.register(openai)
+
+    result = await registry.send(
+        CommunicateRequest(participant_id="openai:alice", message="hello")
+    )
+
+    assert result.is_error
+    assert "alice" in result.content
+    assert "openai:api" not in result.content
+    assert stream.sent == [] and openai.sent == []
+
+
+@pytest.mark.asyncio
 async def test_known_participant_channel_lists_all_close_ids_without_guessing(
     registry: ChannelRegistry,
 ) -> None:

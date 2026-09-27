@@ -1,6 +1,6 @@
 [source]
 file = "文件投递"
-rest = "REST API"
+rest = "网页聊天"
 websocket = "WebSocket"
 wecom = "企业微信"
 weixin = "微信"

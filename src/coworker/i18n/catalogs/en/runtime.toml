@@ -1,6 +1,6 @@
 [source]
 file = "file drop"
-rest = "REST API"
+rest = "web chat"
 websocket = "WebSocket"
 wecom = "WeCom"
 weixin = "Weixin"
