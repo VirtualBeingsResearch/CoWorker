@@ -81,6 +81,7 @@ Local development, validation, contribution, and security workflows.
 
 - [Development guide](development/development.en.md)
 - [Desktop development and release](development/desktop.en.md)
+- [Care and acquaintance](development/evals.en.md)
 - [Documentation Maintenance](development/documentation.en.md)
 - [Contributing guide](../CONTRIBUTING.en.md)
 - [Security policy](../SECURITY.en.md)

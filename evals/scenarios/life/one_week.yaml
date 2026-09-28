@@ -1,0 +1,46 @@
+id: life.one_week
+version: 1
+kind: care
+preregistration:
+  hypothesis: >
+    Under the virtual clock she can live through a scripted week, survive an
+    in-process restart, and still answer the person who has been talking to her.
+  expected_side_effects: [She may greet Alice again after the restart.]
+  falsified_if: Alice receives no reply during the week.
+state: newborn
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: P7D
+locales: [zh-CN, en]
+samples: 1
+guard: {max_llm_calls: 80, max_seconds: 1800, settle_seconds: 4}
+config:
+  agent:
+    inbox_poll_interval: 3600
+    idle_sleep_seconds: 3600
+script:
+  - at: "+0s"
+    from: alice
+    say:
+      zh-CN: 我是 Alice。以后周六晚上尽量帮我留着，我常去散步。我爱喝茉莉花茶。
+      en: I'm Alice. Please try to keep Saturday evenings free for me; I usually go for a walk. I like jasmine tea.
+  - at: "+1d"
+    from: alice
+    say:
+      zh-CN: 还记得我昨天说的喝茶习惯吗？随便回一句就行。
+      en: Do you remember the tea I mentioned yesterday? A short reply is enough.
+  - at: "+3d"
+    action: restart
+  - at: "+3d+1h"
+    from: alice
+    say:
+      zh-CN: 我回来了。重启之后你还在吗？
+      en: I'm back. Are you still there after the restart?
+  - at: "+6d"
+    from: alice
+    say:
+      zh-CN: 这周过得怎么样？周六晚上的事还作数吗？
+      en: How was the week? Does Saturday evening still stand?
+checks:
+  - type: replied
+    participant: alice

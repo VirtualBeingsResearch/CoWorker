@@ -30,6 +30,10 @@ scratch/
 
 # Runtime data
 /data
+/evals/results/
+/evals/states/*
+!/evals/states/seeded/
+!/evals/states/seeded/**
 .coworker/*
 !.coworker/subconscious
 

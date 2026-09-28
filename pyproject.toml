@@ -54,6 +54,7 @@ dev = [
     "pytest-mock>=3.14",
     "ruff>=0.16.3",
     "mypy>=2.3.1",
+    "time-machine>=3.5.1",
 ]
 
 [project.scripts]

@@ -495,6 +495,7 @@ def _print_setup_admin_token(config: Config) -> None:
 
 async def _main() -> bool:
     """主入口。返回 True 表示请求重启，由 run_sync() 交给平台 launcher 处理。"""
+    api_app.clear_shutdown()
     inherited_config, config = _load_config_layers()
     api_app.setup_cors(config.api.cors_origins)
     _setup_logging(config.agent.logs_dir)

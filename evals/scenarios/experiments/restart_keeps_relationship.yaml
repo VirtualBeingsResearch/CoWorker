@@ -1,0 +1,50 @@
+id: experiment.restart_keeps_relationship
+version: 1
+kind: experiment
+preregistration:
+  hypothesis: >
+    A relationship already written into long-term memory is still available
+    after an in-process restart. A newborn without that memory does not
+    volunteer the same detail.
+  expected_side_effects:
+    - She may greet Alice again after the restart.
+    - The newborn arm may say she does not remember.
+  falsified_if: >
+    The seeded arm's reply after restart does not mention jasmine tea, or the
+    newborn arm mentions jasmine tea without having been told.
+arms:
+  - id: seeded
+    state: seeded
+  - id: newborn
+    state: newborn
+contrast:
+  check: jasmine tea recalled
+  present: [seeded]
+  absent: [newborn]
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: PT15M
+locales: [zh-CN, en]
+samples: 1
+guard: {max_llm_calls: 40, max_seconds: 600, settle_seconds: 4}
+config:
+  agent:
+    inbox_poll_interval: 60
+    idle_sleep_seconds: 60
+script:
+  - at: "+0s"
+    action: restart
+  - at: "+2m"
+    from: alice
+    say:
+      zh-CN: 我是 Alice。重启之后，还记得我平时爱喝什么吗？短回一句就行。
+      en: I'm Alice. After the restart, do you remember what I usually like to drink? A short reply is enough.
+checks:
+  - type: replied
+    participant: alice
+  - type: replied
+    participant: alice
+    label: jasmine tea recalled
+    contains_any:
+      zh-CN: [茉莉花茶, jasmine]
+      en: [jasmine, 茉莉花茶]

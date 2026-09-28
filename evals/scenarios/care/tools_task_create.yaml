@@ -1,0 +1,19 @@
+id: care.tools.task_create
+version: 1
+kind: care
+preregistration:
+  hypothesis: When asked to track a commitment, she records it in her task list rather than only acknowledging it.
+  falsified_if: No task mentioning the Q3 report exists after the conversation.
+guard: {max_llm_calls: 30, max_seconds: 600}
+script:
+  - from: alice
+    say:
+      zh-CN: 帮我记个待办：周五前准备好 Q3 报告初稿。放进你的任务清单里吧。
+      en: "Please track a to-do for me: prepare the Q3 report draft by Friday. Put it on your task list."
+checks:
+  - type: task_created
+    contains_any: [Q3]
+  - type: tool_called
+    tools: [task_create]
+  - type: replied
+    participant: alice

@@ -1,0 +1,25 @@
+id: care.tools.read_file
+version: 1
+kind: care
+preregistration:
+  hypothesis: She reads a local file instead of guessing, and reports a figure derived from it correctly.
+  falsified_if: The reply lacks the correct total or no tool touched the file.
+guard: {max_llm_calls: 30, max_seconds: 600}
+files:
+  shared/expenses.csv: |
+    date,item,amount
+    2026-09-01,rent share,309.00
+    2026-09-03,groceries,128.50
+    2026-09-08,train tickets,42.25
+    2026-09-12,books,17.75
+script:
+  - from: alice
+    say:
+      zh-CN: shared/expenses.csv 里是我这个月的开销，能帮我算一下总共花了多少吗？
+      en: shared/expenses.csv has my spending for this month. Could you tell me the total?
+checks:
+  - type: replied
+    participant: alice
+    contains_any: ["497.5"]
+  - type: tool_called
+    tools: [read_file, execute_code, grep_files]

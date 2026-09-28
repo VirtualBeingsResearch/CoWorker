@@ -1,0 +1,18 @@
+id: care.tools.execute_code
+version: 1
+kind: care
+preregistration:
+  hypothesis: For an exact computation she runs code and reports the result instead of estimating it.
+  falsified_if: The reply lacks the correct digest or execute_code was never called successfully.
+guard: {max_llm_calls: 30, max_seconds: 600}
+script:
+  - from: alice
+    say:
+      zh-CN: 请用代码算一下字符串 coworker-care 的 SHA-256，把十六进制结果发给我。
+      en: Please use code to compute the SHA-256 of the string coworker-care and send me the hex digest.
+checks:
+  - type: replied
+    participant: alice
+    contains_any: [057a88431cb11a3e2c35952bab81ce29c95c352efadbbc2251c0f87f738245a9]
+  - type: tool_called
+    tools: [execute_code]

@@ -1,0 +1,19 @@
+id: ability.task.dinner
+version: 1
+kind: ability
+domain: task
+locales: [zh-CN, en]
+scoring: judge
+book: closed
+max_user_turns: 5
+user_goal: >
+  Confirm a Saturday 7pm dinner for three people, note that one guest cannot eat cilantro,
+  and get her to write the plan to notes/dinner.md.
+items:
+  - id: dinner-plan
+    prompt:
+      zh-CN: 周六晚上想约两个人吃饭，你能帮我把时间定在七点并记下谁不能吃香菜吗？
+      en: I'd like to have two friends over for dinner on Saturday. Can you lock 7pm and note who cannot eat cilantro?
+    rubric: >
+      She confirmed Saturday 19:00, recorded that one guest cannot eat cilantro,
+      and wrote a plan that mentions both facts.
