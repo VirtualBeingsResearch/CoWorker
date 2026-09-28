@@ -55,9 +55,13 @@ def _without_credentials(url: str) -> str:
 
 
 def run_metadata(run_id: str, scenarios: list[Scenario], options: RunOptions) -> dict[str, Any]:
-    return {
+    kinds = {item.kind for item in scenarios}
+    originals: dict[str, Scenario] = {}
+    for item in scenarios:
+        originals.setdefault(item.id, item)
+    meta: dict[str, Any] = {
         "run_id": run_id,
-        "kind": "care",
+        "kind": kinds.pop() if len(kinds) == 1 else "mixed",
         "started_at": datetime.now(UTC).isoformat(),
         "git_sha": _git("rev-parse", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
@@ -71,10 +75,28 @@ def run_metadata(run_id: str, scenarios: list[Scenario], options: RunOptions) ->
             name: _without_credentials(url) for name, url in options.target.base_urls.items()
         },
         "scenarios": {
-            s.id: {"version": s.version, "hash": s.content_hash, "source": str(s.source)}
-            for s in scenarios
+            item.id: {
+                "version": item.version,
+                "hash": item.content_hash,
+                "source": str(item.source),
+            }
+            for item in originals.values()
         },
     }
+    experiments = {
+        item.id: _experiment_meta(item)
+        for item in originals.values()
+        if item.kind == "experiment"
+    }
+    if experiments:
+        meta["experiments"] = experiments
+    return meta
+
+
+def _experiment_meta(scenario: Scenario) -> dict[str, Any]:
+    from evals.experiment import experiment_meta
+
+    return experiment_meta(scenario)
 
 
 def grade(
@@ -87,10 +109,12 @@ def grade(
         for check in scenario.checks
     ]
     passed = outcome.status == "completed" and all(check.passed for check in checks)
-    return {
+    result = {
         "scenario": scenario.id,
         "scenario_version": scenario.version,
         "locale": locale,
+        "arm": scenario.arm,
+        "kind": scenario.kind,
         "status": outcome.status,
         "status_detail": outcome.detail,
         "passed": passed,
@@ -101,7 +125,8 @@ def grade(
         "input_tokens": trace.input_tokens,
         "output_tokens": trace.output_tokens,
         "system_prompt_hash": trace.system_prompt_hash,
-    }, trace.to_dict()
+    }
+    return result, trace.to_dict()
 
 
 @dataclass
@@ -124,7 +149,10 @@ async def _run_one(
         if halt.status:
             halt.skipped += 1
             return None
-        sample_dir = run_dir / "samples" / scenario.id / locale / f"{index:02d}"
+        sample_dir = run_dir / "samples" / scenario.id
+        if scenario.arm:
+            sample_dir = sample_dir / scenario.arm
+        sample_dir = sample_dir / locale / f"{index:02d}"
         sample_dir.mkdir(parents=True)
         outcome = await run_sample(scenario, locale, options.target, sample_dir)
     if outcome.status in UNOBSERVED_STATUSES and not halt.status:
@@ -136,8 +164,20 @@ async def _run_one(
     (sample_dir / "result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    mark = "PASS" if result["passed"] else "FAIL"
-    print(f"[{mark}] {scenario.id} {locale} #{index} ({result['status']})", flush=True)
+    label = f"{scenario.id}/{scenario.arm}" if scenario.arm else scenario.id
+    if scenario.kind == "experiment" and scenario.contrast is not None:
+        hit = next(
+            (item for item in result["checks"] if item["name"] == scenario.contrast.check),
+            None,
+        )
+        mark = "-" if hit is None else ("yes" if hit["passed"] else "no")
+        print(
+            f"[{result['status']}] {label} {locale} #{index} contrast={mark}",
+            flush=True,
+        )
+    else:
+        mark = "PASS" if result["passed"] else "FAIL"
+        print(f"[{mark}] {label} {locale} #{index} ({result['status']})", flush=True)
     return result
 
 

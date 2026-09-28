@@ -14,8 +14,8 @@ import yaml
 from evals.duration import parse_duration
 
 SUPPORTED_LOCALES = ("zh-CN", "en")
-SUPPORTED_KINDS = ("care",)
-RESERVED_KINDS = ("ability", "experiment", "acquaintance")
+SUPPORTED_KINDS = ("care", "experiment")
+RESERVED_KINDS = ("ability", "acquaintance")
 CONFIG_SECTIONS = {
     "agent": "AGENT__",
     "memory": "MEMORY__",
@@ -64,6 +64,21 @@ class ClockSpec:
 
 
 @dataclass(frozen=True)
+class Arm:
+    id: str
+    state: str
+
+
+@dataclass(frozen=True)
+class Contrast:
+    """Named check that should pass on ``present`` arms and fail on ``absent`` arms."""
+
+    check: str
+    present: tuple[str, ...]
+    absent: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Step:
     participant: str
     say: Any
@@ -101,6 +116,9 @@ class Scenario:
     content_hash: str
     state: str = "newborn"
     clock: ClockSpec = field(default_factory=ClockSpec)
+    arm: str = ""
+    arms: tuple[Arm, ...] = ()
+    contrast: Contrast | None = None
 
     @property
     def clock_start(self) -> str:
@@ -244,6 +262,58 @@ def horizon_seconds(scenario: Scenario) -> float:
     return (max(times) if times else 0.0) + 60.0
 
 
+def _parse_arms(raw: Any, source: Path) -> tuple[Arm, ...]:
+    if not isinstance(raw, list) or len(raw) < 2:
+        raise ScenarioError(f"{source}: experiment arms must be a list of at least two mappings")
+    arms: list[Arm] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ScenarioError(f"{source}: arms[{index}] must be a mapping")
+        arm_id = str(item.get("id") or "").strip()
+        state = str(item.get("state") or "").strip()
+        extra = set(item) - {"id", "state"}
+        if extra:
+            raise ScenarioError(f"{source}: arms[{index}] cannot include {sorted(extra)}")
+        if not arm_id:
+            raise ScenarioError(f"{source}: arms[{index}].id must not be empty")
+        if arm_id in seen:
+            raise ScenarioError(f"{source}: duplicate arm id {arm_id!r}")
+        if not state:
+            raise ScenarioError(f"{source}: arms[{index}].state must not be empty")
+        seen.add(arm_id)
+        arms.append(Arm(id=arm_id, state=state))
+    return tuple(arms)
+
+
+def _parse_contrast(
+    raw: Any, arms: tuple[Arm, ...], checks: tuple[CheckSpec, ...], source: Path
+) -> Contrast:
+    if not isinstance(raw, dict):
+        raise ScenarioError(f"{source}: experiment contrast must be a mapping")
+    extra = set(raw) - {"check", "present", "absent"}
+    if extra:
+        raise ScenarioError(f"{source}: contrast cannot include {sorted(extra)}")
+    check = str(raw.get("check") or "").strip()
+    names = {item.name for item in checks}
+    if check not in names:
+        raise ScenarioError(
+            f"{source}: contrast.check {check!r} is not a check name; known: {sorted(names)}"
+        )
+    present = tuple(str(item).strip() for item in (raw.get("present") or []) if str(item).strip())
+    absent = tuple(str(item).strip() for item in (raw.get("absent") or []) if str(item).strip())
+    if not present or not absent:
+        raise ScenarioError(f"{source}: contrast.present and contrast.absent must both be non-empty")
+    overlap = set(present) & set(absent)
+    if overlap:
+        raise ScenarioError(f"{source}: contrast arm {sorted(overlap)} cannot be both present and absent")
+    arm_ids = {arm.id for arm in arms}
+    unknown = [item for item in (*present, *absent) if item not in arm_ids]
+    if unknown:
+        raise ScenarioError(f"{source}: contrast refers to unknown arm {unknown}")
+    return Contrast(check=check, present=present, absent=absent)
+
+
 def _parse_check(raw: Any, index: int, source: Path) -> CheckSpec:
     from evals.graders import GRADERS
 
@@ -305,6 +375,20 @@ def load_scenario(path: str | Path) -> Scenario:
     checks_raw = _require(data, "checks", source)
     if not isinstance(checks_raw, list) or not checks_raw:
         raise ScenarioError(f"{source}: checks must be a non-empty list")
+    checks = tuple(_parse_check(item, i, source) for i, item in enumerate(checks_raw))
+
+    default_samples = 1 if kind == "experiment" else 5
+    arms: tuple[Arm, ...] = ()
+    contrast: Contrast | None = None
+    if kind == "experiment":
+        if not preregistration.falsified_if.strip():
+            raise ScenarioError(f"{source}: experiment preregistration.falsified_if is required")
+        if data.get("state") is not None:
+            raise ScenarioError(f"{source}: experiment starting state belongs on arms")
+        arms = _parse_arms(data.get("arms"), source)
+        contrast = _parse_contrast(data.get("contrast"), arms, checks, source)
+    elif data.get("arms") is not None or data.get("contrast") is not None:
+        raise ScenarioError(f"{source}: arms and contrast are only valid on kind experiment")
 
     scenario = Scenario(
         id=str(_require(data, "id", source)),
@@ -312,16 +396,18 @@ def load_scenario(path: str | Path) -> Scenario:
         kind=kind,
         preregistration=preregistration,
         locales=locales,
-        samples=int(data.get("samples", 5)),
+        samples=int(data.get("samples", default_samples)),
         guard=guard,
         config={section: dict(values or {}) for section, values in config.items()},
         files=dict(data.get("files") or {}),
         script=tuple(_parse_step(item, i, source) for i, item in enumerate(script_raw)),
-        checks=tuple(_parse_check(item, i, source) for i, item in enumerate(checks_raw)),
+        checks=checks,
         source=source,
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16],
         state=str(data.get("state") or "newborn"),
         clock=_parse_clock(data.get("clock") or data.get("clock_start") or {}, source),
+        arms=arms,
+        contrast=contrast,
     )
     at_steps = [step for step in scenario.script if step.at_seconds is not None]
     settle_steps = [step for step in scenario.script if step.at_seconds is None]

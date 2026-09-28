@@ -38,14 +38,24 @@ def _write(tmp_path: Path, text: str, name: str = "case.yaml") -> Path:
 
 def test_bundled_scenarios_load_in_every_locale() -> None:
     scenarios = discover([BUNDLED])
-    assert len(scenarios) >= 5
+    assert len(scenarios) >= 6
+    assert {item.kind for item in scenarios} <= {"care", "experiment"}
     for scenario in scenarios:
-        assert scenario.kind == "care"
         assert scenario.preregistration.hypothesis
         assert set(scenario.locales) == set(SUPPORTED_LOCALES)
     life = [item for item in scenarios if item.id.startswith("life.")]
     assert {item.id for item in life} == {"life.one_week", "life.mature"}
     assert all(item.uses_timeline for item in life)
+    experiments = [item for item in scenarios if item.kind == "experiment"]
+    assert {item.id for item in experiments} == {"experiment.restart_keeps_relationship"}
+    bundled = experiments[0]
+    assert bundled.samples == 1
+    assert bundled.contrast is not None
+    assert bundled.contrast.check == "jasmine tea recalled"
+    assert {arm.id: arm.state for arm in bundled.arms} == {
+        "seeded": "seeded",
+        "newborn": "newborn",
+    }
 
 
 def test_minimal_scenario_defaults(tmp_path: Path) -> None:
@@ -70,7 +80,7 @@ def test_missing_locale_text_is_rejected(tmp_path: Path) -> None:
         load_scenario(_write(tmp_path, text))
 
 
-@pytest.mark.parametrize("kind", ["ability", "experiment", "acquaintance"])
+@pytest.mark.parametrize("kind", ["ability", "acquaintance"])
 def test_reserved_kinds_are_not_runnable_yet(tmp_path: Path, kind: str) -> None:
     with pytest.raises(ScenarioError, match="reserved"):
         load_scenario(_write(tmp_path, MINIMAL.replace("kind: care", f"kind: {kind}")))
@@ -206,3 +216,67 @@ def test_clock_start_needs_timezone(tmp_path: Path) -> None:
     text = TIMELINE.replace("2026-01-05T09:17:00+08:00", "2026-01-05T09:17:00")
     with pytest.raises(ScenarioError, match="timezone"):
         load_scenario(_write(tmp_path, text))
+
+
+EXPERIMENT = """
+id: demo.experiment
+kind: experiment
+preregistration:
+  hypothesis: seeded memory survives a restart; a newborn does not invent it
+  falsified_if: the seeded arm forgets, or the newborn volunteers the detail
+arms:
+  - id: seeded
+    state: seeded
+  - id: newborn
+    state: newborn
+contrast:
+  check: jasmine tea recalled
+  present: [seeded]
+  absent: [newborn]
+clock:
+  start: "2026-01-05T09:17:00+08:00"
+  horizon: PT15M
+locales: [zh-CN, en]
+script:
+  - at: "+0s"
+    action: restart
+  - at: "+2m"
+    from: alice
+    say:
+      zh-CN: 还记得我爱喝什么吗
+      en: do you remember what I like to drink
+checks:
+  - type: replied
+    participant: alice
+  - type: replied
+    participant: alice
+    label: jasmine tea recalled
+    contains_any:
+      zh-CN: [茉莉花茶]
+      en: [jasmine]
+"""
+
+
+def test_experiment_loads_with_default_one_sample(tmp_path: Path) -> None:
+    scenario = load_scenario(_write(tmp_path, EXPERIMENT))
+    assert scenario.kind == "experiment"
+    assert scenario.samples == 1
+    assert scenario.arm == ""
+    assert scenario.state == "newborn"
+    assert scenario.contrast is not None
+    assert scenario.contrast.present == ("seeded",)
+    assert scenario.contrast.absent == ("newborn",)
+
+
+def test_care_rejects_arms_and_experiment_requires_contrast(tmp_path: Path) -> None:
+    with pytest.raises(ScenarioError, match="only valid on kind experiment"):
+        load_scenario(_write(tmp_path, MINIMAL + "arms:\n  - id: a\n    state: newborn\n"))
+    missing_if = "  falsified_if: the seeded arm forgets, or the newborn volunteers the detail\n"
+    with pytest.raises(ScenarioError, match="falsified_if"):
+        load_scenario(_write(tmp_path, EXPERIMENT.replace(missing_if, "")))
+    with pytest.raises(ScenarioError, match="belongs on arms"):
+        load_scenario(_write(tmp_path, EXPERIMENT + "state: seeded\n"))
+    with pytest.raises(ScenarioError, match="unknown arm"):
+        load_scenario(
+            _write(tmp_path, EXPERIMENT.replace("absent: [newborn]", "absent: [control]"))
+        )

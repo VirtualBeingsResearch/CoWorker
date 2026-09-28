@@ -9,7 +9,7 @@ This domain is for code contributors and groups development setup, validation, a
 - [Development guide](development.en.md): environment setup, local checks, and debugging surfaces.
 - [Desktop development and release](desktop.en.md): Bridge configuration, protocol behavior, Tauri builds, signing, updates, and release workflow.
 - [Care and acquaintance](evals.en.md): observing her behavior through a real process; running,
-  writing, and reading care scenarios.
+  writing, and reading care, ability, and experiment scenarios.
 - [Documentation Maintenance](documentation.en.md): information architecture, bilingual pages, an
   isolated synthetic-data screenshot workflow, safety, and pre-commit checks.
 - [Contributing guide](../../CONTRIBUTING.en.md): scope, required checks, paired documentation, and pull-request conventions.

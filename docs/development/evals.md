@@ -9,9 +9,9 @@
 我们不是给她打分，而是确认她在我们改动之后依然安好，并逐渐认识她是怎样的一位伙伴。
 
 已经实现**照看**（回归观察）、**本领**的第一批适配（裸模型对照新生的她；中文知识、代码、
-带模拟用户的多轮任务），以及照看脚本的 **`at:` 虚拟时间表**、进程内重启、用时钟活出人生阶段
-状态。实验与相识画像仍未实现。子进程里可以挂上模拟时钟，人生阶段状态可以从 `evals/states/`
-分叉。仓库里的 `evals/states/seeded` 仍是合成种子；一周 / 成熟状态用
+带模拟用户的多轮任务）、照看脚本的 **`at:` 虚拟时间表**、进程内重启、用时钟活出人生阶段
+状态，以及**实验**的第一块（对照臂 + 预登记结论）。相识画像仍未实现。子进程里可以挂上
+模拟时钟，人生阶段状态可以从 `evals/states/` 分叉。仓库里的 `evals/states/seeded` 仍是合成种子；一周 / 成熟状态用
 `python -m evals states live` 从 `evals/scenarios/life/` 活出来，不把大块状态本体提交进仓库。
 
 ## 工作方式
@@ -20,6 +20,7 @@
 
 1. 在 `evals/results/<run>/samples/<场景>/<语言>/<序号>/workspace/` 下准备隔离工作目录，
    放入固定的身份夹具（`evals/fixtures/identity/`）、场景文件和可选的 `providers.json`。
+   实验样本会多一层对照臂目录：`samples/<场景>/<臂>/<语言>/<序号>/`。
 2. 以该目录为工作目录启动 `coworker` 子进程。宿主机上所有 `AGENT__`、`LLM__`、`API__`
    等前缀的环境变量都会被剔除，只注入目标模型、API key、端点、语言和场景配置；API 只监听
    `127.0.0.1` 的随机端口，并使用每个样本独立生成的通信令牌。
@@ -64,6 +65,10 @@ uv run --frozen python -m evals states live evals/scenarios/life/one_week.yaml o
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 uv run --frozen python -m evals states live evals/scenarios/life/mature.yaml mature \
   --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+
+# 实验：同一脚本跑对照臂。结论是 supported / falsified，不是通过率
+uv run --frozen python -m evals experiments --provider zhipu --model glm-5.3-flash \
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 ```
 
@@ -130,6 +135,27 @@ script:
     say: {zh-CN: 你还在吗？, en: Are you still there?}
 ```
 
+实验场景在 `evals/scenarios/experiments/`，`kind: experiment`。默认 `evals run` 不跑它们；
+用 `python -m evals experiments`。必须至少两个 `arms`，并写 `contrast`：命名检查应在
+`present` 臂上通过、在 `absent` 臂上失败。`preregistration.falsified_if` 必填。每种语言默认
+1 个样本。起始状态写在臂上，不要写在场景顶层。
+
+```yaml
+kind: experiment
+preregistration:
+  hypothesis: 已经写入长期记忆的关系，在进程内重启之后仍然可用。
+  falsified_if: 有记忆的臂答不出茉莉花茶，或新生臂在没人告诉她的情况下说出这个细节。
+arms:
+  - id: seeded
+    state: seeded
+  - id: newborn
+    state: newborn
+contrast:
+  check: jasmine tea recalled
+  present: [seeded]
+  absent: [newborn]
+```
+
 ## 检查类型
 
 文本匹配参数 `contains_any`、`contains_all`、`pattern` 可在多数检查中组合使用；匹配前会做
@@ -166,6 +192,11 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 不计入通过率。第一次出现这类样本时整轮运行随即停止：尚未开始的样本被跳过，`run.json` 记录
 `halted`，报告开头注明，命令以退出码 1 结束。
 
+实验报告不计算通过率。每个场景和语言给出 `supported`、`falsified`、`inconclusive` 或
+`unobserved`：对照检查在 `present` 臂上全部通过、在 `absent` 臂上全部失败则为
+`supported`；方向相反或不符合预登记则为 `falsified`；缺臂、未完成或对照检查不一致则为
+`inconclusive`；模型不可达则为 `unobserved`，并同样 halt。
+
 ## 编写新场景
 
 - 先写 `preregistration`，再写脚本和检查；检查应直接对应 `falsified_if`。
@@ -173,7 +204,9 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 - 两种语言表达同一件事，但不必逐字对应；确定性的暗号、数字和文件名保持一致。
 - 改变检查含义时递增 `version`，报告会记录每个场景的版本和内容哈希。
 - 运行 `uv run --frozen python -m evals check` 和
-  `uv run --frozen pytest tests/unit/test_evals_scenario.py`。
+  `uv run --frozen pytest tests/unit/test_evals_scenario.py tests/unit/test_evals_experiment.py`。
+- 实验先写假设、证伪条件和对照臂，再写脚本。对照检查失败在 `absent` 臂上是预期现象，
+  不是照看意义上的 FAIL。
 
 ## 本领
 
@@ -185,6 +218,16 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 「Organ vs her」是这两种通过率的差值。抽取失败单独计数，不算答错。裁判默认
 `opencode-go / deepseek-flash`（OpenCode Go 上的 DeepSeek Flash），必须和被测模型来自不同厂商。
 模拟用户同样走独立的模型调用。
+
+## 实验
+
+实验回答的是「这个机制有没有产生预期现象」，不是「她够不够格」。同一脚本在对照臂上跑，结论
+来自预先登记的 contrast，而不是把各臂的检查通过率加总。
+
+第一块捆绑场景是 `experiment.restart_keeps_relationship`：`seeded` 臂从仓库内合成状态
+`evals/states/seeded` 分叉（其中已有 Alice 爱喝茉莉花茶），`newborn` 臂没有这段记忆；两边都
+经历进程内重启，再由 Alice 问起。不要把本地活出来的 `one-week` / `mature` 提交进仓库；实验
+实例只从合成或专门生成的状态启动。
 
 ## 模拟时钟与人生阶段
 
@@ -207,6 +250,6 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 ## 局限
 
 - 本领第一批是原创小题，还没有接入按许可下载的公开测试集。
-- 实验与相识画像尚未实现。
+- 实验目前只有对照臂这一块；相识画像尚未实现。
 - 确定性检查可靠，但只能看到明确写下的东西。
-- 用真实模型活出一周 / 成熟状态会调用模型，请按需运行 `states live`，不要放进默认照看回归。
+- 用真实模型活出一周 / 成熟状态或跑实验会调用模型，请按需运行，不要放进默认照看回归。

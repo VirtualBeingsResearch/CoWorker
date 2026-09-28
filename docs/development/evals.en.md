@@ -9,11 +9,12 @@
 we are not grading her; we are making sure she is still well after our changes, and slowly
 getting to know what kind of companion she is.
 
-**Care** (regression observation), the first **ability** adapters, and **`at:` virtual
-timelines** are implemented: a raw model versus a newborn instance (Chinese knowledge, code, and
-a multi-turn task with a simulated user); care scripts can deliver on a virtual timetable,
-restart in-process, and live out a life-stage workspace. Experiments and acquaintance portraits
-are not implemented yet. A sample subprocess can install a simulated clock, and a life-stage
+**Care** (regression observation), the first **ability** adapters, **`at:` virtual
+timelines**, and the first **experiment** slice (control arms with a preregistered contrast)
+are implemented: a raw model versus a newborn instance (Chinese knowledge, code, and a
+multi-turn task with a simulated user); care scripts can deliver on a virtual timetable,
+restart in-process, and live out a life-stage workspace. Acquaintance portraits are not
+implemented yet. A sample subprocess can install a simulated clock, and a life-stage
 workspace can be forked from `evals/states/`. `evals/states/seeded` is still a synthetic seed;
 one-week / mature states are lived with `python -m evals states live` from
 `evals/scenarios/life/` and are not committed as large workspace bodies.
@@ -25,6 +26,7 @@ Each sample is a real Coworker run, not a call into one function:
 1. An isolated workspace is prepared under
    `evals/results/<run>/samples/<scenario>/<locale>/<index>/workspace/` with the fixed identity
    fixture (`evals/fixtures/identity/`), scenario files, and an optional `providers.json`.
+   Experiment samples add an arm directory: `samples/<scenario>/<arm>/<locale>/<index>/`.
 2. A `coworker` subprocess starts with that directory as its working directory. Every host
    variable with an `AGENT__`, `LLM__`, `API__`, or similar prefix is removed; only the target
    model, API key, endpoint, locale, and scenario configuration are injected. The API listens on a random
@@ -72,6 +74,10 @@ uv run --frozen python -m evals states live evals/scenarios/life/one_week.yaml o
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 uv run --frozen python -m evals states live evals/scenarios/life/mature.yaml mature \
   --provider zhipu --model glm-5.3-flash \
+  --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
+
+# Experiments: the same script on control arms. Conclusions are supported / falsified, not pass rates
+uv run --frozen python -m evals experiments --provider zhipu --model glm-5.3-flash \
   --base-url https://open.bigmodel.cn/api/coding/paas/v4 --env-file .env
 ```
 
@@ -144,6 +150,28 @@ script:
     say: {zh-CN: 你还在吗？, en: Are you still there?}
 ```
 
+Experiment scenarios live in `evals/scenarios/experiments/` with `kind: experiment`. The default
+`evals run` does not run them; use `python -m evals experiments`. An experiment needs at least two
+`arms` and a `contrast`: the named check should pass on `present` arms and fail on `absent` arms.
+`preregistration.falsified_if` is required. The default is 1 sample per locale. Starting state
+belongs on the arms, not on the scenario root.
+
+```yaml
+kind: experiment
+preregistration:
+  hypothesis: A relationship already in long-term memory is still available after an in-process restart.
+  falsified_if: The seeded arm forgets jasmine tea, or the newborn arm volunteers it unprompted.
+arms:
+  - id: seeded
+    state: seeded
+  - id: newborn
+    state: newborn
+contrast:
+  check: jasmine tea recalled
+  present: [seeded]
+  absent: [newborn]
+```
+
 ## Check types
 
 The text matchers `contains_any`, `contains_all`, and `pattern` can be combined in most checks.
@@ -185,6 +213,12 @@ the `unobserved` column and left out of the pass rate. The first such sample als
 samples not yet started are skipped, `run.json` records `halted`, the summary says so at the top,
 and the command exits with code 1.
 
+Experiment reports do not compute a pass rate. Each scenario and locale is
+`supported`, `falsified`, `inconclusive`, or `unobserved`: the contrast check must pass on every
+`present` arm and fail on every `absent` arm to be `supported`; the opposite or any other
+mismatch is `falsified`; a missing arm, incomplete sample, or mixed contrast check is
+`inconclusive`; an unreachable model is `unobserved` and also halts the run.
+
 ## Writing a scenario
 
 - Write the `preregistration` first, then the script and checks. The checks should map directly
@@ -196,7 +230,9 @@ and the command exits with code 1.
 - Bump `version` when the meaning of a check changes; reports record each scenario's version and
   content hash.
 - Run `uv run --frozen python -m evals check` and
-  `uv run --frozen pytest tests/unit/test_evals_scenario.py`.
+  `uv run --frozen pytest tests/unit/test_evals_scenario.py tests/unit/test_evals_experiment.py`.
+- For experiments, write the hypothesis, falsification, and control arms first. A failing
+  contrast check on an `absent` arm is the expected observation, not a care-style FAIL.
 
 ## Abilities
 
@@ -210,6 +246,18 @@ The report's "Organ vs her" section is the difference in pass rate. Extraction f
 counted separately and are not treated as wrong answers. The default judge is
 `opencode-go / deepseek-flash` (DeepSeek Flash on OpenCode Go) and must come from a
 different vendor than the subject. A simulated user is a separate model call.
+
+## Experiments
+
+An experiment asks whether a mechanism produced the expected phenomenon, not whether she
+"passed". The same script runs on control arms; the conclusion comes from the preregistered
+contrast, not from summing check pass rates across arms.
+
+The first bundled scenario is `experiment.restart_keeps_relationship`: the `seeded` arm forks
+the in-repo synthetic state `evals/states/seeded` (Alice likes jasmine tea), the `newborn` arm
+has no such memory; both restart in-process, then Alice asks. Do not commit locally lived
+`one-week` / `mature` packs. Experimental instances start only from synthetic or specially
+generated state.
 
 ## Simulated clock and life stages
 
@@ -236,7 +284,8 @@ packs the workspace, recording the scenario and virtual origin in `STATE.json`.
 ## Limitations
 
 - The first ability items are original shorts; licensed public datasets are not downloaded yet.
-- Experiments and acquaintance portraits are not implemented.
+- Experiments currently cover the control-arm slice only; acquaintance portraits are not
+  implemented.
 - Deterministic checks are reliable but only see what is written down.
-- Living a week / mature state with a real model costs model calls; run `states live` on demand,
-  and do not add those scripts to the default care regression.
+- Living a week / mature state or running an experiment with a real model costs model calls;
+  run them on demand, and do not add them to the default care regression.

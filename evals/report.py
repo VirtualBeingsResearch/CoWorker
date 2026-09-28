@@ -16,7 +16,7 @@ UNOBSERVED_STATUSES = frozenset({"provider_error", "setup_mode"})
 
 def load_samples(run_dir: Path) -> list[dict[str, Any]]:
     samples = []
-    for path in sorted(run_dir.glob("samples/*/*/*/result.json")):
+    for path in sorted(run_dir.glob("samples/**/result.json")):
         samples.append(json.loads(path.read_text(encoding="utf-8")))
     return samples
 
@@ -145,7 +145,19 @@ def render_markdown(
 
 def write_report(run_dir: Path, baseline_dir: Path | None = None) -> str:
     meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    rows = summarize(load_samples(run_dir))
+    samples = load_samples(run_dir)
+    if meta.get("kind") == "experiment":
+        from evals.experiment import conclude_run, render_experiment_markdown
+
+        conclusions = conclude_run(meta.get("experiments") or {}, samples)
+        summary = {"run": meta, "conclusions": conclusions, "samples": samples}
+        (run_dir / "summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        markdown = render_experiment_markdown(meta, conclusions)
+        (run_dir / "summary.md").write_text(markdown, encoding="utf-8")
+        return markdown
+    rows = summarize(samples)
     comparisons: list[dict[str, Any]] = []
     if baseline_dir is not None:
         comparisons = compare(rows, summarize(load_samples(baseline_dir)))

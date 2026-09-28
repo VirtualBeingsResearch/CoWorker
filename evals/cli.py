@@ -13,6 +13,7 @@ from evals.ability import (
     discover_suites,
     run_abilities,
 )
+from evals.experiment import materialize
 from evals.report import write_report
 from evals.runner import DEFAULT_RESULTS_DIR, RunOptions, run
 from evals.scenario import SUPPORTED_LOCALES, ScenarioError, discover, load_scenario
@@ -28,6 +29,7 @@ from evals.workspace import (
 
 DEFAULT_SCENARIOS = REPO_ROOT / "evals" / "scenarios" / "care"
 DEFAULT_LIFE = REPO_ROOT / "evals" / "scenarios" / "life"
+DEFAULT_EXPERIMENTS = REPO_ROOT / "evals" / "scenarios" / "experiments"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -55,6 +57,16 @@ def _parser() -> argparse.ArgumentParser:
     ability_cmd.add_argument("--user-provider", default="")
     ability_cmd.add_argument("--user-model", default="")
     ability_cmd.add_argument("--output", type=Path, default=DEFAULT_RESULTS_DIR)
+
+    experiment_cmd = commands.add_parser(
+        "experiments", help="run pre-registered experiments with a control contrast"
+    )
+    _add_model_args(experiment_cmd)
+    experiment_cmd.add_argument("paths", nargs="*", default=[str(DEFAULT_EXPERIMENTS)])
+    experiment_cmd.add_argument("--samples", type=int, help="override samples per arm and locale")
+    experiment_cmd.add_argument("--locale", choices=SUPPORTED_LOCALES, action="append")
+    experiment_cmd.add_argument("--jobs", type=int, default=1, help="samples to run concurrently")
+    experiment_cmd.add_argument("--output", type=Path, default=DEFAULT_RESULTS_DIR)
 
     check_cmd = commands.add_parser("check", help="validate scenario and ability files")
     check_cmd.add_argument("paths", nargs="*", default=[])
@@ -139,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             paths = args.paths or [
                 str(DEFAULT_SCENARIOS),
                 str(DEFAULT_LIFE),
+                str(DEFAULT_EXPERIMENTS),
                 str(DEFAULT_ABILITIES),
             ]
             care_paths: list[str | Path] = []
@@ -160,6 +173,31 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
         target = _target(args)
+        if args.command == "experiments":
+            loaded = discover(args.paths)
+            wrong = [item.id for item in loaded if item.kind != "experiment"]
+            if wrong:
+                raise ScenarioError(
+                    f"experiments command expects kind experiment, not {wrong}"
+                )
+            scenarios = []
+            for item in loaded:
+                scenarios.extend(materialize(item))
+            options = RunOptions(
+                target=target,
+                samples=args.samples,
+                locales=tuple(args.locale) if args.locale else None,
+                jobs=args.jobs,
+                results_dir=args.output,
+            )
+            run_dir = asyncio.run(run(scenarios, options))
+            print(write_report(run_dir), end="")
+            print(f"results: {run_dir}")
+            halted = json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("halted")
+            if halted:
+                print(f"halted: {halted['status']}: {halted['detail']}")
+                return 1
+            return 0
         if args.command == "abilities":
             judge = ModelTarget(
                 provider=args.judge_provider,
@@ -192,6 +230,11 @@ def main(argv: list[str] | None = None) -> int:
             print((run_dir / "summary.md").read_text(encoding="utf-8"), end="")
             print(f"results: {run_dir}")
             return 0
+        loaded = discover(args.paths)
+        if args.command == "run":
+            wrong = [item.id for item in loaded if item.kind != "care"]
+            if wrong:
+                raise ScenarioError(f"run command expects kind care, not {wrong}")
         options = RunOptions(
             target=target,
             samples=args.samples,
@@ -199,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             jobs=args.jobs,
             results_dir=args.output,
         )
-        run_dir = asyncio.run(run(discover(args.paths), options))
+        run_dir = asyncio.run(run(loaded, options))
         print(write_report(run_dir, args.baseline), end="")
         print(f"results: {run_dir}")
         halted = json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("halted")
