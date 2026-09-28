@@ -190,16 +190,19 @@ key 或 provider 名称有误）和 `provider_error`（在 Coworker 自身重试
 
 场景可写 `clock.start`（带时区的 ISO 时间）、`clock.jitter`、`clock.horizon`，以及
 `state`（`newborn` 或 `evals/states/<name>`）。子进程在启动 Coworker 之前安装虚拟时钟：
-`time-machine` 管墙钟，`time.monotonic` 与事件循环共用偏移；只有没有执行器任务、出站 HTTP、
-子进程，以及 evals 自己的 `clock.hold()` 时才允许快进。跳跃写入样本目录的 `clock_jumps.json`。
+`time-machine` 管墙钟，`time.monotonic` 与事件循环共用偏移；只有没有执行器任务、出站 HTTP
+（`httpx` 与 OpenAI SDK 的 `httpx2`）、子进程，以及 evals 自己的 `clock.hold()` 时才允许快进。
+跳跃写入样本目录的 `clock_jumps.json`。
 
 - **`after: settle`**：父进程仍按真实时间等她安静下来，适合现有照看回归。
-- **`at:`**：子进程按虚拟时间表投递；`action: restart` 在同一进程里再次进入 `_main()`。
+- **`at:`**：子进程按虚拟时间表投递，并一次跳到下一档时刻（避免她每次短睡醒来都再跑一轮
+  模型）；`action: restart` 在同一进程里再次进入 `_main()`。
   进程内重启之后，SSE 可能中断，判定仍看 `interactions*.jsonl`。
 
 `evals states pack <workspace> <name>` 把身份和记忆打成可分叉的状态；两个样本从同一状态
 复制后互不影响。`evals states live <scenario.yaml> <name>` 先跑一遍时间表再打包，并在
-`STATE.json` 里记下场景和虚拟原点。`evals/states/seeded` 是合成种子，不是活出来的一周。
+`STATE.json` 里记下场景和虚拟原点。`evals/states/seeded` 是合成种子，不是活出来的一周；
+活出来的状态（`one-week`、`mature` 等）已 gitignore，只留在本地。
 
 ## 局限
 

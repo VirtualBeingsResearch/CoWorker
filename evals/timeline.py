@@ -31,11 +31,18 @@ def _stop_agent() -> None:
         agent.stop()
 
 
-async def sleep_until(origin: datetime, offset_seconds: float) -> None:
-    """Sleep until virtual ``origin + offset``. Idle time is jumped by the clock."""
+async def sleep_until(
+    origin: datetime, offset_seconds: float, clock: VirtualClock
+) -> None:
+    """Jump virtual time to ``origin + offset`` in one step.
+
+    An ``asyncio.sleep`` here would let the selector expire her short ``sleep``
+    tools one by one, each boundary starting another model cycle. Life scripts
+    would burn the LLM budget before the next ``at:`` message.
+    """
     remaining = offset_seconds - (datetime.now().astimezone() - origin).total_seconds()
     if remaining > 0:
-        await asyncio.sleep(remaining)
+        clock.advance(remaining, pending="timeline")
 
 
 async def _wait_held(
@@ -161,7 +168,7 @@ async def run_timeline(clock: VirtualClock) -> None:
             streams = await _open_streams(client, base, participants)
             delivered = 0
             for step in script["steps"]:
-                await sleep_until(origin, float(step["at_seconds"]))
+                await sleep_until(origin, float(step["at_seconds"]), clock)
                 if step.get("action") == "restart":
                     agent = _running_agent()
                     if agent is None:
@@ -175,7 +182,7 @@ async def run_timeline(clock: VirtualClock) -> None:
                 await _deliver(client, base, str(step["participant"]), str(step["say"]))
                 delivered += 1
                 await _wait_settled(clock, delivered)
-            await sleep_until(origin, horizon)
+            await sleep_until(origin, horizon, clock)
         finally:
             await _close_streams(streams)
 

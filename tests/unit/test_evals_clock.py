@@ -104,9 +104,86 @@ async def test_sleep_until_jumps_idle_hours() -> None:
         clock.install(asyncio.get_running_loop())
         try:
             real0 = real_monotonic()
-            await sleep_until(start, 2 * 3600)
+            await sleep_until(start, 2 * 3600, clock)
             assert real_monotonic() - real0 < 2
             delta = (datetime.now().astimezone() - start).total_seconds()
             assert abs(delta - 2 * 3600) < 5
         finally:
             clock.restore()
+
+
+@pytest.mark.asyncio
+async def test_timeline_jump_does_not_wake_every_short_sleep() -> None:
+    """A day-long at: gap must not run a model cycle at every 60s sleep boundary."""
+    start = datetime(2026, 1, 5, 9, 17).astimezone()
+    with install_clock(start) as clock:
+        clock.install(asyncio.get_running_loop())
+        try:
+            wakes = 0
+
+            async def nap() -> None:
+                nonlocal wakes
+                while True:
+                    await asyncio.sleep(60)
+                    wakes += 1
+
+            task = asyncio.create_task(nap())
+            try:
+                await sleep_until(start, 3600, clock)
+                await asyncio.sleep(0)
+            finally:
+                task.cancel()
+            assert wakes <= 2
+            delta = (datetime.now().astimezone() - start).total_seconds()
+            assert abs(delta - 3600) < 5
+        finally:
+            clock.restore()
+
+
+async def _serve_http(delay: float) -> tuple[asyncio.AbstractServer, str]:
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.read(1024)
+            await asyncio.sleep(delay)
+            body = b"ok"
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n" + body
+            )
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    sockets = server.sockets
+    assert sockets
+    port = int(sockets[0].getsockname()[1])
+    return server, f"http://127.0.0.1:{port}/"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modname", ["httpx", "httpx2"])
+async def test_async_http_client_blocks_jumps(modname: str) -> None:
+    """Model calls use httpx2; jumping while they wait expires the SDK timeout."""
+    module = pytest.importorskip(modname)
+    start = datetime(2026, 1, 5, 9, 17).astimezone()
+    server, url = await _serve_http(0.3)
+    try:
+        with install_clock(start) as clock:
+            clock.install(asyncio.get_running_loop())
+            try:
+                async with module.AsyncClient(timeout=10.0) as client:
+                    mono0 = time.monotonic()
+                    pending = asyncio.create_task(asyncio.sleep(3600))
+                    try:
+                        response = await client.get(url)
+                    finally:
+                        pending.cancel()
+                    assert response.status_code == 200
+                    assert response.text == "ok"
+                    assert time.monotonic() - mono0 < 5
+            finally:
+                clock.restore()
+    finally:
+        server.close()
+        await server.wait_closed()

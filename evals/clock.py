@@ -3,6 +3,10 @@
 Wall clock is driven by ``time-machine``. ``time.monotonic`` (and therefore
 ``asyncio`` timers) share the same offset. Selector waits jump only when no
 executor work, outbound HTTP, or child process is in flight.
+
+Outbound HTTP includes both ``httpx.AsyncClient`` and the OpenAI SDK's
+``httpx2.AsyncClient``. Wrapping only ``httpx`` lets a model call sit on the
+proactor while idle sleeps jump past the SDK timeout.
 """
 
 from __future__ import annotations
@@ -22,6 +26,19 @@ _REAL_MONOTONIC = time.monotonic
 real_monotonic = _REAL_MONOTONIC
 
 
+def _async_http_client_classes() -> list[Any]:
+    """Async HTTP clients whose in-flight ``send`` must block virtual jumps."""
+    classes: list[Any] = [httpx.AsyncClient]
+    try:
+        import httpx2
+    except ImportError:
+        return classes
+    client = getattr(httpx2, "AsyncClient", None)
+    if client is not None and client is not httpx.AsyncClient:
+        classes.append(client)
+    return classes
+
+
 @dataclass
 class Jump:
     at: str
@@ -37,7 +54,7 @@ class VirtualClock:
         self.http = 0
         self.procs = 0
         self.jumps: list[Jump] = []
-        self._orig_httpx: Any = None
+        self._orig_http_sends: list[tuple[Any, Any]] = []
         self._orig_exec: Any = None
         self._orig_shell: Any = None
         self._orig_rie: Any = None
@@ -104,7 +121,7 @@ class VirtualClock:
             return future
 
         setattr(loop, "run_in_executor", run_in_executor)
-        self._wrap_httpx()
+        self._wrap_http_clients()
         self._wrap_subprocess()
 
     def _release(self, kind: str) -> None:
@@ -120,25 +137,33 @@ class VirtualClock:
             self._selector.select = self._orig_select
         if self._loop is not None and self._orig_rie is not None:
             setattr(self._loop, "run_in_executor", self._orig_rie)
-        if self._orig_httpx is not None:
-            setattr(httpx.AsyncClient, "send", self._orig_httpx)
+        for cls, original in self._orig_http_sends:
+            setattr(cls, "send", original)
+        self._orig_http_sends.clear()
         if self._orig_exec is not None:
             setattr(asyncio, "create_subprocess_exec", self._orig_exec)
         if self._orig_shell is not None:
             setattr(asyncio, "create_subprocess_shell", self._orig_shell)
 
-    def _wrap_httpx(self) -> None:
-        original = httpx.AsyncClient.send
-        self._orig_httpx = original
+    def _wrap_http_clients(self) -> None:
+        for cls in _async_http_client_classes():
+            original = cls.send
 
-        async def send(client: httpx.AsyncClient, request: httpx.Request, **kwargs: Any) -> Any:
-            self.http += 1
-            try:
-                return await original(client, request, **kwargs)
-            finally:
-                self._release("http")
+            async def send(
+                client: Any,
+                request: Any,
+                *args: Any,
+                _original: Any = original,
+                **kwargs: Any,
+            ) -> Any:
+                self.http += 1
+                try:
+                    return await _original(client, request, *args, **kwargs)
+                finally:
+                    self._release("http")
 
-        setattr(httpx.AsyncClient, "send", send)
+            self._orig_http_sends.append((cls, original))
+            setattr(cls, "send", send)
 
     def _wrap_subprocess(self) -> None:
         original_exec = asyncio.create_subprocess_exec

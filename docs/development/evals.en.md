@@ -216,20 +216,22 @@ different vendor than the subject. A simulated user is a separate model call.
 A scenario may set `clock.start` (an ISO timestamp with a timezone), `clock.jitter`,
 `clock.horizon`, and `state` (`newborn` or `evals/states/<name>`). The child installs the virtual
 clock before Coworker starts: `time-machine` drives the wall clock, `time.monotonic` and the
-event loop share the offset, and time jumps only when no executor work, outbound HTTP, subprocess,
-or evals `clock.hold()` is in flight. Jumps are written to `clock_jumps.json` in the sample
-directory.
+event loop share the offset, and time jumps only when no executor work, outbound HTTP (`httpx`
+and the OpenAI SDK's `httpx2`), subprocess, or evals `clock.hold()` is in flight. Jumps are
+written to `clock_jumps.json` in the sample directory.
 
 - **`after: settle`**: the parent still waits for her to settle in real time; this is the existing
   care regression path.
-- **`at:`**: the child delivers on a virtual timetable; `action: restart` re-enters `_main()` in
-  the same process. After an in-process restart, SSE may drop; grading still uses
-  `interactions*.jsonl`.
+- **`at:`**: the child delivers on a virtual timetable and jumps to the next mark in one
+  step (so a short `sleep` does not start a model cycle at every boundary);
+  `action: restart` re-enters `_main()` in the same process. After an in-process restart,
+  SSE may drop; grading still uses `interactions*.jsonl`.
 
 `evals states pack <workspace> <name>` snapshots identity and memory so two samples can fork
 without sharing writes. `evals states live <scenario.yaml> <name>` runs the timetable once and
 packs the workspace, recording the scenario and virtual origin in `STATE.json`.
-`evals/states/seeded` is a synthetic seed, not a lived week.
+`evals/states/seeded` is a synthetic seed, not a lived week; lived packs
+(`one-week`, `mature`, and so on) are gitignored and stay local.
 
 ## Limitations
 
