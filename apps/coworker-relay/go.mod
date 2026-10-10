@@ -1,6 +1,6 @@
 module github.com/VirtualBeingsResearch/CoWorker/apps/coworker-relay
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/coder/websocket v1.8.15
