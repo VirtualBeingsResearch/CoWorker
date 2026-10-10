@@ -948,6 +948,123 @@ class TelegramBotConfig(BaseModel):
         )
 
 
+WebSearchStrategy = Literal["auto", "fixed"]
+WebSearchProviderName = Literal[
+    "ddgs",
+    "bocha",
+    "zhipu",
+    "qianfan",
+    "linkai",
+    "anysearch",
+    "serply",
+    "tavily",
+    "searxng",
+    "keenable",
+]
+ZhipuSearchEngine = Literal[
+    "search_std",
+    "search_pro",
+    "search_pro_sogou",
+    "search_pro_quark",
+]
+DdgsBackend = Literal[
+    "auto",
+    "bing",
+    "brave",
+    "duckduckgo",
+    "google",
+    "grokipedia",
+    "mojeek",
+    "startpage",
+    "yandex",
+    "yahoo",
+    "wikipedia",
+]
+
+# auto 模式按这个顺序使用第一个已配置的后端。DDGS 不需要密钥，放在最后兜底。
+WEB_SEARCH_PROVIDER_ORDER: tuple[WebSearchProviderName, ...] = (
+    "bocha",
+    "qianfan",
+    "zhipu",
+    "linkai",
+    "anysearch",
+    "serply",
+    "tavily",
+    "searxng",
+    "keenable",
+    "ddgs",
+)
+
+
+def _optional_http_url(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return ""
+    parts = urlsplit(text)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        raise ValueError(tr("config.web_search.url_invalid"))
+    return text.rstrip("/")
+
+
+class WebSearchConfig(_EnvSettings):
+    """search_web 的后端选择与各厂商凭据。保存后立即生效。"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="WEB_SEARCH__",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    strategy: WebSearchStrategy = "auto"
+    provider: WebSearchProviderName = "ddgs"
+    timeout_seconds: int = Field(default=30, ge=1, le=120)
+    ddgs_backend: DdgsBackend = "auto"
+
+    bocha_api_key: str = ""
+    zhipu_api_key: str = ""
+    zhipu_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
+    zhipu_search_engine: ZhipuSearchEngine = "search_pro"
+    zhipu_content_size: Literal["", "medium", "high"] = ""
+    qianfan_api_key: str = ""
+    qianfan_api_base: str = "https://qianfan.baidubce.com/v2"
+    linkai_api_key: str = ""
+    linkai_api_base: str = "https://api.link-ai.tech"
+    anysearch_api_key: str = ""
+    anysearch_anonymous: bool = False
+    anysearch_zone: Literal["", "cn", "intl"] = ""
+    anysearch_language: str = ""
+    serply_api_key: str = ""
+    tavily_api_key: str = ""
+    tavily_search_depth: Literal["basic", "advanced"] = "basic"
+    searxng_url: str = ""
+    searxng_language: str = ""
+    searxng_categories: str = "general"
+    keenable_api_key: str = ""
+    keenable_anonymous: bool = False
+
+    @field_validator(
+        "bocha_api_key",
+        "zhipu_api_key",
+        "qianfan_api_key",
+        "linkai_api_key",
+        "anysearch_api_key",
+        "serply_api_key",
+        "tavily_api_key",
+        "keenable_api_key",
+        "anysearch_language",
+        "searxng_language",
+        "searxng_categories",
+    )
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("zhipu_api_base", "qianfan_api_base", "linkai_api_base", "searxng_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        return _optional_http_url(value)
+
+
 class TelegramConfig(_EnvSettings):
     model_config = SettingsConfigDict(
         env_prefix="TELEGRAM__",
@@ -985,6 +1102,7 @@ class Config(_EnvSettings):
     admin: AdminConfig = Field(default_factory=AdminConfig)
     i18n: I18NConfig = Field(default_factory=I18NConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     channel_access: ChannelAccessConfig = Field(default_factory=ChannelAccessConfig)
     wecom: WeComConfig = Field(default_factory=WeComConfig)
     weixin: WeixinConfig = Field(default_factory=WeixinConfig)

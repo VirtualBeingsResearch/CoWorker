@@ -44,6 +44,14 @@ SECRET_PATHS = {
     "llm.qwen_api_key",
     "llm.zhipu_api_key",
     "llm.minimax_api_key",
+    "web_search.bocha_api_key",
+    "web_search.zhipu_api_key",
+    "web_search.qianfan_api_key",
+    "web_search.linkai_api_key",
+    "web_search.anysearch_api_key",
+    "web_search.serply_api_key",
+    "web_search.tavily_api_key",
+    "web_search.keenable_api_key",
 }
 
 MEM0_LLM_CONFIG_PATHS = {
@@ -195,7 +203,7 @@ class AdminConfigService:
             overridden_fields=self._overridden_fields(overrides),
             hot_reloadable=sorted(
                 HOT_CONFIG_PATHS
-                | {"llm.managed_providers", "desktop_updates", "channel_access"}
+                | {"llm.managed_providers", "desktop_updates", "channel_access", "web_search"}
                 | (
                     self._channel_modules.hot_reloadable_keys()
                     if self._channel_modules is not None
@@ -436,6 +444,7 @@ class AdminConfigService:
         await self._apply_channel_changes(desired, changed_paths, applied)
         self._apply_channel_access_changes(desired, changed_paths, applied)
         self._apply_scalar_changes(desired, changed_paths, applied)
+        self._apply_web_search_changes(desired, changed_paths, applied)
         await self._apply_mem0_llm_changes(desired, changed_paths, applied)
         return sorted(set(applied)), restart
 
@@ -578,6 +587,17 @@ class AdminConfigService:
             desired.channel_access.model_copy(deep=True).root
         )
         applied.append("channel_access")
+
+    def _apply_web_search_changes(
+        self,
+        desired: Config,
+        changed_paths: set[str],
+        applied: list[str],
+    ) -> None:
+        if not any(_is_web_search_hot(path) for path in changed_paths):
+            return
+        self._dependencies.config.web_search = desired.web_search.model_copy(deep=True)
+        applied.append("web_search")
 
     def _apply_scalar_changes(
         self,
@@ -858,8 +878,12 @@ def _is_communication_tokens_path(path: str) -> bool:
     )
 
 
+def _is_web_search_hot(path: str) -> bool:
+    return path == "web_search" or path.startswith("web_search.")
+
+
 def _is_hot_config_path(path: str) -> bool:
-    if path in HOT_CONFIG_PATHS:
+    if path in HOT_CONFIG_PATHS or _is_web_search_hot(path):
         return True
     return _is_communication_tokens_path(path)
 

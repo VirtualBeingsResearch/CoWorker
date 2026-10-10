@@ -190,6 +190,28 @@ Profile** in the administration page; a saved change applies through a safe rest
 The editor has synchronized line numbers and a blank-line count. Each variable card also
 previews the full section and body rendered by the currently running instance.
 
+### Web search
+
+`search_web` uses keyless DDGS unless another backend is configured. Changes made under administration **Runtime settings → Web search**, or with the variables below, apply immediately and do not require a restart. `WEB_SEARCH__STRATEGY=auto` picks the first configured backend in this order: Bocha, Qianfan, Zhipu, LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, then DDGS. `fixed` always uses `WEB_SEARCH__PROVIDER`. An empty Zhipu search key reuses `LLM__ZHIPU_API_KEY`. AnySearch and Keenable can use their anonymous quotas via `WEB_SEARCH__ANYSEARCH_ANONYMOUS` and `WEB_SEARCH__KEENABLE_ANONYMOUS`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_SEARCH__STRATEGY` | `auto` | `auto` or `fixed` |
+| `WEB_SEARCH__PROVIDER` | `ddgs` | Backend used when strategy is `fixed`: `ddgs`, `bocha`, `zhipu`, `qianfan`, `linkai`, `anysearch`, `serply`, `tavily`, `searxng`, `keenable` |
+| `WEB_SEARCH__TIMEOUT_SECONDS` | `30` | Per-request timeout, 1–120 seconds |
+| `WEB_SEARCH__DDGS_BACKEND` | `auto` | Engine inside DDGS |
+| `WEB_SEARCH__BOCHA_API_KEY` | Empty | Bocha Web Search |
+| `WEB_SEARCH__ZHIPU_API_KEY` | Empty | Zhipu Web Search; empty reuses the model key |
+| `WEB_SEARCH__ZHIPU_API_BASE` | `https://open.bigmodel.cn/api/paas/v4` | Zhipu API root |
+| `WEB_SEARCH__ZHIPU_SEARCH_ENGINE` | `search_pro` | `search_std`, `search_pro`, `search_pro_sogou`, or `search_pro_quark` |
+| `WEB_SEARCH__QIANFAN_API_KEY` | Empty | Baidu Qianfan AI Search |
+| `WEB_SEARCH__LINKAI_API_KEY` | Empty | LinkAI `web-search` plugin |
+| `WEB_SEARCH__ANYSEARCH_API_KEY` | Empty | AnySearch |
+| `WEB_SEARCH__SERPLY_API_KEY` | Empty | Serply |
+| `WEB_SEARCH__TAVILY_API_KEY` | Empty | Tavily |
+| `WEB_SEARCH__SEARXNG_URL` | Empty | Root URL of a self-hosted SearXNG instance |
+| `WEB_SEARCH__KEENABLE_API_KEY` | Empty | Keenable |
+
 ### API, administration, and communication
 
 | Variable | Default | Description |

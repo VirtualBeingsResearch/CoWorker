@@ -801,7 +801,7 @@ async def _main() -> bool:
             ListDirectoryTool(),
             FindFilesTool(),
             GrepFilesTool(),
-            SearchWebTool(),
+            SearchWebTool(config),
             FetchURLTool(),
             BrowserOpenTool(browser_store),
             BrowserScreenshotTool(browser_store),
