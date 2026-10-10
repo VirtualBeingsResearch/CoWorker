@@ -10,14 +10,14 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "anthropic>=1.9.0",
-    "openai>=3.22.1",
+    "anthropic>=1.11.0",
+    "openai>=3.26.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "ddgs>=9.16.0",
     "fastapi>=0.142.2",
     "httpx>=0.27,<1",
-    "cryptography>=50.0.1",
+    "cryptography>=50.0.2",
     "uvicorn[standard]>=0.54.0",
     "loguru>=0.7",
     "playwright>=1.63.0",
@@ -30,7 +30,7 @@ dependencies = [
     "python-jenkins>=1.8",
     "python-multipart>=0.0.32",
     "python-telegram-bot>=22.8,<23",
-    "websockets>=17.1",
+    "websockets>=17.2",
     "qrcode[pil]>=8.2",
 ]
 
@@ -42,7 +42,7 @@ mem0 = [
     "mem0ai[nlp]>=2.2.1",
     "chromadb>=0.5",
     "sentence-transformers>=6.1.0",
-    "torch==2.14.0",
+    "torch==2.14.1",
     "spacy==3.8.13",
     "en-core-web-sm>=3.8.0",
 ]
@@ -52,8 +52,8 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-mock>=3.16.0",
-    "ruff>=0.16.9",
-    "mypy>=2.3.1",
+    "ruff>=0.16.10",
+    "mypy>=2.4.0",
 ]
 
 [project.scripts]
