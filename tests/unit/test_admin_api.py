@@ -3833,3 +3833,33 @@ def test_person_admin_errors(tmp_path):
         headers=headers,
     )
     assert invalid_merge.status_code == 400
+
+
+def test_web_search_config_is_hot_and_secrets_stay_masked(tmp_path):
+    client, config = _client(tmp_path)
+    headers = {"Authorization": "Bearer secret"}
+    snapshot = client.get("/api/admin/config", headers=headers).json()
+    assert "web_search" in snapshot["hot_reloadable"]
+    assert snapshot["config"]["web_search"]["strategy"] == "auto"
+    assert snapshot["config"]["web_search"]["bocha_api_key"] == ""
+    assert snapshot["secret_status"]["web_search.bocha_api_key"]["configured"] is False
+
+    switched = client.patch(
+        "/api/admin/config",
+        headers=headers,
+        json={
+            "changes": {"web_search": {"strategy": "fixed", "provider": "tavily"}},
+            "secrets": {"web_search.tavily_api_key": "tv-secret-key"},
+        },
+    )
+    assert switched.status_code == 200
+    assert switched.json()["applied_now"] == ["web_search"]
+    assert switched.json()["requires_restart"] == []
+    assert config.web_search.strategy == "fixed"
+    assert config.web_search.provider == "tavily"
+    assert config.web_search.tavily_api_key == "tv-secret-key"
+
+    masked = client.get("/api/admin/config", headers=headers).json()
+    assert masked["config"]["web_search"]["tavily_api_key"] == ""
+    assert masked["secret_status"]["web_search.tavily_api_key"]["last4"] == "-key"
+    assert masked["config"]["web_search"]["strategy"] == "fixed"

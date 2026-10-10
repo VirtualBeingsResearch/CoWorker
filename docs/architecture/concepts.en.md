@@ -57,7 +57,7 @@ internally by mem0, model providers, or other third-party libraries are not copi
 The following tools are registered by default at startup:
 
 - File tools: `read_file`, `write_file`, `list_directory`, `find_files`, `grep_files`
-- Web tools: `search_web`, `fetch_url`
+- Web tools: `search_web` (DDGS, Bocha, Zhipu, Qianfan, LinkAI, AnySearch, Serply, Tavily, SearXNG, and Keenable, switchable from the administration page), `fetch_url`
 - Browser tools: `browser_open`, `browser_screenshot`, `browser_action`, `browser_get_content`, `browser_close`, `browser_list_sessions`
 - Code tools: `execute_code`, `get_code_result`, `kill_code_job` (`execute_code` waits at most two seconds by default; `block=true` applies only in bubble context and is ignored on the main line. `get_code_result` returns only the current state and does not wait; a wait is done by calling `sleep` and retrying.)
 - Memory tools: `query_memory` (unified search: `query` searches long-term memory; `start`/`end` recall or filter a time window; `query` can be combined with `start`/`end`), `manage_memory`, `clear_short_term_memory` (manually compress all primary memory without deleting it), `manage_pinned_context`
@@ -95,7 +95,8 @@ coworker/
 │   ├── persona/             # Optional Person sub-mechanism: people, address bindings, cards
 │   ├── prompts/             # System prompt construction
 │   ├── skills/              # Skill-file scanning and loading
-│   └── tools/               # Tool implementations and registration
+│   ├── tools/               # Tool implementations and registration
+│   └── web_search/          # Web search backends
 ├── tests/                   # Unit tests
 └── data/                    # Runtime data, created or written after startup
     ├── inbox/               # Incoming file messages

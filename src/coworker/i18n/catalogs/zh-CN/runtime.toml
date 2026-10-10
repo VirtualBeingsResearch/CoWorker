@@ -208,6 +208,9 @@ reply = "[引用 {{sender}}]\n{{content}}\n"
 external_reply = "[外部引用，来源 {{sender}}]\n{{content}}\n"
 forwarded_from = "[转发自：{{sender}}]\n"
 
+[config.web_search]
+url_invalid = "搜索服务地址必须是 http 或 https URL"
+
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name 不能超过 80 个字符"
 bots_must_be_object = "Telegram bots 必须是以 instance_id 为键的对象"

@@ -3,8 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
+import httpx
+
+from coworker.core.config import Config
 from coworker.core.types import ToolResult
+from coworker.i18n import tr
 from coworker.tools.base import PAGE_CHAR_LIMIT, Tool, ToolDefinition, paginate_text
+from coworker.web_search import SearchError, provider_choices, run_search
 
 _WEB_TOOL_MAX_ATTEMPTS = 3
 _WEB_TOOL_RETRY_DELAYS = (0.5, 1.0)
@@ -22,6 +27,11 @@ async def _execute_with_retries(
     for attempt in range(max_attempts):
         try:
             return await action()
+        except SearchError as error:
+            last_error = error
+            if not error.retryable or attempt == max_attempts - 1:
+                break
+            await asyncio.sleep(retry_delays[min(attempt, len(retry_delays) - 1)])
         except Exception as e:
             last_error = e
             if attempt == max_attempts - 1:
@@ -29,36 +39,91 @@ async def _execute_with_retries(
             await asyncio.sleep(retry_delays[min(attempt, len(retry_delays) - 1)])
 
     assert last_error is not None
-    return ToolResult(
-        tool_call_id="",
-        content=f"{tool_name} failed after {max_attempts} attempts: {last_error}",
-        is_error=True,
-    )
+    if isinstance(last_error, SearchError):
+        content = str(last_error)
+    else:
+        content = tr(
+            "tool_result.web_search.failed",
+            tool=tool_name,
+            attempts=max_attempts,
+            error=last_error,
+        )
+    return ToolResult(tool_call_id="", content=content, is_error=True)
 
 
 class SearchWebTool(Tool):
+    def __init__(
+        self,
+        config: Config | None = None,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._config = config
+        self._client = client
+
     @property
     def definition(self) -> ToolDefinition:
-        return ToolDefinition(
+        definition = ToolDefinition(
             name="search_web",
-            description="搜索网络，返回相关结果摘要（支持多后端：bing/brave/duckduckgo/google）",
+            description="搜索互联网并返回结果摘要。",
             parameters={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "搜索关键词"},
-                    "max_results": {"type": "integer", "description": "最多返回结果数，默认 5", "default": 5},
+                    "query": {"type": "string", "description": "搜索关键词。"},
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最多返回的结果数，默认 5。",
+                        "default": 5,
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "description": (
+                            "时间范围：noLimit（默认）、oneDay、oneWeek、oneMonth、oneYear，"
+                            "或 2025-01-01..2025-02-01。部分后端会忽略。"
+                        ),
+                        "default": "noLimit",
+                    },
+                    "summary": {
+                        "type": "boolean",
+                        "description": "是否为每条结果附带更长摘要，默认 false。仅部分后端支持。",
+                        "default": False,
+                    },
+                    "provider": {
+                        "type": "string",
+                        "description": "可选的搜索后端。仅在自动模式且配置了多个后端时生效。",
+                    },
                 },
                 "required": ["query"],
             },
         )
+        choices = provider_choices(self._config)
+        properties = definition.parameters["properties"]
+        if choices is None:
+            properties.pop("provider", None)
+        else:
+            properties["provider"]["enum"] = choices
+        return definition
 
-    async def execute(self, query: str, max_results: int = 5, **_) -> ToolResult:
+    async def execute(
+        self,
+        query: str,
+        max_results: int = 5,
+        freshness: str = "noLimit",
+        summary: bool = False,
+        provider: str | None = None,
+        **_: object,
+    ) -> ToolResult:
         async def action() -> ToolResult:
-            from ddgs import DDGS
-
-            results = DDGS().text(query, max_results=max_results, backend="auto")
-            lines = [f"[{i+1}] {r['title']}\n{r['href']}\n{r['body']}" for i, r in enumerate(results)]
-            return ToolResult(tool_call_id="", content="\n\n".join(lines) or "No results found.")
+            content = await run_search(
+                self._config,
+                query=query,
+                max_results=max_results,
+                freshness=freshness,
+                summary=summary,
+                provider=provider,
+                client=self._client,
+            )
+            return ToolResult(tool_call_id="", content=content)
 
         return await _execute_with_retries(action, tool_name="search_web")
 
