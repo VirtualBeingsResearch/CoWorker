@@ -208,6 +208,9 @@ reply = "[Reply to {{sender}}]\n{{content}}\n"
 external_reply = "[External reply from {{sender}}]\n{{content}}\n"
 forwarded_from = "[Forwarded from: {{sender}}]\n"
 
+[config.web_search]
+url_invalid = "Search service addresses must be http or https URLs"
+
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name must not exceed 80 characters"
 bots_must_be_object = "Telegram bots must be an object keyed by instance_id"
