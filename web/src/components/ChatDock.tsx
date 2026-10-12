@@ -907,7 +907,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </form>
               <p className="chat-name-note">{t('名字会用于建立这次连接；资料和界面聊天副本保存在此浏览器。')}</p>
-              <p className="chat-name-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
+              <p className="chat-name-note">{t('通信令牌保存在此浏览器，关闭页面后仍然有效；清空并保存后才会移除。')}</p>
             </div>
           ) : isProfileEditorOpen ? (
             <div className="chat-profile-editor">
@@ -981,7 +981,7 @@ export function ChatDock({ counterpartName }: { counterpartName: string }) {
                 </button>
               </div>
               <p className="chat-profile-note">{t('此界面的聊天副本只保存在当前浏览器，不会同步到其他设备。')}</p>
-              <p className="chat-profile-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
+              <p className="chat-profile-note">{t('通信令牌保存在此浏览器，关闭页面后仍然有效；清空并保存后才会移除。')}</p>
             </div>
           ) : (
             <>

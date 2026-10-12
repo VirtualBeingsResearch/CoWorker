@@ -1,21 +1,39 @@
 export const COMMUNICATION_TOKEN_STORAGE_KEY = 'coworker-web-communication-token';
 const COMMUNICATION_TOKEN_CHANGE_EVENT = 'coworker-web-communication-token-change';
 
-export function readCommunicationToken(): string {
+function readStored(storage: Storage): string {
   try {
-    return window.sessionStorage.getItem(COMMUNICATION_TOKEN_STORAGE_KEY) || '';
+    return storage.getItem(COMMUNICATION_TOKEN_STORAGE_KEY) || '';
   } catch {
     return '';
   }
 }
 
-export function persistCommunicationToken(token: string) {
+function writeStored(storage: Storage, token: string): boolean {
   try {
-    if (token) window.sessionStorage.setItem(COMMUNICATION_TOKEN_STORAGE_KEY, token);
-    else window.sessionStorage.removeItem(COMMUNICATION_TOKEN_STORAGE_KEY);
+    if (token) storage.setItem(COMMUNICATION_TOKEN_STORAGE_KEY, token);
+    else storage.removeItem(COMMUNICATION_TOKEN_STORAGE_KEY);
+    return true;
   } catch {
-    // 敏感信息不落本地长期存储；无 sessionStorage 时仅保留在当前页面状态中。
+    return false;
   }
+}
+
+export function readCommunicationToken(): string {
+  const stored = readStored(window.localStorage);
+  if (stored) return stored;
+
+  // 旧版本只写 sessionStorage。读到后迁到 localStorage，关闭页面后仍可恢复。
+  const legacy = readStored(window.sessionStorage);
+  if (!legacy) return '';
+  if (writeStored(window.localStorage, legacy)) writeStored(window.sessionStorage, '');
+  return legacy;
+}
+
+export function persistCommunicationToken(token: string) {
+  const persisted = writeStored(window.localStorage, token);
+  if (persisted || !token) writeStored(window.sessionStorage, '');
+  else writeStored(window.sessionStorage, token);
   window.dispatchEvent(new CustomEvent(COMMUNICATION_TOKEN_CHANGE_EVENT, { detail: token }));
 }
 
