@@ -4,6 +4,7 @@ import {
   ADMIN_PASSWORD_AUTOCOMPLETE,
   ADMIN_USERNAME_AUTOCOMPLETE,
 } from '../lib/browserCredentials';
+import { clearAdminToken, persistAdminToken, readAdminToken } from '../lib/adminToken';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronLeft, ChevronRight, CircleGauge,
   Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
@@ -203,7 +204,7 @@ function logTimeInputValue(value: string): string {
   return editableLogTimeValue(toLocalDateTimeInput(value));
 }
 
-function storedToken() { return sessionStorage.getItem('coworker-admin-token') || ''; }
+function storedToken() { return readAdminToken(); }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
@@ -377,12 +378,12 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
   const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
-    sessionStorage.setItem('coworker-admin-token', token);
+    persistAdminToken(token);
     try {
       const result = await api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' });
       onReady(result);
     } catch (e) {
-      sessionStorage.removeItem('coworker-admin-token');
+      clearAdminToken();
       setError(e instanceof Error ? e.message : t('验证失败'));
     } finally { setBusy(false); }
   };
@@ -397,7 +398,7 @@ function Login({ onReady }: { onReady: (identity: AdminIdentity) => void }) {
           <p className="login-copy">{t('查看生命迹象，调整她的运行方式，并谨慎触碰记忆。')}</p>
         </div>
         <div className="login-life-trace" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /></div>
-        <div className="login-assurance"><span><i />{t('本地值守')}</span><span>{t('页面仅保留当前会话')}</span></div>
+        <div className="login-assurance"><span><i />{t('本地值守')}</span><span>{t('关闭页面后仍然保留')}</span></div>
       </div>
       <div className="login-access">
         <p className="access-step">{t('访问步骤 01')}</p>
@@ -1764,7 +1765,7 @@ function Settings() {
       })}</div></div>}
       {group === 'admin' ? <div className="admin-settings-status">
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
-        <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('页面只把令牌保存在 sessionStorage；若选择浏览器保存，则由密码管理器单独管理。')}</small></div></article></div>
+        <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('关闭页面后仍然有效')}</b><small>{t('管理员令牌保存在此浏览器，退出本次值守后才会移除。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
       </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{group === 'web_search' && <div className="config-section-heading"><div><b>{t('搜索后端')}</b><small>{t('自动模式按博查、千帆、智谱、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS 使用第一个已配置的后端。DDGS 不需要密钥。智谱搜索密钥留空时复用模型配置里的智谱 API Key。保存后立即生效。')}</small></div></div>}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
         const path = `${group}.${key}`;
@@ -4155,7 +4156,7 @@ export default function AdminApp() {
     if (!storedToken()) { setSessionChecked(true); return; }
     api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' })
       .then(result => { setIdentity(result); setReady(true); })
-      .catch(() => sessionStorage.removeItem('coworker-admin-token'))
+      .catch(() => clearAdminToken())
       .finally(() => setSessionChecked(true));
   }, []);
   useEffect(() => {
@@ -4297,7 +4298,7 @@ export default function AdminApp() {
       </nav>
       <div className="sidebar-foot">
         <span className="sidebar-presence"><i />{lifeLabel}</span>
-        <button type="button" onClick={() => { if (!confirmNavigation()) return; dirtyOwners.current.clear(); sessionStorage.removeItem('coworker-admin-token'); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
+        <button type="button" onClick={() => { if (!confirmNavigation()) return; dirtyOwners.current.clear(); clearAdminToken(); location.reload(); }}><LogOut size={16} /><span>{t('退出本次值守')}</span></button>
       </div>
     </aside>
     <section className="admin-main">
