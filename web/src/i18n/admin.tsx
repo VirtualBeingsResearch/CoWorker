@@ -1872,7 +1872,7 @@ const STATUS_ENGLISH_PHRASES: Record<string, string> = {
   '例如，小林': 'For example, Lin',
   '通信令牌（可选）': 'Communication token (optional)',
   'API__COMMUNICATION_TOKEN 或管理员令牌': 'API__COMMUNICATION_TOKEN or administrator token',
-  '页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。': 'The page keeps the communication token only for the current tab session; if you choose to save it in the browser, the password manager handles it separately.',
+  '通信令牌保存在此浏览器，关闭页面后仍然有效；清空并保存后才会移除。': 'The communication token stays in this browser after you close the page. Clear the field and save to remove it.',
   '开始对话': 'Start chatting',
   '名字会用于建立这次连接；资料和界面聊天副本保存在此浏览器。': 'Your name is used to establish this connection; your profile and chat copy stay in this browser.',
   '这个名字会显示在这里，并作为新 SSE 连接身份的一部分。': 'This name appears here and is part of the identity for a new SSE connection.',

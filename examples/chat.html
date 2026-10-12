@@ -444,6 +444,45 @@
   const STORAGE_KEY_TRANSPORT = "coworker_transport";
   const STORAGE_KEY_TOKEN = "coworker_chat_token";
 
+  function readStoredToken() {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_TOKEN) || "";
+      if (stored) return stored;
+    } catch {
+      // localStorage 不可用时继续尝试当前标签页会话。
+    }
+    try {
+      const legacy = sessionStorage.getItem(STORAGE_KEY_TOKEN) || "";
+      if (!legacy) return "";
+      try {
+        localStorage.setItem(STORAGE_KEY_TOKEN, legacy);
+        sessionStorage.removeItem(STORAGE_KEY_TOKEN);
+      } catch {
+        // 无法长期保存时，保留当前标签页里的旧值。
+      }
+      return legacy;
+    } catch {
+      return "";
+    }
+  }
+
+  function persistStoredToken(token) {
+    let persisted = false;
+    try {
+      if (token) localStorage.setItem(STORAGE_KEY_TOKEN, token);
+      else localStorage.removeItem(STORAGE_KEY_TOKEN);
+      persisted = true;
+    } catch {
+      // localStorage 不可用时退回当前标签页会话。
+    }
+    try {
+      if (persisted || !token) sessionStorage.removeItem(STORAGE_KEY_TOKEN);
+      else sessionStorage.setItem(STORAGE_KEY_TOKEN, token);
+    } catch {
+      // 两种存储都不可用时，令牌只留在当前页面输入框里。
+    }
+  }
+
   const messagesEl = document.getElementById("messages");
   const msgInput = document.getElementById("msgInput");
   const sendBtn = document.getElementById("sendBtn");
@@ -461,11 +500,7 @@
   serverInput.value = localStorage.getItem(STORAGE_KEY_SERVER) || "localhost:8000";
   userIdInput.value = localStorage.getItem(STORAGE_KEY_USER) || "user";
   transportSelect.value = localStorage.getItem(STORAGE_KEY_TRANSPORT) || "sse";  // 默认 SSE
-  try {
-    tokenInput.value = sessionStorage.getItem(STORAGE_KEY_TOKEN) || "";
-  } catch {
-    tokenInput.value = "";
-  }
+  tokenInput.value = readStoredToken();
 
   let ws = null;
   let es = null;            // SSE EventSource
@@ -855,13 +890,7 @@
   serverInput.addEventListener("change", reconnect);
   transportSelect.addEventListener("change", reconnect);
   tokenInput.addEventListener("change", () => {
-    try {
-      const token = tokenInput.value.trim();
-      if (token) sessionStorage.setItem(STORAGE_KEY_TOKEN, token);
-      else sessionStorage.removeItem(STORAGE_KEY_TOKEN);
-    } catch {
-      // 无 sessionStorage 时只在当前页面保留。
-    }
+    persistStoredToken(tokenInput.value.trim());
   });
 
   connect();

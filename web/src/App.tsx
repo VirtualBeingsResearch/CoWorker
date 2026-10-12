@@ -216,7 +216,7 @@ function StatusTokenControl({
             <button type="submit" className="status-token-save">{t('保存')}</button>
             <button type="button" className="status-token-clear" onClick={clear}>{t('清除')}</button>
           </div>
-          <p className="status-token-note">{t('页面仅在当前标签页会话中保留通信令牌；若选择浏览器保存，则由密码管理器单独管理。')}</p>
+          <p className="status-token-note">{t('通信令牌保存在此浏览器，关闭页面后仍然有效；清空并保存后才会移除。')}</p>
         </form>
       )}
     </div>
