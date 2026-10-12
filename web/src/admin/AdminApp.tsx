@@ -1244,6 +1244,11 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
     window.setTimeout(() => setCopyTokenState('idle'), 1600);
   };
   if (presentation.editor === 'locale') return <Field label={label} hint={presentation.hint} hot={hot}><select value={String(value)} onChange={event => change(event.target.value)}><option value="zh-CN">简体中文 (zh-CN)</option><option value="en">English (en)</option></select></Field>;
+  if (presentation.editor === 'choice') {
+    const choices = presentation.choices || [];
+    const current = String(value ?? '');
+    return <Field label={label} hint={presentation.hint} hot={hot}><select value={current} onChange={event => change(event.target.value)}>{!choices.some(choice => choice.value === current) && <option value={current}>{current}</option>}{choices.map(choice => <option key={choice.value || 'default'} value={choice.value}>{t(choice.label)}</option>)}</select></Field>;
+  }
   if (presentation.editor === 'fallback-list' || presentation.editor === 'cors-list' || presentation.editor === 'participant-list') return <Fragment>
     {presentation.editor === 'participant-list' && <div className="config-section-heading"><div><b>{t('泡泡接管提示')}</b><small>{t('控制哪些对话能看到泡泡接手、代答和归还；修改后需要安全重启。')}</small></div></div>}
     <StringListEditor label={label} hint={presentation.hint || ''} value={Array.isArray(value) ? value.map(String) : []} onChange={change} placeholder={presentation.placeholder || ''} />
@@ -1256,10 +1261,12 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
       ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' })
       : usesAdminToken
         ? t('当前使用管理员令牌；可设置独立令牌以隔离权限')
-        : t('当前未配置；请设置以保护 REST 消息、状态与 Desktop 通信');
+        : path.startsWith('web_search.')
+          ? t(presentation.hint || '当前未配置')
+          : t('当前未配置；请设置以保护 REST 消息、状态与 Desktop 通信');
     const placeholder = status.configured
       ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' })
-      : usesAdminToken ? t('留空继续使用管理员令牌') : t('输入新值（建议设置）');
+      : usesAdminToken ? t('留空继续使用管理员令牌') : path.startsWith('web_search.') ? t('输入 API Key') : t('输入新值（建议设置）');
     return <Field label={label} hot={hot} hint={hint}>
       <div className="secret-field-row">
         <input type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={placeholder} />
@@ -1299,7 +1306,7 @@ function ConfigurationField({ path, value, change, secretInputs, setSecretInputs
   return <Field label={label} hint="JSON 结构" hot={hot}><JsonEditor value={value} onChange={change} onValidityChange={valid => setJsonValidity(path, valid)} /></Field>;
 }
 
-const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
+const GROUP_LABELS: Record<string, string> = { llm: '模型与 Provider', i18n: '运行语言', memory: '记忆系统', agent: 'Agent 循环', web_search: '联网搜索', api: 'API 服务', wecom: '企业微信', desktop_updates: '桌面更新', admin: '管理端', ...settingsPanelLabels() };
 const HIDDEN_CONFIG = new Set(['admin.token', 'desktop_updates.admin_token', 'agent.system_prompt_template', 'agent.paused', 'api.communication_tokens']);
 const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   IDENTITY: '姓名、位置与人格身份',
@@ -1313,6 +1320,34 @@ const SYSTEM_PROMPT_VARIABLE_DESCRIPTIONS: Record<string, string> = {
   PALACES: '已加载 Palace 的可选注册表',
 };
 const LLM_MODEL_ORCHESTRATION_FIELDS = new Set(['summary_provider', 'summary_model', 'summary_thinking', 'fallbacks', 'vision_provider', 'vision_model', 'vision_thinking']);
+
+const WEB_SEARCH_FIELD_ORDER = [
+  'strategy',
+  'provider',
+  'timeout_seconds',
+  'ddgs_backend',
+  'bocha_api_key',
+  'zhipu_api_key',
+  'zhipu_api_base',
+  'zhipu_search_engine',
+  'zhipu_content_size',
+  'qianfan_api_key',
+  'qianfan_api_base',
+  'linkai_api_key',
+  'linkai_api_base',
+  'anysearch_api_key',
+  'anysearch_anonymous',
+  'anysearch_zone',
+  'anysearch_language',
+  'serply_api_key',
+  'tavily_api_key',
+  'tavily_search_depth',
+  'searxng_url',
+  'searxng_language',
+  'searxng_categories',
+  'keenable_api_key',
+  'keenable_anonymous',
+];
 
 const LLM_CONFIG_FIELD_ORDER = [
   'default_provider',
@@ -1333,10 +1368,11 @@ const LLM_CONFIG_FIELD_ORDER = [
 ];
 
 function orderedConfigEntries(group: string, value: Json): [string, unknown][] {
-  if (group !== 'llm' || !value || Array.isArray(value) || typeof value !== 'object') {
+  const order = group === 'llm' ? LLM_CONFIG_FIELD_ORDER : group === 'web_search' ? WEB_SEARCH_FIELD_ORDER : null;
+  if (!order || !value || Array.isArray(value) || typeof value !== 'object') {
     return Object.entries(value || {});
   }
-  const rank = new Map(LLM_CONFIG_FIELD_ORDER.map((key, index) => [key, index]));
+  const rank = new Map(order.map((key, index) => [key, index]));
   return Object.entries(value).sort(([left], [right]) => {
     const leftRank = rank.get(left) ?? Number.MAX_SAFE_INTEGER;
     const rightRank = rank.get(right) ?? Number.MAX_SAFE_INTEGER;
@@ -1632,6 +1668,31 @@ const CONFIG_LABELS: Record<string, string> = {
   'wecom.secret': '企业微信 Secret',
   'wecom.ws_url': '企业微信 WebSocket 地址',
   'weixin.enabled': '启用微信 Claw',
+  'web_search.strategy': '选择策略',
+  'web_search.provider': '固定后端',
+  'web_search.timeout_seconds': '请求超时（秒）',
+  'web_search.ddgs_backend': 'DDGS 引擎',
+  'web_search.bocha_api_key': '博查 API Key',
+  'web_search.zhipu_api_key': '智谱搜索 API Key',
+  'web_search.zhipu_api_base': '智谱搜索地址',
+  'web_search.zhipu_search_engine': '智谱搜索引擎',
+  'web_search.zhipu_content_size': '智谱摘要长度',
+  'web_search.qianfan_api_key': '千帆 API Key',
+  'web_search.qianfan_api_base': '千帆搜索地址',
+  'web_search.linkai_api_key': 'LinkAI API Key',
+  'web_search.linkai_api_base': 'LinkAI 地址',
+  'web_search.anysearch_api_key': 'AnySearch API Key',
+  'web_search.anysearch_anonymous': 'AnySearch 匿名访问',
+  'web_search.anysearch_zone': 'AnySearch 区域',
+  'web_search.anysearch_language': 'AnySearch 语言',
+  'web_search.serply_api_key': 'Serply API Key',
+  'web_search.tavily_api_key': 'Tavily API Key',
+  'web_search.tavily_search_depth': 'Tavily 搜索深度',
+  'web_search.searxng_url': 'SearXNG 地址',
+  'web_search.searxng_language': 'SearXNG 语言',
+  'web_search.searxng_categories': 'SearXNG 分类',
+  'web_search.keenable_api_key': 'Keenable API Key',
+  'web_search.keenable_anonymous': 'Keenable 匿名访问',
 };
 
 function Settings() {
@@ -1705,7 +1766,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('仅当前标签会话')}</b><small>{t('页面只把令牌保存在 sessionStorage；若选择浏览器保存，则由密码管理器单独管理。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{group === 'web_search' && <div className="config-section-heading"><div><b>{t('搜索后端')}</b><small>{t('自动模式按博查、千帆、智谱、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS 使用第一个已配置的后端。DDGS 不需要密钥。智谱搜索密钥留空时复用模型配置里的智谱 API Key。保存后立即生效。')}</small></div></div>}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'llm' && (key === 'providers_file' || LLM_MODEL_ORCHESTRATION_FIELDS.has(key) || /_(api_key|base_url)$/.test(key))) return null;

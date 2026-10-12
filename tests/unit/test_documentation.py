@@ -14,6 +14,7 @@ from coworker.core.config import (
     LLMConfig,
     MemoryConfig,
     TelegramConfig,
+    WebSearchConfig,
     WeComConfig,
     WeixinConfig,
 )
@@ -34,6 +35,7 @@ CONFIG_TYPES = {
     "I18N": I18NConfig,
     "MEMORY": MemoryConfig,
     "TELEGRAM": TelegramConfig,
+    "WEB_SEARCH": WebSearchConfig,
     "WECOM": WeComConfig,
     "WEIXIN": WeixinConfig,
 }

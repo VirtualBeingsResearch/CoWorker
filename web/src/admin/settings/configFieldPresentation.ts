@@ -1,10 +1,16 @@
 export type ConfigFieldEditor =
   | 'default'
   | 'locale'
+  | 'choice'
   | 'fallback-list'
   | 'cors-list'
   | 'participant-list'
   | 'transport-list';
+
+export type ConfigChoice = {
+  value: string;
+  label: string;
+};
 
 export type ConfigFieldPresentation = {
   editor: ConfigFieldEditor;
@@ -14,6 +20,7 @@ export type ConfigFieldPresentation = {
   minimum?: number;
   maximum?: number;
   step?: number | 'any';
+  choices?: ConfigChoice[];
 };
 
 const POSITIVE_INTEGER_FIELDS = new Set([
@@ -156,6 +163,105 @@ export function configFieldPresentation(
     return {
       editor: 'default',
       hint: 'Provider 连接没有单独指定模型时使用',
+    };
+  }
+  if (path === 'web_search.timeout_seconds') {
+    return {
+      editor: 'default',
+      minimum: 1,
+      maximum: 120,
+      step: 1,
+      hint: '单次搜索请求的超时秒数。',
+    };
+  }
+  if (path === 'web_search.strategy') {
+    return {
+      editor: 'choice',
+      hint: '自动使用第一个已配置的后端；固定则使用下方选择的后端。DDGS 始终可用。',
+      choices: [
+        { value: 'auto', label: '自动（按已配置后端）' },
+        { value: 'fixed', label: '固定后端' },
+      ],
+    };
+  }
+  if (path === 'web_search.provider') {
+    return {
+      editor: 'choice',
+      hint: '仅在策略为固定后端时使用。',
+      choices: [
+        { value: 'ddgs', label: 'DDGS' },
+        { value: 'bocha', label: 'Bocha 博查' },
+        { value: 'zhipu', label: 'Zhipu 智谱' },
+        { value: 'qianfan', label: 'Qianfan 千帆' },
+        { value: 'linkai', label: 'LinkAI' },
+        { value: 'anysearch', label: 'AnySearch' },
+        { value: 'serply', label: 'Serply' },
+        { value: 'tavily', label: 'Tavily' },
+        { value: 'searxng', label: 'SearXNG' },
+        { value: 'keenable', label: 'Keenable' },
+      ],
+    };
+  }
+  if (path === 'web_search.ddgs_backend') {
+    return {
+      editor: 'choice',
+      hint: 'DDGS 内部引擎。auto 由库自行选择。',
+      choices: ['auto', 'bing', 'brave', 'duckduckgo', 'google', 'grokipedia', 'mojeek', 'startpage', 'yandex', 'yahoo', 'wikipedia']
+        .map(value => ({ value, label: value })),
+    };
+  }
+  if (path === 'web_search.zhipu_search_engine') {
+    return {
+      editor: 'choice',
+      choices: [
+        { value: 'search_pro', label: 'search_pro' },
+        { value: 'search_std', label: 'search_std' },
+        { value: 'search_pro_sogou', label: 'search_pro_sogou' },
+        { value: 'search_pro_quark', label: 'search_pro_quark' },
+      ],
+    };
+  }
+  if (path === 'web_search.zhipu_content_size') {
+    return {
+      editor: 'choice',
+      hint: '控制智谱返回摘要的长度。',
+      choices: [
+        { value: '', label: '默认' },
+        { value: 'medium', label: 'medium' },
+        { value: 'high', label: 'high' },
+      ],
+    };
+  }
+  if (path === 'web_search.tavily_search_depth') {
+    return {
+      editor: 'choice',
+      choices: [
+        { value: 'basic', label: 'basic' },
+        { value: 'advanced', label: 'advanced' },
+      ],
+    };
+  }
+  if (path === 'web_search.anysearch_zone') {
+    return {
+      editor: 'choice',
+      choices: [
+        { value: '', label: '默认' },
+        { value: 'cn', label: 'cn' },
+        { value: 'intl', label: 'intl' },
+      ],
+    };
+  }
+  if (path === 'web_search.zhipu_api_key') {
+    return { editor: 'default', hint: '留空时复用模型配置中的智谱 API Key。' };
+  }
+  if (path === 'web_search.anysearch_anonymous' || path === 'web_search.keenable_anonymous') {
+    return { editor: 'default', hint: '开启后可以不填密钥，使用对方的匿名额度。' };
+  }
+  if (path === 'web_search.searxng_url' || path.endsWith('_api_base')) {
+    return {
+      editor: 'default',
+      inputType: 'url',
+      hint: path === 'web_search.searxng_url' ? '自托管 SearXNG 的根地址，不需要密钥。' : '留空时使用厂商默认地址。',
     };
   }
   if (path === 'api.public_url') {

@@ -1162,6 +1162,9 @@ class TestSearchWebTool:
         calls = {"count": 0}
 
         class FakeDDGS:
+            def __init__(self, *args, **kwargs):
+                pass
+
             def text(self, query, max_results, backend):
                 calls["count"] += 1
                 if calls["count"] < 3:
@@ -1189,6 +1192,9 @@ class TestSearchWebTool:
         calls = {"count": 0}
 
         class FakeDDGS:
+            def __init__(self, *args, **kwargs):
+                pass
+
             def text(self, query, max_results, backend):
                 calls["count"] += 1
                 raise RuntimeError("permanent failure")
@@ -1205,7 +1211,7 @@ class TestSearchWebTool:
         result = await tool.execute(query="test")
 
         assert result.is_error
-        assert "failed after 3 attempts" in result.content
+        assert "search_web 在 3 次尝试后失败" in result.content
         assert "permanent failure" in result.content
         assert calls["count"] == 3
         assert sleep_calls == [0.5, 1.0]
@@ -1260,7 +1266,7 @@ class TestFetchURLTool:
         result = await tool.execute(url="https://example.com")
 
         assert result.is_error
-        assert "failed after 3 attempts" in result.content
+        assert "fetch_url 在 3 次尝试后失败" in result.content
         assert "permanent fetch failure" in result.content
         assert calls["count"] == 3
         assert sleep_calls == [0.5, 1.0]

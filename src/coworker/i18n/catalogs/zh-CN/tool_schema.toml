@@ -47,7 +47,7 @@ clear_short_term_memory = "压缩并清理短期记忆。"
 sleep = "休眠指定秒数，期间仍可被新消息或闹钟唤醒。"
 view_image = "加载图片并直接放入视觉模型上下文。"
 visual_analyze = "使用视觉模型分析图片或视频；结果会返回发起调用的线程。"
-search_web = "搜索互联网并返回结果摘要。"
+search_web = "搜索互联网并返回结果摘要。可使用 DDGS、博查、智谱、千帆、LinkAI、AnySearch、Serply、Tavily、SearXNG 或 Keenable；未配置密钥时使用 DDGS。"
 fetch_url = "获取 URL 的正文内容。"
 
 [tool_schema.parameter.set_alarm]
@@ -249,6 +249,9 @@ question = "关于图片或视频需要分析、识别或推理的具体问题�
 [tool_schema.parameter.search_web]
 query = "搜索关键词。"
 max_results = "最多返回的结果数，默认 5。"
+freshness = "时间范围：noLimit（默认）、oneDay、oneWeek、oneMonth、oneYear，或 2025-01-01..2025-02-01。部分后端会忽略。"
+summary = "是否为每条结果附带更长摘要，默认 false。仅部分后端支持。"
+provider = "可选的搜索后端。仅在自动模式且配置了多个后端时生效。"
 
 [tool_schema.parameter.fetch_url]
 url = "要获取的 URL。"
