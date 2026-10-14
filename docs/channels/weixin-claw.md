@@ -99,6 +99,6 @@ weixin:control
 
 当前微信 Claw 入站会提取文本和语音转写；图片、文件和视频在访问控制通过后从微信 CDN 下载、用消息自带的 AES key 解密，并作为附件交给 Agent（消息文本中仍保留对应的占位说明）。语音消息不经过 CDN 下载，仅使用其转写文本。单个附件的下载上限由 `weixin.max_download_mb`（环境变量 `WEIXIN__MAX_DOWNLOAD_MB`，默认 200 MB，最高 10 GB，可在 `/admin` 微信设置页调整）配置；超过上限时入站内容会标注附件大小与当前上限，下载或解密失败时标明对应附件未随消息交付，底层错误只写入运行日志，不会向 Agent 暴露下载 URL、AES key 或异常详情，当前消息也不会被丢弃。
 
-出站可以发送文本，以及图片、视频和普通文件。`communicate` 的 `attachments` 使用 `type: image` 或 `type: file`，并给出本地 `path`。图片按图片消息上传；视频按 MIME 类型或扩展名识别后按视频消息上传（`type` 仍为 `file`）；其余按文件消息上传。正文和每个附件各调用一次 `sendmessage`。上传前用 AES-128-ECB 与 PKCS7 加密，经 `getuploadurl` 取得 CDN 地址后 POST 密文，再把响应头 `x-encrypted-param` 写入媒体项。单个附件的上传上限由 `weixin.max_upload_mb`（环境变量 `WEIXIN__MAX_UPLOAD_MB`，默认 200 MB，最高 10 GB，可在 `/admin` 微信设置页调整）配置。上传失败时不会把 CDN 地址、AES key 或底层异常详情交给 Agent；若正文或前面的附件已经发出，结果会标明从哪一个附件起未送达。
+出站可以发送文本，以及图片、视频和普通文件。`communicate` 的 `attachments` 使用 `type: image` 或 `type: file`，并给出本地 `path`。图片按图片消息上传；视频按 MIME 类型或扩展名识别后按视频消息上传（`type` 仍为 `file`）；其余按文件消息上传。正文会立刻通过 `sendmessage` 发出。附件在后台上传，不会卡住当前操作：微信聊天里会先收到“正在上传”，成功或失败后再收到一条结果，Agent 也会收到对应的上传状态。上传前用 AES-128-ECB 与 PKCS7 加密，经 `getuploadurl` 取得 CDN 地址后 POST 密文，再把响应头 `x-encrypted-param` 写入媒体项。单个附件的上传上限由 `weixin.max_upload_mb`（环境变量 `WEIXIN__MAX_UPLOAD_MB`，默认 200 MB，最高 10 GB，可在 `/admin` 微信设置页调整）配置。单次 CDN 上传的等待上限由 `weixin.upload_timeout_seconds`（环境变量 `WEIXIN__UPLOAD_TIMEOUT_SECONDS`，默认 300 秒，范围 1–3600，同样可在 `/admin` 调整）配置；传输失败最多重试 3 次。上传失败时不会把 CDN 地址、AES key 或底层异常详情交给 Agent。未能通过本地检查的附件不会开始上传；已经发出的正文和已经开始的上传不要重发。
 
 协议兼容以腾讯的 [openclaw-weixin](https://github.com/Tencent/openclaw-weixin) 实现为参考。

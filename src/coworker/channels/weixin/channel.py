@@ -9,9 +9,8 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
-from coworker.channels.progress import attachment_display_name
 from coworker.channels.weixin.connections import WeixinConnectionManager
-from coworker.channels.weixin.runner import WeixinPartialDelivery, WeixinRunner
+from coworker.channels.weixin.runner import WeixinOutboundStart, WeixinRunner
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
@@ -47,27 +46,17 @@ class WeixinChannel(BaseChannel):
         if not request.message.strip() and not request.attachments:
             return self._error(tr("tool_result.communicate.message_empty"))
         try:
-            await self._runner.send(
+            started = await self._runner.send(
                 request.participant_id,
                 request.message,
                 request.attachments,
-            )
-        except WeixinPartialDelivery as interrupted:
-            return ToolResult(
-                tool_call_id="",
-                content=_partial_note(request, interrupted),
+                conversation_id=request.conversation_id,
             )
         except Exception as error:
             return self._error(
                 tr("tool_result.communicate.weixin_failed", error=error)
             )
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.communicate.weixin_sent",
-                participant=request.participant_id,
-            ),
-        )
+        return _upload_result(request, started)
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
         if participant_id == CONTROL_PARTICIPANT_ID:
@@ -229,27 +218,39 @@ class WeixinChannel(BaseChannel):
         return ToolResult(tool_call_id="", content=content, is_error=True)
 
 
-def _partial_note(request: CommunicateRequest, interrupted: WeixinPartialDelivery) -> str:
-    chunks_total = 1 if request.message.strip() else 0
-    chunks_sent = 1 if interrupted.text_sent else 0
-    if chunks_sent < chunks_total:
-        preview = " ".join(request.message.split())
-        if len(preview) > 60:
-            preview = f"{preview[:60]}…"
-        cut = tr("tool_result.communicate.cut_at_text", preview=preview)
-    else:
-        attachment = request.attachments[interrupted.attachments_sent]
-        cut = tr(
-            "tool_result.communicate.cut_at_attachment",
-            filename=attachment_display_name(attachment),
+def _upload_result(request: CommunicateRequest, started: WeixinOutboundStart) -> ToolResult:
+    if not started.text_sent and not started.started:
+        detail = _rejection_details(started.rejected) or tr("channel.weixin.delivery_failed")
+        return ToolResult(
+            tool_call_id="",
+            content=tr("tool_result.communicate.weixin_failed", error=detail),
+            is_error=True,
         )
-    return tr(
-        "tool_result.communicate.weixin_sent_partial",
-        participant=request.participant_id,
-        chunks_sent=chunks_sent,
-        chunks_total=chunks_total,
-        attachments_sent=interrupted.attachments_sent,
-        attachments_total=interrupted.attachments_total,
-        cut=cut,
-        error=interrupted.error,
-    )
+    parts: list[str] = []
+    if started.text_sent:
+        parts.append(
+            tr(
+                "tool_result.communicate.weixin_sent",
+                participant=request.participant_id,
+            )
+        )
+    if started.started:
+        parts.append(
+            tr(
+                "tool_result.communicate.weixin_upload_started",
+                participant=request.participant_id,
+                filenames=", ".join(started.started),
+            )
+        )
+    if started.rejected:
+        parts.append(
+            tr(
+                "tool_result.communicate.weixin_upload_rejected",
+                details=_rejection_details(started.rejected),
+            )
+        )
+    return ToolResult(tool_call_id="", content="\n".join(parts))
+
+
+def _rejection_details(rejected: tuple[tuple[str, str], ...]) -> str:
+    return "; ".join(f"{name} ({error})" for name, error in rejected)

@@ -241,6 +241,7 @@ previews the full section and body rendered by the currently running instance.
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | Per-attachment download limit in MB for Weixin Claw inbound images, files, and video; oversized items are skipped and noted with their size and the limit. Range 1–10000 |
 | `WEIXIN__MAX_UPLOAD_MB` | `200` | Per-attachment upload limit in MB for Weixin Claw outbound images, video, and files; oversized items are rejected. Range 1–10000 |
+| `WEIXIN__UPLOAD_TIMEOUT_SECONDS` | `300` | Per-attempt CDN upload wait in seconds for one Weixin Claw attachment; transport failures retry up to 3 times. Range 1–3600 |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
 corresponds to the origin the browser actually opens, such as

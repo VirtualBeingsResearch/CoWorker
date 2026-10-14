@@ -237,6 +237,11 @@ export function WeixinSettingsPanel({ value, change, apply, dirty, saving, reque
         <input className="admin-input" type="number" min="1" max="10000" step="1" aria-label={t('上传上限（MB）')} value={value.max_upload_mb ?? 200} onChange={event => change('max_upload_mb', Number(event.target.value))} />
         <small>{t('出站图片、视频和普通文件单个附件的上传上限；超过时拒绝发送，范围 1–10000。')}</small>
       </label>
+      <label>
+        <span>{t('上传超时（秒）')}</span>
+        <input className="admin-input" type="number" min="1" max="3600" step="1" aria-label={t('上传超时（秒）')} value={value.upload_timeout_seconds ?? 300} onChange={event => change('upload_timeout_seconds', Number(event.target.value))} />
+        <small>{t('单个附件每次 CDN 上传的等待上限；传输失败最多重试 3 次，范围 1–3600。')}</small>
+      </label>
     </section>
     <div className="weixin-account-list">{connections.length ? connections.map((connection: Json) => <article key={connection.bot_instance_id}>
       <div className="weixin-account-mark"><UserRound size={18} /></div>

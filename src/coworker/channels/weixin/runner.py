@@ -8,6 +8,7 @@ import os
 import secrets
 import tempfile
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -21,6 +22,7 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
+from coworker.channels.progress import attachment_display_name
 from coworker.channels.weixin.client import (
     DEFAULT_BASE_URL,
     DEFAULT_CDN_BASE_URL,
@@ -48,7 +50,7 @@ from coworker.channels.weixin.state import (
 )
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
-from coworker.i18n import tr
+from coworker.i18n import bind_locale, tr
 
 if TYPE_CHECKING:
     from coworker.core.config import WeixinConfig
@@ -87,22 +89,21 @@ class _MediaRef:
     filename: str = ""
 
 
-class WeixinPartialDelivery(Exception):
-    """Some of a reply already reached Weixin before a later piece failed."""
+@dataclass(frozen=True)
+class _PreparedUpload:
+    path: Path
+    filename: str
+    declared: str
+    media_type: str
 
-    def __init__(
-        self,
-        *,
-        text_sent: bool,
-        attachments_sent: int,
-        attachments_total: int,
-        error: str,
-    ) -> None:
-        super().__init__(error)
-        self.text_sent = text_sent
-        self.attachments_sent = attachments_sent
-        self.attachments_total = attachments_total
-        self.error = error
+
+@dataclass(frozen=True)
+class WeixinOutboundStart:
+    """What communicate already finished before attachment uploads continue."""
+
+    text_sent: bool
+    started: tuple[str, ...]
+    rejected: tuple[tuple[str, str], ...]
 
 
 class WeixinRunner:
@@ -131,6 +132,7 @@ class WeixinRunner:
         self._inbound_handler: InboundHandler | None = None
         self._clients: dict[str, WeixinClient] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._upload_tasks: set[asyncio.Task[None]] = set()
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._active_accounts: set[str] = set()
@@ -159,7 +161,13 @@ class WeixinRunner:
     async def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        await self._cancel_upload_tasks()
         await self._close_login_sessions()
+
+    async def drain_uploads(self) -> None:
+        """Wait until attachment uploads scheduled by :meth:`send` finish."""
+        while self._upload_tasks:
+            await asyncio.gather(*tuple(self._upload_tasks))
 
     async def reconfigure(self, config: WeixinConfig) -> None:
         if self._config == config:
@@ -188,7 +196,9 @@ class WeixinRunner:
         participant_id: str,
         message: str,
         attachments: list[dict[str, Any]] | None = None,
-    ) -> None:
+        *,
+        conversation_id: str | None = None,
+    ) -> WeixinOutboundStart:
         bot_instance_id = self._parse_participant(participant_id)
         connection = self._connection(bot_instance_id)
         state = self._connection_state(bot_instance_id)
@@ -196,39 +206,46 @@ class WeixinRunner:
         if not user_id:
             raise ValueError(f"Weixin recipient is unavailable: {bot_instance_id}")
         context_token = state.context_tokens.get(user_id, "")
-        client = self._clients.get(bot_instance_id)
-        temporary = client is None
-        client = client or WeixinClient(connection.base_url, connection.token)
-        text_sent = False
-        attachments_sent = 0
-        pending = list(attachments or [])
+        existing = self._clients.get(bot_instance_id)
+        owns_client = existing is None
+        client = existing or WeixinClient(connection.base_url, connection.token)
         try:
-            try:
-                if message.strip():
-                    await client.send_text(user_id, message, context_token)
-                    text_sent = True
-                    self._activity.record_sent(participant_id)
-                for attachment in pending:
-                    await self._send_attachment(
-                        client,
-                        user_id,
-                        context_token,
-                        attachment,
+            text_sent = False
+            if message.strip():
+                await client.send_text(user_id, message, context_token)
+                text_sent = True
+                self._activity.record_sent(participant_id)
+            prepared: list[_PreparedUpload] = []
+            rejected: list[tuple[str, str]] = []
+            for attachment in attachments or []:
+                try:
+                    prepared.append(self._prepare_upload(attachment))
+                except Exception as error:
+                    rejected.append(
+                        (
+                            attachment_display_name(attachment),
+                            _safe_delivery_error(error),
+                        )
                     )
-                    attachments_sent += 1
-                    self._activity.record_sent(participant_id)
-            except Exception as error:
-                safe = _safe_delivery_error(error)
-                if text_sent or attachments_sent:
-                    raise WeixinPartialDelivery(
-                        text_sent=text_sent,
-                        attachments_sent=attachments_sent,
-                        attachments_total=len(pending),
-                        error=safe,
-                    ) from None
-                raise WeixinDeliveryError(safe) from None
+            if prepared:
+                self._schedule_upload(
+                    client,
+                    owns_client=owns_client,
+                    participant_id=participant_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    context_token=context_token,
+                    prepared=tuple(prepared),
+                    timeout=float(self._config.upload_timeout_seconds),
+                )
+                owns_client = False
+            return WeixinOutboundStart(
+                text_sent=text_sent,
+                started=tuple(item.filename for item in prepared),
+                rejected=tuple(rejected),
+            )
         finally:
-            if temporary:
+            if owns_client:
                 await client.close()
 
     def resolve_participant(self, participant_id: str) -> str | None:
@@ -328,7 +345,16 @@ class WeixinRunner:
             )
             self._tasks[connection.bot_instance_id] = task
 
+    async def _cancel_upload_tasks(self) -> None:
+        tasks = tuple(self._upload_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._upload_tasks.clear()
+
     async def _cancel_account_tasks(self) -> None:
+        await self._cancel_upload_tasks()
         tasks = list(self._tasks.values())
         self._tasks.clear()
         for task in tasks:
@@ -550,13 +576,7 @@ class WeixinRunner:
             else None,
         )
 
-    async def _send_attachment(
-        self,
-        client: WeixinClient,
-        user_id: str,
-        context_token: str,
-        attachment: dict[str, Any],
-    ) -> None:
+    def _prepare_upload(self, attachment: dict[str, Any]) -> _PreparedUpload:
         declared = _declared_attachment_type(attachment)
         path = _attachment_path(attachment)
         limit = self._config.max_upload_mb * 1024 * 1024
@@ -570,8 +590,148 @@ class WeixinRunner:
                     limit=limit,
                 )
             )
-        rawfilemd5, rawsize = _md5_and_size(path, limit)
-        kind = _outbound_kind(declared, attachment, path)
+        return _PreparedUpload(
+            path=path,
+            filename=safe_filename(str(attachment.get("filename") or path.name)),
+            declared=declared,
+            media_type=str(attachment.get("media_type") or ""),
+        )
+
+    def _schedule_upload(
+        self,
+        client: WeixinClient,
+        *,
+        owns_client: bool,
+        participant_id: str,
+        conversation_id: str | None,
+        user_id: str,
+        context_token: str,
+        prepared: tuple[_PreparedUpload, ...],
+        timeout: float,
+    ) -> None:
+        task = asyncio.create_task(
+            bind_locale(
+                partial(
+                    self._upload_batch,
+                    client,
+                    owns_client=owns_client,
+                    participant_id=participant_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    context_token=context_token,
+                    prepared=prepared,
+                    timeout=timeout,
+                )
+            ),
+            name=f"weixin-upload-{participant_id}",
+        )
+        self._upload_tasks.add(task)
+        task.add_done_callback(self._upload_tasks.discard)
+
+    async def _upload_batch(
+        self,
+        client: WeixinClient,
+        *,
+        owns_client: bool,
+        participant_id: str,
+        conversation_id: str | None,
+        user_id: str,
+        context_token: str,
+        prepared: tuple[_PreparedUpload, ...],
+        timeout: float,
+    ) -> None:
+        try:
+            announced: list[_PreparedUpload] = []
+            for item in prepared:
+                notice = tr(
+                    "channel.weixin.upload_started_notice",
+                    filename=item.filename,
+                )
+                try:
+                    await client.send_text(user_id, notice, context_token)
+                    self._activity.record_sent(participant_id)
+                except Exception as error:
+                    failed = tr(
+                        "channel.weixin.upload_failed_notice",
+                        filename=item.filename,
+                        error=_safe_delivery_error(error),
+                    )
+                    await self._push_upload_status(
+                        participant_id,
+                        conversation_id,
+                        failed,
+                    )
+                    continue
+                announced.append(item)
+            for item in announced:
+                await self._finish_upload(
+                    client,
+                    item,
+                    participant_id=participant_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    context_token=context_token,
+                    timeout=timeout,
+                )
+        finally:
+            if owns_client:
+                await client.close()
+
+    async def _finish_upload(
+        self,
+        client: WeixinClient,
+        item: _PreparedUpload,
+        *,
+        participant_id: str,
+        conversation_id: str | None,
+        user_id: str,
+        context_token: str,
+        timeout: float,
+    ) -> None:
+        try:
+            await self._upload_prepared(
+                client,
+                user_id,
+                context_token,
+                item,
+                timeout,
+            )
+        except Exception as error:
+            notice = tr(
+                "channel.weixin.upload_failed_notice",
+                filename=item.filename,
+                error=_safe_delivery_error(error),
+            )
+        else:
+            self._activity.record_sent(participant_id)
+            notice = tr(
+                "channel.weixin.upload_succeeded_notice",
+                filename=item.filename,
+            )
+        await self._send_status_text(
+            client,
+            user_id,
+            context_token,
+            participant_id,
+            notice,
+        )
+        await self._push_upload_status(participant_id, conversation_id, notice)
+
+    async def _upload_prepared(
+        self,
+        client: WeixinClient,
+        user_id: str,
+        context_token: str,
+        item: _PreparedUpload,
+        timeout: float,
+    ) -> None:
+        limit = self._config.max_upload_mb * 1024 * 1024
+        rawfilemd5, rawsize = await asyncio.to_thread(_md5_and_size, item.path, limit)
+        kind = _outbound_kind(
+            item.declared,
+            {"filename": item.filename, "media_type": item.media_type},
+            item.path,
+        )
         ciphertext_size = aes_ecb_padded_size(rawsize)
         key = secrets.token_bytes(16)
         filekey = secrets.token_hex(16)
@@ -585,19 +745,25 @@ class WeixinRunner:
             aeskey_hex=key.hex(),
             cdn_base_url=DEFAULT_CDN_BASE_URL,
         )
-        ciphertext_path: Path | None = None
+        descriptor, name = tempfile.mkstemp(prefix="coworker-weixin-")
+        os.close(descriptor)
+        ciphertext_path = Path(name)
         try:
-            descriptor, name = tempfile.mkstemp(prefix="coworker-weixin-")
-            os.close(descriptor)
-            ciphertext_path = Path(name)
-            written = encrypt_aes_ecb_file(path, ciphertext_path, key)
+            written = await asyncio.to_thread(
+                encrypt_aes_ecb_file,
+                item.path,
+                ciphertext_path,
+                key,
+            )
             if written != ciphertext_size:
                 raise WeixinDeliveryError(tr("channel.weixin.upload_failed"))
-            download_param = await client.upload_ciphertext(upload_url, ciphertext_path)
+            download_param = await client.upload_ciphertext(
+                upload_url,
+                ciphertext_path,
+                timeout=timeout,
+            )
         finally:
-            if ciphertext_path is not None:
-                ciphertext_path.unlink(missing_ok=True)
-        filename = safe_filename(str(attachment.get("filename") or path.name))
+            ciphertext_path.unlink(missing_ok=True)
         await client.send_item(
             user_id,
             _outbound_item(
@@ -606,10 +772,55 @@ class WeixinRunner:
                 key,
                 rawsize,
                 ciphertext_size,
-                filename,
+                item.filename,
             ),
             context_token,
         )
+
+    async def _send_status_text(
+        self,
+        client: WeixinClient,
+        user_id: str,
+        context_token: str,
+        participant_id: str,
+        notice: str,
+    ) -> None:
+        try:
+            await client.send_text(user_id, notice, context_token)
+        except Exception as error:
+            logger.warning(
+                tr(
+                    "channel.weixin.upload_status_delivery_failed",
+                    error_type=type(error).__name__,
+                )
+            )
+            return
+        self._activity.record_sent(participant_id)
+
+    async def _push_upload_status(
+        self,
+        participant_id: str,
+        conversation_id: str | None,
+        notice: str,
+    ) -> None:
+        if self._inbound_handler is None:
+            return
+        try:
+            await self._inbound_handler(
+                IncomingEvent(
+                    participant_id=participant_id,
+                    content=tr("channel.weixin.upload_status", notice=notice),
+                    conversation_id=conversation_id,
+                    source="weixin_upload",
+                )
+            )
+        except Exception as error:
+            logger.warning(
+                tr(
+                    "channel.weixin.upload_status_delivery_failed",
+                    error_type=type(error).__name__,
+                )
+            )
 
     def _reserve_attachment_path(self, filename: str) -> Path:
         while True:

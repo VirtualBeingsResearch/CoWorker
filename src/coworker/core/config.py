@@ -910,6 +910,7 @@ class WeixinConfig(_EnvSettings):
     enabled: bool = True
     max_download_mb: int = Field(default=200, ge=1, le=10000)
     max_upload_mb: int = Field(default=200, ge=1, le=10000)
+    upload_timeout_seconds: int = Field(default=300, ge=1, le=3600)
 
 
 class TelegramBotConfig(BaseModel):

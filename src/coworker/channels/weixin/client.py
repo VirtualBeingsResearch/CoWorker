@@ -25,7 +25,6 @@ DEFAULT_BOT_TYPE = "3"
 DEFAULT_LONG_POLL_TIMEOUT_SECONDS = 35.0
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 _UPLOAD_ATTEMPTS = 3
-_UPLOAD_TIMEOUT_SECONDS = 300.0
 _ILINK_APP_ID = "bot"
 _MESSAGE_TYPE_BOT = 2
 _MESSAGE_STATE_FINISH = 2
@@ -204,12 +203,18 @@ class WeixinClient:
         )
         raise WeixinDeliveryError(tr("channel.weixin.upload_failed"))
 
-    async def upload_ciphertext(self, url: str, ciphertext: Path) -> str:
+    async def upload_ciphertext(
+        self,
+        url: str,
+        ciphertext: Path,
+        *,
+        timeout: float,
+    ) -> str:
         """POST one encrypted file and return the CDN ``x-encrypted-param`` value.
 
-        Client errors (HTTP 4xx) abort immediately. Other failures are tried
-        up to three times. The upload URL and response parameter stay out of
-        exceptions and logs.
+        ``timeout`` is the wait for one POST. Client errors (HTTP 4xx) abort
+        immediately. Other failures are tried up to three times. The upload
+        URL and response parameter stay out of exceptions and logs.
         """
         size = ciphertext.stat().st_size
         for attempt in range(1, _UPLOAD_ATTEMPTS + 1):
@@ -221,7 +226,7 @@ class WeixinClient:
                         "Content-Type": "application/octet-stream",
                         "Content-Length": str(size),
                     },
-                    timeout=_UPLOAD_TIMEOUT_SECONDS,
+                    timeout=timeout,
                 )
             except httpx.HTTPError:
                 logger.warning(

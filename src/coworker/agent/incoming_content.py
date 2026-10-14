@@ -27,6 +27,7 @@ _SELF_DESCRIBING_SOURCES = {
     "task_reminder",
     "progress_reminder",
     "progress_expired",
+    "weixin_upload",
 }
 
 # 系统通知：participant_id 是占位符，但 content 不一定自带来源标记
