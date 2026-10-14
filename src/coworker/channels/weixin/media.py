@@ -1,10 +1,11 @@
-"""Inbound media helpers for the Weixin ClawBot CDN.
+"""Media helpers for the Weixin ClawBot CDN.
 
 The crypto and key-encoding rules mirror Tencent's official
 ``@tencent-weixin/openclaw-weixin`` package: CDN payloads are AES-128-ECB
 encrypted with PKCS7 padding, and a media item carries its key either as
 ``image_item.aeskey`` (raw 32-char hex) or ``*.media.aes_key`` (base64 of
-16 raw bytes, or base64 of a 32-char hex string).
+16 raw bytes, or base64 of a 32-char hex string). Outbound senders publish
+the key as base64 of that 32-character hex text.
 """
 
 from __future__ import annotations
@@ -122,6 +123,56 @@ def _is_hex(value: bytes) -> bool:
     except (ValueError, UnicodeDecodeError):
         return False
     return True
+
+
+def aes_ecb_padded_size(plaintext_size: int) -> int:
+    """Return the AES-128-ECB ciphertext size after PKCS7 padding."""
+    if plaintext_size < 0:
+        raise WeixinMediaError(
+            f"plaintext size must be non-negative, got {plaintext_size}"
+        )
+    return ((plaintext_size + 16) // 16) * 16
+
+
+def encode_outbound_aes_key(key: bytes) -> str:
+    """Encode a raw AES key the way the official file sender does.
+
+    The sender base64-encodes the 32-character hex text, not the raw 16 bytes.
+    :func:`resolve_media_key` accepts that form on the way back in.
+    """
+    _require_aes_key(key)
+    return base64.b64encode(key.hex().encode("ascii")).decode("ascii")
+
+
+def encrypt_aes_ecb(plaintext: bytes, key: bytes) -> bytes:
+    """Encrypt bytes with AES-128-ECB and PKCS7 padding."""
+    _require_aes_key(key)
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
+
+
+def encrypt_aes_ecb_file(source: Path, destination: Path, key: bytes) -> int:
+    """Stream-encrypt an AES-128-ECB file to ``destination``; return its ciphertext size."""
+    _require_aes_key(key)
+    encryptor = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
+    padder = padding.PKCS7(128).padder()
+    total = 0
+    with source.open("rb") as src, destination.open("wb") as dst:
+        while chunk := src.read(_DECRYPT_CHUNK_BYTES):
+            block = encryptor.update(padder.update(chunk))
+            dst.write(block)
+            total += len(block)
+        tail = encryptor.update(padder.finalize()) + encryptor.finalize()
+        dst.write(tail)
+        total += len(tail)
+    return total
+
+
+def _require_aes_key(key: bytes) -> None:
+    if len(key) != 16:
+        raise WeixinMediaError(f"AES key must be 16 bytes, got {len(key)}")
 
 
 def decrypt_aes_ecb(ciphertext: bytes, key: bytes) -> bytes:

@@ -214,10 +214,12 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `DESKTOP_UPDATES__SYNC_ON_START` | `true` | 服务启动后是否立即检测一次 |
 | `DESKTOP_UPDATES__SYNC_MAX_ASSET_BYTES` | `2147483648` | 单个制品允许下载的最大字节数 |
 | `DESKTOP_UPDATES__SYNC_MAX_RUN_BYTES` | `4294967296` | 单次同步允许下载的最大总字节数 |
-| `WECOM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个企业微信 Bot 的 JSON 对象；每项支持 `enabled`、`bot_id`、`secret` 和 `ws_url`（`ws_url` 留空使用 SDK 默认地址）。仍兼容旧版扁平写法（`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`，会自动归为 `default` 实例） |
-| `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode`、`max_download_mb`、`max_upload_mb` 和 `poll_timeout_seconds` |
+| `WECOM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个企业微信 Bot 的 JSON 对象；每项支持 `enabled`、`bot_id`、`secret`、`ws_url`（留空使用 SDK 默认地址）和 `upload_timeout_seconds`（默认 60，范围 1–3600）。仍兼容旧版扁平写法（`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`，会自动归为 `default` 实例） |
+| `TELEGRAM__BOTS` | `{}` | 按稳定 `instance_id` 配置多个 Telegram Bot 的 JSON 对象；每项支持 `enabled`、`display_name`、`bot_token`、`api_base_url`、`local_mode`、`max_download_mb`、`max_upload_mb`、`upload_timeout_seconds`（默认 60，范围 1–3600）和 `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | 是否启用个人微信 ClawBot 信道；无连接时不会产生网络轮询 |
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | 微信 Claw 入站图片/文件/视频单个附件的下载上限（MB），超过时跳过下载并在消息中标注附件大小与该上限；范围 1–10000 |
+| `WEIXIN__MAX_UPLOAD_MB` | `200` | 微信 Claw 出站图片/视频/文件单个附件的上传上限（MB），超过时拒绝发送；范围 1–10000 |
+| `WEIXIN__UPLOAD_TIMEOUT_SECONDS` | `300` | 微信 Claw 单个附件每次 CDN 上传的等待上限（秒）；传输失败最多重试 3 次，范围 1–3600 |
 
 反向代理同时代理 `/admin`、`/api/*` 和静态资源时，`API__PUBLIC_URL` 对应浏览器
 实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或

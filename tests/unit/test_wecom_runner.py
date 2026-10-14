@@ -18,6 +18,7 @@ from coworker.channels.wecom.sender import split_markdown as _split_markdown
 from coworker.core.config import (
     ChannelAccessConfig,
     Config,
+    WeComBotConfig,
     WeComConfig,
     apply_admin_config_file,
     merge_config_layers,
@@ -485,6 +486,14 @@ def test_wecom_config_rejects_invalid_instance_id():
         WeComConfig(bots={"Bad!": {"bot_id": "y"}})
 
 
+def test_wecom_upload_timeout_defaults_and_rejects_out_of_range():
+    assert WeComBotConfig().upload_timeout_seconds == 60
+    with pytest.raises(ValidationError):
+        WeComBotConfig(upload_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        WeComBotConfig(upload_timeout_seconds=3601)
+
+
 def test_split_markdown_single_paragraph_under_limit():
     text = "hello world"
     assert _split_markdown(text) == [text]
@@ -782,6 +791,7 @@ async def test_send_with_attachment_uses_reply_media_when_frame(tmp_path):
     img = tmp_path / "a.png"
     img.write_bytes(b"\x89PNGfake-data" * 100)
     await runner.send("wecom:default:single:U123", "", [{"type": "image", "path": str(img)}])
+    await runner.drain_uploads()
 
     bot._client.upload_media.assert_awaited_once()
     bot._client.reply_media.assert_awaited_once()
@@ -805,6 +815,7 @@ async def test_send_attachment_after_text_uses_send_media_message(tmp_path):
         "see file",
         [{"type": "file", "path": str(f)}],
     )
+    await runner.drain_uploads()
 
     bot._client.reply_stream.assert_awaited_once()
     bot._client.send_media_message.assert_awaited_once()

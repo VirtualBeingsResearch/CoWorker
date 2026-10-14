@@ -47,7 +47,11 @@ from coworker.api.routes import (
 )
 from coworker.channels.access import ChannelAccessDeniedError
 from coworker.channels.inbound import InboundEnvelope
-from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
+from coworker.channels.stream.wire import (
+    SHUTDOWN_SENTINEL,
+    encode_outbound_message,
+    serialize_outbound_message,
+)
 from coworker.core.config import APIConfig, DesktopUpdatesConfig
 from coworker.core.ids import new_compact_id
 from coworker.core.types import CommunicateRequest
@@ -930,7 +934,7 @@ async def sse_endpoint(
                     break
                 if msg == SHUTDOWN_SENTINEL:  # 关闭哨兵：立即收尾，尽快释放连接
                     break
-                yield _format_sse(msg)
+                yield _format_sse(await encode_outbound_message(msg))
         finally:
             if registered and stream is not None:
                 stream.unregister_session(participant_id, queue)

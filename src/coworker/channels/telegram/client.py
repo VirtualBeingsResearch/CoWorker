@@ -107,12 +107,8 @@ class TelegramClient:
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         await self._bot.delete_message(chat_id=chat_id, message_id=message_id)
 
-    async def send_attachment(
-        self,
-        chat_id: int,
-        attachment: dict[str, Any],
-        message_thread_id: int | None = None,
-    ) -> None:
+    def checked_attachment(self, attachment: dict[str, Any]) -> tuple[str, Path, str]:
+        """Validate one outbound attachment and return its type, path, and filename."""
         attachment_type = str(attachment.get("type") or "file")
         if attachment_type not in {"image", "file"}:
             raise ValueError(
@@ -134,6 +130,17 @@ class TelegramClient:
                 )
             )
         filename = Path(str(attachment.get("filename") or path.name)).name
+        return attachment_type, path, filename
+
+    async def send_attachment(
+        self,
+        chat_id: int,
+        attachment: dict[str, Any],
+        message_thread_id: int | None = None,
+        *,
+        timeout: float = 60.0,
+    ) -> None:
+        attachment_type, path, filename = self.checked_attachment(attachment)
 
         async def send(source: Any) -> None:
             if attachment_type == "image":
@@ -142,8 +149,8 @@ class TelegramClient:
                     photo=source,
                     filename=filename,
                     message_thread_id=message_thread_id,
-                    read_timeout=60.0,
-                    write_timeout=60.0,
+                    read_timeout=timeout,
+                    write_timeout=timeout,
                 )
             else:
                 await self._bot.send_document(
@@ -151,8 +158,8 @@ class TelegramClient:
                     document=source,
                     filename=filename,
                     message_thread_id=message_thread_id,
-                    read_timeout=60.0,
-                    write_timeout=60.0,
+                    read_timeout=timeout,
+                    write_timeout=timeout,
                 )
 
         if self._local_mode:

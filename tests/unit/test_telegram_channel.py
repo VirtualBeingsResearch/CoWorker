@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from coworker.agent.incoming_content import build_content_blocks, format_event_text
 from coworker.channels.access import ChannelAccessController
@@ -65,8 +66,10 @@ class _FakeClient:
         chat_id: int,
         attachment: dict,
         message_thread_id: int | None = None,
+        *,
+        timeout: float = 60.0,
     ) -> None:
-        self.attachments.append((chat_id, attachment, message_thread_id))
+        self.attachments.append((chat_id, attachment, message_thread_id, timeout))
 
     async def download_file(
         self,
@@ -303,6 +306,8 @@ async def test_send_attachment_enforces_configured_upload_limit(tmp_path: Path) 
         {"type": "file", "path": str(path)},
     )
     bot.send_document.assert_awaited_once()
+    assert bot.send_document.await_args.kwargs["read_timeout"] == 60.0
+    assert bot.send_document.await_args.kwargs["write_timeout"] == 60.0
 
 
 @pytest.mark.asyncio
@@ -645,6 +650,11 @@ def test_config_attachment_limits_validate_and_wire_into_the_client() -> None:
 
     assert config.max_download_mb == 2000
     assert config.max_upload_mb == 2000
+    assert config.upload_timeout_seconds == 60
+    with pytest.raises(ValidationError):
+        TelegramBotConfig(upload_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        TelegramBotConfig(upload_timeout_seconds=3601)
     assert client._max_download_bytes == 2000 * 1024 * 1024  # noqa: SLF001
     assert client._max_upload_bytes == 2000 * 1024 * 1024  # noqa: SLF001
     with pytest.raises(ValueError):

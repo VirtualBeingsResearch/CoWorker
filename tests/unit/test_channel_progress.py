@@ -127,8 +127,19 @@ class _TelegramFakeClient:
         self.messages.append((chat_id, text, message_thread_id))
         return message_id
 
+    def checked_attachment(self, attachment: dict) -> tuple[str, Path, str]:
+        path = Path(str(attachment.get("path") or ""))
+        if not path.is_file():
+            raise FileNotFoundError(f"attachment not found: {path}")
+        return str(attachment.get("type") or "file"), path, path.name
+
     async def send_attachment(
-        self, chat_id: int, attachment: dict, message_thread_id: int | None = None
+        self,
+        chat_id: int,
+        attachment: dict,
+        message_thread_id: int | None = None,
+        *,
+        timeout: float = 60.0,
     ) -> None:
         return None
 
@@ -853,8 +864,6 @@ async def test_slow_placeholder_does_not_hold_up_inbound(monkeypatch):
 async def test_telegram_partial_delivery_keeps_the_reply_and_skips_resend(tmp_path):
     _runner, bot, client, registry, _progress, _inbox = _telegram_stack(tmp_path)
     await bot._consume_update(client, _private_update(1))
-    client.send_attachment = AsyncMock(side_effect=RuntimeError("upload rejected"))
-
     result = await registry.send(
         CommunicateRequest(
             participant_id="tg:main:123",
@@ -863,18 +872,14 @@ async def test_telegram_partial_delivery_keeps_the_reply_and_skips_resend(tmp_pa
         )
     )
 
-    # 正文已经写进原占位消息：不能删掉它，也不能整条重发。
+    # 正文已经写进原占位消息：不能删掉它，也不能整条重发。缺文件不会开始上传。
     assert client.edits == [(123, 1, "正式回复")]
     assert client.deletes == []
     assert client.messages == [(123, tr("channel.progress.thinking"), None)]
     assert result.is_error is False
-    assert "upload rejected" in result.content
-    # 模型要能看出送到哪、从哪继续：正文 1/1 块已送达，卡在第一个附件上。
-    assert "1/1" in result.content
-    assert (
-        tr("tool_result.communicate.cut_at_attachment", filename="missing.png")
-        in result.content
-    )
+    assert "missing.png" in result.content
+    assert "没有开始上传" in result.content
+    assert "不要重发" in result.content
 
 
 @pytest.mark.asyncio
@@ -911,12 +916,8 @@ async def test_wecom_partial_delivery_does_not_resend_the_reply(tmp_path):
     bot._client.send_message.assert_not_called()
     assert result.is_error is False
     assert "missing.txt" in result.content
-    # 正文全部送达，卡在附件上：截断点必须指名道姓。
-    assert "1/1" in result.content
-    assert (
-        tr("tool_result.communicate.cut_at_attachment", filename="missing.txt")
-        in result.content
-    )
+    assert "没有开始上传" in result.content
+    assert "不要重发" in result.content
 
 
 class _ResolvingChannel(BaseChannel):

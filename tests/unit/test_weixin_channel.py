@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -13,17 +15,23 @@ import pytest
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image
+from pydantic import ValidationError
 
 from coworker.channels.access import ChannelAccessController
 from coworker.channels.weixin.channel import CONTROL_PARTICIPANT_ID, WeixinChannel
 from coworker.channels.weixin.client import (
+    DEFAULT_CDN_BASE_URL,
     WeixinClient,
     WeixinCredentials,
     credentials_from_login,
 )
 from coworker.channels.weixin.connections import WeixinConnectionManager
 from coworker.channels.weixin.logging import configure_weixin_polling_logs
-from coworker.channels.weixin.media import WeixinMediaTooLargeError
+from coworker.channels.weixin.media import (
+    WeixinMediaTooLargeError,
+    decrypt_aes_ecb,
+    resolve_media_key,
+)
 from coworker.channels.weixin.module import WeixinManagement, create_weixin_module
 from coworker.channels.weixin.repository import (
     WeixinConnection,
@@ -809,3 +817,389 @@ async def test_download_media_leaves_no_ciphertext_copy(tmp_path: Path) -> None:
     assert destination.read_bytes() == plaintext
     # 密文副本只服务于解密：成功路径也不能把它留在附件目录里。
     assert [item.name for item in tmp_path.iterdir()] == ["attachment.bin"]
+
+
+class _UploadScript:
+    def __init__(self) -> None:
+        self.requests: list[httpx.Request] = []
+        self.cdn_statuses = [200]
+        self.cdn_calls = 0
+        self.upload_body: dict[str, object] | None = {"upload_full_url": "https://cdn.example/secret-upload"}
+        self.download_param = "download-param"
+        self.block_cdn: asyncio.Event | None = None
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if request.url.path.endswith("getuploadurl"):
+            return httpx.Response(200, json=self.upload_body or {"ret": -1})
+        if request.url.path.endswith("secret-upload") or request.url.path.endswith("/upload"):
+            if self.block_cdn is not None:
+                await self.block_cdn.wait()
+            status = self.cdn_statuses[min(self.cdn_calls, len(self.cdn_statuses) - 1)]
+            self.cdn_calls += 1
+            headers = {"x-encrypted-param": self.download_param} if status == 200 else {}
+            return httpx.Response(status, headers=headers)
+        return httpx.Response(200, json={"ret": 0})
+
+
+def _channel_with_upload(tmp_path: Path, script: _UploadScript) -> tuple[WeixinChannel, WeixinRunner, WeixinClient]:
+    runner = _runner(tmp_path)
+    runner._connection_state("bot-1").context_tokens["user-1"] = "ctx-9"  # noqa: SLF001
+    client = WeixinClient(token="secret-token", transport=httpx.MockTransport(script.handle))
+    runner._clients["bot-1"] = client  # noqa: SLF001
+    channel = WeixinChannel(runner, runner, None)  # type: ignore[arg-type]
+    return channel, runner, client
+
+
+def _leftover_ciphertext() -> set[Path]:
+    return set(Path(tempfile.gettempdir()).glob("coworker-weixin-*"))
+
+
+def test_weixin_upload_limit_rejects_out_of_range_values() -> None:
+    assert WeixinConfig().max_upload_mb == 200
+    assert WeixinConfig().upload_timeout_seconds == 300
+    with pytest.raises(ValidationError):
+        WeixinConfig(max_upload_mb=0)
+    with pytest.raises(ValidationError):
+        WeixinConfig(max_upload_mb=10001)
+    with pytest.raises(ValidationError):
+        WeixinConfig(upload_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        WeixinConfig(upload_timeout_seconds=3601)
+
+
+def test_connected_account_accepts_attachments_and_control_does_not() -> None:
+    channel = WeixinChannel(None, None, None)  # type: ignore[arg-type]
+    connected = channel.capabilities_for("weixin:bot-1")
+    control = channel.capabilities_for(CONTROL_PARTICIPANT_ID)
+    attachment = {"type": "file", "path": "report.pdf"}
+
+    kept, omitted = connected.filter(
+        CommunicateRequest(participant_id="weixin:bot-1", attachments=[attachment])
+    )
+    stripped, dropped = control.filter(
+        CommunicateRequest(
+            participant_id=CONTROL_PARTICIPANT_ID,
+            attachments=[attachment],
+            extra={"action": "status"},
+        )
+    )
+
+    assert connected.attachments is True
+    assert omitted == ()
+    assert kept.attachments == [attachment]
+    assert control.attachments is False
+    assert control.extra is True
+    assert dropped == ("attachments",)
+    assert stripped.attachments == []
+    assert stripped.extra == {"action": "status"}
+
+
+@pytest.mark.asyncio
+async def test_outbound_uploads_image_video_and_file(tmp_path: Path) -> None:
+    script = _UploadScript()
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    image = tmp_path / "photo.png"
+    video = tmp_path / "clip.mp4"
+    document = tmp_path / "report.pdf"
+    image.write_bytes(b"png-bytes")
+    video.write_bytes(b"mp4-bytes")
+    document.write_bytes(b"pdf-bytes")
+    before = _leftover_ciphertext()
+
+    result = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            message="see attached",
+            attachments=[
+                {"type": "image", "path": str(image), "filename": "photo.png"},
+                {"type": "file", "path": str(video)},
+                {"type": "file", "path": str(document), "filename": "report.pdf"},
+            ],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    assert not result.is_error
+    assert "尚未送达" in result.content
+    assert "cdn.example" not in result.content
+    assert _leftover_ciphertext() <= before
+    uploads = [
+        json.loads(request.content)
+        for request in script.requests
+        if request.url.path.endswith("getuploadurl")
+    ]
+    sent = [
+        json.loads(request.content)
+        for request in script.requests
+        if request.url.path.endswith("sendmessage")
+    ]
+    items = [body["msg"]["item_list"][0] for body in sent]
+    texts = [item["text_item"]["text"] for item in items if "text_item" in item]
+    assert [item["media_type"] for item in uploads] == [1, 2, 3]
+    assert texts == ["see attached"]
+    assert all(body["msg"]["context_token"] == "ctx-9" for body in sent)
+    image_item = next(item["image_item"] for item in items if "image_item" in item)
+    video_item = next(item["video_item"] for item in items if "video_item" in item)
+    file_item = next(item["file_item"] for item in items if "file_item" in item)
+    assert image_item["media"]["encrypt_query_param"] == "download-param"
+    assert image_item["media"]["encrypt_type"] == 1
+    assert video_item["video_size"] == image_item["mid_size"]
+    assert file_item["file_name"] == "report.pdf"
+    assert file_item["len"] == str(len(b"pdf-bytes"))
+    posted = [
+        request.content
+        for request in script.requests
+        if request.url.path.endswith("secret-upload")
+    ]
+    media_items = [image_item, video_item, file_item]
+    plaintexts = [b"png-bytes", b"mp4-bytes", b"pdf-bytes"]
+    for upload, ciphertext, plaintext, item in zip(
+        uploads, posted, plaintexts, media_items, strict=True
+    ):
+        key = bytes.fromhex(str(upload["aeskey"]))
+        assert upload["rawfilemd5"] == hashlib.md5(plaintext).hexdigest()
+        assert upload["no_need_thumb"] is True
+        assert decrypt_aes_ecb(ciphertext, key) == plaintext
+        assert resolve_media_key(None, item["media"]["aes_key"]) == key
+    assert "secret" not in result.content
+
+
+@pytest.mark.asyncio
+async def test_outbound_file_uses_upload_param_when_full_url_is_absent(tmp_path: Path) -> None:
+    script = _UploadScript()
+    script.upload_body = {"upload_param": "PARAM"}
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    document = tmp_path / "notes.txt"
+    document.write_bytes(b"notes")
+
+    result = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "file", "path": str(document)}],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    upload = next(request for request in script.requests if request.url.path.endswith("getuploadurl"))
+    filekey = str(json.loads(upload.content)["filekey"])
+    cdn = next(request for request in script.requests if request.url.path.endswith("/upload"))
+    sent = [
+        json.loads(request.content)["msg"]["item_list"][0]
+        for request in script.requests
+        if request.url.path.endswith("sendmessage")
+    ]
+    assert not result.is_error
+    assert "尚未送达" in result.content
+    assert cdn.url.params["encrypted_query_param"] == "PARAM"
+    assert cdn.url.params["filekey"] == filekey
+    assert str(cdn.url).startswith(f"{DEFAULT_CDN_BASE_URL}/upload?")
+    assert len([item for item in sent if "file_item" in item]) == 1
+    assert not any("text_item" in item for item in sent)
+
+
+@pytest.mark.asyncio
+async def test_outbound_upload_retries_server_errors_and_stops_on_client_errors(
+    tmp_path: Path,
+) -> None:
+    script = _UploadScript()
+    script.cdn_statuses = [500, 200]
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    document = tmp_path / "notes.txt"
+    document.write_bytes(b"notes")
+    statuses: list[IncomingEvent] = []
+
+    async def collect(event: IncomingEvent) -> None:
+        statuses.append(event)
+
+    runner.set_inbound_handler(collect)
+
+    recovered = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            conversation_id="session-1",
+            attachments=[{"type": "file", "path": str(document)}],
+        )
+    )
+    await runner.drain_uploads()
+    assert not recovered.is_error
+    assert "尚未送达" in recovered.content
+    assert script.cdn_calls == 2
+    assert statuses[-1].source == "channel_upload"
+    assert statuses[-1].participant_id == "weixin:bot-1"
+    assert statuses[-1].conversation_id == "session-1"
+    assert statuses[-1].content == "[微信上传] 已发送：notes.txt"
+
+    script.requests.clear()
+    script.cdn_calls = 0
+    script.cdn_statuses = [400]
+    statuses.clear()
+    rejected = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "file", "path": str(document)}],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    notices = [
+        json.loads(request.content)["msg"]["item_list"][0].get("text_item", {}).get("text", "")
+        for request in script.requests
+        if request.url.path.endswith("sendmessage")
+    ]
+    assert not rejected.is_error
+    assert script.cdn_calls == 1
+    assert "cdn.example" not in rejected.content
+    assert "secret-upload" not in rejected.content
+    assert any(notice.startswith("上传失败：notes.txt") for notice in notices)
+    assert all("cdn.example" not in notice and "secret-upload" not in notice for notice in notices)
+    assert statuses[-1].source == "channel_upload"
+    assert "上传失败：notes.txt" in statuses[-1].content
+    assert "cdn.example" not in statuses[-1].content
+
+
+@pytest.mark.asyncio
+async def test_outbound_reports_partial_delivery_without_leaking_upload_details(
+    tmp_path: Path,
+) -> None:
+    script = _UploadScript()
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    first = tmp_path / "first.txt"
+    first.write_bytes(b"one")
+    missing = tmp_path / "missing.txt"
+
+    result = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            message="intro",
+            attachments=[
+                {"type": "file", "path": str(first), "filename": "first.txt"},
+                {"type": "file", "path": str(missing), "filename": "second.txt"},
+            ],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    assert not result.is_error
+    assert "first.txt" in result.content
+    assert "second.txt" in result.content
+    assert "没有开始上传" in result.content
+    assert "不要重发" in result.content
+    assert "cdn.example" not in result.content
+    assert "intro" not in result.content
+
+
+@pytest.mark.asyncio
+async def test_outbound_rejects_oversized_invalid_and_url_less_uploads(tmp_path: Path) -> None:
+    script = _UploadScript()
+    runner = WeixinRunner(
+        WeixinConfig(enabled=True, max_upload_mb=1),
+        [_connection()],
+        tmp_path / "weixin-state.json",
+    )
+    client = WeixinClient(token="secret-token", transport=httpx.MockTransport(script.handle))
+    runner._clients["bot-1"] = client  # noqa: SLF001
+    channel = WeixinChannel(runner, runner, None)  # type: ignore[arg-type]
+    huge = tmp_path / "huge.bin"
+    huge.write_bytes(b"x" * (1024 * 1024 + 1))
+
+    oversized = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "file", "path": str(huge)}],
+        )
+    )
+    invalid = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "voice", "path": str(huge)}],
+        )
+    )
+    script.upload_body = {"ret": -1}
+    notes = tmp_path / "notes.txt"
+    notes.write_bytes(b"notes")
+    missing_url = await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "file", "path": str(notes)}],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    notices = [
+        json.loads(request.content)["msg"]["item_list"][0].get("text_item", {}).get("text", "")
+        for request in script.requests
+        if request.url.path.endswith("sendmessage")
+    ]
+    assert oversized.is_error
+    assert "1048577" in oversized.content
+    assert invalid.is_error
+    assert "voice" in invalid.content
+    assert not missing_url.is_error
+    assert "尚未送达" in missing_url.content
+    assert "ret=-1" not in missing_url.content
+    assert "https://" not in missing_url.content
+    assert any(notice.startswith("上传失败：notes.txt") for notice in notices)
+    assert all("ret=-1" not in notice and "https://" not in notice for notice in notices)
+    assert script.cdn_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_outbound_upload_returns_before_the_cdn_transfer(tmp_path: Path) -> None:
+    script = _UploadScript()
+    script.block_cdn = asyncio.Event()
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    document = tmp_path / "notes.txt"
+    document.write_bytes(b"notes")
+
+    result = await asyncio.wait_for(
+        channel.send(
+            CommunicateRequest(
+                participant_id="weixin:bot-1",
+                attachments=[{"type": "file", "path": str(document)}],
+            )
+        ),
+        timeout=2,
+    )
+
+    assert not result.is_error
+    assert "尚未送达" in result.content
+    assert script.cdn_calls == 0
+    assert script.block_cdn is not None
+    script.block_cdn.set()
+    await runner.drain_uploads()
+    await client.close()
+    assert script.cdn_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_outbound_upload_uses_configured_timeout(tmp_path: Path) -> None:
+    script = _UploadScript()
+    channel, runner, client = _channel_with_upload(tmp_path, script)
+    runner._config = WeixinConfig(enabled=True, upload_timeout_seconds=42)  # noqa: SLF001
+    document = tmp_path / "notes.txt"
+    document.write_bytes(b"notes")
+    seen: list[object] = []
+    original = client._http.post
+
+    async def post(url: str, *args: object, **kwargs: object) -> httpx.Response:
+        if str(url).endswith("secret-upload"):
+            seen.append(kwargs.get("timeout"))
+        return await original(url, *args, **kwargs)  # type: ignore[arg-type]
+
+    client._http.post = post  # type: ignore[method-assign]
+    await channel.send(
+        CommunicateRequest(
+            participant_id="weixin:bot-1",
+            attachments=[{"type": "file", "path": str(document)}],
+        )
+    )
+    await runner.drain_uploads()
+    await client.close()
+
+    assert seen == [42.0]

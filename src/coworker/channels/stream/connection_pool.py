@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, serialize_outbound_message
+from coworker.channels.stream.wire import SHUTDOWN_SENTINEL, encode_outbound_message
 from coworker.i18n import tr
 
 if TYPE_CHECKING:
@@ -141,7 +141,7 @@ class ConnectionPool:
         queue: asyncio.Queue[Any],
     ) -> None:
         try:
-            await ws.send_text(serialize_outbound_message(message))
+            await ws.send_text(await encode_outbound_message(message))
         except Exception as error:
             logger.warning(f"Failed to send WS message to {participant_id}: {error}")
             self.disconnect(participant_id, ws=ws, queue=queue)

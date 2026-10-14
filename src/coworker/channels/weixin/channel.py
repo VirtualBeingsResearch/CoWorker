@@ -9,8 +9,9 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
+from coworker.channels.outbound_upload import upload_tool_result
 from coworker.channels.weixin.connections import WeixinConnectionManager
-from coworker.channels.weixin.runner import WeixinRunner
+from coworker.channels.weixin.runner import WeixinOutboundStart, WeixinRunner
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
@@ -43,24 +44,25 @@ class WeixinChannel(BaseChannel):
     async def send(self, request: CommunicateRequest) -> ToolResult:
         if request.participant_id == CONTROL_PARTICIPANT_ID:
             return await self._control(request.extra)
-        if not request.message.strip():
+        if not request.message.strip() and not request.attachments:
             return self._error(tr("tool_result.communicate.message_empty"))
         try:
-            await self._runner.send(request.participant_id, request.message)
+            started = await self._runner.send(
+                request.participant_id,
+                request.message,
+                request.attachments,
+                conversation_id=request.conversation_id,
+            )
         except Exception as error:
             return self._error(
                 tr("tool_result.communicate.weixin_failed", error=error)
             )
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.communicate.weixin_sent",
-                participant=request.participant_id,
-            ),
-        )
+        return _upload_result(request, started)
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
-        return ChannelCapabilities(extra=participant_id == CONTROL_PARTICIPANT_ID)
+        if participant_id == CONTROL_PARTICIPANT_ID:
+            return ChannelCapabilities(extra=True)
+        return ChannelCapabilities(attachments=True)
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
@@ -215,3 +217,14 @@ class WeixinChannel(BaseChannel):
     @staticmethod
     def _error(content: str) -> ToolResult:
         return ToolResult(tool_call_id="", content=content, is_error=True)
+
+
+def _upload_result(request: CommunicateRequest, started: WeixinOutboundStart) -> ToolResult:
+    return upload_tool_result(
+        participant=request.participant_id,
+        text_sent=started.text_sent,
+        started=started.started,
+        rejected=started.rejected,
+        sent_key="tool_result.communicate.weixin_sent",
+        failed_key="tool_result.communicate.weixin_failed",
+    )

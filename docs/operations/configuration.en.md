@@ -236,10 +236,12 @@ previews the full section and body rendered by the currently running instance.
 | `DESKTOP_UPDATES__SYNC_ON_START` | `true` | Run one upstream check when the service starts |
 | `DESKTOP_UPDATES__SYNC_MAX_ASSET_BYTES` | `2147483648` | Maximum bytes allowed for one downloaded asset |
 | `DESKTOP_UPDATES__SYNC_MAX_RUN_BYTES` | `4294967296` | Maximum total bytes allowed for one synchronization run |
-| `WECOM__BOTS` | `{}` | JSON object of multiple WeCom Bots keyed by stable `instance_id`; each item accepts `enabled`, `bot_id`, `secret`, and `ws_url` (`ws_url` empty uses the SDK default). The legacy flat form (`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`) is still accepted and folds into a `default` instance |
-| `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, `max_download_mb`, `max_upload_mb`, and `poll_timeout_seconds` |
+| `WECOM__BOTS` | `{}` | JSON object of multiple WeCom Bots keyed by stable `instance_id`; each item accepts `enabled`, `bot_id`, `secret`, `ws_url` (empty uses the SDK default), and `upload_timeout_seconds` (default 60, range 1–3600). The legacy flat form (`WECOM__ENABLED` / `BOT_ID` / `SECRET` / `WS_URL`) is still accepted and folds into a `default` instance |
+| `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, `max_download_mb`, `max_upload_mb`, `upload_timeout_seconds` (default 60, range 1–3600), and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | Per-attachment download limit in MB for Weixin Claw inbound images, files, and video; oversized items are skipped and noted with their size and the limit. Range 1–10000 |
+| `WEIXIN__MAX_UPLOAD_MB` | `200` | Per-attachment upload limit in MB for Weixin Claw outbound images, video, and files; oversized items are rejected. Range 1–10000 |
+| `WEIXIN__UPLOAD_TIMEOUT_SECONDS` | `300` | Per-attempt CDN upload wait in seconds for one Weixin Claw attachment; transport failures retry up to 3 times. Range 1–3600 |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
 corresponds to the origin the browser actually opens, such as
