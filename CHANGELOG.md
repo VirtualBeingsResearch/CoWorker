@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.7 - Unreleased
+## 0.4.7 - 2026-10-14
 
 - docs(release): finalize v0.4.6 changelog (#233)
 - chore: remove CLAUDE.md pointer file (#235)
