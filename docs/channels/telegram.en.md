@@ -103,8 +103,9 @@ attachments are fetched only after channel access checks pass. One inbound file 
 PDFs up to 10 MiB are also supplied inline to the model. Outbound handling supports text, images,
 and files. Text is split at Telegram's 4096-character limit, and one uploaded file defaults to
 50 MiB (configurable via `max_upload_mb`). Text goes out immediately. Attachments upload in the
-background: the chat first receives an uploading notice, then a success or failure result. The
-read and write wait for one upload is `upload_timeout_seconds`, default 60 seconds, from 1 to 3600.
+background. The chat does not receive an uploading or sent notice; a failure notice is posted only
+when the upload fails. The read and write wait for one upload is `upload_timeout_seconds`, default
+60 seconds, from 1 to 3600.
 
 Telegram messages and attachments are untrusted external input that may contain prompt injection
 or malicious files. The Bot's group/channel permissions and channel access rules together define

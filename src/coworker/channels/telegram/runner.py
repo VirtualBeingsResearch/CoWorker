@@ -198,23 +198,6 @@ class _TelegramBotRuntime:
         label = tr("channel.upload.label_telegram")
         for attachment in attachments:
             filename = attachment_display_name(attachment)
-            started_notice = tr("channel.upload.started_notice", filename=filename)
-            try:
-                await client.send_message(chat_id, started_notice, thread_id)
-            except Exception as error:
-                failed = tr(
-                    "channel.upload.failed_notice",
-                    filename=filename,
-                    error=safe_upload_error(error),
-                )
-                await push_upload_status(
-                    self._inbound_handler,
-                    participant_id,
-                    conversation_id,
-                    failed,
-                    label=label,
-                )
-                continue
             try:
                 await client.send_attachment(
                     chat_id,
@@ -228,18 +211,18 @@ class _TelegramBotRuntime:
                     filename=filename,
                     error=safe_upload_error(error),
                 )
+                try:
+                    await client.send_message(chat_id, notice, thread_id)
+                except Exception as delivery_error:
+                    logger.warning(
+                        tr(
+                            "channel.upload.status_delivery_failed",
+                            error_type=type(delivery_error).__name__,
+                        )
+                    )
             else:
                 self._activity.record_sent(participant_id)
                 notice = tr("channel.upload.succeeded_notice", filename=filename)
-            try:
-                await client.send_message(chat_id, notice, thread_id)
-            except Exception as error:
-                logger.warning(
-                    tr(
-                        "channel.upload.status_delivery_failed",
-                        error_type=type(error).__name__,
-                    )
-                )
             await push_upload_status(
                 self._inbound_handler,
                 participant_id,

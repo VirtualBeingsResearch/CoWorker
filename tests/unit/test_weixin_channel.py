@@ -938,13 +938,7 @@ async def test_outbound_uploads_image_video_and_file(tmp_path: Path) -> None:
     items = [body["msg"]["item_list"][0] for body in sent]
     texts = [item["text_item"]["text"] for item in items if "text_item" in item]
     assert [item["media_type"] for item in uploads] == [1, 2, 3]
-    assert texts[0] == "see attached"
-    assert "正在上传：photo.png" in texts
-    assert "已发送：photo.png" in texts
-    assert "正在上传：clip.mp4" in texts
-    assert "已发送：clip.mp4" in texts
-    assert "正在上传：report.pdf" in texts
-    assert "已发送：report.pdf" in texts
+    assert texts == ["see attached"]
     assert all(body["msg"]["context_token"] == "ctx-9" for body in sent)
     image_item = next(item["image_item"] for item in items if "image_item" in item)
     video_item = next(item["video_item"] for item in items if "video_item" in item)
@@ -1003,8 +997,7 @@ async def test_outbound_file_uses_upload_param_when_full_url_is_absent(tmp_path:
     assert cdn.url.params["filekey"] == filekey
     assert str(cdn.url).startswith(f"{DEFAULT_CDN_BASE_URL}/upload?")
     assert len([item for item in sent if "file_item" in item]) == 1
-    assert any(item.get("text_item", {}).get("text") == "正在上传：notes.txt" for item in sent)
-    assert any(item.get("text_item", {}).get("text") == "已发送：notes.txt" for item in sent)
+    assert not any("text_item" in item for item in sent)
 
 
 @pytest.mark.asyncio

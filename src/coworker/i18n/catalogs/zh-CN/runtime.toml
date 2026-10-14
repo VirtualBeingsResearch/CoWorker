@@ -112,7 +112,6 @@ superseded = "已回复。"
 expired = "这条我还在处理，稍后用新消息回你"
 
 [channel.upload]
-started_notice = "正在上传：{{filename}}"
 succeeded_notice = "已发送：{{filename}}"
 failed_notice = "上传失败：{{filename}}。{{error}}"
 status = "[{{label}}] {{notice}}"

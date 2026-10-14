@@ -112,7 +112,6 @@ superseded = "Already replied."
 expired = "Still working on this; I'll reply in a new message"
 
 [channel.upload]
-started_notice = "Uploading: {{filename}}"
 succeeded_notice = "Sent: {{filename}}"
 failed_notice = "Upload failed: {{filename}}. {{error}}"
 status = "[{{label}}] {{notice}}"

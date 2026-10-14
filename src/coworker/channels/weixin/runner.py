@@ -623,29 +623,7 @@ class WeixinRunner:
         timeout: float,
     ) -> None:
         try:
-            announced: list[_PreparedUpload] = []
             for item in prepared:
-                notice = tr(
-                    "channel.upload.started_notice",
-                    filename=item.filename,
-                )
-                try:
-                    await client.send_text(user_id, notice, context_token)
-                    self._activity.record_sent(participant_id)
-                except Exception as error:
-                    failed = tr(
-                        "channel.upload.failed_notice",
-                        filename=item.filename,
-                        error=_safe_delivery_error(error),
-                    )
-                    await self._push_upload_status(
-                        participant_id,
-                        conversation_id,
-                        failed,
-                    )
-                    continue
-                announced.append(item)
-            for item in announced:
                 await self._finish_upload(
                     client,
                     item,
@@ -684,19 +662,19 @@ class WeixinRunner:
                 filename=item.filename,
                 error=_safe_delivery_error(error),
             )
+            await self._send_status_text(
+                client,
+                user_id,
+                context_token,
+                participant_id,
+                notice,
+            )
         else:
             self._activity.record_sent(participant_id)
             notice = tr(
                 "channel.upload.succeeded_notice",
                 filename=item.filename,
             )
-        await self._send_status_text(
-            client,
-            user_id,
-            context_token,
-            participant_id,
-            notice,
-        )
         await self._push_upload_status(participant_id, conversation_id, notice)
 
     async def _upload_prepared(

@@ -169,18 +169,7 @@ class WeComSender:
         timeout: float,
         on_terminal: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Upload one prepared attachment and post success or failure in the chat."""
-        started = tr("channel.upload.started_notice", filename=item.filename)
-        try:
-            await self._send_notice(item.chat_id, started)
-        except Exception as error:
-            failed = tr(
-                "channel.upload.failed_notice",
-                filename=item.filename,
-                error=safe_upload_error(error),
-            )
-            await on_terminal(failed)
-            return
+        """Upload one prepared attachment. Only a failure is posted in the chat."""
         try:
             media_id = await self._ensure_media(item.attachment, timeout=timeout)
             media_type = item.attachment["type"]
@@ -197,17 +186,17 @@ class WeComSender:
                 filename=item.filename,
                 error=safe_upload_error(error),
             )
+            try:
+                await self._send_notice(item.chat_id, notice)
+            except Exception as delivery_error:
+                logger.warning(
+                    tr(
+                        "channel.upload.status_delivery_failed",
+                        error_type=type(delivery_error).__name__,
+                    )
+                )
         else:
             notice = tr("channel.upload.succeeded_notice", filename=item.filename)
-        try:
-            await self._send_notice(item.chat_id, notice)
-        except Exception as error:
-            logger.warning(
-                tr(
-                    "channel.upload.status_delivery_failed",
-                    error_type=type(error).__name__,
-                )
-            )
         await on_terminal(notice)
 
     async def _send_notice(self, chat_id: str, text: str) -> None:
