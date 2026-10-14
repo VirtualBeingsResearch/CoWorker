@@ -240,6 +240,7 @@ previews the full section and body rendered by the currently running instance.
 | `TELEGRAM__BOTS` | `{}` | JSON object of multiple Telegram Bots keyed by stable `instance_id`; each item accepts `enabled`, `display_name`, `bot_token`, `api_base_url`, `local_mode`, `max_download_mb`, `max_upload_mb`, and `poll_timeout_seconds` |
 | `WEIXIN__ENABLED` | `true` | Enable the personal-Weixin ClawBot channel; no network polling occurs without a connection |
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | Per-attachment download limit in MB for Weixin Claw inbound images, files, and video; oversized items are skipped and noted with their size and the limit. Range 1–10000 |
+| `WEIXIN__MAX_UPLOAD_MB` | `200` | Per-attachment upload limit in MB for Weixin Claw outbound images, video, and files; oversized items are rejected. Range 1–10000 |
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
 corresponds to the origin the browser actually opens, such as

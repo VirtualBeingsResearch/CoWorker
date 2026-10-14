@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import base64
 import secrets
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+from loguru import logger
 
 from coworker.channels.weixin.media import (
     WEIXIN_MEDIA_MAX_BYTES,
     WeixinMediaTooLargeError,
     decrypt_aes_ecb_file,
 )
+from coworker.i18n import tr
 from coworker.version import __version__
 
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
@@ -21,10 +24,16 @@ DEFAULT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 DEFAULT_BOT_TYPE = "3"
 DEFAULT_LONG_POLL_TIMEOUT_SECONDS = 35.0
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+_UPLOAD_ATTEMPTS = 3
+_UPLOAD_TIMEOUT_SECONDS = 300.0
 _ILINK_APP_ID = "bot"
 _MESSAGE_TYPE_BOT = 2
 _MESSAGE_STATE_FINISH = 2
 _TEXT_ITEM_TYPE = 1
+
+
+class WeixinDeliveryError(RuntimeError):
+    """A delivery failure whose message is safe to show to the agent."""
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,19 @@ class WeixinClient:
         text: str,
         context_token: str = "",
     ) -> None:
+        await self.send_item(
+            user_id,
+            {"type": _TEXT_ITEM_TYPE, "text_item": {"text": text}},
+            context_token,
+        )
+
+    async def send_item(
+        self,
+        user_id: str,
+        item: dict[str, Any],
+        context_token: str = "",
+    ) -> None:
+        """Send one message item. Text and each attachment are separate requests."""
         payload = {
             "msg": {
                 "from_user_id": "",
@@ -100,22 +122,144 @@ class WeixinClient:
                 "client_id": f"coworker-{secrets.token_hex(12)}",
                 "message_type": _MESSAGE_TYPE_BOT,
                 "message_state": _MESSAGE_STATE_FINISH,
-                "item_list": [
-                    {
-                        "type": _TEXT_ITEM_TYPE,
-                        "text_item": {"text": text},
-                    }
-                ],
+                "item_list": [item],
                 "context_token": context_token or None,
             },
             "base_info": self._base_info(),
         }
-        response = await self._post("ilink/bot/sendmessage", payload)
-        if response.get("ret") not in (None, 0):
-            raise RuntimeError(
-                f"Weixin sendmessage ret={response.get('ret')} "
-                f"errmsg={response.get('errmsg', '')}"
+        try:
+            response = await self._post("ilink/bot/sendmessage", payload)
+        except httpx.HTTPStatusError as error:
+            logger.warning(
+                tr(
+                    "channel.weixin.delivery_http_failed",
+                    status=error.response.status_code,
+                )
             )
+            raise WeixinDeliveryError(tr("channel.weixin.delivery_failed")) from None
+        except httpx.HTTPError:
+            logger.warning(tr("channel.weixin.delivery_transport_failed"))
+            raise WeixinDeliveryError(tr("channel.weixin.delivery_failed")) from None
+        if response.get("ret") not in (None, 0):
+            logger.warning(
+                tr("channel.weixin.send_rejected", ret=response.get("ret"))
+            )
+            raise WeixinDeliveryError(
+                tr("channel.weixin.send_rejected", ret=response.get("ret"))
+            )
+
+    async def resolve_upload_url(
+        self,
+        *,
+        user_id: str,
+        media_type: int,
+        filekey: str,
+        rawsize: int,
+        rawfilemd5: str,
+        filesize: int,
+        aeskey_hex: str,
+        cdn_base_url: str = DEFAULT_CDN_BASE_URL,
+    ) -> str:
+        """Return the CDN POST target for one encrypted attachment.
+
+        ``upload_full_url`` wins. Otherwise the URL is built from
+        ``upload_param`` and ``filekey``. The returned URL is not safe to log
+        or to include in an agent-facing error.
+        """
+        try:
+            response = await self._post(
+                "ilink/bot/getuploadurl",
+                {
+                    "filekey": filekey,
+                    "media_type": media_type,
+                    "to_user_id": user_id,
+                    "rawsize": rawsize,
+                    "rawfilemd5": rawfilemd5,
+                    "filesize": filesize,
+                    "no_need_thumb": True,
+                    "aeskey": aeskey_hex,
+                    "base_info": self._base_info(),
+                },
+            )
+        except httpx.HTTPStatusError as error:
+            logger.warning(
+                tr(
+                    "channel.weixin.upload_attempt_failed",
+                    attempt=1,
+                    status=error.response.status_code,
+                )
+            )
+            raise WeixinDeliveryError(tr("channel.weixin.upload_failed")) from None
+        except httpx.HTTPError:
+            logger.warning(tr("channel.weixin.upload_transport_failed", attempt=1))
+            raise WeixinDeliveryError(tr("channel.weixin.upload_failed")) from None
+        upload_full_url = str(response.get("upload_full_url") or "").strip()
+        if upload_full_url:
+            return upload_full_url
+        upload_param = str(response.get("upload_param") or "").strip()
+        if upload_param:
+            return _cdn_upload_url(cdn_base_url, upload_param, filekey)
+        logger.warning(
+            tr("channel.weixin.upload_url_missing_log", ret=response.get("ret"))
+        )
+        raise WeixinDeliveryError(tr("channel.weixin.upload_failed"))
+
+    async def upload_ciphertext(self, url: str, ciphertext: Path) -> str:
+        """POST one encrypted file and return the CDN ``x-encrypted-param`` value.
+
+        Client errors (HTTP 4xx) abort immediately. Other failures are tried
+        up to three times. The upload URL and response parameter stay out of
+        exceptions and logs.
+        """
+        size = ciphertext.stat().st_size
+        for attempt in range(1, _UPLOAD_ATTEMPTS + 1):
+            try:
+                response = await self._http.post(
+                    url,
+                    content=_iter_file(ciphertext),
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "Content-Length": str(size),
+                    },
+                    timeout=_UPLOAD_TIMEOUT_SECONDS,
+                )
+            except httpx.HTTPError:
+                logger.warning(
+                    tr("channel.weixin.upload_transport_failed", attempt=attempt)
+                )
+                if attempt == _UPLOAD_ATTEMPTS:
+                    raise WeixinDeliveryError(tr("channel.weixin.upload_failed")) from None
+                continue
+            await response.aread()
+            if 400 <= response.status_code < 500:
+                logger.warning(
+                    tr(
+                        "channel.weixin.upload_attempt_failed",
+                        attempt=attempt,
+                        status=response.status_code,
+                    )
+                )
+                raise WeixinDeliveryError(tr("channel.weixin.upload_failed"))
+            if response.status_code != 200:
+                logger.warning(
+                    tr(
+                        "channel.weixin.upload_attempt_failed",
+                        attempt=attempt,
+                        status=response.status_code,
+                    )
+                )
+                continue
+            download_param = (response.headers.get("x-encrypted-param") or "").strip()
+            if download_param:
+                return download_param
+            logger.warning(
+                tr(
+                    "channel.weixin.upload_attempt_failed",
+                    attempt=attempt,
+                    status=response.status_code,
+                )
+            )
+        raise WeixinDeliveryError(tr("channel.weixin.upload_failed"))
 
     async def download_media(
         self,
@@ -249,6 +393,20 @@ def credentials_from_login(response: dict[str, Any]) -> WeixinCredentials | None
         base_url=str(response.get("baseurl") or DEFAULT_BASE_URL).rstrip("/"),
         user_id=str(response.get("ilink_user_id") or ""),
     )
+
+
+def _cdn_upload_url(cdn_base_url: str, upload_param: str, filekey: str) -> str:
+    base = cdn_base_url.rstrip("/")
+    return (
+        f"{base}/upload?encrypted_query_param={quote(upload_param, safe='')}"
+        f"&filekey={quote(filekey, safe='')}"
+    )
+
+
+async def _iter_file(path: Path) -> AsyncIterator[bytes]:
+    with path.open("rb") as handle:
+        while chunk := handle.read(_DOWNLOAD_CHUNK_BYTES):
+            yield chunk
 
 
 def _random_wechat_uin() -> str:

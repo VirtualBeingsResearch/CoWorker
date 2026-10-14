@@ -9,8 +9,9 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
+from coworker.channels.progress import attachment_display_name
 from coworker.channels.weixin.connections import WeixinConnectionManager
-from coworker.channels.weixin.runner import WeixinRunner
+from coworker.channels.weixin.runner import WeixinPartialDelivery, WeixinRunner
 from coworker.core.types import CommunicateRequest, ToolResult
 from coworker.i18n import tr
 
@@ -43,10 +44,19 @@ class WeixinChannel(BaseChannel):
     async def send(self, request: CommunicateRequest) -> ToolResult:
         if request.participant_id == CONTROL_PARTICIPANT_ID:
             return await self._control(request.extra)
-        if not request.message.strip():
+        if not request.message.strip() and not request.attachments:
             return self._error(tr("tool_result.communicate.message_empty"))
         try:
-            await self._runner.send(request.participant_id, request.message)
+            await self._runner.send(
+                request.participant_id,
+                request.message,
+                request.attachments,
+            )
+        except WeixinPartialDelivery as interrupted:
+            return ToolResult(
+                tool_call_id="",
+                content=_partial_note(request, interrupted),
+            )
         except Exception as error:
             return self._error(
                 tr("tool_result.communicate.weixin_failed", error=error)
@@ -60,7 +70,9 @@ class WeixinChannel(BaseChannel):
         )
 
     def capabilities_for(self, participant_id: str) -> ChannelCapabilities:
-        return ChannelCapabilities(extra=participant_id == CONTROL_PARTICIPANT_ID)
+        if participant_id == CONTROL_PARTICIPANT_ID:
+            return ChannelCapabilities(extra=True)
+        return ChannelCapabilities(attachments=True)
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         super().set_inbound_handler(handler)
@@ -215,3 +227,29 @@ class WeixinChannel(BaseChannel):
     @staticmethod
     def _error(content: str) -> ToolResult:
         return ToolResult(tool_call_id="", content=content, is_error=True)
+
+
+def _partial_note(request: CommunicateRequest, interrupted: WeixinPartialDelivery) -> str:
+    chunks_total = 1 if request.message.strip() else 0
+    chunks_sent = 1 if interrupted.text_sent else 0
+    if chunks_sent < chunks_total:
+        preview = " ".join(request.message.split())
+        if len(preview) > 60:
+            preview = f"{preview[:60]}…"
+        cut = tr("tool_result.communicate.cut_at_text", preview=preview)
+    else:
+        attachment = request.attachments[interrupted.attachments_sent]
+        cut = tr(
+            "tool_result.communicate.cut_at_attachment",
+            filename=attachment_display_name(attachment),
+        )
+    return tr(
+        "tool_result.communicate.weixin_sent_partial",
+        participant=request.participant_id,
+        chunks_sent=chunks_sent,
+        chunks_total=chunks_total,
+        attachments_sent=interrupted.attachments_sent,
+        attachments_total=interrupted.attachments_total,
+        cut=cut,
+        error=interrupted.error,
+    )

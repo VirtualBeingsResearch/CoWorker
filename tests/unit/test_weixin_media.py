@@ -5,14 +5,16 @@ import io
 from pathlib import Path
 
 import pytest
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image
 
 from coworker.channels.weixin.media import (
     WeixinMediaError,
+    aes_ecb_padded_size,
     decrypt_aes_ecb,
     decrypt_aes_ecb_file,
+    encode_outbound_aes_key,
+    encrypt_aes_ecb,
+    encrypt_aes_ecb_file,
     extension_for_mime,
     format_size,
     guess_file_mime,
@@ -23,10 +25,7 @@ from coworker.channels.weixin.media import (
 
 
 def _encrypt_aes_ecb(plaintext: bytes, key: bytes) -> bytes:
-    padder = padding.PKCS7(128).padder()
-    padded = padder.update(plaintext) + padder.finalize()
-    encryptor = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
-    return encryptor.update(padded) + encryptor.finalize()
+    return encrypt_aes_ecb(plaintext, key)
 
 
 def _png_bytes() -> bytes:
@@ -111,6 +110,36 @@ def test_guess_file_mime_and_extension_helpers() -> None:
     assert guess_file_mime("unknown.zzz") == "application/octet-stream"
     assert extension_for_mime("image/jpeg") == ".jpg"
     assert extension_for_mime("application/x-unknown") in {".bin", ".unknown"}
+
+
+@pytest.mark.parametrize(
+    ("size", "padded"),
+    [(0, 16), (15, 16), (16, 32), (17, 32)],
+)
+def test_aes_ecb_padded_size(size: int, padded: int) -> None:
+    assert aes_ecb_padded_size(size) == padded
+
+
+def test_encode_outbound_aes_key_matches_inbound_decoder() -> None:
+    key = b"0123456789abcdef"
+
+    encoded = encode_outbound_aes_key(key)
+
+    assert base64.b64decode(encoded) == key.hex().encode("ascii")
+    assert resolve_media_key(None, encoded) == key
+
+
+def test_encrypt_aes_ecb_file_round_trip(tmp_path: Path) -> None:
+    key = b"0123456789abcdef"
+    plaintext = b"weixin-upload"
+    source = tmp_path / "plain.bin"
+    source.write_bytes(plaintext)
+    ciphertext = tmp_path / "cipher.bin"
+    restored = tmp_path / "restored.bin"
+
+    assert encrypt_aes_ecb_file(source, ciphertext, key) == aes_ecb_padded_size(len(plaintext))
+    assert decrypt_aes_ecb_file(ciphertext, restored, key) == len(plaintext)
+    assert restored.read_bytes() == plaintext
 
 
 def test_safe_filename_clamps_and_flattens() -> None:

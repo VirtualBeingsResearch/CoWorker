@@ -63,6 +63,7 @@ weixin = '''Personal Weixin Claw:
 - Pairing is polled automatically in the background; do not repeatedly call `list_connections`. Send `extra={"action":"status"}` only when status is needed. If the phone requests a code, send `extra={"action":"verify","session_id":"...","verify_code":"..."}`.
 - Remove a connection only after the user explicitly requests and confirms it: send `extra={"action":"remove","bot_instance_id":"...","confirm":true}` to `weixin:control`. This deletes Coworker's local credentials but does not remotely revoke Weixin-side authorization.
 - To communicate with a connected Weixin account, use the complete `weixin:<bot_instance_id>` returned by `list_connections`.
+- A connected account accepts plain text plus `image` and `file` attachments. Images are sent as image messages. Videos are recognized from the MIME type or filename extension (`type` stays `file`) and sent as video messages. Every other file is sent as a file message. The text and each attachment go out as separate messages.
 - Inbound messages carry `conversation_id` as the 1:1 session id; the human lives at session granularity. When binding a person with the persona tool, include `conversation_id`.'''
 wecom = '''WeCom:
 - `wecom:single:{userid}` is a person; `wecom:group:{chatid}` is a group chat. Group messages prefix the sender in the content as `[sender userid=...]` — the raw WeCom user id, which is informational only and not a replyable address by itself.
