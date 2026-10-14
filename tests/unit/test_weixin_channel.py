@@ -1034,7 +1034,7 @@ async def test_outbound_upload_retries_server_errors_and_stops_on_client_errors(
     assert not recovered.is_error
     assert "尚未送达" in recovered.content
     assert script.cdn_calls == 2
-    assert statuses[-1].source == "weixin_upload"
+    assert statuses[-1].source == "channel_upload"
     assert statuses[-1].participant_id == "weixin:bot-1"
     assert statuses[-1].conversation_id == "session-1"
     assert statuses[-1].content == "[微信上传] 已发送：notes.txt"
@@ -1063,7 +1063,7 @@ async def test_outbound_upload_retries_server_errors_and_stops_on_client_errors(
     assert "secret-upload" not in rejected.content
     assert any(notice.startswith("上传失败：notes.txt") for notice in notices)
     assert all("cdn.example" not in notice and "secret-upload" not in notice for notice in notices)
-    assert statuses[-1].source == "weixin_upload"
+    assert statuses[-1].source == "channel_upload"
     assert "上传失败：notes.txt" in statuses[-1].content
     assert "cdn.example" not in statuses[-1].content
 

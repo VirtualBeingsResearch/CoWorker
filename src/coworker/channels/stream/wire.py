@@ -5,6 +5,7 @@ Leaf module with no imports from the API or connection pool.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import mimetypes
@@ -20,6 +21,13 @@ from coworker.i18n import tr
 SHUTDOWN_SENTINEL = "__coworker_shutdown__"
 _MAX_ATTACHMENT_COUNT = 5
 _MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
+
+async def encode_outbound_message(message: Any) -> str:
+    """Serialize an outbound message, encoding file attachments off the event loop."""
+    if isinstance(message, CommunicateRequest) and message.attachments:
+        return await asyncio.to_thread(serialize_outbound_message, message)
+    return serialize_outbound_message(message)
 
 
 def serialize_outbound_message(message: Any) -> str:

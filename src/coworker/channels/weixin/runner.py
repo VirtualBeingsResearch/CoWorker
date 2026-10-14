@@ -22,6 +22,7 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
+from coworker.channels.outbound_upload import UploadBatchStart, UploadTracker, push_upload_status
 from coworker.channels.progress import attachment_display_name
 from coworker.channels.weixin.client import (
     DEFAULT_BASE_URL,
@@ -50,7 +51,7 @@ from coworker.channels.weixin.state import (
 )
 from coworker.core.ids import new_compact_id
 from coworker.core.types import AttachmentData, IncomingEvent
-from coworker.i18n import bind_locale, tr
+from coworker.i18n import tr
 
 if TYPE_CHECKING:
     from coworker.core.config import WeixinConfig
@@ -97,13 +98,7 @@ class _PreparedUpload:
     media_type: str
 
 
-@dataclass(frozen=True)
-class WeixinOutboundStart:
-    """What communicate already finished before attachment uploads continue."""
-
-    text_sent: bool
-    started: tuple[str, ...]
-    rejected: tuple[tuple[str, str], ...]
+WeixinOutboundStart = UploadBatchStart
 
 
 class WeixinRunner:
@@ -132,7 +127,7 @@ class WeixinRunner:
         self._inbound_handler: InboundHandler | None = None
         self._clients: dict[str, WeixinClient] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._upload_tasks: set[asyncio.Task[None]] = set()
+        self._uploads = UploadTracker()
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._active_accounts: set[str] = set()
@@ -161,13 +156,12 @@ class WeixinRunner:
     async def stop(self) -> None:
         self._stop.set()
         self._wake.set()
-        await self._cancel_upload_tasks()
+        await self._uploads.cancel()
         await self._close_login_sessions()
 
     async def drain_uploads(self) -> None:
         """Wait until attachment uploads scheduled by :meth:`send` finish."""
-        while self._upload_tasks:
-            await asyncio.gather(*tuple(self._upload_tasks))
+        await self._uploads.drain()
 
     async def reconfigure(self, config: WeixinConfig) -> None:
         if self._config == config:
@@ -345,16 +339,8 @@ class WeixinRunner:
             )
             self._tasks[connection.bot_instance_id] = task
 
-    async def _cancel_upload_tasks(self) -> None:
-        tasks = tuple(self._upload_tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._upload_tasks.clear()
-
     async def _cancel_account_tasks(self) -> None:
-        await self._cancel_upload_tasks()
+        await self._uploads.cancel()
         tasks = list(self._tasks.values())
         self._tasks.clear()
         for task in tasks:
@@ -609,24 +595,20 @@ class WeixinRunner:
         prepared: tuple[_PreparedUpload, ...],
         timeout: float,
     ) -> None:
-        task = asyncio.create_task(
-            bind_locale(
-                partial(
-                    self._upload_batch,
-                    client,
-                    owns_client=owns_client,
-                    participant_id=participant_id,
-                    conversation_id=conversation_id,
-                    user_id=user_id,
-                    context_token=context_token,
-                    prepared=prepared,
-                    timeout=timeout,
-                )
+        self._uploads.schedule(
+            partial(
+                self._upload_batch,
+                client,
+                owns_client=owns_client,
+                participant_id=participant_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                context_token=context_token,
+                prepared=prepared,
+                timeout=timeout,
             ),
             name=f"weixin-upload-{participant_id}",
         )
-        self._upload_tasks.add(task)
-        task.add_done_callback(self._upload_tasks.discard)
 
     async def _upload_batch(
         self,
@@ -644,7 +626,7 @@ class WeixinRunner:
             announced: list[_PreparedUpload] = []
             for item in prepared:
                 notice = tr(
-                    "channel.weixin.upload_started_notice",
+                    "channel.upload.started_notice",
                     filename=item.filename,
                 )
                 try:
@@ -652,7 +634,7 @@ class WeixinRunner:
                     self._activity.record_sent(participant_id)
                 except Exception as error:
                     failed = tr(
-                        "channel.weixin.upload_failed_notice",
+                        "channel.upload.failed_notice",
                         filename=item.filename,
                         error=_safe_delivery_error(error),
                     )
@@ -698,14 +680,14 @@ class WeixinRunner:
             )
         except Exception as error:
             notice = tr(
-                "channel.weixin.upload_failed_notice",
+                "channel.upload.failed_notice",
                 filename=item.filename,
                 error=_safe_delivery_error(error),
             )
         else:
             self._activity.record_sent(participant_id)
             notice = tr(
-                "channel.weixin.upload_succeeded_notice",
+                "channel.upload.succeeded_notice",
                 filename=item.filename,
             )
         await self._send_status_text(
@@ -790,7 +772,7 @@ class WeixinRunner:
         except Exception as error:
             logger.warning(
                 tr(
-                    "channel.weixin.upload_status_delivery_failed",
+                    "channel.upload.status_delivery_failed",
                     error_type=type(error).__name__,
                 )
             )
@@ -803,24 +785,13 @@ class WeixinRunner:
         conversation_id: str | None,
         notice: str,
     ) -> None:
-        if self._inbound_handler is None:
-            return
-        try:
-            await self._inbound_handler(
-                IncomingEvent(
-                    participant_id=participant_id,
-                    content=tr("channel.weixin.upload_status", notice=notice),
-                    conversation_id=conversation_id,
-                    source="weixin_upload",
-                )
-            )
-        except Exception as error:
-            logger.warning(
-                tr(
-                    "channel.weixin.upload_status_delivery_failed",
-                    error_type=type(error).__name__,
-                )
-            )
+        await push_upload_status(
+            self._inbound_handler,
+            participant_id,
+            conversation_id,
+            notice,
+            label=tr("channel.upload.label_weixin"),
+        )
 
     def _reserve_attachment_path(self, filename: str) -> Path:
         while True:

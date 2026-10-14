@@ -40,6 +40,7 @@ export function WeComSettingsPanel({
         bot_id: '',
         secret: '',
         ws_url: '',
+        upload_timeout_seconds: 60,
       },
     });
     setInstanceId(generateWeComInstanceId([...Object.keys(bots), normalizedId]));
@@ -75,6 +76,7 @@ export function WeComSettingsPanel({
           <label><span>{t('Bot ID')}</span><input className="admin-input" value={bot.bot_id || ''} onChange={event => updateBot(id, { bot_id: event.target.value })} placeholder={t('企业微信应用 Bot ID')} /></label>
           <label><span>{t('企业微信 Secret')}</span><input className="admin-input" type="password" value={secretInputs[path] || ''} onChange={event => setSecretInputs({ ...secretInputs, [path]: event.target.value })} placeholder={status?.configured ? t('••••••••{{last4}}（留空保留）', { last4: status.last4 || '' }) : t('企业微信 Secret')} /><small>{status?.configured ? t('当前已配置 · 尾号 {{last4}}', { last4: status.last4 || '' }) : t('当前未配置')}</small></label>
           <label><span>{t('WebSocket 地址')}</span><input className="admin-input" value={bot.ws_url || ''} onChange={event => updateBot(id, { ws_url: event.target.value })} placeholder={t('可选；留空使用默认地址')} /></label>
+          <label><span>{t('上传超时（秒）')}</span><input className="admin-input" type="number" min="1" max="3600" step="1" value={bot.upload_timeout_seconds ?? 60} onChange={event => updateBot(id, { upload_timeout_seconds: Number(event.target.value) })} /><small>{t('等待媒体上传完成的上限，范围 1–3600。')}</small></label>
         </div>
       </article>;
     })}</div> : <div className="provider-empty">{t('还没有企业微信 Bot。添加实例后填写 Bot ID 与 Secret。')}</div>}

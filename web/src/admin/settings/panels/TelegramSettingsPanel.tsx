@@ -43,6 +43,7 @@ export function TelegramSettingsPanel({
         local_mode: false,
         max_download_mb: 20,
         max_upload_mb: 50,
+        upload_timeout_seconds: 60,
         poll_timeout_seconds: 30,
       },
     });
@@ -83,6 +84,7 @@ export function TelegramSettingsPanel({
           <label className="switch config-switch telegram-local-mode"><input type="checkbox" checked={!!bot.local_mode} onChange={event => updateBot(id, { local_mode: event.target.checked })} /><i /><span><b>{t('自托管机器人 API 服务器')}</b><small>{t('仅当服务以 --local 启动并与 Coworker 共享文件路径时开启；官方 API 或普通代理保持关闭。')}</small></span></label>
           <label><span>{t('下载上限（MB）')}</span><input className="admin-input" type="number" min="1" max="2000" step="1" value={bot.max_download_mb ?? 20} onChange={event => updateBot(id, { max_download_mb: Number(event.target.value) })} /><small>{t('官方 API 为 20；自托管服务器可调高，最高 2000。')}</small></label>
           <label><span>{t('上传上限（MB）')}</span><input className="admin-input" type="number" min="1" max="2000" step="1" value={bot.max_upload_mb ?? 50} onChange={event => updateBot(id, { max_upload_mb: Number(event.target.value) })} /><small>{t('官方 API 为 50；自托管服务器可调高，最高 2000。')}</small></label>
+          <label><span>{t('上传超时（秒）')}</span><input className="admin-input" type="number" min="1" max="3600" step="1" value={bot.upload_timeout_seconds ?? 60} onChange={event => updateBot(id, { upload_timeout_seconds: Number(event.target.value) })} /><small>{t('单次 sendPhoto 或 sendDocument 的读写等待上限，范围 1–3600。')}</small></label>
         </div>
       </article>;
     })}</div> : <div className="provider-empty">{t('还没有 Telegram Bot。添加实例后填写 BotFather 提供的 Token。')}</div>}

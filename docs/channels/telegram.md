@@ -34,6 +34,7 @@ TELEGRAM__BOTS={"main":{"enabled":true,"display_name":"主机器人","bot_token"
 | `local_mode` | `false` | 是否按本地机器人 API 服务器模式处理文件路径 |
 | `max_download_mb` | `20` | 单个入站附件的下载上限（MB），范围 1～2000 |
 | `max_upload_mb` | `50` | 单个出站附件的上传上限（MB），范围 1～2000 |
+| `upload_timeout_seconds` | `60` | 单个附件 `sendPhoto` / `sendDocument` 的读写等待上限，范围 1～3600 秒 |
 | `poll_timeout_seconds` | `30` | `getUpdates` 长轮询超时，范围 1～50 秒 |
 
 `api_base_url` 填根地址即可，`/bot` 段由 Coworker 在构造机器人 API 与文件 API 地址时自行
@@ -90,7 +91,7 @@ Bot 通常只会收到命令、回复和与它相关的消息；关闭后 Bot �
 等 Update 不会进入 Coworker。可下载附件在通过信道访问规则后才会下载，单个文件默认最大
 20 MiB（`max_download_mb` 可调），以流式方式保存到 Coworker 的附件目录；不超过 10 MiB 的
 图片和 PDF 还会以内联内容交给模型。出站支持文本、图片和文件，长文本按 Telegram 的 4096
-字符限制自动拆分，单个上传文件默认最大 50 MiB（`max_upload_mb` 可调）。
+字符限制自动拆分，单个上传文件默认最大 50 MiB（`max_upload_mb` 可调）。正文会立刻发出；附件在后台上传，聊天里会先收到“正在上传”，成功或失败后再收到一条结果。单次上传的读写等待上限由 `upload_timeout_seconds` 配置，默认 60 秒，范围 1～3600。
 
 Telegram 消息和附件均属于不可信外部输入，可能包含提示注入或恶意文件。Bot 的群组/频道
 权限与信道访问规则共同决定它的消息来源范围：

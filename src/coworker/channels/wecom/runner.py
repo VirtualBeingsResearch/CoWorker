@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,9 +14,10 @@ from coworker.channels.access import (
 )
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import ConnectionInfo, InboundHandler
+from coworker.channels.outbound_upload import UploadBatchStart, UploadTracker, push_upload_status
 from coworker.channels.wecom import adapter
 from coworker.channels.wecom.contacts import ContactsStore, normalize_chat_type
-from coworker.channels.wecom.sender import WeComSender
+from coworker.channels.wecom.sender import PendingWeComMedia, WeComSender
 from coworker.core.types import IncomingEvent
 from coworker.i18n import tr
 
@@ -91,6 +93,7 @@ class _WeComBotRuntime:
         self._connection_blocked = False
         self._inbound_handler = inbound_handler
         self._access = access or ChannelAccessController()
+        self._uploads = UploadTracker()
 
     def set_inbound_handler(self, handler: InboundHandler | None) -> None:
         self._inbound_handler = handler
@@ -115,7 +118,11 @@ class _WeComBotRuntime:
     async def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        await self._uploads.cancel()
         await self._disconnect(self._client)
+
+    async def drain_uploads(self) -> None:
+        await self._uploads.drain()
 
     async def reconfigure(self, cfg: WeComBotConfig) -> None:
         """Apply a new configuration for this existing bot instance."""
@@ -416,8 +423,8 @@ class _WeComBotRuntime:
         *,
         reply_frame: dict[str, Any] | None = None,
         reply_stream_id: str | None = None,
-    ) -> None:
-        await self._sender.send(
+    ) -> UploadBatchStart:
+        started, pending = await self._sender.send(
             participant_id,
             message,
             attachments,
@@ -425,7 +432,43 @@ class _WeComBotRuntime:
             reply_frame=reply_frame,
             reply_stream_id=reply_stream_id,
         )
-        self._activity.record_sent(participant_id)
+        if pending:
+            self._uploads.schedule(
+                partial(
+                    self._deliver_uploads,
+                    participant_id,
+                    conversation_id,
+                    pending,
+                    float(self._cfg.upload_timeout_seconds),
+                ),
+                name=f"wecom-upload-{participant_id}",
+            )
+        if started.text_sent or started.started:
+            self._activity.record_sent(participant_id)
+        return started
+
+    async def _deliver_uploads(
+        self,
+        participant_id: str,
+        conversation_id: str | None,
+        pending: tuple[PendingWeComMedia, ...],
+        timeout: float,
+    ) -> None:
+        label = tr("channel.upload.label_wecom")
+
+        async def on_terminal(notice: str) -> None:
+            if notice.startswith(tr("channel.upload.succeeded_notice", filename="")):
+                self._activity.record_sent(participant_id)
+            await push_upload_status(
+                self._inbound_handler,
+                participant_id,
+                conversation_id,
+                notice,
+                label=label,
+            )
+
+        for item in pending:
+            await self._sender.deliver_media(item, timeout=timeout, on_terminal=on_terminal)
 
     def activity_for(self, participant_id: str) -> tuple[str | None, str | None]:
         return self._activity.activity_for(participant_id)
@@ -549,14 +592,14 @@ class WeComRunner:
         *,
         reply_frame: dict[str, Any] | None = None,
         reply_stream_id: str | None = None,
-    ) -> None:
+    ) -> UploadBatchStart:
         instance_id, _, _ = adapter.parse_participant(participant_id)
         bot = self._bots.get(instance_id)
         if bot is None:
             raise ValueError(
                 tr("channel.wecom.instance_unknown", instance=instance_id)
             )
-        await bot.send(
+        return await bot.send(
             participant_id,
             message,
             attachments,
@@ -564,6 +607,9 @@ class WeComRunner:
             reply_frame=reply_frame,
             reply_stream_id=reply_stream_id,
         )
+
+    async def drain_uploads(self) -> None:
+        await asyncio.gather(*(bot.drain_uploads() for bot in self._bots.values()))
 
     async def open_progress(
         self,

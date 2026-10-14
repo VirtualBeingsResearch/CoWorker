@@ -11,7 +11,12 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
-from coworker.channels.progress import ProgressTransport, partial_delivery_note
+from coworker.channels.outbound_upload import UploadBatchStart, upload_tool_result
+from coworker.channels.progress import (
+    ProgressTailDelivery,
+    ProgressTransport,
+    partial_delivery_note,
+)
 from coworker.channels.telegram.adapter import parse_participant
 from coworker.channels.telegram.runner import TelegramRunner, split_telegram_text
 from coworker.core.types import CommunicateRequest, IncomingEvent, ToolResult
@@ -70,7 +75,7 @@ class TelegramChannel(BaseChannel):
                 is_error=True,
             )
         try:
-            await self._runner.send(
+            started = await self._runner.send(
                 request.participant_id,
                 request.message,
                 request.attachments,
@@ -82,13 +87,7 @@ class TelegramChannel(BaseChannel):
                 content=tr("tool_result.communicate.telegram_failed", error=error),
                 is_error=True,
             )
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.communicate.telegram_sent",
-                participant=request.participant_id,
-            ),
-        )
+        return _upload_result(request.participant_id, started)
 
     async def open_progress(
         self,
@@ -125,13 +124,13 @@ class TelegramChannel(BaseChannel):
                     content=tr("tool_result.communicate.message_empty"),
                     is_error=True,
                 )
-            await self._runner.send(
+            started = await self._runner.send(
                 request.participant_id,
                 "",
                 request.attachments,
                 request.conversation_id,
             )
-            return self._sent(request)
+            return _upload_result(request.participant_id, started)
         try:
             await self._runner.edit_progress_message(
                 request.participant_id,
@@ -152,11 +151,18 @@ class TelegramChannel(BaseChannel):
             transport.telegram_chat_id,
             request.conversation_id,
             chunks[1:],
-            request.attachments,
         )
         if not delivery.complete:
             # 正文开头已经在原占位消息里：删掉它等于撤回已送达的回复，整条重发又会
             # 重复。如实报告送到了哪一块、从哪一段起没送到，让模型只补发缺的部分。
+            # 正文中断时附件还没开始上传。
+            delivery = ProgressTailDelivery(
+                chunks_sent=delivery.chunks_sent,
+                chunks_total=delivery.chunks_total,
+                attachments_sent=0,
+                attachments_total=len(request.attachments),
+                error=delivery.error,
+            )
             return self._sent(
                 request,
                 content=partial_delivery_note(
@@ -166,6 +172,18 @@ class TelegramChannel(BaseChannel):
                     attachments=request.attachments,
                     delivery=delivery,
                 ),
+            )
+        if request.attachments:
+            started = await self._runner.send(
+                request.participant_id,
+                "",
+                request.attachments,
+                request.conversation_id,
+            )
+            return _upload_result(
+                request.participant_id,
+                started,
+                text_sent=True,
             )
         return self._sent(request)
 
@@ -245,3 +263,19 @@ class TelegramChannel(BaseChannel):
 
     def agent_instructions(self) -> str:
         return tr("prompt.channel.telegram")
+
+
+def _upload_result(
+    participant_id: str,
+    started: UploadBatchStart,
+    *,
+    text_sent: bool | None = None,
+) -> ToolResult:
+    return upload_tool_result(
+        participant=participant_id,
+        text_sent=started.text_sent if text_sent is None else text_sent,
+        started=started.started,
+        rejected=started.rejected,
+        sent_key="tool_result.communicate.telegram_sent",
+        failed_key="tool_result.communicate.telegram_failed",
+    )

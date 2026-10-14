@@ -34,7 +34,7 @@ _INTERNAL_SOURCES = frozenset(
         "sleep_interrupt",
         "compress_memory",
         "tick",
-        "weixin_upload",
+        "channel_upload",
     }
 )
 

@@ -36,6 +36,7 @@ Each instance accepts these fields:
 | `local_mode` | `false` | Interpret file paths using local Bot API Server semantics |
 | `max_download_mb` | `20` | Per-attachment download limit in MB, from 1 to 2000 |
 | `max_upload_mb` | `50` | Per-attachment upload limit in MB, from 1 to 2000 |
+| `upload_timeout_seconds` | `60` | Read and write wait for one `sendPhoto` or `sendDocument`, from 1 to 3600 seconds |
 | `poll_timeout_seconds` | `30` | `getUpdates` long-poll timeout, from 1 to 50 seconds |
 
 Set `api_base_url` to the root; Coworker adds the `/bot` segment itself when it builds the Bot API
@@ -101,7 +102,9 @@ attachments are fetched only after channel access checks pass. One inbound file 
 (configurable via `max_download_mb`) and streams into Coworker's attachment directory; images and
 PDFs up to 10 MiB are also supplied inline to the model. Outbound handling supports text, images,
 and files. Text is split at Telegram's 4096-character limit, and one uploaded file defaults to
-50 MiB (configurable via `max_upload_mb`).
+50 MiB (configurable via `max_upload_mb`). Text goes out immediately. Attachments upload in the
+background: the chat first receives an uploading notice, then a success or failure result. The
+read and write wait for one upload is `upload_timeout_seconds`, default 60 seconds, from 1 to 3600.
 
 Telegram messages and attachments are untrusted external input that may contain prompt injection
 or malicious files. The Bot's group/channel permissions and channel access rules together define

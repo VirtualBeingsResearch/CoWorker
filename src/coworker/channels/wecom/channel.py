@@ -18,6 +18,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
+from coworker.channels.outbound_upload import upload_tool_result
 from coworker.channels.progress import (
     ProgressTailDelivery,
     ProgressTransport,
@@ -69,19 +70,11 @@ class WeComChannel(BaseChannel):
 
     async def send(self, request: CommunicateRequest) -> ToolResult:
         try:
-            await self._runner.send(
+            started = await self._runner.send(
                 request.participant_id,
                 request.message,
                 request.attachments,
                 request.conversation_id,
-            )
-            content = tr(
-                "tool_result.communicate.wecom_sent",
-                participant=request.participant_id,
-            )
-            return ToolResult(
-                tool_call_id="",
-                content=content,
             )
         except Exception as error:
             return ToolResult(
@@ -89,6 +82,16 @@ class WeComChannel(BaseChannel):
                 content=tr("tool_result.communicate.wecom_failed", error=error),
                 is_error=True,
             )
+        if not started.text_sent and not started.started and not started.rejected:
+            return self._sent(request)
+        return upload_tool_result(
+            participant=request.participant_id,
+            text_sent=started.text_sent,
+            started=started.started,
+            rejected=started.rejected,
+            sent_key="tool_result.communicate.wecom_sent",
+            failed_key="tool_result.communicate.wecom_failed",
+        )
 
     async def open_progress(
         self,
@@ -123,8 +126,20 @@ class WeComChannel(BaseChannel):
                     content=tr("tool_result.communicate.message_empty"),
                     is_error=True,
                 )
-            await self._runner.send(request.participant_id, "", request.attachments, None)
-            return self._sent(request)
+            started = await self._runner.send(
+                request.participant_id,
+                "",
+                request.attachments,
+                None,
+            )
+            return upload_tool_result(
+                participant=request.participant_id,
+                text_sent=started.text_sent,
+                started=started.started,
+                rejected=started.rejected,
+                sent_key="tool_result.communicate.wecom_sent",
+                failed_key="tool_result.communicate.wecom_failed",
+            )
         try:
             await self._close_stream(transport, chunks[0])
         except Exception as error:
@@ -134,11 +149,15 @@ class WeComChannel(BaseChannel):
                 content=tr("tool_result.communicate.wecom_failed", error=error),
                 is_error=True,
             )
-        if len(chunks) > 1 or request.attachments:
+        if len(chunks) > 1:
             delivery = await self._send_progress_tail(request, chunks[1:])
             if not delivery.complete:
                 # 正文开头已经在原占位流里：整条重发会重复，如实报告送到了哪一块、
-                # 从哪一段起没送到，让模型只补发缺的部分。
+                # 从哪一段起没送到，让模型只补发缺的部分。附件还没开始上传。
+                delivery = replace(
+                    delivery,
+                    attachments_total=len(request.attachments),
+                )
                 return self._sent(
                     request,
                     content=partial_delivery_note(
@@ -149,6 +168,21 @@ class WeComChannel(BaseChannel):
                         delivery=delivery,
                     ),
                 )
+        if request.attachments:
+            started = await self._runner.send(
+                request.participant_id,
+                "",
+                request.attachments,
+                None,
+            )
+            return upload_tool_result(
+                participant=request.participant_id,
+                text_sent=True,
+                started=started.started,
+                rejected=started.rejected,
+                sent_key="tool_result.communicate.wecom_sent",
+                failed_key="tool_result.communicate.wecom_failed",
+            )
         return self._sent(request)
 
     async def _send_progress_tail(
@@ -162,32 +196,23 @@ class WeComChannel(BaseChannel):
         逐块发送，只是失败时无从得知已经送出去多少。
         """
         chunks_sent = 0
-        attachments_sent = 0
         try:
             for chunk in extra_chunks:
                 await self._runner.send(request.participant_id, chunk, [], None)
                 chunks_sent += 1
-            for attachment in request.attachments:
-                await self._runner.send(
-                    request.participant_id,
-                    "",
-                    [attachment],
-                    None,
-                )
-                attachments_sent += 1
         except Exception as error:
             return ProgressTailDelivery(
                 chunks_sent=chunks_sent,
                 chunks_total=len(extra_chunks),
-                attachments_sent=attachments_sent,
-                attachments_total=len(request.attachments),
+                attachments_sent=0,
+                attachments_total=0,
                 error=str(error),
             )
         return ProgressTailDelivery(
             chunks_sent=chunks_sent,
             chunks_total=len(extra_chunks),
-            attachments_sent=attachments_sent,
-            attachments_total=len(request.attachments),
+            attachments_sent=0,
+            attachments_total=0,
         )
 
     def _sent(self, request: CommunicateRequest, *, content: str | None = None) -> ToolResult:

@@ -900,6 +900,8 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '出站图片、视频和普通文件单个附件的上传上限；超过时拒绝发送，范围 1–10000。': 'Per-attachment upload limit for outbound images, video, and ordinary files; oversized items are rejected. Range 1–10000.',
   '上传超时（秒）': 'Upload timeout (seconds)',
   '单个附件每次 CDN 上传的等待上限；传输失败最多重试 3 次，范围 1–3600。': 'Wait for each CDN upload attempt of one attachment; transport failures retry up to 3 times. Range 1–3600.',
+  '单次 sendPhoto 或 sendDocument 的读写等待上限，范围 1–3600。': 'Read and write wait for one sendPhoto or sendDocument. Range 1–3600.',
+  '等待媒体上传完成的上限，范围 1–3600。': 'Wait for one media upload to finish. Range 1–3600.',
   '长轮询超时（秒）': 'Long-poll timeout (seconds)',
   '自托管机器人 API 服务器': 'Self-hosted Bot API Server',
   '仅当服务以 --local 启动并与 Coworker 共享文件路径时开启；官方 API 或普通代理保持关闭。': 'Enable only when the server runs with --local and shares file paths with Coworker; keep this off for the official API or a regular proxy.',

@@ -9,6 +9,7 @@ from coworker.channels.base import (
     ConnectionInfo,
     InboundHandler,
 )
+from coworker.channels.outbound_upload import upload_tool_result
 from coworker.channels.weixin.connections import WeixinConnectionManager
 from coworker.channels.weixin.runner import WeixinOutboundStart, WeixinRunner
 from coworker.core.types import CommunicateRequest, ToolResult
@@ -219,38 +220,11 @@ class WeixinChannel(BaseChannel):
 
 
 def _upload_result(request: CommunicateRequest, started: WeixinOutboundStart) -> ToolResult:
-    if not started.text_sent and not started.started:
-        detail = _rejection_details(started.rejected) or tr("channel.weixin.delivery_failed")
-        return ToolResult(
-            tool_call_id="",
-            content=tr("tool_result.communicate.weixin_failed", error=detail),
-            is_error=True,
-        )
-    parts: list[str] = []
-    if started.text_sent:
-        parts.append(
-            tr(
-                "tool_result.communicate.weixin_sent",
-                participant=request.participant_id,
-            )
-        )
-    if started.started:
-        parts.append(
-            tr(
-                "tool_result.communicate.weixin_upload_started",
-                participant=request.participant_id,
-                filenames=", ".join(started.started),
-            )
-        )
-    if started.rejected:
-        parts.append(
-            tr(
-                "tool_result.communicate.weixin_upload_rejected",
-                details=_rejection_details(started.rejected),
-            )
-        )
-    return ToolResult(tool_call_id="", content="\n".join(parts))
-
-
-def _rejection_details(rejected: tuple[tuple[str, str], ...]) -> str:
-    return "; ".join(f"{name} ({error})" for name, error in rejected)
+    return upload_tool_result(
+        participant=request.participant_id,
+        text_sent=started.text_sent,
+        started=started.started,
+        rejected=started.rejected,
+        sent_key="tool_result.communicate.weixin_sent",
+        failed_key="tool_result.communicate.weixin_failed",
+    )

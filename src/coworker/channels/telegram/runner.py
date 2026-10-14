@@ -4,6 +4,7 @@ import asyncio
 import base64
 import secrets
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,13 @@ from coworker.channels.access import (
 from coworker.channels.activity import ChannelActivityStore
 from coworker.channels.base import InboundHandler
 from coworker.channels.filenames import safe_attachment_filename
-from coworker.channels.progress import ProgressTailDelivery
+from coworker.channels.outbound_upload import (
+    UploadBatchStart,
+    UploadTracker,
+    push_upload_status,
+    safe_upload_error,
+)
+from coworker.channels.progress import ProgressTailDelivery, attachment_display_name
 from coworker.channels.telegram import adapter
 from coworker.channels.telegram.client import (
     TelegramClient,
@@ -65,6 +72,7 @@ class _TelegramBotRuntime:
         self._reconfigure_lock = asyncio.Lock()
         self._ready = False
         self._polling_failed = False
+        self._uploads = UploadTracker()
 
     @property
     def ready(self) -> bool:
@@ -95,9 +103,13 @@ class _TelegramBotRuntime:
     async def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        await self._uploads.cancel()
         client = self._client
         if client is not None:
             await client.close()
+
+    async def drain_uploads(self) -> None:
+        await self._uploads.drain()
 
     async def reconfigure(self, config: TelegramBotConfig) -> None:
         async with self._reconfigure_lock:
@@ -121,7 +133,7 @@ class _TelegramBotRuntime:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None,
-    ) -> None:
+    ) -> UploadBatchStart:
         _, chat_id = adapter.parse_participant(participant_id)
         if self.contact_for_chat(chat_id) is None:
             raise ValueError(
@@ -136,11 +148,105 @@ class _TelegramBotRuntime:
                 tr("channel.telegram.bot_unavailable", instance=self.instance_id)
             )
         thread_id = _thread_id(conversation_id)
+        text_sent = False
         for chunk in split_telegram_text(message):
             await client.send_message(chat_id, chunk, thread_id)
+            text_sent = True
+        prepared: list[dict[str, Any]] = []
+        names: list[str] = []
+        rejected: list[tuple[str, str]] = []
         for attachment in attachments:
-            await client.send_attachment(chat_id, attachment, thread_id)
-        self._activity.record_sent(participant_id)
+            try:
+                _attachment_type, _path, filename = client.checked_attachment(attachment)
+            except Exception as error:
+                rejected.append((attachment_display_name(attachment), safe_upload_error(error)))
+                continue
+            prepared.append(attachment)
+            names.append(filename)
+        if prepared:
+            self._uploads.schedule(
+                partial(
+                    self._upload_attachments,
+                    client,
+                    participant_id,
+                    conversation_id,
+                    chat_id,
+                    thread_id,
+                    tuple(prepared),
+                    float(self._config.upload_timeout_seconds),
+                ),
+                name=f"telegram-upload-{participant_id}",
+            )
+        if text_sent:
+            self._activity.record_sent(participant_id)
+        return UploadBatchStart(
+            text_sent=text_sent,
+            started=tuple(names),
+            rejected=tuple(rejected),
+        )
+
+    async def _upload_attachments(
+        self,
+        client: TelegramClient,
+        participant_id: str,
+        conversation_id: str | None,
+        chat_id: int,
+        thread_id: int | None,
+        attachments: tuple[dict[str, Any], ...],
+        timeout: float,
+    ) -> None:
+        label = tr("channel.upload.label_telegram")
+        for attachment in attachments:
+            filename = attachment_display_name(attachment)
+            started_notice = tr("channel.upload.started_notice", filename=filename)
+            try:
+                await client.send_message(chat_id, started_notice, thread_id)
+            except Exception as error:
+                failed = tr(
+                    "channel.upload.failed_notice",
+                    filename=filename,
+                    error=safe_upload_error(error),
+                )
+                await push_upload_status(
+                    self._inbound_handler,
+                    participant_id,
+                    conversation_id,
+                    failed,
+                    label=label,
+                )
+                continue
+            try:
+                await client.send_attachment(
+                    chat_id,
+                    attachment,
+                    thread_id,
+                    timeout=timeout,
+                )
+            except Exception as error:
+                notice = tr(
+                    "channel.upload.failed_notice",
+                    filename=filename,
+                    error=safe_upload_error(error),
+                )
+            else:
+                self._activity.record_sent(participant_id)
+                notice = tr("channel.upload.succeeded_notice", filename=filename)
+            try:
+                await client.send_message(chat_id, notice, thread_id)
+            except Exception as error:
+                logger.warning(
+                    tr(
+                        "channel.upload.status_delivery_failed",
+                        error_type=type(error).__name__,
+                    )
+                )
+            await push_upload_status(
+                self._inbound_handler,
+                participant_id,
+                conversation_id,
+                notice,
+                label=label,
+            )
 
     async def _run_client(self, client: TelegramClient) -> None:
         try:
@@ -482,14 +588,17 @@ class TelegramRunner:
         message: str,
         attachments: list[dict[str, Any]],
         conversation_id: str | None,
-    ) -> None:
+    ) -> UploadBatchStart:
         instance_id, _ = adapter.parse_participant(participant_id)
         bot = self._bots.get(instance_id)
         if bot is None:
             raise ValueError(
                 tr("channel.telegram.instance_unknown", instance=instance_id)
             )
-        await bot.send(participant_id, message, attachments, conversation_id)
+        return await bot.send(participant_id, message, attachments, conversation_id)
+
+    async def drain_uploads(self) -> None:
+        await asyncio.gather(*(bot.drain_uploads() for bot in self._bots.values()))
 
     async def send_progress_message(
         self,
@@ -547,7 +656,6 @@ class TelegramRunner:
         chat_id: int,
         conversation_id: str | None,
         extra_chunks: list[str],
-        attachments: list[dict[str, Any]],
     ) -> ProgressTailDelivery:
         """Send what did not fit in the placeholder, reporting how far it got.
 
@@ -569,27 +677,23 @@ class TelegramRunner:
             )
         thread_id = _thread_id(conversation_id)
         chunks_sent = 0
-        attachments_sent = 0
         try:
             for chunk in extra_chunks:
                 await client.send_message(chat_id, chunk, thread_id)
                 chunks_sent += 1
-            for attachment in attachments:
-                await client.send_attachment(chat_id, attachment, thread_id)
-                attachments_sent += 1
         except Exception as error:
             return ProgressTailDelivery(
                 chunks_sent=chunks_sent,
                 chunks_total=len(extra_chunks),
-                attachments_sent=attachments_sent,
-                attachments_total=len(attachments),
+                attachments_sent=0,
+                attachments_total=0,
                 error=str(error),
             )
         return ProgressTailDelivery(
             chunks_sent=chunks_sent,
             chunks_total=len(extra_chunks),
-            attachments_sent=attachments_sent,
-            attachments_total=len(attachments),
+            attachments_sent=0,
+            attachments_total=0,
         )
 
     async def delete_progress_message(self, participant_id: str, chat_id: int, message_id: int) -> None:
