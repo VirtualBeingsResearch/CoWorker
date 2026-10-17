@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.7 - 2026-10-14
+
+- docs(release): finalize v0.4.6 changelog (#233)
+- chore: remove CLAUDE.md pointer file (#235)
+- feat(memory): query the file backend with a token inverted index (#238)
+- fix(channels): stop calling web chat a REST API (#240)
+- test: keep Config from reading a developer .env (#239)
+- Bump the "all-dependencies" group with 6 updates across multiple ecosystems (#242)
+- feat(web): add configurable search backends (#243)
+- feat(web): persist the communication token across page closes (#245)
+- feat(channels): send Weixin image, video, and file attachments (#246)
+
 ## 0.4.6 - 2026-09-15
 
 - docs(release): finalize v0.4.5 changelog (#229)
