@@ -187,7 +187,7 @@ export function configFieldPresentation(
   if (path === 'web_search.provider') {
     return {
       editor: 'choice',
-      hint: '仅在策略为固定后端时使用。',
+      hint: '仅在策略为固定后端时使用。已禁用的后端会被跳过。',
       choices: [
         { value: 'ddgs', label: 'DDGS' },
         { value: 'bocha', label: 'Bocha 博查' },

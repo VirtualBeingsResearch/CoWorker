@@ -65,7 +65,14 @@ class SearchHit:
 
 
 def configured_providers(config: Config) -> list[WebSearchProviderName]:
-    return [name for name in WEB_SEARCH_PROVIDER_ORDER if _is_configured(config, name)]
+    settings = config.web_search
+    disabled = set(settings.disabled_providers)
+    order = settings.provider_order or WEB_SEARCH_PROVIDER_ORDER
+    return [
+        name
+        for name in order
+        if name not in disabled and _is_configured(config, name)
+    ]
 
 
 def provider_choices(config: Config | None) -> list[str] | None:
@@ -95,6 +102,8 @@ def resolve_provider(config: Config, requested: str | None) -> tuple[str, str]:
             "search_web pinned provider {} is unavailable; falling back",
             settings.provider,
         )
+    if not available:
+        raise SearchError(tr("tool_result.web_search.none_available"))
     return available[0], "auto-fallback"
 
 

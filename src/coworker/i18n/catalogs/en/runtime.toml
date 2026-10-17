@@ -235,6 +235,8 @@ forwarded_from = "[Forwarded from: {{sender}}]\n"
 
 [config.web_search]
 url_invalid = "Search service addresses must be http or https URLs"
+provider_list_invalid = "Search backend lists must contain known backend names as a comma-separated list or a JSON array"
+provider_unknown = "Unknown search backend: {{provider}}"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name must not exceed 80 characters"

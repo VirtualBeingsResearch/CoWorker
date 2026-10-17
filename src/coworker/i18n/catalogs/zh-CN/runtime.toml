@@ -235,6 +235,8 @@ forwarded_from = "[转发自：{{sender}}]\n"
 
 [config.web_search]
 url_invalid = "搜索服务地址必须是 http 或 https URL"
+provider_list_invalid = "搜索后端列表必须是已知后端名称，用逗号或 JSON 数组表示"
+provider_unknown = "未知搜索后端：{{provider}}"
 
 [config.telegram]
 display_name_too_long = "Telegram Bot display_name 不能超过 80 个字符"

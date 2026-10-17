@@ -20,6 +20,7 @@ from pydantic import (
 )
 from pydantic_settings import (
     BaseSettings,
+    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
@@ -986,7 +987,7 @@ DdgsBackend = Literal[
     "wikipedia",
 ]
 
-# auto 模式按这个顺序使用第一个已配置的后端。DDGS 不需要密钥，放在最后兜底。
+# 未自定义顺序时，auto 模式按这个顺序使用第一个已启用且已配置的后端。
 WEB_SEARCH_PROVIDER_ORDER: tuple[WebSearchProviderName, ...] = (
     "bocha",
     "qianfan",
@@ -1000,6 +1001,46 @@ WEB_SEARCH_PROVIDER_ORDER: tuple[WebSearchProviderName, ...] = (
     "keenable",
     "ddgs",
 )
+
+
+def _parse_search_providers(value: object) -> list[str]:
+    """Accept a JSON array or a comma-separated list of known backend names."""
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(tr("config.web_search.provider_list_invalid")) from exc
+            if not isinstance(decoded, list):
+                raise ValueError(tr("config.web_search.provider_list_invalid"))
+            items: list[object] = decoded
+        else:
+            items = [part.strip() for part in text.split(",")]
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        raise ValueError(tr("config.web_search.provider_list_invalid"))
+
+    names: list[str] = []
+    seen: set[str] = set()
+    allowed = set(WEB_SEARCH_PROVIDER_ORDER)
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError(tr("config.web_search.provider_list_invalid"))
+        name = item.strip().lower()
+        if not name or name in seen:
+            continue
+        if name not in allowed:
+            raise ValueError(tr("config.web_search.provider_unknown", provider=name))
+        seen.add(name)
+        names.append(name)
+    return names
 
 
 def _optional_http_url(value: str) -> str:
@@ -1023,6 +1064,12 @@ class WebSearchConfig(_EnvSettings):
 
     strategy: WebSearchStrategy = "auto"
     provider: WebSearchProviderName = "ddgs"
+    provider_order: Annotated[list[WebSearchProviderName], NoDecode] = Field(
+        default_factory=lambda: list(WEB_SEARCH_PROVIDER_ORDER)
+    )
+    disabled_providers: Annotated[list[WebSearchProviderName], NoDecode] = Field(
+        default_factory=list
+    )
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     ddgs_backend: DdgsBackend = "auto"
 
@@ -1078,6 +1125,20 @@ class WebSearchConfig(_EnvSettings):
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
         return _optional_http_url(value)
+
+    @field_validator("provider_order", mode="before")
+    @classmethod
+    def _normalize_provider_order(cls, value: object) -> list[str]:
+        names = _parse_search_providers(value)
+        if not names:
+            return list(WEB_SEARCH_PROVIDER_ORDER)
+        present = set(names)
+        return [*names, *[name for name in WEB_SEARCH_PROVIDER_ORDER if name not in present]]
+
+    @field_validator("disabled_providers", mode="before")
+    @classmethod
+    def _normalize_disabled_providers(cls, value: object) -> list[str]:
+        return _parse_search_providers(value)
 
 
 class TelegramConfig(_EnvSettings):

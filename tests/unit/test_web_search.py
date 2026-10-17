@@ -38,6 +38,54 @@ def _client(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
+def test_custom_order_and_disabled_backends_change_auto_selection() -> None:
+    config = _config(
+        bocha_api_key="bo",
+        tavily_api_key="tv",
+        provider_order="tavily,bocha",
+        disabled_providers="bocha",
+    )
+    assert configured_providers(config) == ["tavily", "ddgs"]
+    assert resolve_provider(config, None) == ("tavily", "auto-fallback")
+    assert resolve_provider(config, "bocha") == ("tavily", "auto-fallback")
+
+
+def test_disabled_pinned_backend_falls_through_and_empty_order_uses_default() -> None:
+    fallback = _config(
+        strategy="fixed",
+        provider="tavily",
+        tavily_api_key="tv",
+        disabled_providers="tavily",
+    )
+    assert resolve_provider(fallback, None) == ("ddgs", "auto-fallback")
+
+    pinned = _config(
+        strategy="fixed",
+        provider="tavily",
+        tavily_api_key="tv",
+        disabled_providers=["tavily", "ddgs"],
+    )
+    with pytest.raises(SearchError, match="没有可用的搜索后端"):
+        resolve_provider(pinned, None)
+
+    blank = _config(provider_order="", disabled_providers="")
+    assert configured_providers(blank)[0] == "ddgs"
+    assert blank.web_search.provider_order[0] == "bocha"
+    assert blank.web_search.disabled_providers == []
+
+
+def test_provider_lists_reject_unknown_names_and_read_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="未知搜索后端"):
+        _config(provider_order="deepseek,nope")
+
+    monkeypatch.setenv("WEB_SEARCH__PROVIDER_ORDER", '["deepseek","ddgs"]')
+    monkeypatch.setenv("WEB_SEARCH__DISABLED_PROVIDERS", "bocha, zhipu")
+    settings = WebSearchConfig()
+    assert settings.provider_order[:2] == ["deepseek", "ddgs"]
+    assert "bocha" in settings.disabled_providers
+    assert "zhipu" in settings.disabled_providers
+
+
 def test_auto_uses_ddgs_when_nothing_else_is_configured() -> None:
     config = _config()
     assert configured_providers(config) == ["ddgs"]

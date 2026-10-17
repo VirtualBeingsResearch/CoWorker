@@ -192,12 +192,14 @@ previews the full section and body rendered by the currently running instance.
 
 ### Web search
 
-`search_web` uses keyless DDGS unless another backend is configured. Changes made under administration **Runtime settings → Web search**, or with the variables below, apply immediately and do not require a restart. `WEB_SEARCH__STRATEGY=auto` picks the first configured backend in this order: Bocha, Qianfan, Zhipu, DeepSeek, LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, then DDGS. `fixed` always uses `WEB_SEARCH__PROVIDER`. An empty Zhipu search key reuses `LLM__ZHIPU_API_KEY`, and an empty DeepSeek search key reuses `LLM__DEEPSEEK_API_KEY`. AnySearch and Keenable can use their anonymous quotas via `WEB_SEARCH__ANYSEARCH_ANONYMOUS` and `WEB_SEARCH__KEENABLE_ANONYMOUS`.
+`search_web` uses keyless DDGS unless another backend is configured. Changes made under administration **Runtime settings → Web search**, or with the variables below, apply immediately and do not require a restart. `WEB_SEARCH__STRATEGY=auto` uses the first enabled, configured backend in `WEB_SEARCH__PROVIDER_ORDER`. The default order is Bocha, Qianfan, Zhipu, DeepSeek, LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, then DDGS. Backends listed in `WEB_SEARCH__DISABLED_PROVIDERS` are not used by auto mode, a pinned backend, or a model-requested backend. `fixed` uses `WEB_SEARCH__PROVIDER`, and falls through the auto order when that backend is disabled or not configured. An empty Zhipu search key reuses `LLM__ZHIPU_API_KEY`, and an empty DeepSeek search key reuses `LLM__DEEPSEEK_API_KEY`. AnySearch and Keenable can use their anonymous quotas via `WEB_SEARCH__ANYSEARCH_ANONYMOUS` and `WEB_SEARCH__KEENABLE_ANONYMOUS`.
 
 | Variable | Default | Description |
 |---|---|---|
 | `WEB_SEARCH__STRATEGY` | `auto` | `auto` or `fixed` |
 | `WEB_SEARCH__PROVIDER` | `ddgs` | Backend used when strategy is `fixed`: `ddgs`, `bocha`, `zhipu`, `qianfan`, `deepseek`, `linkai`, `anysearch`, `serply`, `tavily`, `searxng`, `keenable` |
+| `WEB_SEARCH__PROVIDER_ORDER` | Default order above | Comma-separated names or a JSON array. Auto mode follows this order; omitted backends keep their default order and are appended |
+| `WEB_SEARCH__DISABLED_PROVIDERS` | Empty | Comma-separated names or a JSON array. These backends are never selected |
 | `WEB_SEARCH__TIMEOUT_SECONDS` | `30` | Per-request timeout, 1–120 seconds |
 | `WEB_SEARCH__DDGS_BACKEND` | `auto` | Engine inside DDGS |
 | `WEB_SEARCH__BOCHA_API_KEY` | Empty | Bocha Web Search |
