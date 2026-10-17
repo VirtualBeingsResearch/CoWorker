@@ -6,6 +6,8 @@ from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
 from coworker.brain.openai_chat import parse_tool_arguments as _parse_tool_arguments  # noqa: F401
 from coworker.brain.thinking import ThinkingEffort
 
+# deepseek-flash 现由 DeepSeek-V4.1-Flash-1017 提供服务，调用名不变。
+# v4-flash 与 vision-exp 仍是兼容别名。官方 API 还没有单独的 v4.1-pro ID。
 _DEEPSEEK_MODELS = {
     "deepseek-flash",
     "deepseek-v4-flash",
@@ -31,7 +33,7 @@ _EFFORT_ALIASES = {"minimal": "low", "medium": "high", "xhigh": "high"}
 class DeepSeekProvider(OpenAIChatCompletionsProvider):
     provider_type = "deepseek"
     default_base_url = "https://api.deepseek.com"
-    _DEFAULT_MODEL = "deepseek-v4-flash"
+    _DEFAULT_MODEL = "deepseek-flash"
 
     def _transform_message(self, message, data: dict[str, Any], model_id: str) -> dict[str, Any]:
         if message.role == "assistant" and message.content_text():

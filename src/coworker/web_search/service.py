@@ -1,8 +1,8 @@
 """Multi-provider web search behind one result shape.
 
 Provider order and request contracts follow the backends Coworker exposes
-for ``search_web``: Bocha, Qianfan, Zhipu, LinkAI, AnySearch, Serply,
-Tavily, SearXNG, Keenable, and keyless DDGS.
+for ``search_web``: Bocha, Qianfan, Zhipu, DeepSeek, LinkAI, AnySearch,
+Serply, Tavily, SearXNG, Keenable, and keyless DDGS.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ _LABELS: dict[str, str] = {
     "ddgs": "DDGS",
     "bocha": "Bocha",
     "zhipu": "Zhipu",
+    "deepseek": "DeepSeek",
     "qianfan": "Qianfan",
     "linkai": "LinkAI",
     "anysearch": "AnySearch",
@@ -41,6 +42,8 @@ _LABELS: dict[str, str] = {
     "keenable": "Keenable",
 }
 _DEFAULT_ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
+_DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com"
+_DEEPSEEK_QUERY_LIMIT = 128
 _DEFAULT_QIANFAN_BASE = "https://qianfan.baidubce.com/v2"
 _DEFAULT_LINKAI_BASE = "https://api.link-ai.tech"
 
@@ -62,7 +65,14 @@ class SearchHit:
 
 
 def configured_providers(config: Config) -> list[WebSearchProviderName]:
-    return [name for name in WEB_SEARCH_PROVIDER_ORDER if _is_configured(config, name)]
+    settings = config.web_search
+    disabled = set(settings.disabled_providers)
+    order = settings.provider_order or WEB_SEARCH_PROVIDER_ORDER
+    return [
+        name
+        for name in order
+        if name not in disabled and _is_configured(config, name)
+    ]
 
 
 def provider_choices(config: Config | None) -> list[str] | None:
@@ -92,6 +102,8 @@ def resolve_provider(config: Config, requested: str | None) -> tuple[str, str]:
             "search_web pinned provider {} is unavailable; falling back",
             settings.provider,
         )
+    if not available:
+        raise SearchError(tr("tool_result.web_search.none_available"))
     return available[0], "auto-fallback"
 
 
@@ -169,6 +181,8 @@ def _is_configured(config: Config, name: WebSearchProviderName) -> bool:
         return bool(settings.bocha_api_key)
     if name == "zhipu":
         return bool(settings.zhipu_api_key or config.llm.zhipu_api_key)
+    if name == "deepseek":
+        return bool(settings.deepseek_api_key or config.llm.deepseek_api_key)
     if name == "qianfan":
         return bool(settings.qianfan_api_key)
     if name == "linkai":
@@ -188,6 +202,10 @@ def _is_configured(config: Config, name: WebSearchProviderName) -> bool:
 
 def _zhipu_key(config: Config) -> str:
     return config.web_search.zhipu_api_key or config.llm.zhipu_api_key
+
+
+def _deepseek_key(config: Config) -> str:
+    return config.web_search.deepseek_api_key or config.llm.deepseek_api_key
 
 
 def _count(value: object, *, default: int = 5, upper: int = 50) -> int:
@@ -251,6 +269,10 @@ async def _dispatch_http(
         return await _search_bocha(client, settings, query, count, freshness, summary)
     if provider == "zhipu":
         return await _search_zhipu(client, settings, _zhipu_key(config), query, count, freshness)
+    if provider == "deepseek":
+        return await _search_deepseek(
+            client, settings, _deepseek_key(config), query, count, freshness, summary
+        )
     if provider == "qianfan":
         return await _search_qianfan(client, settings, query, count, freshness)
     if provider == "linkai":
@@ -388,6 +410,86 @@ async def _search_zhipu(
             )
         )
     return hits
+
+
+async def _search_deepseek(
+    client: httpx.AsyncClient,
+    settings: WebSearchConfig,
+    api_key: str,
+    query: str,
+    count: int,
+    freshness: str,
+    summary: bool,
+) -> list[SearchHit]:
+    base = settings.deepseek_api_base or _DEFAULT_DEEPSEEK_BASE
+    response = await _request(
+        client,
+        "POST",
+        f"{base}/v1/tools/search",
+        provider="deepseek",
+        timeout=settings.timeout_seconds,
+        headers=_bearer(api_key),
+        payload={
+            "query": _deepseek_query(query, freshness),
+            "count": count,
+            "need_content": summary,
+        },
+    )
+    if response.status_code == 402:
+        raise SearchError(tr("tool_result.web_search.quota", provider=_label("deepseek")))
+    if response.status_code == 408:
+        raise SearchError(
+            tr(
+                "tool_result.web_search.timeout",
+                provider=_label("deepseek"),
+                seconds=settings.timeout_seconds,
+            ),
+            retryable=True,
+        )
+    _raise_for_status(response, "deepseek")
+    data = _json_object(response, "deepseek")
+    items = data.get("results")
+    hits: list[SearchHit] = []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            page = _text(item.get("content"))
+            long_summary = page if summary and page else _text(item.get("summary"))
+            hits.append(
+                SearchHit(
+                    title=_text(item.get("title")),
+                    url=_text(item.get("url")),
+                    snippet=_text(item.get("snippet")),
+                    site_name=_text(item.get("site_name")),
+                    published=_text(item.get("date")),
+                    summary=long_summary,
+                )
+            )
+    return hits
+
+
+def _deepseek_query(query: str, freshness: str) -> str:
+    """Keep the official 128-character query limit while attaching date operators."""
+
+    suffix = _deepseek_freshness_suffix(freshness)
+    text = query.strip()
+    if suffix and len(text) + len(suffix) > _DEEPSEEK_QUERY_LIMIT:
+        text = text[: _DEEPSEEK_QUERY_LIMIT - len(suffix)].rstrip()
+    if not text:
+        return query.strip()[:_DEEPSEEK_QUERY_LIMIT]
+    return f"{text}{suffix}"[:_DEEPSEEK_QUERY_LIMIT]
+
+
+def _deepseek_freshness_suffix(freshness: str) -> str:
+    days = _FRESHNESS_DAYS.get(freshness)
+    if days is not None:
+        start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        return f" after:{start}"
+    start, sep, end = freshness.partition("..")
+    if sep and start.strip() and end.strip():
+        return f" after:{start.strip()} before:{end.strip()}"
+    return ""
 
 
 async def _search_qianfan(

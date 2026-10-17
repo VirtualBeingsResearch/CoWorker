@@ -45,13 +45,13 @@ async def test_responses_model_dispatches_to_responses_adapter():
 
 def test_set_model_updates_both_wire_adapters():
     provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
-    provider._current_model = "deepseek-v4-flash"
+    provider._current_model = "deepseek-v4.1-flash"
     provider._responses_provider = MagicMock()
 
-    provider.set_model("grok-4.5")
+    provider.set_model("grok-4.6")
 
-    assert provider._current_model == "grok-4.5"
-    provider._responses_provider.set_model.assert_called_once_with("grok-4.5")
+    assert provider._current_model == "grok-4.6"
+    provider._responses_provider.set_model.assert_called_once_with("grok-4.6")
 
 
 def test_deepseek_vision_model_uses_image_url_content():
@@ -68,9 +68,9 @@ def test_deepseek_vision_model_uses_image_url_content():
         }
     ]
 
-    result = provider._adapt_content(content, "deepseek-v4-flash-vision-exp")
+    result = provider._adapt_content(content, "deepseek-v4.1-flash")
 
-    assert provider.supports_vision("deepseek-v4-flash-vision-exp") is True
+    assert provider.supports_vision("deepseek-v4.1-flash") is True
     assert result == [
         {
             "type": "image_url",
@@ -79,30 +79,13 @@ def test_deepseek_vision_model_uses_image_url_content():
     ]
 
 
-def test_deepseek_flash_model_uses_image_url_content():
+def test_official_deepseek_flash_id_is_not_an_opencode_model():
     provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
-    content = [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": "abc",
-            },
-            "_filename": "photo.jpg",
-        }
-    ]
 
-    result = provider._adapt_content(content, "deepseek-flash")
-
-    assert provider.supports_vision("deepseek-flash") is True
-    assert "deepseek-flash" in provider.list_models()
-    assert result == [
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/jpeg;base64,abc"},
-        }
-    ]
+    assert "deepseek-v4.1-flash" in provider.list_models()
+    assert "deepseek-flash" not in provider.list_models()
+    assert "deepseek-v4-flash" not in provider.list_models()
+    assert provider.supports_vision("deepseek-flash") is False
 
 
 @pytest.mark.asyncio
@@ -110,7 +93,9 @@ def test_deepseek_flash_model_uses_image_url_content():
     ("model_id", "thinking", "expected_reasoning"),
     [
         ("gpt-5.6-luna", True, {"effort": "low", "summary": "auto"}),
-        ("grok-4.5", False, None),
+        ("gpt-6-luna", True, {"effort": "low", "summary": "auto"}),
+        ("grok-4.7", False, None),
+        ("grok-4.6", False, None),
     ],
 )
 async def test_responses_models_use_their_supported_reasoning_shape(
@@ -147,7 +132,7 @@ async def test_responses_models_use_their_supported_reasoning_shape(
         assert kwargs["reasoning"] == expected_reasoning
 
 
-def _chat_response(model_id: str = "deepseek-v4-flash") -> SimpleNamespace:
+def _chat_response(model_id: str = "deepseek-v4.1-flash") -> SimpleNamespace:
     return SimpleNamespace(
         model=model_id,
         usage=None,
@@ -168,7 +153,7 @@ def _chat_response(model_id: str = "deepseek-v4-flash") -> SimpleNamespace:
 async def test_chat_complete_sends_opencode_session_header():
     create = AsyncMock(return_value=_chat_response())
     provider = OpenCodeGoProvider.__new__(OpenCodeGoProvider)
-    provider._current_model = "deepseek-v4-flash"
+    provider._current_model = "deepseek-v4.1-flash"
     provider._opencode_session_id = "coworker:test-session"
     provider._client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create)),

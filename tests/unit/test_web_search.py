@@ -25,14 +25,65 @@ from coworker.web_search import (
 
 def _config(**web: object) -> Config:
     zhipu_llm_key = str(web.pop("zhipu_llm_key", ""))
+    deepseek_llm_key = str(web.pop("deepseek_llm_key", ""))
     return Config.model_construct(
         web_search=WebSearchConfig.model_validate(web),
-        llm=LLMConfig.model_validate({"zhipu_api_key": zhipu_llm_key}),
+        llm=LLMConfig.model_validate(
+            {"zhipu_api_key": zhipu_llm_key, "deepseek_api_key": deepseek_llm_key}
+        ),
     )
 
 
 def _client(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_custom_order_and_disabled_backends_change_auto_selection() -> None:
+    config = _config(
+        bocha_api_key="bo",
+        tavily_api_key="tv",
+        provider_order="tavily,bocha",
+        disabled_providers="bocha",
+    )
+    assert configured_providers(config) == ["tavily", "ddgs"]
+    assert resolve_provider(config, None) == ("tavily", "auto-fallback")
+    assert resolve_provider(config, "bocha") == ("tavily", "auto-fallback")
+
+
+def test_disabled_pinned_backend_falls_through_and_empty_order_uses_default() -> None:
+    fallback = _config(
+        strategy="fixed",
+        provider="tavily",
+        tavily_api_key="tv",
+        disabled_providers="tavily",
+    )
+    assert resolve_provider(fallback, None) == ("ddgs", "auto-fallback")
+
+    pinned = _config(
+        strategy="fixed",
+        provider="tavily",
+        tavily_api_key="tv",
+        disabled_providers=["tavily", "ddgs"],
+    )
+    with pytest.raises(SearchError, match="没有可用的搜索后端"):
+        resolve_provider(pinned, None)
+
+    blank = _config(provider_order="", disabled_providers="")
+    assert configured_providers(blank)[0] == "ddgs"
+    assert blank.web_search.provider_order[0] == "bocha"
+    assert blank.web_search.disabled_providers == []
+
+
+def test_provider_lists_reject_unknown_names_and_read_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="未知搜索后端"):
+        _config(provider_order="deepseek,nope")
+
+    monkeypatch.setenv("WEB_SEARCH__PROVIDER_ORDER", '["deepseek","ddgs"]')
+    monkeypatch.setenv("WEB_SEARCH__DISABLED_PROVIDERS", "bocha, zhipu")
+    settings = WebSearchConfig()
+    assert settings.provider_order[:2] == ["deepseek", "ddgs"]
+    assert "bocha" in settings.disabled_providers
+    assert "zhipu" in settings.disabled_providers
 
 
 def test_auto_uses_ddgs_when_nothing_else_is_configured() -> None:
@@ -196,6 +247,72 @@ async def test_zhipu_error_object_is_a_failure() -> None:
     ).execute(query="新闻")
     assert result.is_error
     assert "余额不足" in result.content
+
+
+def test_deepseek_model_key_counts_as_configured_after_zhipu() -> None:
+    config = _config(zhipu_api_key="zk", deepseek_llm_key="dk")
+    assert configured_providers(config) == ["zhipu", "deepseek", "ddgs"]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_maps_results_and_freshness() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url == "https://api.deepseek.com/v1/tools/search"
+        assert request.headers["authorization"] == "Bearer llm-key"
+        assert body["count"] == 5
+        assert body["need_content"] is True
+        assert body["query"].startswith("q" * 100)
+        assert " after:" in body["query"]
+        assert len(body["query"]) <= 128
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "文章",
+                        "url": "https://example.com/a",
+                        "snippet": "短摘",
+                        "summary": "摘要",
+                        "content": "正文",
+                        "site_name": "站点",
+                        "date": "2026-10-17T00:00:00Z",
+                    }
+                ]
+            },
+        )
+
+    config = _config(deepseek_llm_key="llm-key", strategy="fixed", provider="deepseek")
+    result = await SearchWebTool(config, client=_client(handler)).execute(
+        query="q" * 200,
+        freshness="oneWeek",
+        summary=True,
+    )
+    assert "provider: DeepSeek" in result.content
+    assert "文章" in result.content
+    assert "https://example.com/a" in result.content
+    assert "短摘" in result.content
+    assert "正文" in result.content
+    assert "站点" in result.content
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_reports_quota_and_keeps_explicit_key() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer search-key"
+        return httpx.Response(402, json={"error": {"message": "Insufficient Balance"}})
+
+    result = await SearchWebTool(
+        _config(
+            deepseek_api_key="search-key",
+            deepseek_llm_key="llm-key",
+            strategy="fixed",
+            provider="deepseek",
+        ),
+        client=_client(handler),
+    ).execute(query="新闻")
+    assert result.is_error
+    assert "额度已用尽" in result.content
 
 
 @pytest.mark.asyncio

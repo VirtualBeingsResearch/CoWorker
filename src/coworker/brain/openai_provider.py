@@ -29,7 +29,14 @@ def _parse_tool_arguments(raw: str, tool_name: str) -> dict:
 
 
 _TOOL_USE_MODELS = {
-    # GPT-5.x series (current flagship and variants)
+    # GPT-6 / GPT-5.6 (current flagship families) and earlier GPT-5.x variants.
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.5-pro",
     "gpt-5.4",
@@ -64,6 +71,13 @@ _TOOL_USE_MODELS = {
 
 # All GPT-5.x and recent models support vision (text + image input).
 _VISION_MODELS = {
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.5-pro",
     "gpt-5.4",
@@ -92,7 +106,14 @@ _VISION_MODELS = {
 
 # Models that support reasoning via the Responses API reasoning param.
 _REASONING_MODELS = {
-    # GPT-5.x series all support configurable reasoning effort.
+    # GPT-6 / GPT-5.6 and earlier GPT-5.x series support configurable reasoning effort.
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.5-pro",
     "gpt-5.4",
@@ -117,6 +138,19 @@ _REASONING_MODELS = {
     "o3-mini",
     "o3-pro",
     "o4-mini",
+}
+
+# GPT-6 Astra 与 GPT-6.1 Sol 拒绝 reasoning.effort=none，用 low 代替。
+_NO_NONE_REASONING_MODELS = {"gpt-6-astra", "gpt-6.1-sol"}
+# GPT-5.6 / GPT-6 的官方档位没有 minimal。
+_NO_MINIMAL_REASONING_MODELS = {
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
 }
 
 
@@ -271,11 +305,15 @@ class OpenAIProvider(BaseLLMProvider):
 
     def _apply_reasoning(self, kwargs: dict, effort) -> None:
         """Add Responses API reasoning fields supported by the selected model."""
+        if effort == "none" and self._current_model in _NO_NONE_REASONING_MODELS:
+            effort = "low"
+        elif effort == "minimal" and self._current_model in _NO_MINIMAL_REASONING_MODELS:
+            effort = "low"
         if effort == "none":
             kwargs["reasoning"] = {"effort": "none"}
         elif self._current_model in _REASONING_MODELS:
-            # 未显式配置档位时保持历史默认 high；显式档位原样透传
-            # （none/minimal/low/medium/high/xhigh/max 均为官方档位）。
+            # 未显式配置档位时保持历史默认 high；显式档位原样透传。
+            # GPT-6 Astra / GPT-6.1 Sol 没有 none，GPT-5.6 与 GPT-6 没有 minimal。
             kwargs["reasoning"] = {
                 "effort": effort if effort is not None else "high",
                 "summary": "auto",

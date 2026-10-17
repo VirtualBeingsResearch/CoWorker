@@ -187,11 +187,12 @@ export function configFieldPresentation(
   if (path === 'web_search.provider') {
     return {
       editor: 'choice',
-      hint: '仅在策略为固定后端时使用。',
+      hint: '仅在策略为固定后端时使用。已禁用的后端会被跳过。',
       choices: [
         { value: 'ddgs', label: 'DDGS' },
         { value: 'bocha', label: 'Bocha 博查' },
         { value: 'zhipu', label: 'Zhipu 智谱' },
+        { value: 'deepseek', label: 'DeepSeek' },
         { value: 'qianfan', label: 'Qianfan 千帆' },
         { value: 'linkai', label: 'LinkAI' },
         { value: 'anysearch', label: 'AnySearch' },
@@ -253,6 +254,9 @@ export function configFieldPresentation(
   }
   if (path === 'web_search.zhipu_api_key') {
     return { editor: 'default', hint: '留空时复用模型配置中的智谱 API Key。' };
+  }
+  if (path === 'web_search.deepseek_api_key') {
+    return { editor: 'default', hint: '留空时复用模型配置中的 DeepSeek API Key。' };
   }
   if (path === 'web_search.anysearch_anonymous' || path === 'web_search.keenable_anonymous') {
     return { editor: 'default', hint: '开启后可以不填密钥，使用对方的匿名额度。' };

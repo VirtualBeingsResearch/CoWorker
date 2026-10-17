@@ -14,47 +14,48 @@ from coworker.version import __version__
 # models use its Anthropic-compatible endpoint and are not exposed by this
 # provider; the sets below cover chat.completions and Responses separately.
 _CHAT_COMPLETIONS_MODELS = {
-    "deepseek-flash",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
-    "kimi-k2.5",
+    "deepseek-v4.1-flash",
     "kimi-k2.6",
     "kimi-k2.7-code",
     "kimi-k3",
-    "glm-5",
     "glm-5.1",
     "glm-5.2",
     "glm-5.3",
-    "mimo-v2-pro",
-    "mimo-v2-omni",
+    "glm-5.3-flash",
     "mimo-v2.5",
     "mimo-v2.5-pro",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro",
+    "longcat-2.0",
     "hy3",
-    "hy3-preview",
 }
 
 # These stable additions use the OpenAI Responses API on the same /v1 base URL.
-# Newly listed experimental, contributor/region-limited, and limited-time
-# entries intentionally remain dynamic-only rather than recommended here.
+# Messages-endpoint models (Claude, Qwen, MiniMax) and newly listed experimental,
+# contributor/region-limited, and limited-time entries stay dynamic-only.
 _RESPONSES_MODELS = {
     "gpt-5.6-luna",
-    "grok-4.5",
+    "gpt-6-luna",
+    "grok-4.6",
+    "grok-4.7",
 }
+
+_LUNA_REASONING_MODELS = {"gpt-5.6-luna", "gpt-6-luna"}
 
 _OPENCODE_GO_MODELS = _CHAT_COMPLETIONS_MODELS | _RESPONSES_MODELS
 
 _VISION_MODELS = {
-    "deepseek-flash",
-    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4.1-flash",
     "kimi-k3",
+    "gpt-6-luna",
+    "grok-4.6",
+    "grok-4.7",
 }
 
 _DEEPSEEK_MODELS = {
-    "deepseek-flash",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
+    "deepseek-v4.1-flash",
 }
 
 # Kimi K2.6/K2.7 支持 low/medium/high；K3 只支持 high/max。
@@ -104,26 +105,30 @@ class _OpenCodeGoResponsesProvider(OpenAIProvider):
         self._opencode_session_id = session_id or _new_opencode_session_id()
         self._client = _with_opencode_headers(self._client, self._opencode_session_id)
 
+    def supports_vision(self, model_id: str) -> bool:
+        return model_id in _VISION_MODELS or super().supports_vision(model_id)
+
     def _apply_reasoning(self, kwargs: dict, effort) -> None:
         _apply_opencode_session_header(self, kwargs)
         # OpenCode documents Luna's standard Responses reasoning contract.
-        # Grok has no stable public effort contract through Go, so leave its
-        # request shape untouched and let the gateway select its default.
-        if self._current_model != "gpt-5.6-luna":
+        # Grok still has no stable public effort contract through Go, so leave
+        # its request shape untouched and let the gateway select its default.
+        if self._current_model not in _LUNA_REASONING_MODELS:
             return
         if effort == "none":
             kwargs["reasoning"] = {"effort": "none"}
-        else:
-            kwargs["reasoning"] = {
-                "effort": effort if effort is not None else "high",
-                "summary": "auto",
-            }
+            return
+        mapped = "low" if effort == "minimal" else effort
+        kwargs["reasoning"] = {
+            "effort": mapped if mapped is not None else "high",
+            "summary": "auto",
+        }
 
 
 class OpenCodeGoProvider(OpenAIChatCompletionsProvider):
     provider_type = "opencode-go"
     default_base_url = "https://opencode.ai/zen/go/v1"
-    _DEFAULT_MODEL = "deepseek-v4-flash"
+    _DEFAULT_MODEL = "deepseek-v4.1-flash"
 
     def __init__(
         self,

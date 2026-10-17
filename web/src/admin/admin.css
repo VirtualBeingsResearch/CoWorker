@@ -1554,6 +1554,14 @@ html:has(.admin-login),
 .config-switch { align-self: start; margin-top: calc(var(--admin-field-label-height) + var(--admin-field-gap)); }
 .config-fields .field:has(.code-area),
 .config-fields .field:has(.line-number-field) { grid-column: 1 / -1; }
+.search-backend-order { grid-column: 1 / -1; }
+.search-backend-list { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }
+.search-backend-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--admin-line); }
+.search-backend-row:last-child { border-bottom: 0; }
+.search-backend-row.disabled { opacity: 0.62; }
+.search-backend-row .switch { min-height: 32px; align-self: center; margin: 0; color: var(--admin-ink); }
+.search-backend-move { display: flex; gap: 4px; }
+.search-backend-move button:disabled { opacity: 0.35; cursor: default; }
 .string-list-field,
 .transport-list-field { grid-column: 1 / -1; }
 .string-list-editor { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 11px; background: var(--admin-surface); }

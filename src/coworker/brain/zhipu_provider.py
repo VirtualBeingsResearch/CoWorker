@@ -60,7 +60,7 @@ def _mapped_effort(model_id: str, effort: ThinkingEffort) -> str:
 class ZhipuProvider(OpenAIChatCompletionsProvider):
     provider_type = "zhipu"
     default_base_url = "https://open.bigmodel.cn/api/paas/v4/"
-    _DEFAULT_MODEL = "glm-5.1"
+    _DEFAULT_MODEL = "glm-5.3"
 
     def _apply_thinking(
         self,

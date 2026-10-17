@@ -86,11 +86,31 @@ def test_zhipu_catalog_includes_vision_model():
 def test_opencode_go_catalog_includes_supported_vision_model():
     models = available_models("opencode-go")
     assert "gpt-5.6-luna" in models
-    assert "grok-4.5" in models
-    assert "deepseek-flash" in models
-    assert "deepseek-v4-flash-vision-exp" in models
+    assert "gpt-6-luna" in models
+    assert "grok-4.7" in models
+    assert "grok-4.6" in models
+    assert "deepseek-v4.1-flash" in models
+    assert "deepseek-v4-pro" in models
+    assert "mimo-v2.6-pro" in models
+    assert "deepseek-flash" not in models
+    assert "deepseek-v4-flash" not in models
+    assert "grok-4.5" not in models
     assert "muse-spark-1.2-contributor" not in models
     assert "ox-alpha-free" not in models
+    assert "hy4-preview" not in models
+    assert "claude-haiku-5-5" not in models
+
+
+def test_current_flagship_models_are_listed():
+    assert "claude-opus-5-5" in available_models("anthropic")
+    assert "claude-sonnet-5-5" in available_models("anthropic")
+    assert "claude-haiku-5-5" in available_models("anthropic")
+    assert "gpt-6-astra" in available_models("openai")
+    assert "gpt-6.1-sol" in available_models("openai")
+    assert "gpt-5.6-sol" in available_models("openai")
+    assert "qwen3.8-max" in available_models("qwen")
+    assert "qwen3.8-flash" in available_models("qwen")
+    assert "MiniMax-M3.1-Flash-Preview" in available_models("minimax")
 
 
 # ---- build_provider ----
@@ -110,7 +130,7 @@ def test_build_provider_defaults_name_to_type():
 def test_build_provider_supports_opencode_go_and_generic_openai_compatible():
     opencode = build_provider("opencode-go", "k")
     assert opencode.provider_type == "opencode-go"
-    assert "deepseek-v4-flash" in available_models("opencode-go")
+    assert "deepseek-v4.1-flash" in available_models("opencode-go")
 
     generic = build_provider(
         "openai_compatible",
