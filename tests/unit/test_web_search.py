@@ -25,9 +25,12 @@ from coworker.web_search import (
 
 def _config(**web: object) -> Config:
     zhipu_llm_key = str(web.pop("zhipu_llm_key", ""))
+    deepseek_llm_key = str(web.pop("deepseek_llm_key", ""))
     return Config.model_construct(
         web_search=WebSearchConfig.model_validate(web),
-        llm=LLMConfig.model_validate({"zhipu_api_key": zhipu_llm_key}),
+        llm=LLMConfig.model_validate(
+            {"zhipu_api_key": zhipu_llm_key, "deepseek_api_key": deepseek_llm_key}
+        ),
     )
 
 
@@ -196,6 +199,72 @@ async def test_zhipu_error_object_is_a_failure() -> None:
     ).execute(query="新闻")
     assert result.is_error
     assert "余额不足" in result.content
+
+
+def test_deepseek_model_key_counts_as_configured_after_zhipu() -> None:
+    config = _config(zhipu_api_key="zk", deepseek_llm_key="dk")
+    assert configured_providers(config) == ["zhipu", "deepseek", "ddgs"]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_maps_results_and_freshness() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url == "https://api.deepseek.com/v1/tools/search"
+        assert request.headers["authorization"] == "Bearer llm-key"
+        assert body["count"] == 5
+        assert body["need_content"] is True
+        assert body["query"].startswith("q" * 100)
+        assert " after:" in body["query"]
+        assert len(body["query"]) <= 128
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "文章",
+                        "url": "https://example.com/a",
+                        "snippet": "短摘",
+                        "summary": "摘要",
+                        "content": "正文",
+                        "site_name": "站点",
+                        "date": "2026-10-17T00:00:00Z",
+                    }
+                ]
+            },
+        )
+
+    config = _config(deepseek_llm_key="llm-key", strategy="fixed", provider="deepseek")
+    result = await SearchWebTool(config, client=_client(handler)).execute(
+        query="q" * 200,
+        freshness="oneWeek",
+        summary=True,
+    )
+    assert "provider: DeepSeek" in result.content
+    assert "文章" in result.content
+    assert "https://example.com/a" in result.content
+    assert "短摘" in result.content
+    assert "正文" in result.content
+    assert "站点" in result.content
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_reports_quota_and_keeps_explicit_key() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer search-key"
+        return httpx.Response(402, json={"error": {"message": "Insufficient Balance"}})
+
+    result = await SearchWebTool(
+        _config(
+            deepseek_api_key="search-key",
+            deepseek_llm_key="llm-key",
+            strategy="fixed",
+            provider="deepseek",
+        ),
+        client=_client(handler),
+    ).execute(query="新闻")
+    assert result.is_error
+    assert "额度已用尽" in result.content
 
 
 @pytest.mark.asyncio

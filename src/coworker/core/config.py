@@ -958,6 +958,7 @@ WebSearchProviderName = Literal[
     "bocha",
     "zhipu",
     "qianfan",
+    "deepseek",
     "linkai",
     "anysearch",
     "serply",
@@ -990,6 +991,7 @@ WEB_SEARCH_PROVIDER_ORDER: tuple[WebSearchProviderName, ...] = (
     "bocha",
     "qianfan",
     "zhipu",
+    "deepseek",
     "linkai",
     "anysearch",
     "serply",
@@ -1029,6 +1031,8 @@ class WebSearchConfig(_EnvSettings):
     zhipu_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
     zhipu_search_engine: ZhipuSearchEngine = "search_pro"
     zhipu_content_size: Literal["", "medium", "high"] = ""
+    deepseek_api_key: str = ""
+    deepseek_api_base: str = "https://api.deepseek.com"
     qianfan_api_key: str = ""
     qianfan_api_base: str = "https://qianfan.baidubce.com/v2"
     linkai_api_key: str = ""
@@ -1049,6 +1053,7 @@ class WebSearchConfig(_EnvSettings):
     @field_validator(
         "bocha_api_key",
         "zhipu_api_key",
+        "deepseek_api_key",
         "qianfan_api_key",
         "linkai_api_key",
         "anysearch_api_key",
@@ -1063,7 +1068,13 @@ class WebSearchConfig(_EnvSettings):
     def _strip_text(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("zhipu_api_base", "qianfan_api_base", "linkai_api_base", "searxng_url")
+    @field_validator(
+        "zhipu_api_base",
+        "deepseek_api_base",
+        "qianfan_api_base",
+        "linkai_api_base",
+        "searxng_url",
+    )
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
         return _optional_http_url(value)

@@ -46,6 +46,7 @@ SECRET_PATHS = {
     "llm.minimax_api_key",
     "web_search.bocha_api_key",
     "web_search.zhipu_api_key",
+    "web_search.deepseek_api_key",
     "web_search.qianfan_api_key",
     "web_search.linkai_api_key",
     "web_search.anysearch_api_key",

@@ -6,8 +6,8 @@ from coworker.brain.openai_chat import OpenAIChatCompletionsProvider
 from coworker.brain.openai_chat import parse_tool_arguments as _parse_tool_arguments  # noqa: F401
 from coworker.brain.thinking import ThinkingEffort
 
-# deepseek-flash 是当前的 V4.1-Flash。v4-flash 与 vision-exp 仍是兼容别名，
-# 请求由 V4.1-Flash 承接。官方 API 还没有单独的 v4.1-pro ID。
+# deepseek-flash 现由 DeepSeek-V4.1-Flash-1017 提供服务，调用名不变。
+# v4-flash 与 vision-exp 仍是兼容别名。官方 API 还没有单独的 v4.1-pro ID。
 _DEEPSEEK_MODELS = {
     "deepseek-flash",
     "deepseek-v4-flash",

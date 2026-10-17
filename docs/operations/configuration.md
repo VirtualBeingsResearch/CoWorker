@@ -170,16 +170,18 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 ### 联网搜索
 
-`search_web` 默认走无需密钥的 DDGS。在管理端“运行设置 → 联网搜索”或下面的环境变量里配置其他后端后立即生效，不必重启。`WEB_SEARCH__STRATEGY=auto` 时按博查、千帆、智谱、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS 使用第一个已配置的后端；`fixed` 时固定使用 `WEB_SEARCH__PROVIDER`。智谱搜索密钥留空时复用 `LLM__ZHIPU_API_KEY`。AnySearch 与 Keenable 可分别用 `WEB_SEARCH__ANYSEARCH_ANONYMOUS`、`WEB_SEARCH__KEENABLE_ANONYMOUS` 开启匿名额度。
+`search_web` 默认走无需密钥的 DDGS。在管理端“运行设置 → 联网搜索”或下面的环境变量里配置其他后端后立即生效，不必重启。`WEB_SEARCH__STRATEGY=auto` 时按博查、千帆、智谱、DeepSeek、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS 使用第一个已配置的后端；`fixed` 时固定使用 `WEB_SEARCH__PROVIDER`。智谱搜索密钥留空时复用 `LLM__ZHIPU_API_KEY`，DeepSeek 搜索密钥留空时复用 `LLM__DEEPSEEK_API_KEY`。AnySearch 与 Keenable 可分别用 `WEB_SEARCH__ANYSEARCH_ANONYMOUS`、`WEB_SEARCH__KEENABLE_ANONYMOUS` 开启匿名额度。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `WEB_SEARCH__STRATEGY` | `auto` | `auto` 或 `fixed` |
-| `WEB_SEARCH__PROVIDER` | `ddgs` | `fixed` 时使用的后端：`ddgs`、`bocha`、`zhipu`、`qianfan`、`linkai`、`anysearch`、`serply`、`tavily`、`searxng`、`keenable` |
+| `WEB_SEARCH__PROVIDER` | `ddgs` | `fixed` 时使用的后端：`ddgs`、`bocha`、`zhipu`、`qianfan`、`deepseek`、`linkai`、`anysearch`、`serply`、`tavily`、`searxng`、`keenable` |
 | `WEB_SEARCH__TIMEOUT_SECONDS` | `30` | 单次请求超时，1–120 秒 |
 | `WEB_SEARCH__DDGS_BACKEND` | `auto` | DDGS 内部引擎 |
 | `WEB_SEARCH__BOCHA_API_KEY` | 空 | 博查 Web Search |
 | `WEB_SEARCH__ZHIPU_API_KEY` | 空 | 智谱 Web Search；留空复用模型密钥 |
+| `WEB_SEARCH__DEEPSEEK_API_KEY` | 空 | DeepSeek Search；留空复用模型密钥 |
+| `WEB_SEARCH__DEEPSEEK_API_BASE` | `https://api.deepseek.com` | DeepSeek API 根地址 |
 | `WEB_SEARCH__ZHIPU_API_BASE` | `https://open.bigmodel.cn/api/paas/v4` | 智谱 API 根地址 |
 | `WEB_SEARCH__ZHIPU_SEARCH_ENGINE` | `search_pro` | `search_std`、`search_pro`、`search_pro_sogou`、`search_pro_quark` |
 | `WEB_SEARCH__QIANFAN_API_KEY` | 空 | 百度千帆 AI Search |
