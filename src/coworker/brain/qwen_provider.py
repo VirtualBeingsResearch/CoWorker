@@ -12,16 +12,22 @@ _QWEN_MODELS = {
     "qwen3.6-max-preview",
     "qwen3.7-plus",
     "qwen3.7-max",
+    "qwen3.8-flash",
+    "qwen3.8-max",
 }
 
 _VISION_MODELS = {
     "qwen3.6-plus",
     "qwen3.7-plus",
+    "qwen3.8-flash",
+    "qwen3.8-max",
 }
 
 _VIDEO_MODELS = {
     "qwen3.6-plus",
     "qwen3.7-plus",
+    "qwen3.8-flash",
+    "qwen3.8-max",
 }
 
 # Qwen3 系列支持 extended thinking，通过 enable_thinking extra_body 开关；
@@ -35,7 +41,7 @@ _EFFORT_ALIASES = {"minimal": "low", "high": "xhigh", "max": "xhigh"}
 class QwenProvider(OpenAIChatCompletionsProvider):
     provider_type = "qwen"
     default_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    _DEFAULT_MODEL = "qwen-plus"
+    _DEFAULT_MODEL = "qwen3.8-max"
 
     def _apply_thinking(
         self,

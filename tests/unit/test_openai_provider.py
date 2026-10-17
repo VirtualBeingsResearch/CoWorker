@@ -99,6 +99,41 @@ class TestOpenAIProvider:
         assert create.await_args.kwargs["reasoning"] == {"effort": "none"}
 
     @pytest.mark.asyncio
+    async def test_gpt6_astra_maps_disabled_thinking_to_low(self):
+        provider, create = _make_provider("gpt-6-astra")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking=False,
+        )
+
+        assert create.await_args.kwargs["reasoning"] == {"effort": "low", "summary": "auto"}
+
+    @pytest.mark.asyncio
+    async def test_gpt56_sol_keeps_none_and_drops_minimal(self):
+        provider, create = _make_provider("gpt-5.6-sol")
+        create.return_value = _make_response()
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking=False,
+        )
+        assert create.await_args.kwargs["reasoning"] == {"effort": "none"}
+
+        await provider.complete(
+            messages=[Message(role="user", content="hi")],
+            system_prompt="You are helpful.",
+            tools=[],
+            thinking_effort="minimal",
+        )
+        assert create.await_args.kwargs["reasoning"] == {"effort": "low", "summary": "auto"}
+
+    @pytest.mark.asyncio
     async def test_complete_reports_cached_tokens(self):
         provider, create = _make_provider("gpt-5.4")
         create.return_value = _make_response(cached_tokens=67)

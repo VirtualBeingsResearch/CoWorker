@@ -75,6 +75,19 @@ class TestProviderThinkingMappings:
             "thinking": "disabled",
         }
 
+    def test_minimax_m31_maps_effort_and_cannot_disable_thinking(self):
+        enabled = _apply(
+            MiniMaxProvider, "MiniMax-M3.1-Flash-Preview", thinking=True, effort="xhigh"
+        )
+        assert enabled == {"reasoning_effort": "xhigh"}
+        disabled = _apply(
+            MiniMaxProvider, "MiniMax-M3.1-Flash-Preview", thinking=False, effort="max"
+        )
+        assert disabled == {"reasoning_effort": "low"}
+        assert _apply(
+            MiniMaxProvider, "MiniMax-M3.1-Flash-Preview", thinking=True, effort=None
+        ) == {}
+
     def test_zhipu_glm52_passes_reasoning_effort(self):
         kwargs = _apply(ZhipuProvider, "glm-5.2", thinking=True, effort="xhigh")
         assert kwargs["reasoning_effort"] == "max"
@@ -103,7 +116,7 @@ class TestProviderThinkingMappings:
     def test_opencode_go_deepseek_vision_mapping(self):
         kwargs = _apply(
             OpenCodeGoProvider,
-            "deepseek-v4-flash-vision-exp",
+            "deepseek-v4.1-flash",
             thinking=True,
             effort="medium",
         )
@@ -137,3 +150,27 @@ class TestProviderThinkingMappings:
         kwargs: dict = {}
         provider._apply_thinking(kwargs, resolve_effort(True, "xhigh"))
         assert kwargs == {"thinking": {"type": "adaptive"}}
+
+    def test_anthropic_opus_55_cannot_disable_thinking(self):
+        provider = AnthropicProvider.__new__(AnthropicProvider)
+        provider._current_model = "claude-opus-5-5"
+        kwargs: dict = {}
+        provider._apply_thinking(kwargs, resolve_effort(False, "high"))
+        assert kwargs == {}
+
+    def test_anthropic_sonnet_55_passes_xhigh(self):
+        provider = AnthropicProvider.__new__(AnthropicProvider)
+        provider._current_model = "claude-sonnet-5-5"
+        kwargs: dict = {}
+        provider._apply_thinking(kwargs, resolve_effort(True, "xhigh"))
+        assert kwargs == {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": "xhigh"},
+        }
+
+    def test_anthropic_sonnet_46_maps_xhigh_to_max(self):
+        provider = AnthropicProvider.__new__(AnthropicProvider)
+        provider._current_model = "claude-sonnet-4-6"
+        kwargs: dict = {}
+        provider._apply_thinking(kwargs, resolve_effort(True, "xhigh"))
+        assert kwargs["output_config"] == {"effort": "max"}

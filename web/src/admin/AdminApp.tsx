@@ -422,8 +422,8 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 const THINKING_EFFORT_OPTIONS = ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-sonnet-4-8', openai: 'gpt-5.5', deepseek: 'deepseek-v4-pro',
-  qwen: 'qwen3.7-plus', zhipu: 'glm-5.2', minimax: 'MiniMax-M3', 'opencode-go': 'deepseek-v4-flash',
+  anthropic: 'claude-sonnet-5-5', openai: 'gpt-6.1-sol', deepseek: 'deepseek-flash',
+  qwen: 'qwen3.8-max', zhipu: 'glm-5.3', minimax: 'MiniMax-M3', 'opencode-go': 'deepseek-v4.1-flash',
 };
 
 function preferredModelFor(providerType: string, models: string[]) {

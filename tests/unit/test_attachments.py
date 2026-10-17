@@ -301,6 +301,8 @@ class TestAdaptContentQwen:
     def test_video_capability_is_explicit(self):
         provider = self._provider()
         assert provider.supports_video("qwen3.7-plus") is True
+        assert provider.supports_video("qwen3.8-max") is True
+        assert provider.supports_video("qwen3.8-flash") is True
         assert provider.supports_video("qwen3.7-max") is False
 
     def test_converts_video_to_video_url_without_fps(self):

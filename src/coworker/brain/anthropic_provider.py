@@ -14,6 +14,12 @@ from coworker.core.exceptions import ProviderError
 from coworker.core.types import LLMResponse, Message, ToolCall
 
 _TOOL_USE_MODELS = {
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
     "claude-fable-5",
     "claude-mythos-preview",
     "claude-opus-4-8",
@@ -27,7 +33,14 @@ _TOOL_USE_MODELS = {
 
 # output_config.effort 支持的模型；minimal 在 Claude 侧没有对应档位，
 # 按最低档 low 处理。Opus 4.5 只支持 low/medium/high，更强的档位收敛到 high。
+# Sonnet 4.6 与 Mythos Preview 有 max，但没有 xhigh。
 _EFFORT_MODELS = {
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
     "claude-fable-5",
     "claude-mythos-preview",
     "claude-opus-4-8",
@@ -35,8 +48,17 @@ _EFFORT_MODELS = {
     "claude-sonnet-4-6",
     "claude-opus-4-5",
 }
-_ALWAYS_THINKING_MODELS = {"claude-fable-5", "claude-mythos-preview"}
+# 这些模型拒绝 thinking.type=disabled。Opus 5 与 Haiku 5.5 仍可在
+# high 及以下关闭思考，因此不放在这里。
+_ALWAYS_THINKING_MODELS = {
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5",
+    "claude-mythos-preview",
+}
 _LOW_CEILING_MODELS = {"claude-opus-4-5"}
+_NO_XHIGH_MODELS = {"claude-sonnet-4-6", "claude-mythos-preview"}
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -110,8 +132,7 @@ class AnthropicProvider(BaseLLMProvider):
 
     def _apply_thinking(self, kwargs: dict, effort) -> None:
         if effort == "none":
-            # Fable 5 系列始终思考，显式 disabled 会被拒绝；其余模型保留
-            # 历史禁用行为。
+            # 始终思考的模型显式 disabled 会被拒绝；其余模型保留历史禁用行为。
             if self._current_model not in _ALWAYS_THINKING_MODELS:
                 kwargs["thinking"] = {"type": "disabled"}
             return
@@ -120,6 +141,8 @@ class AnthropicProvider(BaseLLMProvider):
             mapped = "low" if effort == "minimal" else effort
             if self._current_model in _LOW_CEILING_MODELS and mapped in {"xhigh", "max"}:
                 mapped = "high"
+            elif self._current_model in _NO_XHIGH_MODELS and mapped == "xhigh":
+                mapped = "max"
             kwargs["output_config"] = {"effort": mapped}
 
     async def complete(
