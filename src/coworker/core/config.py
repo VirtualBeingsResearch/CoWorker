@@ -958,6 +958,7 @@ WebSearchProviderName = Literal[
     "ddgs",
     "bocha",
     "zhipu",
+    "zhipu_prime",
     "qianfan",
     "deepseek",
     "linkai",
@@ -992,6 +993,7 @@ WEB_SEARCH_PROVIDER_ORDER: tuple[WebSearchProviderName, ...] = (
     "bocha",
     "qianfan",
     "zhipu",
+    "zhipu_prime",
     "deepseek",
     "linkai",
     "anysearch",
@@ -1075,10 +1077,17 @@ class WebSearchConfig(_EnvSettings):
 
     bocha_api_key: str = ""
     zhipu_api_key: str = ""
+    zhipu_use_llm_key: bool = False
     zhipu_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
     zhipu_search_engine: ZhipuSearchEngine = "search_pro"
     zhipu_content_size: Literal["", "medium", "high"] = ""
+    zhipu_prime_api_key: str = ""
+    zhipu_prime_use_llm_key: bool = False
+    zhipu_prime_api_base: str = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+    zhipu_prime_content_size: Literal["", "medium", "high"] = ""
+    zhipu_prime_location: Literal["", "cn", "us"] = ""
     deepseek_api_key: str = ""
+    deepseek_use_llm_key: bool = False
     deepseek_api_base: str = "https://api.deepseek.com"
     qianfan_api_key: str = ""
     qianfan_api_base: str = "https://qianfan.baidubce.com/v2"
@@ -1100,6 +1109,7 @@ class WebSearchConfig(_EnvSettings):
     @field_validator(
         "bocha_api_key",
         "zhipu_api_key",
+        "zhipu_prime_api_key",
         "deepseek_api_key",
         "qianfan_api_key",
         "linkai_api_key",
@@ -1117,6 +1127,7 @@ class WebSearchConfig(_EnvSettings):
 
     @field_validator(
         "zhipu_api_base",
+        "zhipu_prime_api_base",
         "deepseek_api_base",
         "qianfan_api_base",
         "linkai_api_base",

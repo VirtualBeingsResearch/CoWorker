@@ -71,6 +71,8 @@ def test_disabled_pinned_backend_falls_through_and_empty_order_uses_default() ->
     blank = _config(provider_order="", disabled_providers="")
     assert configured_providers(blank)[0] == "ddgs"
     assert blank.web_search.provider_order[0] == "bocha"
+    order = blank.web_search.provider_order
+    assert order.index("zhipu") < order.index("zhipu_prime")
     assert blank.web_search.disabled_providers == []
 
 
@@ -93,8 +95,8 @@ def test_auto_uses_ddgs_when_nothing_else_is_configured() -> None:
 
 
 def test_auto_prefers_configured_providers_in_canonical_order() -> None:
-    config = _config(tavily_api_key="tv", bocha_api_key="bo", zhipu_llm_key="zk")
-    assert configured_providers(config) == ["bocha", "zhipu", "tavily", "ddgs"]
+    config = _config(tavily_api_key="tv", bocha_api_key="bo", zhipu_prime_api_key="plan")
+    assert configured_providers(config) == ["bocha", "zhipu_prime", "tavily", "ddgs"]
     assert resolve_provider(config, None) == ("bocha", "auto-fallback")
     assert resolve_provider(config, "tavily") == ("tavily", "caller-requested")
     assert resolve_provider(config, "missing") == ("bocha", "auto-fallback")
@@ -206,11 +208,11 @@ async def test_bocha_business_error_and_balance() -> None:
 
 
 @pytest.mark.asyncio
-async def test_zhipu_trims_query_and_falls_back_to_model_key() -> None:
+async def test_zhipu_trims_query_and_uses_the_search_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert request.url == "https://open.bigmodel.cn/api/paas/v4/web_search"
-        assert request.headers["authorization"] == "Bearer llm-key"
+        assert request.headers["authorization"] == "Bearer search-key"
         assert body["search_query"] == "q" * 70
         assert body["search_engine"] == "search_pro"
         assert body["search_intent"] is False
@@ -230,7 +232,12 @@ async def test_zhipu_trims_query_and_falls_back_to_model_key() -> None:
             },
         )
 
-    config = _config(zhipu_llm_key="llm-key", strategy="fixed", provider="zhipu")
+    config = _config(
+        zhipu_api_key="search-key",
+        zhipu_llm_key="llm-key",
+        strategy="fixed",
+        provider="zhipu",
+    )
     result = await SearchWebTool(config, client=_client(handler)).execute(query="q" * 90)
     assert "文章" in result.content
     assert "https://example.com/a" in result.content
@@ -249,9 +256,250 @@ async def test_zhipu_error_object_is_a_failure() -> None:
     assert "余额不足" in result.content
 
 
-def test_deepseek_model_key_counts_as_configured_after_zhipu() -> None:
-    config = _config(zhipu_api_key="zk", deepseek_llm_key="dk")
-    assert configured_providers(config) == ["zhipu", "deepseek", "ddgs"]
+def test_model_keys_count_only_when_the_search_option_is_on() -> None:
+    ignored = _config(zhipu_llm_key="zk", deepseek_llm_key="dk")
+    assert configured_providers(ignored) == ["ddgs"]
+
+    enabled = _config(
+        zhipu_llm_key="zk",
+        zhipu_use_llm_key=True,
+        zhipu_prime_use_llm_key=True,
+        deepseek_llm_key="dk",
+        deepseek_use_llm_key=True,
+    )
+    assert configured_providers(enabled) == ["zhipu", "zhipu_prime", "deepseek", "ddgs"]
+
+
+@pytest.mark.asyncio
+async def test_zhipu_uses_the_model_key_only_when_asked() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer llm-key"
+        return httpx.Response(200, json={"search_result": [{"title": "文章", "link": "https://example.com/a"}]})
+
+    skipped = SearchWebTool(
+        _config(
+            zhipu_llm_key="llm-key",
+            strategy="fixed",
+            provider="zhipu",
+            disabled_providers="ddgs",
+        ),
+        client=_client(handler),
+    )
+    skipped_result = await skipped.execute(query="新闻")
+    assert skipped_result.is_error
+    assert "没有可用的搜索后端" in skipped_result.content
+
+    used = SearchWebTool(
+        _config(
+            zhipu_llm_key="llm-key",
+            zhipu_use_llm_key=True,
+            strategy="fixed",
+            provider="zhipu",
+        ),
+        client=_client(handler),
+    )
+    used_result = await used.execute(query="新闻")
+    assert "文章" in used_result.content
+
+
+@pytest.mark.asyncio
+async def test_deepseek_uses_the_model_key_only_when_asked() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer llm-key"
+        return httpx.Response(200, json={"results": [{"title": "文章", "url": "https://example.com/a"}]})
+
+    result = await SearchWebTool(
+        _config(
+            deepseek_llm_key="llm-key",
+            deepseek_use_llm_key=True,
+            strategy="fixed",
+            provider="deepseek",
+        ),
+        client=_client(handler),
+    ).execute(query="新闻")
+    assert "provider: DeepSeek" in result.content
+    assert "文章" in result.content
+
+
+def _prime_handler(tool_response, *, api_key: str = "plan-key"):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert str(request.url) == "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+        assert request.headers["authorization"] == f"Bearer {api_key}"
+        assert request.headers["accept"] == "application/json, text/event-stream"
+        if body["method"] == "initialize":
+            assert body["id"] == 1
+            assert body["params"]["protocolVersion"] == "2025-06-18"
+            assert "Mcp-Session-Id" not in request.headers
+            return httpx.Response(
+                200,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {"serverInfo": {"name": "mcp-web-search-prime"}},
+                },
+                headers={"Mcp-Session-Id": "sess-1"},
+            )
+        assert request.headers["mcp-session-id"] == "sess-1"
+        if body["method"] == "notifications/initialized":
+            assert "id" not in body
+            return httpx.Response(202)
+        assert body["method"] == "tools/call"
+        assert body["params"]["name"] == "webSearchPrime"
+        return tool_response(request)
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_zhipu_prime_calls_web_search_prime_and_slices_results() -> None:
+    seen: dict[str, object] = {}
+
+    def tool(request: httpx.Request) -> httpx.Response:
+        arguments = json.loads(request.content)["params"]["arguments"]
+        seen["arguments"] = arguments
+        payload = json.dumps(
+            {
+                "search_result": [
+                    {
+                        "title": "文章",
+                        "link": "https://example.com/a",
+                        "content": "摘要",
+                        "media": "站点",
+                        "publish_date": "2026-01-01",
+                    },
+                    {"title": "第二条", "link": "https://example.com/b", "content": "更多"},
+                ]
+            }
+        )
+        sse = (
+            "event: message\n"
+            "data: "
+            + json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
+                }
+            )
+            + "\n\n"
+        )
+        return httpx.Response(
+            200,
+            text=sse,
+            headers={"Content-Type": "text/event-stream", "Mcp-Session-Id": "sess-1"},
+        )
+
+    result = await SearchWebTool(
+        _config(
+            zhipu_prime_api_key="plan-key",
+            zhipu_prime_content_size="medium",
+            zhipu_prime_location="cn",
+            zhipu_llm_key="llm-key",
+            strategy="fixed",
+            provider="zhipu_prime",
+        ),
+        client=_client(_prime_handler(tool)),
+    ).execute(query="q" * 90, max_results=1, freshness="oneDay")
+    assert seen["arguments"] == {
+        "search_query": "q" * 70,
+        "search_recency_filter": "oneDay",
+        "content_size": "medium",
+        "location": "cn",
+    }
+    assert not result.is_error
+    assert "provider: Zhipu Prime" in result.content
+    assert "文章" in result.content
+    assert "https://example.com/a" in result.content
+    assert "站点" in result.content
+    assert "第二条" not in result.content
+
+
+@pytest.mark.asyncio
+async def test_zhipu_prime_uses_the_model_key_only_when_asked() -> None:
+    def tool(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"content": [{"type": "text", "text": "套餐结果"}]},
+            },
+        )
+
+    skipped = SearchWebTool(
+        _config(
+            zhipu_llm_key="llm-key",
+            strategy="fixed",
+            provider="zhipu_prime",
+            disabled_providers="ddgs",
+        ),
+        client=_client(_prime_handler(tool, api_key="llm-key")),
+    )
+    skipped_result = await skipped.execute(query="新闻")
+    assert skipped_result.is_error
+    assert "没有可用的搜索后端" in skipped_result.content
+
+    used = SearchWebTool(
+        _config(
+            zhipu_llm_key="llm-key",
+            zhipu_prime_use_llm_key=True,
+            strategy="fixed",
+            provider="zhipu_prime",
+        ),
+        client=_client(_prime_handler(tool, api_key="llm-key")),
+    )
+    used_result = await used.execute(query="新闻")
+    assert "套餐结果" in used_result.content
+
+    explicit = SearchWebTool(
+        _config(
+            zhipu_prime_api_key="plan-key",
+            zhipu_llm_key="llm-key",
+            zhipu_prime_use_llm_key=True,
+            strategy="fixed",
+            provider="zhipu_prime",
+        ),
+        client=_client(_prime_handler(tool)),
+    )
+    explicit_result = await explicit.execute(query="新闻")
+    assert "套餐结果" in explicit_result.content
+
+
+@pytest.mark.asyncio
+async def test_zhipu_prime_reports_tool_errors_and_plain_text() -> None:
+    def failed(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"isError": True, "content": [{"type": "text", "text": "额度已用尽"}]},
+            },
+        )
+
+    error = await SearchWebTool(
+        _config(zhipu_prime_api_key="plan-key", strategy="fixed", provider="zhipu_prime"),
+        client=_client(_prime_handler(failed)),
+    ).execute(query="新闻")
+    assert error.is_error
+    assert "额度已用尽" in error.content
+
+    def prose(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"content": [{"type": "text", "text": "只有一段说明"}]},
+            },
+        )
+
+    text = await SearchWebTool(
+        _config(zhipu_prime_api_key="plan-key", strategy="fixed", provider="zhipu_prime"),
+        client=_client(_prime_handler(prose)),
+    ).execute(query="新闻")
+    assert "只有一段说明" in text.content
 
 
 @pytest.mark.asyncio
@@ -259,7 +507,7 @@ async def test_deepseek_search_maps_results_and_freshness() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert request.url == "https://api.deepseek.com/v1/tools/search"
-        assert request.headers["authorization"] == "Bearer llm-key"
+        assert request.headers["authorization"] == "Bearer search-key"
         assert body["count"] == 5
         assert body["need_content"] is True
         assert body["query"].startswith("q" * 100)
@@ -282,7 +530,7 @@ async def test_deepseek_search_maps_results_and_freshness() -> None:
             },
         )
 
-    config = _config(deepseek_llm_key="llm-key", strategy="fixed", provider="deepseek")
+    config = _config(deepseek_api_key="search-key", strategy="fixed", provider="deepseek")
     result = await SearchWebTool(config, client=_client(handler)).execute(
         query="q" * 200,
         freshness="oneWeek",
@@ -306,6 +554,7 @@ async def test_deepseek_search_reports_quota_and_keeps_explicit_key() -> None:
         _config(
             deepseek_api_key="search-key",
             deepseek_llm_key="llm-key",
+            deepseek_use_llm_key=True,
             strategy="fixed",
             provider="deepseek",
         ),

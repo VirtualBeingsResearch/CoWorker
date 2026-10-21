@@ -192,19 +192,26 @@ previews the full section and body rendered by the currently running instance.
 
 ### Web search
 
-`search_web` uses keyless DDGS unless another backend is configured. Changes made under administration **Runtime settings → Web search**, or with the variables below, apply immediately and do not require a restart. `WEB_SEARCH__STRATEGY=auto` uses the first enabled, configured backend in `WEB_SEARCH__PROVIDER_ORDER`. The default order is Bocha, Qianfan, Zhipu, DeepSeek, LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, then DDGS. Backends listed in `WEB_SEARCH__DISABLED_PROVIDERS` are not used by auto mode, a pinned backend, or a model-requested backend. `fixed` uses `WEB_SEARCH__PROVIDER`, and falls through the auto order when that backend is disabled or not configured. An empty Zhipu search key reuses `LLM__ZHIPU_API_KEY`, and an empty DeepSeek search key reuses `LLM__DEEPSEEK_API_KEY`. AnySearch and Keenable can use their anonymous quotas via `WEB_SEARCH__ANYSEARCH_ANONYMOUS` and `WEB_SEARCH__KEENABLE_ANONYMOUS`.
+`search_web` uses keyless DDGS unless another backend is configured. Changes made under administration **Runtime settings → Web search**, or with the variables below, apply immediately and do not require a restart. `WEB_SEARCH__STRATEGY=auto` uses the first enabled, configured backend in `WEB_SEARCH__PROVIDER_ORDER`. The default order is Bocha, Qianfan, Zhipu, Zhipu Coding Plan, DeepSeek, LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, then DDGS. Backends listed in `WEB_SEARCH__DISABLED_PROVIDERS` are not used by auto mode, a pinned backend, or a model-requested backend. `fixed` uses `WEB_SEARCH__PROVIDER`, and falls through the auto order when that backend is disabled or not configured. Zhipu, Zhipu Coding Plan, and DeepSeek use only their own search keys unless `WEB_SEARCH__ZHIPU_USE_LLM_KEY`, `WEB_SEARCH__ZHIPU_PRIME_USE_LLM_KEY`, or `WEB_SEARCH__DEEPSEEK_USE_LLM_KEY` is `true`; then an empty search key reuses `LLM__ZHIPU_API_KEY` or `LLM__DEEPSEEK_API_KEY`. A search key filled in for that backend still wins. Zhipu Coding Plan search calls the GLM Coding Plan web-search MCP (`webSearchPrime`) with a Coding Plan API key, which is not interchangeable with the open-platform Web Search key. AnySearch and Keenable can use their anonymous quotas via `WEB_SEARCH__ANYSEARCH_ANONYMOUS` and `WEB_SEARCH__KEENABLE_ANONYMOUS`.
 
 | Variable | Default | Description |
 |---|---|---|
 | `WEB_SEARCH__STRATEGY` | `auto` | `auto` or `fixed` |
-| `WEB_SEARCH__PROVIDER` | `ddgs` | Backend used when strategy is `fixed`: `ddgs`, `bocha`, `zhipu`, `qianfan`, `deepseek`, `linkai`, `anysearch`, `serply`, `tavily`, `searxng`, `keenable` |
+| `WEB_SEARCH__PROVIDER` | `ddgs` | Backend used when strategy is `fixed`: `ddgs`, `bocha`, `zhipu`, `zhipu_prime`, `qianfan`, `deepseek`, `linkai`, `anysearch`, `serply`, `tavily`, `searxng`, `keenable` |
 | `WEB_SEARCH__PROVIDER_ORDER` | Default order above | Comma-separated names or a JSON array. Auto mode follows this order; omitted backends keep their default order and are appended |
 | `WEB_SEARCH__DISABLED_PROVIDERS` | Empty | Comma-separated names or a JSON array. These backends are never selected |
 | `WEB_SEARCH__TIMEOUT_SECONDS` | `30` | Per-request timeout, 1–120 seconds |
 | `WEB_SEARCH__DDGS_BACKEND` | `auto` | Engine inside DDGS |
 | `WEB_SEARCH__BOCHA_API_KEY` | Empty | Bocha Web Search |
-| `WEB_SEARCH__ZHIPU_API_KEY` | Empty | Zhipu Web Search; empty reuses the model key |
-| `WEB_SEARCH__DEEPSEEK_API_KEY` | Empty | DeepSeek Search; empty reuses the model key |
+| `WEB_SEARCH__ZHIPU_API_KEY` | Empty | Zhipu open-platform Web Search |
+| `WEB_SEARCH__ZHIPU_USE_LLM_KEY` | `false` | When `true` and the search key is empty, use `LLM__ZHIPU_API_KEY` |
+| `WEB_SEARCH__ZHIPU_PRIME_API_KEY` | Empty | API key for the GLM Coding Plan web-search MCP |
+| `WEB_SEARCH__ZHIPU_PRIME_USE_LLM_KEY` | `false` | When `true` and the Coding Plan search key is empty, use `LLM__ZHIPU_API_KEY` |
+| `WEB_SEARCH__ZHIPU_PRIME_API_BASE` | `https://open.bigmodel.cn/api/mcp/web_search_prime/mcp` | Coding Plan search MCP endpoint |
+| `WEB_SEARCH__ZHIPU_PRIME_CONTENT_SIZE` | Empty | `medium` or `high`; empty leaves the server default |
+| `WEB_SEARCH__ZHIPU_PRIME_LOCATION` | Empty | `cn` or `us`; empty leaves the server default |
+| `WEB_SEARCH__DEEPSEEK_API_KEY` | Empty | DeepSeek Search |
+| `WEB_SEARCH__DEEPSEEK_USE_LLM_KEY` | `false` | When `true` and the search key is empty, use `LLM__DEEPSEEK_API_KEY` |
 | `WEB_SEARCH__DEEPSEEK_API_BASE` | `https://api.deepseek.com` | DeepSeek API root |
 | `WEB_SEARCH__ZHIPU_API_BASE` | `https://open.bigmodel.cn/api/paas/v4` | Zhipu API root |
 | `WEB_SEARCH__ZHIPU_SEARCH_ENGINE` | `search_pro` | `search_std`, `search_pro`, `search_pro_sogou`, or `search_pro_quark` |

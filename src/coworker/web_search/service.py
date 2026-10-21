@@ -1,13 +1,14 @@
 """Multi-provider web search behind one result shape.
 
 Provider order and request contracts follow the backends Coworker exposes
-for ``search_web``: Bocha, Qianfan, Zhipu, DeepSeek, LinkAI, AnySearch,
-Serply, Tavily, SearXNG, Keenable, and keyless DDGS.
+for ``search_web``: Bocha, Qianfan, Zhipu, Zhipu Coding Plan, DeepSeek,
+LinkAI, AnySearch, Serply, Tavily, SearXNG, Keenable, and keyless DDGS.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ _LABELS: dict[str, str] = {
     "ddgs": "DDGS",
     "bocha": "Bocha",
     "zhipu": "Zhipu",
+    "zhipu_prime": "Zhipu Prime",
     "deepseek": "DeepSeek",
     "qianfan": "Qianfan",
     "linkai": "LinkAI",
@@ -42,6 +44,9 @@ _LABELS: dict[str, str] = {
     "keenable": "Keenable",
 }
 _DEFAULT_ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
+_DEFAULT_ZHIPU_PRIME_URL = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+_ZHIPU_PRIME_PROTOCOL = "2025-06-18"
+_ZHIPU_PRIME_TOOL = "webSearchPrime"
 _DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com"
 _DEEPSEEK_QUERY_LIMIT = 128
 _DEFAULT_QIANFAN_BASE = "https://qianfan.baidubce.com/v2"
@@ -180,9 +185,11 @@ def _is_configured(config: Config, name: WebSearchProviderName) -> bool:
     if name == "bocha":
         return bool(settings.bocha_api_key)
     if name == "zhipu":
-        return bool(settings.zhipu_api_key or config.llm.zhipu_api_key)
+        return bool(_zhipu_key(config))
+    if name == "zhipu_prime":
+        return bool(_zhipu_prime_key(config))
     if name == "deepseek":
-        return bool(settings.deepseek_api_key or config.llm.deepseek_api_key)
+        return bool(_deepseek_key(config))
     if name == "qianfan":
         return bool(settings.qianfan_api_key)
     if name == "linkai":
@@ -201,11 +208,38 @@ def _is_configured(config: Config, name: WebSearchProviderName) -> bool:
 
 
 def _zhipu_key(config: Config) -> str:
-    return config.web_search.zhipu_api_key or config.llm.zhipu_api_key
+    settings = config.web_search
+    return _search_key(
+        settings.zhipu_api_key,
+        use_llm_key=settings.zhipu_use_llm_key,
+        llm_key=config.llm.zhipu_api_key,
+    )
+
+
+def _zhipu_prime_key(config: Config) -> str:
+    settings = config.web_search
+    return _search_key(
+        settings.zhipu_prime_api_key,
+        use_llm_key=settings.zhipu_prime_use_llm_key,
+        llm_key=config.llm.zhipu_api_key,
+    )
 
 
 def _deepseek_key(config: Config) -> str:
-    return config.web_search.deepseek_api_key or config.llm.deepseek_api_key
+    settings = config.web_search
+    return _search_key(
+        settings.deepseek_api_key,
+        use_llm_key=settings.deepseek_use_llm_key,
+        llm_key=config.llm.deepseek_api_key,
+    )
+
+
+def _search_key(explicit: str, *, use_llm_key: bool, llm_key: str) -> str:
+    if explicit.strip():
+        return explicit.strip()
+    if use_llm_key:
+        return llm_key.strip()
+    return ""
 
 
 def _count(value: object, *, default: int = 5, upper: int = 50) -> int:
@@ -269,6 +303,10 @@ async def _dispatch_http(
         return await _search_bocha(client, settings, query, count, freshness, summary)
     if provider == "zhipu":
         return await _search_zhipu(client, settings, _zhipu_key(config), query, count, freshness)
+    if provider == "zhipu_prime":
+        return await _search_zhipu_prime(
+            client, settings, _zhipu_prime_key(config), query, count, freshness
+        )
     if provider == "deepseek":
         return await _search_deepseek(
             client, settings, _deepseek_key(config), query, count, freshness, summary
@@ -396,20 +434,280 @@ async def _search_zhipu(
     items = data.get("search_result")
     if not isinstance(items, list):
         items = _dig(data, "data", "search_result")
+    return _zhipu_hits(items)
+
+
+def _zhipu_hits(items: object) -> list[SearchHit]:
+    if not isinstance(items, list):
+        return []
     hits: list[SearchHit] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        hits.append(
-            SearchHit(
-                title=_text(item.get("title")),
-                url=_text(item.get("link") or item.get("url")),
-                snippet=_text(item.get("content") or item.get("snippet")),
-                site_name=_text(item.get("media") or item.get("siteName")),
-                published=_text(item.get("publish_date") or item.get("datePublished")),
-            )
+        hit = SearchHit(
+            title=_text(item.get("title")),
+            url=_text(item.get("link") or item.get("url")),
+            snippet=_text(item.get("content") or item.get("snippet")),
+            site_name=_text(item.get("media") or item.get("siteName")),
+            published=_text(item.get("publish_date") or item.get("datePublished")),
         )
+        if hit.title or hit.url or hit.snippet:
+            hits.append(hit)
     return hits
+
+
+async def _search_zhipu_prime(
+    client: httpx.AsyncClient,
+    settings: WebSearchConfig,
+    api_key: str,
+    query: str,
+    count: int,
+    freshness: str,
+) -> list[SearchHit]:
+    url = settings.zhipu_prime_api_base or _DEFAULT_ZHIPU_PRIME_URL
+    arguments: dict[str, Any] = {
+        "search_query": query[:70],
+        "search_recency_filter": freshness if freshness in _NAMED_FRESHNESS else "noLimit",
+    }
+    if settings.zhipu_prime_content_size:
+        arguments["content_size"] = settings.zhipu_prime_content_size
+    if settings.zhipu_prime_location:
+        arguments["location"] = settings.zhipu_prime_location
+    result = await _call_zhipu_prime(client, settings, api_key, url, arguments)
+    return _prime_hits(result)[:count]
+
+
+async def _call_zhipu_prime(
+    client: httpx.AsyncClient,
+    settings: WebSearchConfig,
+    api_key: str,
+    url: str,
+    arguments: Mapping[str, Any],
+) -> object:
+    _initialized, session_id = await _mcp_post(
+        client,
+        settings,
+        api_key,
+        url,
+        method="initialize",
+        params={
+            "protocolVersion": _ZHIPU_PRIME_PROTOCOL,
+            "capabilities": {},
+            "clientInfo": {"name": "coworker", "version": "1.0"},
+        },
+        request_id=1,
+        session_id="",
+    )
+    session_id = await _mcp_post_session(
+        client,
+        settings,
+        api_key,
+        url,
+        method="notifications/initialized",
+        params={},
+        request_id=None,
+        session_id=session_id,
+    )
+    message, _session = await _mcp_post(
+        client,
+        settings,
+        api_key,
+        url,
+        method="tools/call",
+        params={"name": _ZHIPU_PRIME_TOOL, "arguments": dict(arguments)},
+        request_id=2,
+        session_id=session_id,
+    )
+    result = message.get("result")
+    if isinstance(result, dict) and result.get("isError") is True:
+        detail = _mcp_content_text(result) or "unknown"
+        raise SearchError(
+            tr("tool_result.web_search.business", provider=_label("zhipu_prime"), message=detail)
+        )
+    return result if result is not None else message
+
+
+async def _mcp_post_session(
+    client: httpx.AsyncClient,
+    settings: WebSearchConfig,
+    api_key: str,
+    url: str,
+    *,
+    method: str,
+    params: Mapping[str, Any],
+    request_id: int | None,
+    session_id: str,
+) -> str:
+    response = await _request(
+        client,
+        "POST",
+        url,
+        provider="zhipu_prime",
+        timeout=settings.timeout_seconds,
+        headers=_mcp_headers(api_key, session_id),
+        payload=_mcp_payload(method, params, request_id),
+    )
+    if response.status_code not in {200, 202, 204}:
+        _raise_for_status(response, "zhipu_prime")
+    if response.status_code == 200 and response.content.strip():
+        _raise_mcp_failure(_mcp_message(response), "zhipu_prime")
+    return _mcp_session_id(response) or session_id
+
+
+async def _mcp_post(
+    client: httpx.AsyncClient,
+    settings: WebSearchConfig,
+    api_key: str,
+    url: str,
+    *,
+    method: str,
+    params: Mapping[str, Any],
+    request_id: int,
+    session_id: str,
+) -> tuple[dict[str, Any], str]:
+    response = await _request(
+        client,
+        "POST",
+        url,
+        provider="zhipu_prime",
+        timeout=settings.timeout_seconds,
+        headers=_mcp_headers(api_key, session_id),
+        payload=_mcp_payload(method, params, request_id),
+    )
+    _raise_for_status(response, "zhipu_prime")
+    message = _mcp_message(response)
+    _raise_mcp_failure(message, "zhipu_prime")
+    return message, _mcp_session_id(response) or session_id
+
+
+def _mcp_payload(method: str, params: Mapping[str, Any], request_id: int | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"jsonrpc": "2.0", "method": method, "params": dict(params)}
+    if request_id is not None:
+        payload["id"] = request_id
+    return payload
+
+
+def _mcp_headers(api_key: str, session_id: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    return headers
+
+
+def _mcp_session_id(response: httpx.Response) -> str:
+    return response.headers.get("mcp-session-id", "").strip()
+
+
+def _mcp_message(response: httpx.Response) -> dict[str, Any]:
+    text = response.text.strip()
+    messages: list[object] = []
+    content_type = response.headers.get("content-type", "")
+    if "text/event-stream" in content_type or text.startswith("data:") or "\ndata:" in f"\n{text}":
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("data:"):
+                continue
+            data = stripped[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                messages.append(json.loads(data))
+            except json.JSONDecodeError:
+                continue
+    if not messages and text:
+        try:
+            messages.append(json.loads(text))
+        except json.JSONDecodeError as exc:
+            raise SearchError(
+                tr("tool_result.web_search.malformed", provider=_label("zhipu_prime"))
+            ) from exc
+    for item in reversed(messages):
+        if isinstance(item, dict):
+            return item
+    raise SearchError(tr("tool_result.web_search.malformed", provider=_label("zhipu_prime")))
+
+
+def _raise_mcp_failure(message: Mapping[str, Any], provider: str) -> None:
+    error = message.get("error")
+    detail = ""
+    if isinstance(error, dict):
+        detail = _text(error.get("message")) or _text(error.get("code")) or "unknown"
+    elif message.get("success") is False:
+        detail = _text(message.get("msg")) or _text(message.get("message")) or "unknown"
+    if detail:
+        raise SearchError(tr("tool_result.web_search.business", provider=_label(provider), message=detail))
+
+
+def _prime_hits(result: object) -> list[SearchHit]:
+    prose: list[str] = []
+    for candidate in _prime_candidates(result):
+        hits = _zhipu_hits(_result_items(candidate))
+        if hits:
+            return hits
+        if isinstance(candidate, str) and candidate.strip():
+            prose.append(candidate.strip())
+    if prose:
+        return [SearchHit(title="", url="", snippet="\n\n".join(prose))]
+    return []
+
+
+def _prime_candidates(value: object) -> list[object]:
+    found: list[object] = [value]
+    if not isinstance(value, dict):
+        return found
+    for key in ("structuredContent", "data", "result"):
+        if key in value:
+            found.append(value[key])
+    content = value.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                found.append(_decode_json_text(text))
+    return found
+
+
+def _decode_json_text(text: str) -> object:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(parsed, str):
+        try:
+            return json.loads(parsed)
+        except json.JSONDecodeError:
+            return parsed
+    return parsed
+
+
+def _result_items(value: object) -> object:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ("search_result", "results"):
+            items = value.get(key)
+            if isinstance(items, list):
+                return items
+    return []
+
+
+def _mcp_content_text(result: Mapping[str, Any]) -> str:
+    content = result.get("content")
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, dict):
+            text = _text(part.get("text")).strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
 
 
 async def _search_deepseek(

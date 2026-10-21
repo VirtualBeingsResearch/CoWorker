@@ -192,6 +192,7 @@ export function configFieldPresentation(
         { value: 'ddgs', label: 'DDGS' },
         { value: 'bocha', label: 'Bocha 博查' },
         { value: 'zhipu', label: 'Zhipu 智谱' },
+        { value: 'zhipu_prime', label: 'Zhipu 套餐搜索' },
         { value: 'deepseek', label: 'DeepSeek' },
         { value: 'qianfan', label: 'Qianfan 千帆' },
         { value: 'linkai', label: 'LinkAI' },
@@ -222,14 +223,27 @@ export function configFieldPresentation(
       ],
     };
   }
-  if (path === 'web_search.zhipu_content_size') {
+  if (path === 'web_search.zhipu_content_size' || path === 'web_search.zhipu_prime_content_size') {
     return {
       editor: 'choice',
-      hint: '控制智谱返回摘要的长度。',
+      hint: path === 'web_search.zhipu_prime_content_size'
+        ? '控制套餐搜索返回摘要的长度。'
+        : '控制智谱返回摘要的长度。',
       choices: [
         { value: '', label: '默认' },
         { value: 'medium', label: 'medium' },
         { value: 'high', label: 'high' },
+      ],
+    };
+  }
+  if (path === 'web_search.zhipu_prime_location') {
+    return {
+      editor: 'choice',
+      hint: 'cn 偏向中文结果，us 偏向非中文结果。留空由服务端决定。',
+      choices: [
+        { value: '', label: '默认' },
+        { value: 'cn', label: 'cn' },
+        { value: 'us', label: 'us' },
       ],
     };
   }
@@ -252,11 +266,24 @@ export function configFieldPresentation(
       ],
     };
   }
-  if (path === 'web_search.zhipu_api_key') {
-    return { editor: 'default', hint: '留空时复用模型配置中的智谱 API Key。' };
+  if (path === 'web_search.zhipu_use_llm_key') {
+    return { editor: 'default', hint: '开启后，搜索密钥留空时使用模型配置里的智谱 API Key。已填写的搜索密钥优先。' };
   }
-  if (path === 'web_search.deepseek_api_key') {
-    return { editor: 'default', hint: '留空时复用模型配置中的 DeepSeek API Key。' };
+  if (path === 'web_search.deepseek_use_llm_key') {
+    return { editor: 'default', hint: '开启后，搜索密钥留空时使用模型配置里的 DeepSeek API Key。已填写的搜索密钥优先。' };
+  }
+  if (path === 'web_search.zhipu_prime_api_key') {
+    return { editor: 'default', hint: 'GLM Coding Plan 的 API Key，与开放平台 Web Search 密钥不通用。' };
+  }
+  if (path === 'web_search.zhipu_prime_use_llm_key') {
+    return { editor: 'default', hint: '开启后，套餐搜索密钥留空时使用模型配置里的智谱 API Key。已填写的套餐密钥优先。' };
+  }
+  if (path === 'web_search.zhipu_prime_api_base') {
+    return {
+      editor: 'default',
+      inputType: 'url',
+      hint: '留空时使用 https://open.bigmodel.cn/api/mcp/web_search_prime/mcp。',
+    };
   }
   if (path === 'web_search.anysearch_anonymous' || path === 'web_search.keenable_anonymous') {
     return { editor: 'default', hint: '开启后可以不填密钥，使用对方的匿名额度。' };

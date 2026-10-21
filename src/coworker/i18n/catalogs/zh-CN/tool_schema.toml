@@ -47,7 +47,7 @@ clear_short_term_memory = "压缩并清理短期记忆。"
 sleep = "休眠指定秒数，期间仍可被新消息或闹钟唤醒。"
 view_image = "加载图片并直接放入视觉模型上下文。"
 visual_analyze = "使用视觉模型分析图片或视频；结果会返回发起调用的线程。"
-search_web = "搜索互联网并返回结果摘要。可使用 DDGS、博查、智谱、千帆、LinkAI、AnySearch、Serply、Tavily、SearXNG 或 Keenable；未配置密钥时使用 DDGS。"
+search_web = "搜索互联网并返回结果摘要。可使用 DDGS、博查、智谱、智谱套餐、千帆、DeepSeek、LinkAI、AnySearch、Serply、Tavily、SearXNG 或 Keenable；未配置密钥时使用 DDGS。"
 fetch_url = "获取 URL 的正文内容。"
 
 [tool_schema.parameter.set_alarm]
