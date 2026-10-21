@@ -51,7 +51,7 @@ prompt 不复制、不 monkey-patch。
 启动时默认注册：
 
 - 文件工具：`read_file`、`write_file`、`list_directory`、`find_files`、`grep_files`
-- Web 工具：`search_web`（DDGS、博查、智谱、千帆、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable，可在管理端切换）、`fetch_url`
+- Web 工具：`search_web`（DDGS、博查、智谱、智谱套餐、千帆、DeepSeek、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable，可在管理端切换）、`fetch_url`
 - 浏览器工具：`browser_open`、`browser_screenshot`、`browser_action`、`browser_get_content`、`browser_close`、`browser_list_sessions`
 - 代码工具：`execute_code`、`get_code_result`、`kill_code_job`（`execute_code` 默认最多等 2 秒；`block=true` 仅泡泡上下文生效，主线传入会被忽略。`get_code_result` 只返回当前状态，不负责等待；需要等待时先调用 `sleep` 再重试）
 - 记忆工具：`query_memory`（综合搜索：query 检索长期记忆；start/end 回忆或过滤时间窗；query 可与 start/end 同用）、`manage_memory`、`clear_short_term_memory`（手动全量压缩 primary，不删除记忆）、`manage_pinned_context`

@@ -7,7 +7,7 @@ import {
 import { clearAdminToken, persistAdminToken, readAdminToken } from '../lib/adminToken';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleGauge,
-  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
+  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, GripVertical, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Pause, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
@@ -431,14 +431,15 @@ function preferredModelFor(providerType: string, models: string[]) {
   return preferred && models.includes(preferred) ? preferred : models[0] || '';
 }
 
-const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'desktop_updates'];
+const BOOTSTRAP_CONFIG_GROUP_ORDER = ['llm', 'memory', 'agent', 'web_search', 'i18n', 'api', 'relay', 'channel_access', 'wecom', 'weixin', 'telegram', 'desktop_updates'];
 const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {
-  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', desktop_updates: '桌面更新',
+  llm: '模型与 Provider', memory: '记忆系统', agent: 'Agent 循环', web_search: '联网搜索', i18n: '运行语言', api: 'API 服务', relay: '远程访问', channel_access: '信道访问', wecom: '企业微信', weixin: '微信 Claw', telegram: 'Telegram', desktop_updates: '桌面更新',
 };
 const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {
   llm: '首个 Provider 连接由上方统一生成；这里可以继续设置输出预算、摘要、视觉与降级链。',
   memory: '短期上下文、压缩树、自动召回、记忆抽取与人物记忆。',
   agent: '目录、轮询、批处理、Bubble、潜意识和主动运行的全部循环参数。',
+  web_search: '拖动调整自动顺序，并填写各搜索后端的密钥。',
   i18n: '控制系统 Prompt、工具说明和运行时通知所使用的语言。',
   api: '公开访问地址、内部监听地址、端口、跨域来源与桌面通信凭据。',
   relay: '自托管 Relay 的连接、实例身份与认证参数。',
@@ -496,7 +497,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
   const [group, setGroup] = useState(initialGroup);
   const panelRef = useRef<HTMLElement>(null);
   const groups = bootstrapConfigurationGroups(value);
-  const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key));
+  const fields = Object.entries(value[group] || {}).filter(([key]) => bootstrapFieldVisible(group, key) && !(group === 'web_search' && (key === 'provider_order' || key === 'disabled_providers')));
   const groupDirty = JSON.stringify(baseline[group] || {}) !== JSON.stringify(value[group] || {})
     || Object.entries(secretInputs).some(([path, secret]) => path.startsWith(`${group}.`) && secret);
   const reset = () => {
@@ -521,6 +522,7 @@ function BootstrapConfigurationEditor({ baseline, value, change, replaceGroup, s
     <section className="bootstrap-config-panel" ref={panelRef}>
       <header><div><b>{t(BOOTSTRAP_CONFIG_GROUP_LABELS[group] || group)}</b><small>{t(BOOTSTRAP_CONFIG_GROUP_NOTES[group] || '')}</small></div><button type="button" className="ghost mini" disabled={!groupDirty} onClick={reset}><RotateCcw size={13} />{t('恢复推荐值')}</button></header>
       {group === 'llm' && <div className="bootstrap-config-managed"><ShieldCheck size={15} /><span><b>{t('首个连接由基础设置管理')}</b><small>{t('Provider、启动模型、API Key 和 Base URL 会以页面上方填写的连接为准。')}</small></span></div>}
+      {group === 'web_search' && <SearchBackendOrderEditor value={value.web_search || {}} onChange={(key, next) => change('web_search', key, next)} />}
       {CustomSettingsPanel ? <CustomSettingsPanel value={value[group] || {}} change={(key, next) => change(group, key, next)} apply={async () => true} dirty={groupDirty} saving={false} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} /> : group === 'desktop_updates' ? <DesktopUpdateSettings value={value.desktop_updates || {}} change={(key, next) => change('desktop_updates', key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} onValidationChange={setDesktopValidation} updateUrl={false} /> : <div className="bootstrap-config-grid">{fields.map(([key, fieldValue]) => {
         const path = `${group}.${key}`;
         return <ConfigurationField key={key} path={path} value={fieldValue} change={next => change(group, key, next)} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={secretStatus} setJsonValidity={setJsonValidity} passiveMode={Boolean(value.agent?.passive_mode)} />;
@@ -1042,6 +1044,7 @@ const SEARCH_BACKENDS: { id: string; label: string }[] = [
   { id: 'bocha', label: 'Bocha 博查' },
   { id: 'qianfan', label: 'Qianfan 千帆' },
   { id: 'zhipu', label: 'Zhipu 智谱' },
+  { id: 'zhipu_prime', label: 'Zhipu 套餐搜索' },
   { id: 'deepseek', label: 'DeepSeek' },
   { id: 'linkai', label: 'LinkAI' },
   { id: 'anysearch', label: 'AnySearch' },
@@ -1066,36 +1069,80 @@ function SearchBackendOrderEditor({ value, onChange }: {
   const order = searchBackendOrder(value.provider_order);
   const disabled = new Set(Array.isArray(value.disabled_providers) ? value.disabled_providers.map(String) : []);
   const labels = Object.fromEntries(SEARCH_BACKENDS.map(backend => [backend.id, backend.label]));
-  const move = (index: number, delta: number) => {
-    const target = index + delta;
-    if (target < 0 || target >= order.length) return;
+  const dragIndex = useRef<number | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const reorder = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || to >= order.length) return;
     const next = order.slice();
-    const [item] = next.splice(index, 1);
-    next.splice(target, 0, item);
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
     onChange('provider_order', next);
   };
   const toggle = (name: string, enabled: boolean) => {
     onChange('disabled_providers', order.filter(item => (item === name ? !enabled : disabled.has(item))));
   };
+  const finishDrag = () => {
+    dragIndex.current = null;
+    setDragging(null);
+    setOverIndex(null);
+  };
   return <div className="field search-backend-order">
     <span>{t('自动顺序与启用')}</span>
-    <div className="search-backend-list">
+    <div className="search-backend-list" role="list">
       {order.map((name, index) => {
         const label = t(labels[name] || name);
-        return <div className={disabled.has(name) ? 'search-backend-row disabled' : 'search-backend-row'} key={name}>
+        const className = [
+          'search-backend-row',
+          disabled.has(name) ? 'disabled' : '',
+          dragging === name ? 'dragging' : '',
+          overIndex === index && dragging && dragging !== name ? 'drop-target' : '',
+        ].filter(Boolean).join(' ');
+        return <div
+          className={className}
+          key={name}
+          role="listitem"
+          title={t('拖动调整 {{name}}', { name: label })}
+          draggable
+          onDragStart={event => {
+            const target = event.target as HTMLElement;
+            if (target.closest('input, button')) {
+              event.preventDefault();
+              return;
+            }
+            dragIndex.current = index;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', name);
+            if (event.currentTarget instanceof HTMLElement) event.dataTransfer.setDragImage(event.currentTarget, 28, 20);
+            setDragging(name);
+          }}
+          onDragEnd={finishDrag}
+          onDragOver={event => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            if (overIndex !== index) setOverIndex(index);
+          }}
+          onDrop={event => {
+            event.preventDefault();
+            const from = dragIndex.current;
+            if (from !== null) reorder(from, index);
+            finishDrag();
+          }}
+        >
+          <span className="search-backend-grip" aria-hidden="true"><GripVertical size={16} /></span>
           <label className="switch">
             <input type="checkbox" checked={!disabled.has(name)} onChange={event => toggle(name, event.target.checked)} />
             <i />
             <span>{label}</span>
           </label>
           <div className="search-backend-move">
-            <button type="button" className="ghost mini" disabled={index === 0} aria-label={t('上移 {{name}}', { name: label })} onClick={() => move(index, -1)}><ChevronUp size={14} /></button>
-            <button type="button" className="ghost mini" disabled={index === order.length - 1} aria-label={t('下移 {{name}}', { name: label })} onClick={() => move(index, 1)}><ChevronDown size={14} /></button>
+            <button type="button" className="ghost mini" disabled={index === 0} aria-label={t('上移 {{name}}', { name: label })} onClick={() => reorder(index, index - 1)}><ChevronUp size={14} /></button>
+            <button type="button" className="ghost mini" disabled={index === order.length - 1} aria-label={t('下移 {{name}}', { name: label })} onClick={() => reorder(index, index + 1)}><ChevronDown size={14} /></button>
           </div>
         </div>;
       })}
     </div>
-    <small>{t('靠前的已启用且已配置后端会先被自动模式使用。')}</small>
+    <small>{t('拖动一行即可调整顺序。靠前的已启用且已配置后端会先被自动模式使用。')}</small>
   </div>;
 }
 
@@ -1392,10 +1439,17 @@ const WEB_SEARCH_FIELD_ORDER = [
   'ddgs_backend',
   'bocha_api_key',
   'zhipu_api_key',
+  'zhipu_use_llm_key',
   'zhipu_api_base',
   'zhipu_search_engine',
   'zhipu_content_size',
+  'zhipu_prime_api_key',
+  'zhipu_prime_use_llm_key',
+  'zhipu_prime_api_base',
+  'zhipu_prime_content_size',
+  'zhipu_prime_location',
   'deepseek_api_key',
+  'deepseek_use_llm_key',
   'deepseek_api_base',
   'qianfan_api_key',
   'qianfan_api_base',
@@ -1742,10 +1796,17 @@ const CONFIG_LABELS: Record<string, string> = {
   'web_search.ddgs_backend': 'DDGS 引擎',
   'web_search.bocha_api_key': '博查 API Key',
   'web_search.zhipu_api_key': '智谱搜索 API Key',
+  'web_search.zhipu_use_llm_key': '使用模型配置中的智谱 API Key',
   'web_search.zhipu_api_base': '智谱搜索地址',
   'web_search.zhipu_search_engine': '智谱搜索引擎',
   'web_search.zhipu_content_size': '智谱摘要长度',
+  'web_search.zhipu_prime_api_key': '智谱套餐搜索 API Key',
+  'web_search.zhipu_prime_use_llm_key': '套餐搜索使用模型配置中的智谱 API Key',
+  'web_search.zhipu_prime_api_base': '智谱套餐搜索地址',
+  'web_search.zhipu_prime_content_size': '智谱套餐摘要长度',
+  'web_search.zhipu_prime_location': '智谱套餐搜索区域',
   'web_search.deepseek_api_key': 'DeepSeek 搜索 API Key',
+  'web_search.deepseek_use_llm_key': '使用模型配置中的 DeepSeek API Key',
   'web_search.deepseek_api_base': 'DeepSeek 搜索地址',
   'web_search.qianfan_api_key': '千帆 API Key',
   'web_search.qianfan_api_base': '千帆搜索地址',
@@ -1836,7 +1897,7 @@ function Settings() {
         <section className={`admin-security-hero ${activeAdminToken?.configured ? 'ready' : 'missing'}`}><div className="security-seal"><ShieldCheck size={27} /><i /></div><div><span>{t('保护状态')}</span><h3>{t(activeAdminToken?.configured ? '管理端访问已受保护' : '管理端令牌尚未配置')}</h3><p>{activeAdminToken?.configured ? t('当前令牌已加载，仅显示尾号 {{last4}}。完整值不会发送到浏览器。', { last4: activeAdminToken.last4 }) : t('请在启动环境中设置 ADMIN__TOKEN，然后重启 Coworker。')}</p></div><b>{t(activeAdminToken?.configured ? '已启用' : '未启用')}</b></section>
         <div className="admin-setting-cards"><article><KeyRound size={18} /><div><span>{t('令牌来源')}</span><b>{adminToken?.configured ? 'ADMIN__TOKEN' : fallbackToken?.configured ? 'DESKTOP_UPDATES__ADMIN_TOKEN' : t('未配置')}</b><small>{t('令牌只能通过启动配置轮换，管理页不会回显或覆盖。')}</small></div></article><article><FileCog size={18} /><div><span>{t('配置覆盖文件')}</span><code>{data.override_path}</code><small>{t('其他设置在这里持久化；管理员令牌不写入普通表单。')}</small></div></article><article><RefreshCw size={18} /><div><span>{t('配置生效状态')}</span><b>{t(data.pending_restart ? '等待安全重启' : '当前配置已加载')}</b><small>{t(data.pending_restart ? '保存的修改会在下一次安全重启后生效。' : '当前没有等待重启的管理端修改。')}</small></div></article><article><Fingerprint size={18} /><div><span>{t('浏览器会话')}</span><b>{t('关闭页面后仍然有效')}</b><small>{t('管理员令牌保存在此浏览器，退出本次值守后才会移除。')}</small></div></article></div>
         <div className="admin-security-note"><TriangleAlert size={16} /><p><b>{t('如何轮换管理员令牌')}</b><span>{t('修改部署环境中的')} <code>ADMIN__TOKEN</code>{t('，再执行安全重启。旧会话会在重启后失效。')}</span></p></div>
-      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{group === 'web_search' && <div className="config-section-heading"><div><b>{t('搜索后端')}</b><small>{t('用下面的列表调整自动模式顺序，并关闭不需要的后端。关闭后，自动模式、固定后端和模型指定都不会再用它。未配置密钥的后端会自动跳过。DDGS 不需要密钥。智谱和 DeepSeek 搜索密钥留空时分别复用模型配置里的对应 API Key。保存后立即生效。')}</small></div></div>}{group === 'web_search' && <SearchBackendOrderEditor value={draft.web_search || {}} onChange={change} />}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
+      </div> : <>{group === 'desktop_updates' ? <DesktopUpdateSettings value={draft.desktop_updates || {}} change={change} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} onValidationChange={setDesktopValidationError} /> : CustomSettingsPanel ? <CustomSettingsPanel value={draft[group] || {}} change={change} apply={save} dirty={dirtyGroups.has(group)} saving={saving} request={api} secretInputs={secretInputs} setSecretInputs={setSecretInputs} secretStatus={data.secret_status || {}} /> : <>{group === 'llm' && <div className="llm-config-overview"><div className="llm-config-copy"><Brain size={22} /><div><span>{t('启动配置')}</span><h3>{t('启动默认值与服务连接')}</h3><p>{t('这里决定 Coworker 重启时先连接哪个模型服务。运行中的模型切换、摘要模型和降级链请在“模型编排”页面调整。')}</p></div></div><div className="llm-config-facts"><span><b>{t(draft.llm.default_provider || '未设置')}</b>{t('启动 Provider')}</span><span><b>{t(draft.llm.default_model || '使用 Provider 默认值')}</b>{t('启动模型')}</span><span><b>{effectiveProviders.length}</b>{t('个可用连接')}</span><span><b>{draft.llm.model_prices?.length || 0}</b>{t('个定价模型')}</span></div></div>}<div className="config-fields">{group === 'llm' && <div className="config-section-heading"><div><b>{t('启动默认值')}</b><small>{t('只在进程启动时读取；修改后需要安全重启。')}</small></div></div>}{group === 'i18n' && <div className="config-section-heading"><div><b>{t('实例级运行语言')}</b><small>{t('语言控制系统 Prompt、工具说明和系统通知；修改后需要安全重启。')}</small></div></div>}{group === 'agent' && <div className="config-section-heading"><div><b>{t('空闲唤醒策略')}</b><small>{t('主动模式适合大多数用户，会按间隔继续运行；Passive 模式主要用于开发者控制，只等待外部事件，也可在总览中手动“继续运行”。')}</small></div></div>}{group === 'wecom' && <div className="config-section-heading"><div><b>{t('长连接热配置')}</b><small>{t('保存后立即启用、停用或重连企业微信；切换期间可能短暂不可用，无需重启 Coworker。')}</small></div></div>}{group === 'web_search' && <div className="config-section-heading"><div><b>{t('搜索后端')}</b><small>{t('用下面的列表调整自动模式顺序，并关闭不需要的后端。关闭后，自动模式、固定后端和模型指定都不会再用它。未配置密钥的后端会自动跳过。DDGS 不需要密钥。智谱、智谱套餐和 DeepSeek 默认只用各自的搜索密钥；打开“使用模型密钥”后，搜索密钥留空时才使用模型配置里的对应 API Key。智谱套餐搜索需要 GLM Coding Plan 的 API Key，与开放平台 Web Search 密钥不通用。保存后立即生效。')}</small></div></div>}{group === 'web_search' && <SearchBackendOrderEditor value={draft.web_search || {}} onChange={change} />}{orderedConfigEntries(group, draft[group]).map(([key, value]) => {
         const path = `${group}.${key}`;
         if (HIDDEN_CONFIG.has(path) || key === 'config_file' || path.endsWith('runtime_config_file')) return null;
         if (group === 'web_search' && (key === 'provider_order' || key === 'disabled_providers')) return null;

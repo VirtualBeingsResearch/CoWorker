@@ -170,19 +170,26 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 ### 联网搜索
 
-`search_web` 默认走无需密钥的 DDGS。在管理端“运行设置 → 联网搜索”或下面的环境变量里配置其他后端后立即生效，不必重启。`WEB_SEARCH__STRATEGY=auto` 时按 `WEB_SEARCH__PROVIDER_ORDER` 使用第一个已启用且已配置的后端，默认顺序是博查、千帆、智谱、DeepSeek、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS。`WEB_SEARCH__DISABLED_PROVIDERS` 里的后端不会被自动模式、固定后端或模型指定使用。`fixed` 时使用 `WEB_SEARCH__PROVIDER`，该后端被禁用或未配置时改用自动顺序中的下一个。智谱搜索密钥留空时复用 `LLM__ZHIPU_API_KEY`，DeepSeek 搜索密钥留空时复用 `LLM__DEEPSEEK_API_KEY`。AnySearch 与 Keenable 可分别用 `WEB_SEARCH__ANYSEARCH_ANONYMOUS`、`WEB_SEARCH__KEENABLE_ANONYMOUS` 开启匿名额度。
+`search_web` 默认走无需密钥的 DDGS。在管理端“运行设置 → 联网搜索”或下面的环境变量里配置其他后端后立即生效，不必重启。`WEB_SEARCH__STRATEGY=auto` 时按 `WEB_SEARCH__PROVIDER_ORDER` 使用第一个已启用且已配置的后端，默认顺序是博查、千帆、智谱、智谱套餐、DeepSeek、LinkAI、AnySearch、Serply、Tavily、SearXNG、Keenable、DDGS。`WEB_SEARCH__DISABLED_PROVIDERS` 里的后端不会被自动模式、固定后端或模型指定使用。`fixed` 时使用 `WEB_SEARCH__PROVIDER`，该后端被禁用或未配置时改用自动顺序中的下一个。智谱、智谱套餐与 DeepSeek 默认只使用各自的搜索密钥；把 `WEB_SEARCH__ZHIPU_USE_LLM_KEY`、`WEB_SEARCH__ZHIPU_PRIME_USE_LLM_KEY` 或 `WEB_SEARCH__DEEPSEEK_USE_LLM_KEY` 设为 `true` 后，对应搜索密钥留空时才复用 `LLM__ZHIPU_API_KEY`、`LLM__DEEPSEEK_API_KEY`。已填写的搜索密钥仍然优先。智谱套餐搜索调用 GLM Coding Plan 的联网搜索 MCP（`webSearchPrime`），密钥用套餐 API Key，与开放平台 Web Search 密钥不通用。AnySearch 与 Keenable 可分别用 `WEB_SEARCH__ANYSEARCH_ANONYMOUS`、`WEB_SEARCH__KEENABLE_ANONYMOUS` 开启匿名额度。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `WEB_SEARCH__STRATEGY` | `auto` | `auto` 或 `fixed` |
-| `WEB_SEARCH__PROVIDER` | `ddgs` | `fixed` 时使用的后端：`ddgs`、`bocha`、`zhipu`、`qianfan`、`deepseek`、`linkai`、`anysearch`、`serply`、`tavily`、`searxng`、`keenable` |
+| `WEB_SEARCH__PROVIDER` | `ddgs` | `fixed` 时使用的后端：`ddgs`、`bocha`、`zhipu`、`zhipu_prime`、`qianfan`、`deepseek`、`linkai`、`anysearch`、`serply`、`tavily`、`searxng`、`keenable` |
 | `WEB_SEARCH__PROVIDER_ORDER` | 见上文默认顺序 | 逗号或 JSON 数组。自动模式按此顺序选择；未写出的后端按默认顺序接在后面 |
 | `WEB_SEARCH__DISABLED_PROVIDERS` | 空 | 逗号或 JSON 数组。这些后端不会被选用 |
 | `WEB_SEARCH__TIMEOUT_SECONDS` | `30` | 单次请求超时，1–120 秒 |
 | `WEB_SEARCH__DDGS_BACKEND` | `auto` | DDGS 内部引擎 |
 | `WEB_SEARCH__BOCHA_API_KEY` | 空 | 博查 Web Search |
-| `WEB_SEARCH__ZHIPU_API_KEY` | 空 | 智谱 Web Search；留空复用模型密钥 |
-| `WEB_SEARCH__DEEPSEEK_API_KEY` | 空 | DeepSeek Search；留空复用模型密钥 |
+| `WEB_SEARCH__ZHIPU_API_KEY` | 空 | 智谱开放平台 Web Search |
+| `WEB_SEARCH__ZHIPU_USE_LLM_KEY` | `false` | 为 `true` 且搜索密钥为空时，使用 `LLM__ZHIPU_API_KEY` |
+| `WEB_SEARCH__ZHIPU_PRIME_API_KEY` | 空 | GLM Coding Plan 联网搜索 MCP 的 API Key |
+| `WEB_SEARCH__ZHIPU_PRIME_USE_LLM_KEY` | `false` | 为 `true` 且套餐搜索密钥为空时，使用 `LLM__ZHIPU_API_KEY` |
+| `WEB_SEARCH__ZHIPU_PRIME_API_BASE` | `https://open.bigmodel.cn/api/mcp/web_search_prime/mcp` | 套餐搜索 MCP 端点 |
+| `WEB_SEARCH__ZHIPU_PRIME_CONTENT_SIZE` | 空 | `medium` 或 `high`；空表示服务端默认 |
+| `WEB_SEARCH__ZHIPU_PRIME_LOCATION` | 空 | `cn` 或 `us`；空表示服务端默认 |
+| `WEB_SEARCH__DEEPSEEK_API_KEY` | 空 | DeepSeek Search |
+| `WEB_SEARCH__DEEPSEEK_USE_LLM_KEY` | `false` | 为 `true` 且搜索密钥为空时，使用 `LLM__DEEPSEEK_API_KEY` |
 | `WEB_SEARCH__DEEPSEEK_API_BASE` | `https://api.deepseek.com` | DeepSeek API 根地址 |
 | `WEB_SEARCH__ZHIPU_API_BASE` | `https://open.bigmodel.cn/api/paas/v4` | 智谱 API 根地址 |
 | `WEB_SEARCH__ZHIPU_SEARCH_ENGINE` | `search_pro` | `search_std`、`search_pro`、`search_pro_sogou`、`search_pro_quark` |
