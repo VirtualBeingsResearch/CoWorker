@@ -4,6 +4,11 @@ import test from 'node:test';
 
 const styles = await readFile(new URL('../src/admin/admin.css', import.meta.url), 'utf8');
 const adminApp = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
+const i18n = await readFile(new URL('../src/i18n/admin.tsx', import.meta.url), 'utf8');
+const configPresentation = await readFile(
+  new URL('../src/admin/settings/configFieldPresentation.ts', import.meta.url),
+  'utf8',
+);
 
 test('keeps live status actions and long model names readable', () => {
   assert.match(adminApp, /<span className="overview-name"/);
@@ -46,4 +51,25 @@ test('uses a dedicated release empty modifier instead of the shared empty state'
 test('identity saving is guarded by dirty state and reports failures', () => {
   assert.match(adminApp, /disabled=\{saving \|\| !identityDirty\}/);
   assert.ok(adminApp.includes("setSaveError(error instanceof Error ? error.message : t('保存失败'))"));
+});
+
+test('localizes every runtime settings field', () => {
+  assert.match(adminApp, /'memory\.backend': '记忆后端'/);
+  assert.match(adminApp, /'memory\.summary_budget_retries': '摘要预算重试次数'/);
+  assert.match(adminApp, /'memory\.summary_budget_tolerance': '摘要预算容差'/);
+  assert.match(adminApp, /'api\.compat_tool_result_fold_chars': '工具结果折叠阈值（字符）'/);
+  assert.match(i18n, /'记忆后端': 'Memory backend'/);
+  assert.match(i18n, /'记忆抽取 Provider（mem0）': 'Memory extraction Provider \(mem0\)'/);
+});
+
+test('gives memory backend and summary budgets structured controls', () => {
+  assert.match(configPresentation, /path === 'memory\.backend'[\s\S]*?editor: 'choice'/);
+  assert.match(configPresentation, /'memory\.summary_budget_retries'/);
+  assert.match(configPresentation, /'memory\.summary_budget_tolerance'/);
+  assert.match(configPresentation, /'api\.compat_tool_result_fold_chars'/);
+});
+
+test('keeps settings actions and single settings full-width on phones', () => {
+  assert.match(styles, /\.config-panel > \.panel-actions \{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; \}/);
+  assert.match(styles, /\.config-fields > \.field:nth-child\(2\):last-child \{ grid-column: 1 \/ -1; width: min\(100%, 560px\); \}/);
 });

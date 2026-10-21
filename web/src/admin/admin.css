@@ -3926,3 +3926,23 @@ html:has(.admin-login),
 @media (max-width: 820px) {
   .config-panel:has(> .panel-actions .save-state.dirty) > .panel-actions { bottom: 92px; }
 }
+
+/* A group with a single setting should not leave an empty second column. */
+.config-fields > .field:nth-child(2):last-child { grid-column: 1 / -1; width: min(100%, 560px); }
+
+@media (max-width: 560px) {
+  /* Give both settings actions a full-width tap target instead of stacking
+     the primary button above the secondary one. */
+  .config-panel > .panel-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .config-panel > .panel-actions .save-state { grid-column: 1 / -1; margin-right: 0; }
+  .config-panel > .panel-actions > button { width: 100%; }
+
+  /* Numeric channel limits are easier to scan at full width on phones. */
+  .weixin-limits input { max-width: none; }
+}
+
+/* Two rule columns stop working once the settings rail, channel directory,
+   and access detail share a tablet-width canvas. Stack them earlier. */
+@media (max-width: 1280px) {
+  .channel-access-grid { grid-template-columns: 1fr; }
+}
