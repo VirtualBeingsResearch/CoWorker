@@ -19,14 +19,14 @@ test('keeps oversized advanced initialization groups inside a real scroll contai
   assert.match(adminApp, /className="bootstrap-config-panel" ref=\{panelRef\}/);
 });
 
-test('uses the Telegram settings panel during advanced initialization', () => {
+test('uses the Telegram and WeCom settings panels during advanced initialization', () => {
   assert.match(
     adminApp,
     /BOOTSTRAP_CONFIG_GROUP_ORDER = \[[^\]]*'telegram'[^\]]*\]/,
   );
   assert.match(
     adminApp,
-    /\['channel_access', 'telegram'\]\.includes\(group\)/,
+    /\['channel_access', 'telegram', 'wecom'\]\.includes\(group\)/,
   );
   assert.match(
     adminApp,

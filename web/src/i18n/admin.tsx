@@ -942,7 +942,7 @@ const ENGLISH_PHRASES: Record<string, string> = {
   '等待生命信号': 'Waiting for life signal',
   '正在确认本地值守状态…': 'Confirming local supervision status…',
   '正在读取初始化状态…': 'Reading initialization status…',
-  '生命值守台': 'Life supervision console',
+  '生命值守台': 'Life console',
   '照看室导航': 'Care station navigation',
   '退出本次值守': 'End this session',
   '查看生命体主页': 'View lifeform home',
@@ -2020,6 +2020,19 @@ const STATUS_ENGLISH_PHRASES: Record<string, string> = {
   'Zhipu 智谱': 'Zhipu',
   'Zhipu 套餐搜索': 'Zhipu Coding Plan',
   'Qianfan 千帆': 'Qianfan',
+  '身份信息': 'Identity details',
+  '身份档案已同步': 'Identity profile is synced',
+  '尚未命名': 'Not named yet',
+  '留空时，她可以自己决定称呼。': 'Leave blank and she can decide what to be called.',
+  '描述她如何说话、如何做选择，以及希望保持的边界。': 'Describe how she speaks, makes choices, and the boundaries she keeps.',
+  '人物目录': 'People directory',
+  '配对与连接': 'Pairing & connection',
+  '搜索能力内容': 'Search capability content',
+  '1 项能力': '1 capability',
+  '1 个联系地址': '1 contact address',
+  '创建第一项能力定义后，会显示在这里。': 'Create the first capability definition to see it here.',
+  '搜索审计记录': 'Search audit log',
+  '筛选审计结果': 'Filter audit results',
 };
 
 let activeLanguage: AdminLanguage = 'zh';

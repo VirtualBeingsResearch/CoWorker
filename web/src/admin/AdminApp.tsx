@@ -875,10 +875,10 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
     <section className={`overview-status-strip ${presenceState}`}>
       <div className="overview-status-lead">
         <div className="overview-mini-signal" aria-hidden="true">{[22, 58, 92, 46, 72].map((height, index) => <i style={{ '--h': `${height}%`, '--d': `${index * .08}s` } as React.CSSProperties} key={height + '-' + index} />)}</div>
-        <div><p className="eyebrow">{t('当前状态')}</p><h1>{name || 'Coworker'}<span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1></div>
+        <div><p className="eyebrow">{t('当前状态')}</p><h1><span className="overview-name" title={name || 'Coworker'}>{name || 'Coworker'}</span><span className={`live-badge ${presenceState}`}>{presenceLabel}</span></h1></div>
       </div>
       <div className="overview-status-facts">
-        <div><span>{t('主线模型')}</span><strong title={`${status.provider}/${status.model}`}>{status.provider}/{status.model}</strong></div>
+        <div><span>{t('主线模型')}</span><strong className="overview-model-value" title={`${status.provider}/${status.model}`}><span>{status.provider}</span><span>/{status.model}</span></strong></div>
         <div><span>{t('生命循环')}</span><strong>{t('第 {{count}} 次', { count: status.cycle_count || 0 })}</strong></div>
         <div><span>{t('唤醒方式')}</span><strong title={wakePolicy}>{wakePolicy}</strong></div>
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
@@ -1011,7 +1011,7 @@ function Models() {
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
-      <div className="inline-form"><select value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
+      <div className="inline-form"><select aria-label={t('选择 Provider')} value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
       {actionMessage && <div className="notice success" role="status"><Check size={16} /><span>{actionMessage}</span></div>}
@@ -1028,7 +1028,7 @@ function Models() {
       <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="mem0-model-input" label="模型" hint="留空时跟随主线模型"><EditableCombobox id="mem0-model-input" value={draft.mem0.model} options={mem0ModelOptions} onChange={next => set('mem0.model', next)} placeholder={draft.active.model} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
-      <LineNumberTextarea className="code-area short" value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
+      <LineNumberTextarea className="code-area short" aria-label={t('失败降级链')} value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
       <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
@@ -2258,7 +2258,7 @@ function Tasks() {
     ['all', t('全部 {{count}}', { count: data.tasks.length })],
   ];
   return <Panel title="任务板" note="任务说明与执行细节会和 Coworker 的 task 工具实时共享。">
-    <div className="task-compose"><input value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.description.trim()) void create(); }} placeholder={t('要完成什么？')} /><textarea value={draft.details} onChange={event => setDraft({ ...draft, details: event.target.value })} placeholder={t('补充执行细节（可选）')} /><button className="primary" disabled={!draft.description.trim()} onClick={() => void create()}><Plus size={15} />{t('添加任务')}</button></div>
+    <div className="task-compose"><input aria-label={t('任务描述')} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.description.trim()) void create(); }} placeholder={t('要完成什么？')} /><textarea aria-label={t('执行细节')} value={draft.details} onChange={event => setDraft({ ...draft, details: event.target.value })} placeholder={t('补充执行细节（可选）')} /><button className="primary" disabled={!draft.description.trim()} onClick={() => void create()}><Plus size={15} />{t('添加任务')}</button></div>
     <div className="list-toolbar"><div className="task-filters">{filters.map(([id, label]) => <button key={id} className={filter === id ? 'active' : ''} onClick={() => setFilter(id)}>{label}</button>)}</div><button className="icon-btn" onClick={() => void reload()} title={t('刷新任务')} aria-label={t('刷新任务')}><RefreshCw size={15} /></button></div>
     <div className="record-list">{visible.length ? visible.map((task: Json) => <article className={'record task-record ' + task.status} key={task.id}><div className="record-main"><span className={'status-pill ' + task.status}>{t(TASK_STATUS[task.status] || task.status)}</span><b>{task.description}</b>{task.details && <p className="record-details">{task.details}</p>}<small>{t('更新于 {{time}}', { time: formatDateTime(task.updated_at) })}{' · '}{task.id}</small></div><div className="row-actions"><select aria-label={t('更新任务“{{description}}”的状态', { description: task.description })} value={task.status} onChange={async event => { await api('/api/admin/tasks/' + task.id, { method: 'PATCH', body: JSON.stringify({ description: task.description, details: task.details || '', status: event.target.value }) }); await reload(); }}>{Object.entries(TASK_STATUS).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select><button className="icon-btn" title={t('编辑任务')} aria-label={t('编辑任务')} onClick={() => setEditing({ ...task })}><Pencil size={15} /></button><button className="danger-icon" title={t('删除任务')} aria-label={t('删除任务“{{description}}”', { description: task.description })} onClick={async () => { if (confirm(t('删除任务“{{description}}”？', { description: task.description }))) { await api('/api/admin/tasks/' + task.id, { method: 'DELETE' }); await reload(); } }}><Trash2 size={15} /></button></div></article>) : <Empty text={data.tasks.length ? '这个分类里没有任务。' : '还没有任务，先写下第一件要推进的事。'} />}</div>
     {editing && <div className="modal-layer"><div className="confirm-modal task-modal"><ListTodo size={24} /><h3>{t('编辑任务')}</h3><Field label="任务描述"><input autoFocus value={editing.description} onChange={event => setEditing({ ...editing, description: event.target.value })} /></Field><Field label="执行细节"><textarea value={editing.details || ''} onChange={event => setEditing({ ...editing, details: event.target.value })} placeholder={t('记录计划、进度或下一步')} /></Field><Field label="状态"><select value={editing.status} onChange={event => setEditing({ ...editing, status: event.target.value })}>{Object.entries(TASK_STATUS).map(([value, label]) => <option value={value} key={value}>{t(label)}</option>)}</select></Field><div className="panel-actions"><button className="ghost" onClick={() => setEditing(null)}>{t('取消')}</button><button className="primary" disabled={!editing.description.trim()} onClick={() => void saveEdit()}><Check size={15} />{t('保存任务')}</button></div></div></div>}
@@ -3016,6 +3016,8 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const systemPrompt = useLoad(() => api<Json>('/api/admin/system-prompt'), []);
   const [draft, setDraft] = useState<Json | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const [promptSaving, setPromptSaving] = useState(false);
   const [promptMessage, setPromptMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
@@ -3028,12 +3030,27 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const promptDirty = Boolean(systemPrompt.data && promptDraft !== null && promptDraft !== String(systemPrompt.data.desired_template || ''));
   useNavigationGuard('identity', identityDirty || promptDirty);
   if (identity.loading || !draft) return <Loading error={identity.error} />;
+  const updateIdentityDraft = (patch: Json) => {
+    setSaved(false);
+    setSaveError('');
+    setDraft(current => current ? { ...current, ...patch } : current);
+  };
   const save = async () => {
-    await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
-    const session = await api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' });
-    onIdentity(session);
-    setSaved(true);
-    await Promise.all([identity.reload(), systemPrompt.reload()]);
+    if (!identityDirty || saving) return;
+    setSaving(true);
+    setSaved(false);
+    setSaveError('');
+    try {
+      await api<Json>('/api/admin/identity', { method: 'PUT', body: JSON.stringify(draft) });
+      const session = await api<AdminIdentity>('/api/admin/session/verify', { method: 'POST' });
+      onIdentity(session);
+      setSaved(true);
+      await Promise.all([identity.reload(), systemPrompt.reload()]);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : t('保存失败'));
+    } finally {
+      setSaving(false);
+    }
   };
   const savePrompt = async () => {
     if (!systemPrompt.data || promptDraft === null || !promptDraft.trim()) {
@@ -3101,7 +3118,16 @@ function Identity({ onIdentity }: { onIdentity: (identity: AdminIdentity) => voi
   const promptLines = (promptDraft || '').split('\n');
   const blankPromptLines = promptLines.filter(line => !line.trim()).length;
   return <div className="page-stack">
-    <Panel title="身份档案" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。"><div className="identity-form"><Field label="姓名"><input value={draft.name || ''} onChange={event => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="现居地"><input value={draft.current_location || ''} onChange={event => setDraft({ ...draft, current_location: event.target.value })} /></Field><Field label="人格"><textarea value={draft.personality || ''} onChange={event => setDraft({ ...draft, personality: event.target.value })} /></Field></div>{saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}<div className="panel-actions"><button className="primary" onClick={() => void save()}><Save size={15} />{t('保存档案')}</button></div></Panel>
+    <Panel title="身份信息" note="保存会直接写入身份文件，并立即刷新 System Prompt 缓存以保持一致；后续推理将使用新身份。">
+      <div className="identity-form">
+        <Field label="姓名" hint="留空时，她可以自己决定称呼。"><input value={draft.name || ''} placeholder={t('尚未命名')} onChange={event => updateIdentityDraft({ name: event.target.value })} /></Field>
+        <Field label="现居地"><input value={draft.current_location || ''} onChange={event => updateIdentityDraft({ current_location: event.target.value })} /></Field>
+        <Field label="人格"><textarea value={draft.personality || ''} placeholder={t('描述她如何说话、如何做选择，以及希望保持的边界。')} onChange={event => updateIdentityDraft({ personality: event.target.value })} /></Field>
+      </div>
+      {saveError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{saveError}</span></div>}
+      {saved && <div className="notice success">{t('身份档案与 System Prompt 缓存已同步更新。')}</div>}
+      <div className="panel-actions"><span className={'save-state ' + (identityDirty ? 'dirty' : '')}>{t(identityDirty ? '有未保存修改' : '身份档案已同步')}</span><button className="primary" disabled={saving || !identityDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存档案')}</button></div>
+    </Panel>
     <Panel title="System Prompt 模板" note="通过只读分段变量组合 Prompt；自定义正文和方括号标题会原样保留。保存后需要安全重启。">
       {systemPrompt.loading || promptDraft === null || !promptData ? <Loading error={systemPrompt.error} /> : <div className="system-prompt-template-workbench">
         <div className="system-prompt-template-status"><span><b>{t(promptData.overridden ? '管理端覆盖' : '继承启动配置')}</b><small>{t(promptData.overridden ? '当前期望模板保存在 admin_config.json。' : '当前没有管理端模板覆盖。')}</small></span><em className={promptData.prompt_pending_restart ? 'pending' : 'active'}>{t(promptData.prompt_pending_restart ? '等待安全重启' : '当前已生效')}</em></div>
@@ -3307,7 +3333,7 @@ function PeopleView() {
   const personInitial = (person: PersonView) => Array.from(personName(person))[0]?.toUpperCase() || '?';
 
   return <div className="page-stack">
-    <Panel title="通信录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" className="people-panel" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
+    <Panel title="人物目录" note="人物是跨信道的「关系」：同一真人的多个地址绑定到一个 person_id；画像由搭档在对话中维护。" className="people-panel" action={<button className="ghost mini" disabled={people.loading} onClick={() => void people.reload()}><RefreshCw size={14} />{t('重新读取')}</button>}>
       {error && <div className="notice error">{error}</div>}
       <div className="people-workbench">
         <aside className="people-directory">
@@ -3324,7 +3350,7 @@ function PeopleView() {
             const selected = person.person_id === selectedPersonId;
             return <button type="button" className={`person-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => setSelectedPersonId(person.person_id)} key={person.person_id}>
               <span className="person-avatar">{personInitial(person)}</span>
-              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
+              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length === 1 ? t('1 个联系地址') : person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
               <ChevronRight size={15} />
             </button>;
           })}</div>}
@@ -3488,6 +3514,7 @@ function ContentManager() {
   };
   const activeItem = data?.items.find((item: Json) => item.id === selected);
   const hasDraft = Boolean(raw || selected || newId);
+  const itemCount = data?.items?.length || 0;
   const idValid = /^[A-Za-z0-9._-]+$/.test(newId.trim());
   const idTaken = Boolean(data?.items?.some((item: Json) => String(item.id).toLowerCase() === newId.trim().toLowerCase()));
   const requiredSourceReady = kind === 'skills' ? meta.description : kind === 'palaces' ? meta.whenToAttach : meta.trigger && meta.purpose;
@@ -3496,12 +3523,14 @@ function ContentManager() {
     ? activeItem?.name || selected
     : hasDraft
       ? t('新建 {{label}}', { label: kindLabel })
-      : t('选择一项能力内容');
+      : itemCount ? t('选择一项能力内容') : t('{{label}} 能力目录', { label: kindLabel });
   const editorNote = hasDraft
     ? activeFile && activeFile !== CONTENT_KIND[kind].filename
       ? t('正在编辑 {{file}}', { file: activeFile })
       : meta.summary || kindDescription
-    : t('从左侧选择现有内容，或创建一项新的能力定义。');
+    : itemCount
+      ? t('从左侧选择现有内容，或创建一项新的能力定义。')
+      : t('创建第一项能力定义后，会显示在这里。');
 
   return <div className="content-workspace">
     <section className="capability-strip">
@@ -3509,8 +3538,8 @@ function ContentManager() {
     </section>
     <div className="content-layout">
       <aside className="content-index">
-        <div className="content-index-head"><div><span>{t('{{label}} 能力目录', { label: kindLabel })}</span><b>{t('{{count}} 项能力', { count: data?.items?.length || 0 })}</b></div><button className="icon-btn" title={t('刷新能力目录')} aria-label={t('刷新能力目录')} onClick={() => void reload()}><RefreshCw size={14} /></button></div>
-        <label className="content-search"><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索名称或用途')} /></label>
+        <div className="content-index-head"><div><span>{t('{{label}} 能力目录', { label: kindLabel })}</span><b>{itemCount === 1 ? t('1 项能力') : t('{{count}} 项能力', { count: itemCount })}</b></div><button className="icon-btn" title={t('刷新能力目录')} aria-label={t('刷新能力目录')} onClick={() => void reload()}><RefreshCw size={14} /></button></div>
+        <label className="content-search"><Search size={14} /><input aria-label={t('搜索能力内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索名称或用途')} /></label>
         {loading ? <Loading /> : error ? <Loading error={error} /> : <div className="content-items">{items.length ? items.map((item: Json) => <button className={selected === item.id ? 'active' : ''} key={item.id} onClick={() => choose(item.id)}><span className={'content-health ' + (item.valid ? 'valid' : 'invalid')} /><span className="content-item-copy"><b>{item.name || item.id}</b><small>{item.summary || item.warning || t('尚未填写用途说明')}</small></span>{item.metadata?.protected && <ShieldCheck size={13} />}</button>) : <div className="content-no-result">{query ? t('没有匹配的能力内容') : t('这个分类还是空的')}</div>}</div>}
         <button className="new-content" onClick={startNew}><Plus size={14} />{t('新建 {{label}}', { label: kindLabel })}</button>
       </aside>
@@ -3526,7 +3555,7 @@ function ContentManager() {
           </div>
           {actionError && <div className="notice error"><TriangleAlert size={16} />{actionError}</div>}{message && <div className="notice success"><Check size={16} />{message}</div>}
           <div className="panel-actions"><span className={'save-state ' + (dirty ? 'dirty' : '')}>{selected ? (dirty ? t('有未保存修改') : t('内容已同步')) : newSourceReady ? t('定义已就绪') : !idValid || idTaken ? t('填写有效的目录 ID') : t('补全源码中的必填字段')}</span><button className="primary" disabled={selected ? !dirty : (!newSourceReady || !dirty)} onClick={() => void save()}><Save size={15} />{selected ? (activeFile && activeFile !== CONTENT_KIND[kind].filename ? t('保存文件') : t('保存并加载')) : t('创建并加载')}</button>{selected && activeFile !== CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={() => void deleteFile()}><Trash2 size={14} />{t('删除文件')}</button>}{selected && activeFile === CONTENT_KIND[kind].filename && <button className="danger-outline" onClick={async () => { if (confirm(t('删除 {{kind}}/{{id}} 整个能力目录？其中的 scripts、references 和其他附属文件也会一并删除。', { kind, id: selected }))) { await api('/api/admin/content/' + kind + '/' + encodeURIComponent(selected), { method: 'DELETE' }); setSelected(''); setActiveFile(''); setFileList([]); setRaw(''); setOriginalRaw(''); setMessage(''); await reload(); } }}><Trash2 size={14} />{t('删除能力')}</button>}</div>
-        </> : <div className="content-welcome"><div className="welcome-orbit"><Sparkles size={28} /><i /><i /></div><h3>{t('{{label}} 能力目录', { label: kindLabel })}</h3><p>{kindDescription}{t('。选择左侧条目查看源码与预览。')}</p><button className="ghost" onClick={startNew}><Plus size={14} />{t('创建第一项内容')}</button></div>}
+        </> : <div className="content-welcome"><div className="welcome-orbit"><Sparkles size={28} /><i /><i /></div><button className="ghost" onClick={startNew}><Plus size={14} />{itemCount ? t('新建 {{label}}', { label: kindLabel }) : t('创建第一项内容')}</button></div>}
       </Panel>
     </div>
   </div>;
@@ -3956,7 +3985,7 @@ function DesktopReleases() {
   const syncReady = !!(syncStatus?.enabled && syncStatus?.ready && syncStatus?.source);
   const settingsHref = syncStatus?.source?.source_id ? `?section=settings&group=desktop_updates&source=${encodeURIComponent(syncStatus.source.source_id)}` : '?section=settings&group=desktop_updates';
   return <div className="release-page page-stack">
-    <section className={'release-hero ' + (latest ? 'ready' : 'empty')}>
+    <section className={'release-hero ' + (latest ? 'ready' : 'is-empty')}>
       <div className="release-signal"><Rocket size={25} /><i /><i /></div>
       <div><p className="eyebrow">{t('桌面更新投放')}</p><h2>{heroTitle}</h2>{!latest && <p>{t('创建版本并上传签名产物后，从这里开启第一次投放。')}</p>}</div>
       <div className="release-hero-platforms"><span>{t('已投放平台')}</span><div>{latestPlatforms.length ? latestPlatforms.map(platform => <b key={platform}>{platform}</b>) : <small>{latest ? t('正在确认平台…') : t('尚未发布')}</small>}</div>{latestSummary?.updated_at && <time>{formatDateTime(latestSummary.updated_at)}</time>}</div>
@@ -4085,7 +4114,7 @@ function Audit() {
     </section>
     <div className="audit-switcher"><div><button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}><ShieldCheck size={15} />{t('操作时间线')}</button><button className={tab === 'traffic' ? 'active' : ''} onClick={() => setTab('traffic')}><MessagesSquare size={15} />{t('消息流量')}</button><button className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}><Activity size={15} />{t('运行诊断')}</button></div><button className="icon-btn" title={t('刷新当前视图')} aria-label={t('刷新当前视图')} onClick={() => void refresh()}><RefreshCw size={15} /></button></div>
     {tab === 'audit' ? <Panel title="管理员操作时间线" note="只记录操作元数据，不包含令牌、密钥和完整正文。" className="audit-panel">
-      <div className="audit-filters"><label><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索操作、目标或来源')} /></label><select value={result} onChange={event => setResult(event.target.value)}><option value="">{t('全部结果')}</option><option value="ok">{t('仅成功')}</option><option value="failed">{t('仅异常')}</option></select><span>{t('{{count}} 条记录', { count: filtered.length })}</span></div>
+      <div className="audit-filters"><label><Search size={14} /><input aria-label={t('搜索审计记录')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索操作、目标或来源')} /></label><select aria-label={t('筛选审计结果')} value={result} onChange={event => setResult(event.target.value)}><option value="">{t('全部结果')}</option><option value="ok">{t('仅成功')}</option><option value="failed">{t('仅异常')}</option></select><span>{t('{{count}} 条记录', { count: filtered.length })}</span></div>
       {!audit.data ? <Loading error={audit.error} /> : filtered.length ? <div className="audit-timeline">{filtered.map((entry: Json, index: number) => {
         const actionParts = String(entry.action || 'unknown').split('.');
         const area = actionParts.shift() || 'system';
@@ -4172,7 +4201,7 @@ function RelayAccess() {
         ? '内置 Relay Client 会自动重连；你也可以查看错误或手动重连。'
         : '准备 Relay 地址和 10 分钟内有效的一次性配对码即可开始。';
   return <div className="page-stack relay-access">
-    <Panel title="远程访问" note="通过自托管中继（Relay）让新版 Desktop 从公网安全连接这台 Coworker。"
+    <Panel title="配对与连接" note="通过自托管中继（Relay）让新版 Desktop 从公网安全连接这台 Coworker。"
       action={configured ? <button className="ghost mini" disabled={relay.loading || Boolean(busy)} onClick={() => void relay.reload()}><RefreshCw size={13} />{t(relay.loading ? '正在刷新…' : '刷新状态')}</button> : undefined}>
       <section className={`relay-hero ${connected ? 'connected' : configured ? 'waiting' : 'idle'}`}>
         <div className="relay-signal"><CloudUpload size={26} /><i /></div>
