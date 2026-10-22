@@ -862,7 +862,7 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
   const presenceState = running ? (paused ? 'paused' : resting ? 'resting' : 'running') : 'quiet';
   const presenceLabel = runtimePresenceLabel(status);
   const wakePolicy = runtimeWakePolicy(status);
-  const sampledAt = formatTime(new Date(), [], { hour: '2-digit', minute: '2-digit' });
+  const sampledAt = formatTime(new Date(), undefined, { hour: '2-digit', minute: '2-digit' });
   const operations: Array<{ label: string; value: number; note: string; icon: typeof Activity; section: Section }> = [
     { label: t('活跃任务'), value: counts.active_tasks, note: t('{{count}} 项总计', { count: counts.tasks }), icon: ListTodo, section: 'runtime' },
     { label: t('运行 Bubble'), value: counts.active_bubbles, note: t('并行思考分支'), icon: Orbit, section: 'memory' },
@@ -3354,7 +3354,7 @@ function PeopleView() {
             const selected = person.person_id === selectedPersonId;
             return <button type="button" className={`person-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => setSelectedPersonId(person.person_id)} key={person.person_id}>
               <span className="person-avatar">{personInitial(person)}</span>
-              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length === 1 ? t('1 个联系地址') : person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
+              <span className="person-list-copy"><b>{personName(person)}</b><small>{person.aliases.length ? t('{{count}} 个联系地址', { count: person.aliases.length }) : t('还没有联系地址')}</small></span>
               <ChevronRight size={15} />
             </button>;
           })}</div>}
@@ -3542,7 +3542,7 @@ function ContentManager() {
     </section>
     <div className="content-layout">
       <aside className="content-index">
-        <div className="content-index-head"><div><span>{t('{{label}} 能力目录', { label: kindLabel })}</span><b>{itemCount === 1 ? t('1 项能力') : t('{{count}} 项能力', { count: itemCount })}</b></div><button className="icon-btn" title={t('刷新能力目录')} aria-label={t('刷新能力目录')} onClick={() => void reload()}><RefreshCw size={14} /></button></div>
+        <div className="content-index-head"><div><span>{t('{{label}} 能力目录', { label: kindLabel })}</span><b>{t('{{count}} 项能力', { count: itemCount })}</b></div><button className="icon-btn" title={t('刷新能力目录')} aria-label={t('刷新能力目录')} onClick={() => void reload()}><RefreshCw size={14} /></button></div>
         <label className="content-search"><Search size={14} /><input aria-label={t('搜索能力内容')} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('搜索名称或用途')} /></label>
         {loading ? <Loading /> : error ? <Loading error={error} /> : <div className="content-items">{items.length ? items.map((item: Json) => <button className={selected === item.id ? 'active' : ''} key={item.id} onClick={() => choose(item.id)}><span className={'content-health ' + (item.valid ? 'valid' : 'invalid')} /><span className="content-item-copy"><b>{item.name || item.id}</b><small>{item.summary || item.warning || t('尚未填写用途说明')}</small></span>{item.metadata?.protected && <ShieldCheck size={13} />}</button>) : <div className="content-no-result">{query ? t('没有匹配的能力内容') : t('这个分类还是空的')}</div>}</div>}
         <button className="new-content" onClick={startNew}><Plus size={14} />{t('新建 {{label}}', { label: kindLabel })}</button>

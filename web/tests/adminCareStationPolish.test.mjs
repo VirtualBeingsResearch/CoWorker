@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const styles = await readFile(new URL('../src/admin/admin.css', import.meta.url), 'utf8');
 const adminApp = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
-const i18n = await readFile(new URL('../src/i18n/admin.tsx', import.meta.url), 'utf8');
+const i18n = await readFile(new URL('../src/i18n/catalog.ts', import.meta.url), 'utf8');
 const configPresentation = await readFile(
   new URL('../src/admin/settings/configFieldPresentation.ts', import.meta.url),
   'utf8',
