@@ -19,7 +19,7 @@ def test_workspace_labels_are_categories_not_page_names() -> None:
 
 
 def test_workspace_labels_have_english_translations() -> None:
-    source = (REPOSITORY_ROOT / "web/src/i18n/admin.tsx").read_text(encoding="utf-8")
+    source = (REPOSITORY_ROOT / "web/src/i18n/catalog.ts").read_text(encoding="utf-8")
 
     for chinese, english in (
         ("观测", "Observability"),
@@ -33,7 +33,7 @@ def test_workspace_labels_have_english_translations() -> None:
 
 def test_channel_progress_config_labels_have_english_translations() -> None:
     admin_app = (REPOSITORY_ROOT / "web/src/admin/AdminApp.tsx").read_text(encoding="utf-8")
-    i18n = (REPOSITORY_ROOT / "web/src/i18n/admin.tsx").read_text(encoding="utf-8")
+    i18n = (REPOSITORY_ROOT / "web/src/i18n/catalog.ts").read_text(encoding="utf-8")
     presentation = (
         REPOSITORY_ROOT / "web/src/admin/settings/configFieldPresentation.ts"
     ).read_text(encoding="utf-8")
