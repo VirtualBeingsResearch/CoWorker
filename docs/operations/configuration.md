@@ -231,6 +231,12 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | 微信 Claw 入站图片/文件/视频单个附件的下载上限（MB），超过时跳过下载并在消息中标注附件大小与该上限；范围 1–10000 |
 | `WEIXIN__MAX_UPLOAD_MB` | `200` | 微信 Claw 出站图片/视频/文件单个附件的上传上限（MB），超过时拒绝发送；范围 1–10000 |
 | `WEIXIN__UPLOAD_TIMEOUT_SECONDS` | `300` | 微信 Claw 单个附件每次 CDN 上传的等待上限（秒）；传输失败最多重试 3 次，范围 1–3600 |
+| `TUNNEL__MODE` | `off` | 可选公网访问：`off`、`quick`（临时 trycloudflare 域名）或 `named`（Cloudflare Tunnel 固定域名） |
+| `TUNNEL__PROTOCOL` | `http2` | `http2`、`quic` 或 `auto`；受限网络保持 `http2` |
+
+启用隧道前必须显式设置 `API__COMMUNICATION_TOKEN`；named 模式还需要 `TUNNEL__TOKEN` 与
+`TUNNEL__PUBLIC_URL`。完整说明、能力边界和安全前提见
+[公网访问（Cloudflare Tunnel）](tunnel.md)。
 
 反向代理同时代理 `/admin`、`/api/*` 和静态资源时，`API__PUBLIC_URL` 对应浏览器
 实际访问的 origin，例如 `https://coworker.example.com`。它不改变 `API__HOST` 或

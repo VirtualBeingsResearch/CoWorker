@@ -572,3 +572,11 @@ system_started = "系统启动。当前时间：{{time}}。{{environment}}。"
 
 [system]
 memory_backend_missing_deps = "无法启动：配置的长期记忆后端 \"{{backend}}\" 缺少必要依赖（{{missing}}）。请执行 `uv sync --extra mem0` 安装。"
+
+[config.tunnel]
+public_url_invalid = "TUNNEL__PUBLIC_URL 不是有效的地址"
+public_url_https = "TUNNEL__PUBLIC_URL 必须使用 https"
+public_url_origin_only = "TUNNEL__PUBLIC_URL 只能包含协议、主机和端口，不能带路径、查询或凭据"
+token_required = "TUNNEL__MODE=named 时必须设置 TUNNEL__TOKEN"
+public_url_required = "TUNNEL__MODE=named 时必须设置 TUNNEL__PUBLIC_URL"
+allowed_email_invalid = "TUNNEL__QUICK_ALLOWED_EMAILS 中的邮箱无效：{{email}}"

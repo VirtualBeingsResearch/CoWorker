@@ -36,6 +36,7 @@ SECRET_PATHS = {
     "admin.token",
     "api.communication_token",
     "relay.instance_private_key",
+    "tunnel.token",
     "desktop_updates.admin_token",
     "desktop_updates.feed_token",
     "llm.anthropic_api_key",

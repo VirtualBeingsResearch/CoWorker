@@ -1,0 +1,21 @@
+[tunnel]
+binary_missing = "找不到 cloudflared（{{path}}）。请先安装：Windows 可用 winget install --id Cloudflare.cloudflared；macOS 可用 brew install cloudflared；Debian/Ubuntu 可用 Cloudflare 官方软件源安装；其他平台可从 https://github.com/cloudflare/cloudflared/releases 下载。"
+binary_not_executable = "cloudflared 存在但无法执行（{{path}}）。可能是架构不匹配或文件损坏，请重新安装。"
+binary_outdated = "当前 cloudflared 版本过旧，不认识启动参数。请升级后重试。"
+named_token_required = "named 模式需要 Cloudflare Tunnel token。"
+named_public_url_required = "named 模式需要填写公网地址（例如 https://coworker.example.com）。"
+invalid_mode = "不支持的隧道模式：{{mode}}"
+not_configured = "还没有可用的隧道配置。"
+no_url = "隧道尚未连接，没有可探测的公网地址。"
+process_exited = "cloudflared 进程意外退出"
+unhealthy = "隧道无法访问公网地址 {{url}}"
+url_timeout = "隧道已启动，但公网地址 {{url}} 在时限内不可达"
+url_timeout_short = "等待临时隧道地址超时"
+
+[api.tunnel]
+communication_token_required = "启用隧道前必须先显式配置 API__COMMUNICATION_TOKEN，否则聊天与消息接口不需要认证。"
+setup_incomplete = "初始化尚未完成，不能启用公网隧道。"
+qr_unavailable = "隧道尚未连接，没有可生成二维码的地址。"
+
+[api.state]
+tunnel_not_ready = "隧道管理器尚未就绪"

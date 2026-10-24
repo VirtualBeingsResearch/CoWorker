@@ -34,6 +34,10 @@ Coworker 是自主 Agent，不是安全沙箱。它的工具可以用运行进�
   最小化的 `RELAY_TRUSTED_PROXY_CIDRS`。
 - Relay v1 只支持单节点。不要让多个副本共享 bbolt数据卷；不要通过负载均衡器把同一
   实例的隧道和请求分配到不同副本。
+- 可选的[公网访问（Cloudflare Tunnel）](docs/operations/tunnel.md)不替代 Relay：cloudflared
+  在 Cloudflare 边缘终止 TLS，Cloudflare 能读取明文。启用前必须显式设置
+  `API__COMMUNICATION_TOKEN`；建议在值守台域名前启用 Cloudflare Access 并对
+  `/api/admin/*` 限速。Desktop 不能携带 Access 凭据，桌面使用的域名不应启用 Access。
 - 不要把 `.env`、`providers.json`、运行时数据、日志、导出的配置和桌面端凭据提交到仓库或附在漏洞报告中。
 
 我们尤其欢迎报告身份验证绕过、命令或路径遍历、密钥泄露、不安全的更新处理、Relay

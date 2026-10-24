@@ -136,6 +136,7 @@ from coworker.tools.system_tools import (
     _validate_snapshot,
 )
 from coworker.tools.web_tools import FetchURLTool, SearchWebTool
+from coworker.tunnel import TunnelManager
 
 
 def _setup_logging(logs_dir: str) -> None:
@@ -1090,6 +1091,7 @@ async def _main() -> bool:
         auto_publish=desktop_update_runtime.auto_publish,
     )
     relay_client = RelayClient(api_app.app, config)
+    tunnel_manager = TunnelManager(config)
 
     if not setup_required:
         channel_system.install(
@@ -1127,6 +1129,8 @@ async def _main() -> bool:
         inherited_config=inherited_config,
         long_term=long_term,
         relay_client=relay_client,
+        tunnel_manager=tunnel_manager,
+        setup_required=setup_required,
         person_store=person_store,
         persona_cards=persona_cards,
         usage_stats=usage_stats,
@@ -1198,6 +1202,7 @@ async def _main() -> bool:
     await channel_system.registry.start()
     await relay_client.start()
     server_task = asyncio.create_task(server.serve(), name="server")
+    await tunnel_manager.start_if_configured()
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
     if setup_required:
@@ -1248,6 +1253,7 @@ async def _main() -> bool:
         await progress.close_all_placeholders()
         await channel_system.registry.stop()
         await relay_client.stop()
+        await tunnel_manager.stop()
         server.should_exit = True
         if inbox_task is not None:
             inbox_watcher.stop()

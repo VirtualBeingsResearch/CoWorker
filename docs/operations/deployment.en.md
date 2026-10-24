@@ -80,6 +80,10 @@ The process needs neither root nor file access beyond the intended workspace. Ru
   `API__PUBLIC_URL` is the browser-facing public origin, so setup and restart return through the
   proxy instead of an internal bind port.
 - Public Desktop access goes through [Self-hosted Relay](relay.en.md). Relay is not a general HTTP/TCP proxy.
+- To reach the console or call `/v1` from the internet temporarily, use the optional
+  [public access (Cloudflare Tunnel)](tunnel.en.md). The host opens the outbound connection;
+  Cloudflare can read plaintext at its edge, and `API__COMMUNICATION_TOKEN` must be set explicitly
+  before enabling it.
 
 ## Health, logs, and capacity
 

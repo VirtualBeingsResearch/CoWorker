@@ -73,6 +73,7 @@ REST、SSE、WebSocket、文件、企业微信、Telegram 和 Coworker Desktop �
 - [可观测性与日常运维](operations/observability.md)
 - [故障排查](operations/troubleshooting.md)
 - [自托管中继（Relay）](operations/relay.md)
+- [公网访问（Cloudflare Tunnel）](operations/tunnel.md)
 - [Relay v1 协议](operations/relay-protocol.md)
 
 ### [开发与协作](development/README.md)

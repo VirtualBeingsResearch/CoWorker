@@ -4294,7 +4294,144 @@ function RelayAccess() {
         </div>
       </details>
     </Panel>}
+    <TunnelAccess />
   </div>;
+}
+
+function TunnelAccess() {
+  const tunnel = useLoad<Json>(() => api('/api/admin/tunnel'), []);
+  const [mode, setMode] = useState<'quick' | 'named'>('named');
+  const [token, setToken] = useState('');
+  const [publicUrl, setPublicUrl] = useState('');
+  const [emails, setEmails] = useState('');
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [qr, setQr] = useState('');
+  useEffect(() => {
+    const timer = window.setInterval(() => void tunnel.reload(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [tunnel.reload]);
+  const data = tunnel.data || {};
+  const url = String(data.url || '');
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = '';
+    if (!url) { setQr(''); return; }
+    void fetch('/api/admin/tunnel/qr.png', { headers: { Authorization: `Bearer ${storedToken()}` } })
+      .then(response => (response.ok ? response.blob() : null))
+      .then(blob => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setQr(objectUrl);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+  const action = async (name: string, operation: () => Promise<unknown>, success: string) => {
+    setBusy(name); setNotice(null);
+    try {
+      await operation();
+      setNotice({ kind: 'success', text: t(success) });
+      await tunnel.reload();
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') });
+    } finally {
+      setBusy('');
+    }
+  };
+  const copy = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice({ kind: 'success', text: t('{{label}}已复制', { label: t(label) }) });
+    } catch {
+      setNotice({ kind: 'error', text: t('无法访问剪贴板，请手动复制。') });
+    }
+  };
+  const copyDesktopConfig = async () => {
+    setBusy('copy-config');
+    try {
+      const result = await api<Json>('/api/admin/communication-token');
+      const communicationToken = String(result.communication_token || '');
+      await copy(`Base URL: ${url}\nBearer Token: ${communicationToken}`, 'Desktop 配置');
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : t('操作失败') });
+    } finally {
+      setBusy('');
+    }
+  };
+  const prerequisites = (data.prerequisites || {}) as Json;
+  const tokenReady = prerequisites.communication_token === true;
+  const setupReady = prerequisites.setup_complete !== false;
+  const phase = String(data.phase || 'stopped');
+  const connected = phase === 'running';
+  const binary = (data.binary || {}) as Json;
+  const binaryFound = binary.found === true;
+  const statusText = !setupReady ? '启用隧道前必须完成初始化。'
+    : !tokenReady ? '请先显式设置 API__COMMUNICATION_TOKEN 再启用隧道。'
+    : connected ? '已连接' : phase === 'starting' ? '启动中' : phase === 'failed' ? '失败' : '已停止';
+  return <Panel title="公网访问（Cloudflare Tunnel）" note="通过 cloudflared 出站隧道，让手机或外部客户端访问这台 Coworker。"
+    action={<button className="ghost mini" disabled={tunnel.loading || Boolean(busy)} onClick={() => void tunnel.reload()}><RefreshCw size={13} />{t(tunnel.loading ? '正在刷新…' : '刷新状态')}</button>}>
+    <section className={`relay-hero ${connected ? 'connected' : phase === 'failed' ? 'error' : 'idle'}`}>
+      <div className="relay-signal"><CloudUpload size={26} /><i /></div>
+      <div><span>{t('隧道状态')}</span><h3>{t(statusText)}</h3>
+        <p>{url || t('尚未连接')}</p>
+      </div>
+      <b className={`relay-status-badge ${connected ? 'ok' : phase === 'failed' ? 'error' : ''}`}>{t(phase)}</b>
+    </section>
+    {!binaryFound && <div className="notice error" role="alert"><TriangleAlert size={18} /><span>{t('未检测到 cloudflared。容器镜像已内置；源码安装请使用 winget、brew 或 Cloudflare 官方软件源安装后重试。')}</span></div>}
+    {url && <div className="relay-credentials">
+      <article><span>{t('隧道地址')}</span><div><code>{url}</code><button className="ghost mini" onClick={() => void copy(url, '隧道地址')}>{t('复制到剪贴板')}</button><a className="ghost mini" href={url} target="_blank" rel="noreferrer">{t('在新标签打开')}</a></div></article>
+      {qr && <article><span>{t('扫码打开')}</span><div><img src={qr} alt={t('隧道二维码')} width={180} height={180} /></div></article>}
+    </div>}
+    <form className="relay-enroll" onSubmit={event => {
+      event.preventDefault();
+      const allowed = emails.split(',').map(item => item.trim()).filter(Boolean);
+      void action('connect', () => api('/api/admin/tunnel/connect', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode,
+          token: mode === 'named' ? token.trim() : '',
+          public_url: mode === 'named' ? publicUrl.trim().replace(/\/+$/, '') : '',
+          allowed_emails: mode === 'quick' ? allowed : [],
+        }),
+      }), mode === 'named' ? '隧道已连接' : '临时隧道已启动');
+    }}>
+      <header><div><h3>{t('选择隧道模式')}</h3><p>{t('named 使用固定域名；quick 无需账号，但地址每次启动都会变化。')}</p></div><ShieldCheck size={22} /></header>
+      <label><span>{t('隧道模式')}</span><select value={mode} onChange={event => setMode(event.target.value === 'quick' ? 'quick' : 'named')}><option value="named">{t('配置的隧道（named）')}</option><option value="quick">{t('临时（quick）')}</option></select></label>
+      {mode === 'named' ? <>
+        <label><span>{t('隧道 Token')}</span><input type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} placeholder="eyJ…" /><small>{t('Cloudflare Zero Trust 面板生成的隧道令牌，只保存在本机配置中。')}</small></label>
+        <label><span>{t('公网地址')}</span><input type="url" value={publicUrl} onChange={event => setPublicUrl(event.target.value)} placeholder="https://coworker.example.com" /><small>{t('与 Cloudflare 控制台里的 Public Hostname 保持一致。')}</small></label>
+      </> : <>
+        <label><span>{t('邮箱白名单（可选，逗号分隔）')}</span><input value={emails} onChange={event => setEmails(event.target.value)} placeholder="you@example.com" /><small>{t('临时隧道不支持聊天、运行日志和 Desktop。')}</small></label>
+      </>}
+      <footer><button className="primary" disabled={Boolean(busy) || !tokenReady || !setupReady || (mode === 'named' && (!token.trim() || !publicUrl.trim()))}><CloudUpload size={15} />{t(busy === 'connect' ? '正在连接…' : '连接隧道')}</button><small>{t('不会开放 Coworker 的内网端口。')}</small></footer>
+    </form>
+    <div className="relay-maintenance-actions">
+      <button className="ghost" disabled={Boolean(busy) || !url} onClick={() => void action('test', () => api('/api/admin/tunnel/test', { method: 'POST' }), '隧道连接测试成功')}><ShieldCheck size={15} />{t('测试连接')}</button>
+      <button className="ghost" disabled={Boolean(busy)} onClick={() => void action('reconnect', () => api('/api/admin/tunnel/reconnect', { method: 'POST' }), '已请求重新连接')}><RefreshCw size={15} />{t('重新连接')}</button>
+      <button className="danger-outline" disabled={Boolean(busy)} onClick={() => {
+        if (window.confirm(t('断开隧道？'))) {
+          void action('disconnect', () => api('/api/admin/tunnel', { method: 'DELETE' }), '隧道已断开');
+        }
+      }}>{t('断开隧道')}</button>
+      {connected && mode === 'named' && <button className="ghost" disabled={Boolean(busy)} onClick={() => void copyDesktopConfig()}><KeyRound size={15} />{t('复制 Desktop 配置')}</button>}
+    </div>
+    <details className="relay-sensitive-actions">
+      <summary><TriangleAlert size={15} /><span><b>{t('能力与限制')}</b><small>{t('两种模式的可用范围不同；quick 模式只适合临时使用。')}</small></span></summary>
+      <div className="relay-health-grid">
+        <article><span>{t('管理端')}</span><b>{t('两种模式都可用')}</b></article>
+        <article><span>{t('聊天与运行日志')}</span><b>{t('仅 named')}</b></article>
+        <article><span>{t('Desktop 直连')}</span><b>{t('仅 named，且不要启用 Access')}</b></article>
+        <article><span>{t('大文件与长任务')}</span><b>{t('不建议经隧道执行')}</b></article>
+      </div>
+      <small className="relay-secret-note"><ShieldCheck size={13} />{t('Cloudflare 在边缘能看到明文；需要端到端加密时请使用 Relay。')}</small>
+    </details>
+    {notice && <div className={`notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
+    {tunnel.error && <div className="notice error" role="alert"><span>{tunnel.error}</span><button className="ghost mini" onClick={() => void tunnel.reload()}>{t('重试')}</button></div>}
+  </Panel>;
 }
 
 export default function AdminApp() {

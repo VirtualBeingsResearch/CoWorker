@@ -253,6 +253,13 @@ previews the full section and body rendered by the currently running instance.
 | `WEIXIN__MAX_DOWNLOAD_MB` | `200` | Per-attachment download limit in MB for Weixin Claw inbound images, files, and video; oversized items are skipped and noted with their size and the limit. Range 1–10000 |
 | `WEIXIN__MAX_UPLOAD_MB` | `200` | Per-attachment upload limit in MB for Weixin Claw outbound images, video, and files; oversized items are rejected. Range 1–10000 |
 | `WEIXIN__UPLOAD_TIMEOUT_SECONDS` | `300` | Per-attempt CDN upload wait in seconds for one Weixin Claw attachment; transport failures retry up to 3 times. Range 1–3600 |
+| `TUNNEL__MODE` | `off` | Optional public access: `off`, `quick` (ephemeral trycloudflare hostname), or `named` (fixed Cloudflare Tunnel hostname) |
+| `TUNNEL__PROTOCOL` | `http2` | `http2`, `quic`, or `auto`; keep `http2` on restricted networks |
+
+Enabling the tunnel requires an explicit `API__COMMUNICATION_TOKEN`; named mode also requires
+`TUNNEL__TOKEN` and `TUNNEL__PUBLIC_URL`. See
+[Public access (Cloudflare Tunnel)](tunnel.en.md) for the full behavior, capability limits, and
+security prerequisites.
 
 When a reverse proxy serves `/admin`, `/api/*`, and static assets together, `API__PUBLIC_URL`
 corresponds to the origin the browser actually opens, such as
