@@ -15,6 +15,12 @@ const ABSOLUTE_TIMESTAMP = /(?:Z|[+-]\d{2}:?\d{2})$/i;
 const FIXED_OFFSET = /^([+-])(\d{2}):(\d{2})$/;
 const timezoneFormatters = new Map<string, Intl.DateTimeFormat>();
 let serverTimezone = '';
+let dateTimeLocale: string | undefined;
+
+/** Set the locale used when callers do not pass one explicitly. */
+export function setDateTimeLocale(locale: string | undefined): void {
+  dateTimeLocale = locale;
+}
 
 function pad(value: number, width = 2): string {
   return String(value).padStart(width, '0');
@@ -183,7 +189,7 @@ export function formatDateTime(
 ): string {
   const date = parseTimestamp(value);
   if (!date) return typeof value === 'string' && value ? value : '—';
-  return date.toLocaleString(locales, options);
+  return date.toLocaleString(locales ?? dateTimeLocale, options);
 }
 
 export function formatDate(
@@ -193,7 +199,7 @@ export function formatDate(
 ): string {
   const date = parseTimestamp(value);
   if (!date) return typeof value === 'string' && value ? value : '—';
-  return date.toLocaleDateString(locales, options);
+  return date.toLocaleDateString(locales ?? dateTimeLocale, options);
 }
 
 export function formatTime(
@@ -203,7 +209,7 @@ export function formatTime(
 ): string {
   const date = parseTimestamp(value);
   if (!date) return typeof value === 'string' && value ? value : '—';
-  return date.toLocaleTimeString(locales, options);
+  return date.toLocaleTimeString(locales ?? dateTimeLocale, options);
 }
 
 /** Return YYYY-MM-DD using the browser's current time zone. */

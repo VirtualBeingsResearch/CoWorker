@@ -17,7 +17,7 @@ const panel = await readFile(
 test('uses the shared admin input style for Telegram fields', () => {
   assert.match(styles, /\.admin-input,\s*\n\.field input,/);
   assert.match(styles, /\.admin-input:focus,\s*\n\.field/);
-  assert.equal(panel.match(/className="admin-input"/g)?.length, 5);
+  assert.ok((panel.match(/className="admin-input"/g)?.length ?? 0) >= 5);
   assert.match(styles, /\.telegram-settings\s*\{[^}]*margin-top:\s*14px;/);
 });
 

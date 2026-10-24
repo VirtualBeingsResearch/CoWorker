@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  formatDate,
   formatTime,
   localDateKey,
   localDateTimeInputToIso,
   parseTimestamp,
   pastedLogTimeToInput,
+  setDateTimeLocale,
   setServerTimezone,
   toAbsoluteIso,
   toLocalDateTimeInput,
@@ -16,8 +18,23 @@ const originalTimezone = process.env.TZ;
 
 test.after(() => {
   setServerTimezone('');
+  setDateTimeLocale(undefined);
   if (originalTimezone === undefined) delete process.env.TZ;
   else process.env.TZ = originalTimezone;
+});
+
+test('uses the active UI language for default date formatting', () => {
+  const value = '2026-08-13T00:30:45.123Z';
+  const options = { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' };
+  const expected = locale => new Date(value).toLocaleDateString(locale, options);
+
+  setDateTimeLocale('zh-CN');
+  assert.equal(formatDate(value, undefined, options), expected('zh-CN'));
+  assert.equal(formatDate(value, undefined, options), formatDate(value, 'zh-CN', options));
+
+  setDateTimeLocale('en-US');
+  assert.equal(formatDate(value, undefined, options), expected('en-US'));
+  assert.equal(formatDate(value, undefined, options), formatDate(value, 'en-US', options));
 });
 
 test('converts absolute timestamps to the browser current time zone', () => {

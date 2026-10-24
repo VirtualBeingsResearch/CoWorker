@@ -28,6 +28,7 @@ const POSITIVE_INTEGER_FIELDS = new Set([
   'memory.short_term_max_tokens',
   'memory.auto_recall_limit',
   'agent.bubble_max_concurrent',
+  'api.compat_tool_result_fold_chars',
 ]);
 
 const NON_NEGATIVE_INTEGER_FIELDS = new Set([
@@ -35,6 +36,7 @@ const NON_NEGATIVE_INTEGER_FIELDS = new Set([
   'agent.bubble_timeout_resume_seconds',
   'agent.channel_progress_reply_reminder_seconds',
   'agent.channel_progress_timeout_seconds',
+  'memory.summary_budget_retries',
   'relay.auth_epoch',
 ]);
 
@@ -52,6 +54,7 @@ const INTEGER_FIELDS = new Set([
 const FRACTION_FIELDS = new Set([
   'memory.compress_ratio',
   'memory.tree_spine_cap_fraction',
+  'memory.summary_budget_tolerance',
   'memory.auto_recall_relevance_threshold',
 ]);
 
@@ -63,6 +66,16 @@ export function configFieldPresentation(
     return {
       editor: 'locale',
       hint: '保存后需安全重启；不会自动翻译用户内容或历史数据',
+    };
+  }
+  if (path === 'memory.backend') {
+    return {
+      editor: 'choice',
+      hint: 'mem0 使用向量记忆；file 使用内置文件后端。切换后需要安全重启。',
+      choices: [
+        { value: 'mem0', label: 'mem0（向量记忆）' },
+        { value: 'file', label: 'file（本地文件）' },
+      ],
     };
   }
   if (path === 'llm.fallbacks') {
@@ -122,40 +135,43 @@ export function configFieldPresentation(
     return { editor: 'default', minimum: 1, maximum: 65_535, step: 1 };
   }
   if (POSITIVE_INTEGER_FIELDS.has(path)) {
-    return {
-      editor: 'default',
-      minimum: 1,
-      step: 1,
-      hint: path === 'llm.max_tokens'
-        ? '模型单次响应允许生成的最大 token 数'
-        : undefined,
-    };
+    const hint = path === 'llm.max_tokens'
+      ? '模型单次响应允许生成的最大 token 数'
+      : path === 'api.compat_tool_result_fold_chars'
+        ? '单个工具结果超过该字符数时折叠为可读的详情文件，避免占满上下文。'
+        : undefined;
+    return { editor: 'default', minimum: 1, step: 1, ...(hint ? { hint } : {}) };
   }
   if (NON_NEGATIVE_INTEGER_FIELDS.has(path)) {
-    return {
-      editor: 'default',
-      minimum: 0,
-      step: 1,
-      hint: path === 'agent.idle_sleep_seconds'
-        ? context.passiveMode
-          ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
-          : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
-        : path === 'agent.channel_progress_reply_reminder_seconds'
-          ? '超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。'
-          : path === 'agent.channel_progress_timeout_seconds'
-            ? '超过该秒数仍未回复时，处理中提示会被换成一句中性说明并结束，不会再一直停在「正在思考中…」；0 表示一直保留到你覆盖。建议大于催促秒数。'
-            : undefined,
-    };
+    const hint = path === 'agent.idle_sleep_seconds'
+      ? context.passiveMode
+        ? 'Passive 模式忽略此间隔；sleep(0) 表示持续等待外部事件。'
+        : '主动模式空闲后多久自行唤醒；0 表示立即进入下一轮。'
+      : path === 'agent.channel_progress_reply_reminder_seconds'
+        ? '超过该秒数仍未 communicate 时向模型注入催促；0 表示只显示处理提示、不催促。'
+        : path === 'agent.channel_progress_timeout_seconds'
+          ? '超过该秒数仍未回复时，处理中提示会被换成一句中性说明并结束，不会再一直停在「正在思考中…」；0 表示一直保留到你覆盖。建议大于催促秒数。'
+          : path === 'memory.summary_budget_retries'
+            ? '摘要首次超出节点预算后允许的重试次数；仍不达标时按上限截断。'
+            : undefined;
+    return { editor: 'default', minimum: 0, step: 1, ...(hint ? { hint } : {}) };
   }
   if (INTEGER_FIELDS.has(path)) {
-    return { editor: 'default', step: 1 };
+    const hint = path === 'agent.interaction_log_rotation_bytes'
+      ? '单位：字节；例如 52428800 约等于 50 MiB。'
+      : undefined;
+    return { editor: 'default', step: 1, ...(hint ? { hint } : {}) };
   }
   if (FRACTION_FIELDS.has(path)) {
+    const hint = path === 'memory.summary_budget_tolerance'
+      ? '摘要 token 不超过节点预算 × (1 + 容差) 时视为达标，不重试也不截断。'
+      : undefined;
     return {
       editor: 'default',
       minimum: 0,
       maximum: 1,
       step: 0.01,
+      ...(hint ? { hint } : {}),
     };
   }
 

@@ -663,8 +663,9 @@ html:has(.admin-login),
 .life-quiet .brand-mark i { background: #718084; box-shadow: none; }
 .admin-brand b,
 .admin-brand span { display: block; }
+.admin-brand > div:last-child { min-width: 0; }
 .admin-brand b { overflow: hidden; max-width: 132px; color: var(--admin-paper); font: 650 14px var(--admin-display); text-overflow: ellipsis; white-space: nowrap; }
-.admin-brand span { margin-top: 3px; color: color-mix(in oklch, var(--admin-paper) 48%, var(--admin-ink)); font-size: 10px; letter-spacing: .1em; }
+.admin-brand span { overflow: hidden; margin-top: 3px; color: color-mix(in oklch, var(--admin-paper) 48%, var(--admin-ink)); font-size: 10px; letter-spacing: .1em; text-overflow: ellipsis; white-space: nowrap; }
 
 .admin-sidebar nav.workspace-nav {
   display: grid;
@@ -991,9 +992,11 @@ html:has(.admin-login),
 .overview-status-strip.paused { --presence-color: var(--admin-sky); }
 .overview-status-strip.quiet { --presence-color: #869396; }
 .overview-status-lead { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.overview-status-lead > div { min-width: 0; }
 .overview-status-lead .eyebrow { margin: 0 0 4px; color: color-mix(in oklch, var(--presence-color) 70%, var(--admin-muted)); }
 .overview-status-lead h1 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; margin: 0; font: 660 24px/1.1 var(--admin-display); letter-spacing: -.035em; }
 .overview-status-lead h1 > :first-child { min-width: 0; }
+.overview-status-lead h1 > .overview-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .overview-status-lead .live-badge { padding: 4px 8px; font-size: 9px; }
 .overview-mini-signal { display: flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto; width: 50px; height: 48px; padding: 8px; border: 1px solid color-mix(in oklch, var(--presence-color) 22%, var(--admin-line)); border-radius: 13px; background: color-mix(in oklch, var(--presence-color) 8%, var(--admin-surface)); }
 .overview-mini-signal i { width: 3px; height: var(--h); max-height: 30px; border-radius: 99px; background: var(--presence-color); animation: vital-beat 1.8s ease-in-out var(--d) infinite; }
@@ -1005,8 +1008,10 @@ html:has(.admin-login),
 .overview-status-facts span,
 .overview-status-facts strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .overview-status-facts span { margin-bottom: 5px; color: var(--admin-muted); font-size: 9px; }
-.overview-status-facts strong { font: 610 10px var(--admin-data); }
+.overview-status-facts strong { overflow: hidden; font: 610 10px var(--admin-data); line-height: 1.35; white-space: normal; overflow-wrap: break-word; }
+.overview-status-facts .overview-model-value > span { display: block; overflow: hidden; margin: 0; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .overview-status-actions { display: flex; align-items: center; gap: 7px; }
+.overview-status-actions button { flex: 0 0 auto; white-space: nowrap; }
 .overview-first-cycle { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 17px 18px; border: 1px solid color-mix(in oklch, var(--admin-amber) 36%, var(--admin-line)); border-radius: 14px; background: linear-gradient(110deg, color-mix(in oklch, var(--admin-amber) 13%, var(--admin-surface)), var(--admin-surface) 62%); }
 .overview-first-cycle-mark { position: relative; display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid color-mix(in oklch, var(--admin-amber) 36%, var(--admin-line)); border-radius: 50%; color: color-mix(in oklch, var(--admin-amber) 72%, var(--admin-ink)); background: var(--admin-surface); }
 .overview-first-cycle-mark i { position: absolute; inset: -5px; border: 1px solid color-mix(in oklch, var(--admin-amber) 22%, transparent); border-radius: 46% 54%; animation: admin-orbit 7s linear infinite; }
@@ -1045,9 +1050,9 @@ html:has(.admin-login),
 .admin-usage-metrics span,
 .admin-usage-metrics strong,
 .admin-usage-metrics small { display: block; min-width: 0; }
-.admin-usage-metrics span { overflow: hidden; padding-right: 14px; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-usage-metrics span { overflow: hidden; padding-right: 14px; color: var(--admin-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-usage-metrics strong { margin-top: 10px; font: 680 20px/1 var(--admin-data); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-.admin-usage-metrics small { overflow: hidden; margin-top: 7px; color: var(--admin-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-usage-metrics small { overflow: hidden; margin-top: 7px; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-usage-metrics .currency-cost-summary { display: flex; flex-wrap: nowrap; overflow: hidden; margin-top: 10px; padding-right: 0; color: var(--admin-ink); font: 690 14px/1.2 var(--admin-data); text-overflow: clip; white-space: nowrap; }
 .admin-usage-metrics .currency-cost-summary > span { flex: 0 1 auto; font: inherit; }
 .admin-usage-metrics .currency-cost-summary > button { flex: 0 0 auto; }
@@ -1057,8 +1062,8 @@ html:has(.admin-login),
 .admin-usage-quality > div { min-width: 0; }
 .admin-usage-quality span,
 .admin-usage-quality strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.admin-usage-quality span { color: var(--admin-muted); font-size: 8px; }
-.admin-usage-quality strong { margin-top: 3px; font: 620 9px var(--admin-data); }
+.admin-usage-quality span { color: var(--admin-muted); font-size: 9px; }
+.admin-usage-quality strong { margin-top: 3px; font: 620 10px var(--admin-data); }
 .admin-usage-quality > div.attention strong { color: var(--admin-red); }
 .admin-usage-open { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px; border: 1px solid var(--admin-line); border-radius: 7px; color: var(--admin-vital); background: var(--admin-surface); font-size: 9px; text-decoration: none; white-space: nowrap; }
 .admin-usage-open:hover { border-color: color-mix(in oklch, var(--admin-vital) 38%, var(--admin-line)); background: var(--admin-soft); }
@@ -1086,9 +1091,9 @@ html:has(.admin-login),
 .usage-analytics-actions { display: flex; align-items: center; gap: 6px; }
 .usage-analytics-actions > button:not(.icon-btn) { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 10px; border: 1px solid var(--admin-line); border-radius: 7px; color: var(--admin-muted); background: var(--admin-surface); font: 620 11px var(--admin-data); }
 .usage-analytics-actions > button:not(.icon-btn):hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 35%, var(--admin-line)); }
-.usage-analytics-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
-.usage-analytics-windows { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-paper); }
-.usage-analytics-windows button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--admin-muted); background: transparent; font-size: 11px; }
+.usage-analytics-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 11px; }
+.usage-analytics-windows { display: inline-flex; flex: 0 0 auto; gap: 3px; padding: 3px; border: 1px solid var(--admin-line); border-radius: 9px; background: var(--admin-paper); }
+.usage-analytics-windows button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--admin-muted); background: transparent; font-size: 11px; white-space: nowrap; }
 .usage-analytics-windows button:hover { color: var(--admin-ink); }
 .usage-analytics-windows button.active { color: var(--admin-vital); background: var(--admin-surface); box-shadow: 0 2px 8px color-mix(in oklch, var(--admin-ink) 8%, transparent); font-weight: 720; }
 .usage-window-context { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
@@ -1391,9 +1396,9 @@ html:has(.admin-login),
 .overview-operation { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 3px 7px; min-width: 0; min-height: 70px; padding: 10px 11px; color: var(--admin-ink); background: var(--admin-surface); text-decoration: none; transition: background .16s ease; }
 .overview-operation:hover { background: var(--admin-soft); }
 .overview-operation > svg { grid-row: 1 / 3; color: var(--admin-vital); }
-.overview-operation > span { overflow: hidden; color: var(--admin-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.overview-operation > span { overflow: visible; color: var(--admin-muted); font-size: 10px; line-height: 1.3; white-space: normal; }
 .overview-operation > strong { font: 670 17px var(--admin-data); font-variant-numeric: tabular-nums; }
-.overview-operation > small { grid-column: 2 / 4; overflow: hidden; color: var(--admin-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.overview-operation > small { display: -webkit-box; grid-column: 2 / 4; overflow: hidden; color: var(--admin-muted); font-size: 9px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
 .overview-runtime-footer { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 12px; color: var(--admin-muted); font-size: 9px; }
 .overview-runtime-footer span { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .overview-runtime-footer b { color: var(--admin-ink); font-weight: 620; }
@@ -2797,7 +2802,7 @@ html:has(.admin-login),
     var(--admin-surface);
 }
 .release-hero::after { position: absolute; top: -100px; right: 19%; width: 240px; height: 240px; border: 1px solid color-mix(in oklch, var(--admin-vital) 14%, transparent); border-radius: 50%; content: ''; pointer-events: none; }
-.release-hero.empty { border-style: dashed; }
+.release-hero.is-empty { border-style: dashed; }
 .release-signal { position: relative; display: grid; place-items: center; width: 68px; height: 68px; border: 1px solid color-mix(in oklch, var(--admin-vital) 32%, var(--admin-line)); border-radius: 50%; color: var(--admin-vital); background: var(--admin-surface); }
 .release-signal i { position: absolute; inset: 7px; border: 1px solid color-mix(in oklch, var(--admin-vital) 28%, transparent); border-radius: 43% 57% 52% 48%; animation: admin-orbit 8s linear infinite; }
 .release-signal i:last-child { inset: 15px; animation-direction: reverse; animation-duration: 5s; }
@@ -3757,4 +3762,187 @@ html:has(.admin-login),
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 12px auto;
+}
+
+/* ── Care Station detail polish ──────────────────────────────────────────
+   Shared rhythm, wrapping, and hit-target corrections across the console.
+   Keep this block last so the narrow-viewport refinements can settle over
+   the feature-specific responsive rules above. */
+
+/* Section headers: action labels stay horizontal even when the adjacent
+   explanation is long (common in English and on tablet widths). */
+.provider-editor-head > button,
+.provider-model-prices > header > button,
+.config-section-heading > button,
+.panel-actions button { flex: 0 0 auto; white-space: nowrap; }
+.panel-actions { flex-wrap: wrap; }
+.provider-editor-head { align-items: flex-start; flex-wrap: wrap; }
+.provider-editor-head > div { flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 560px) {
+  .provider-editor-head { align-items: stretch; flex-direction: column; }
+  .provider-editor-head > button { justify-content: center; width: 100%; }
+  .provider-model-prices > header > button { width: 100%; }
+}
+
+/* The rules rail is a horizontal scroller on compact screens; keep every
+   choice label intact rather than stacking characters vertically. */
+@media (max-width: 820px) {
+  .tabbar:not(.compact) {
+    display: grid;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    width: 100%;
+    overflow: visible;
+  }
+  .tabbar:not(.compact) button { width: 100%; }
+}
+
+@media (max-width: 560px) {
+  .memory-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .memory-tabs button { padding-inline: 5px; }
+}
+
+/* At tablet widths the overview facts are a second row, so the presence
+   actions never have to collapse into vertical characters. */
+@media (max-width: 1250px) {
+  .overview-status-strip { grid-template-columns: minmax(0, 1fr) auto; gap: 13px 20px; }
+  .overview-status-facts { grid-column: 1 / -1; grid-row: 2; padding-top: 12px; border-top: 1px solid var(--admin-line); border-left: 0; }
+  .overview-status-facts > div:first-child { padding-left: 0; }
+  .overview-status-facts > div:last-child { padding-right: 0; border-right: 0; }
+  .overview-status-actions { grid-column: 2; grid-row: 1; }
+}
+
+@media (max-width: 620px) {
+  .overview-status-strip { grid-template-columns: minmax(0, 1fr); }
+  .overview-status-actions { grid-column: 1; grid-row: 2; justify-content: flex-end; }
+  .overview-status-facts { grid-column: 1; grid-row: 3; }
+  .overview-operation { gap: 2px 6px; padding: 9px 10px; }
+  .overview-operation > span { font-size: 9px; }
+  .overview-operation > strong { font-size: 15px; }
+  .admin-usage-metrics.compact { grid-auto-rows: auto; }
+  .admin-usage-metrics.compact article,
+  .admin-usage-metrics.compact article.total,
+  .admin-usage-metrics.compact article.cost { min-height: 80px; }
+}
+
+/* Usage analytics: labels never break inside segmented controls, filters wrap
+   instead of hiding options, and the dense metric strip becomes two columns
+   on phones instead of eight full-width rows. */
+@media (max-width: 1250px) {
+  .usage-scope-filter { grid-template-columns: auto minmax(0, 1fr); }
+  .usage-scope-filter > small { grid-column: 1 / -1; white-space: normal; }
+}
+
+@media (max-width: 620px) {
+  .usage-scope-filter { grid-template-columns: 1fr; }
+  .usage-scope-filter > div { flex-wrap: wrap; overflow: visible; }
+  .usage-analytics-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-analytics-metric,
+  .usage-analytics-metric.featured { grid-column: span 1; height: auto; min-height: 104px; }
+  .usage-analytics-metric > small { -webkit-line-clamp: 3; }
+  .usage-resource-dashboard > .admin-panel > header,
+  .usage-execution-grid > .admin-panel > header,
+  .usage-bubble-panel > header { align-items: flex-start; }
+  .usage-trend-head-meta { flex-wrap: wrap; justify-content: flex-start; gap: 6px 12px; }
+  .usage-trend-legend { flex-wrap: wrap; }
+}
+
+.usage-trend-legend span { flex: 0 0 auto; white-space: nowrap; }
+
+/* Content workbench: on phones the editor is a document, not a fixed canvas. */
+@media (max-width: 820px) {
+  .content-editor { min-height: 420px; }
+}
+
+@media (max-width: 560px) {
+  .content-editor { min-height: 300px; }
+  .content-welcome { min-height: 260px; padding: 28px 16px; }
+  .new-content { width: 100%; }
+}
+
+/* Login: the access form follows the masthead on phones instead of floating
+   in the middle of the remaining viewport. */
+@media (max-width: 560px) {
+  .login-access { justify-content: flex-start; min-height: 0; padding: 34px 24px 42px; }
+}
+
+/* System prompt variable cards were the densest text in the console; lift the
+   smallest labels and give each variable the full column on phones. */
+.system-prompt-variable-card summary code { font-size: 10px; }
+.system-prompt-variable-card summary small { font-size: 9px; line-height: 1.35; }
+.system-prompt-variable-card summary em { font-size: 9px; }
+.system-prompt-variable-card-body > p { font-size: 9px; }
+.system-prompt-variable-actions button { font-size: 10px; }
+.system-prompt-variable-actions button code { font-size: 8px; }
+.system-prompt-section-previews > span { font-size: 9px; }
+.system-prompt-section-previews pre { font-size: 9px; }
+.system-prompt-template-help { font-size: 10px; }
+
+@media (max-width: 560px) {
+  .system-prompt-variable-list { grid-template-columns: 1fr; }
+  .system-prompt-template-workbench > .panel-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .system-prompt-template-workbench > .panel-actions .save-state { grid-column: 1 / -1; }
+  .system-prompt-template-workbench > .panel-actions .primary { grid-column: 1 / -1; width: 100%; }
+  .system-prompt-template-workbench > .panel-actions .ghost { width: 100%; }
+}
+
+/* Utility links and compact badges gain a comfortable pointer target. */
+.topbar-actions > a { min-height: 28px; }
+.usage-pricing-shortcut { align-items: center; min-height: 24px; }
+.release-sync-main p a { display: inline-block; margin: -3px -2px; padding: 3px 2px; }
+
+/* Identity, people, and memories read better at caption sizes than at 8px. */
+.alias-chip em { font-size: 9px; }
+.alias-chip code { font-size: 10px; }
+.person-list-copy small { font-size: 10px; }
+.person-id { font-size: 11px; }
+.system-prompt-facts span,
+.system-prompt-facts em { font-size: 11px; }
+
+/* Only float the settings save bar when the group actually has unsaved work;
+   an always-present sticky bar cuts through long forms while they are clean. */
+.config-panel > .panel-actions {
+  position: static;
+  margin: 20px 0 0;
+  padding: 12px 0 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.config-panel:has(> .panel-actions .save-state.dirty) > .panel-actions {
+  position: sticky;
+  bottom: 20px;
+  margin: 22px -8px -8px;
+  padding: 10px;
+  border-color: var(--admin-line);
+  background: color-mix(in oklch, var(--admin-surface) 88%, transparent);
+  box-shadow: 0 10px 28px color-mix(in oklch, var(--admin-ink) 10%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+@media (max-width: 820px) {
+  .config-panel:has(> .panel-actions .save-state.dirty) > .panel-actions { bottom: 92px; }
+}
+
+/* A group with a single setting should not leave an empty second column. */
+.config-fields > .field:nth-child(2):last-child { grid-column: 1 / -1; width: min(100%, 560px); }
+
+@media (max-width: 560px) {
+  /* Give both settings actions a full-width tap target instead of stacking
+     the primary button above the secondary one. */
+  .config-panel > .panel-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .config-panel > .panel-actions .save-state { grid-column: 1 / -1; margin-right: 0; }
+  .config-panel > .panel-actions > button { width: 100%; }
+
+  /* Numeric channel limits are easier to scan at full width on phones. */
+  .weixin-limits input { max-width: none; }
+}
+
+/* Two rule columns stop working once the settings rail, channel directory,
+   and access detail share a tablet-width canvas. Stack them earlier. */
+@media (max-width: 1280px) {
+  .channel-access-grid { grid-template-columns: 1fr; }
 }
