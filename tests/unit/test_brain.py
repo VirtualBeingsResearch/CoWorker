@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coworker.brain.brain import Brain
+from coworker.brain.brain import Brain, ModelCallSuspended, set_model_call_owner
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from tests.conftest import MockProvider
@@ -986,3 +986,60 @@ class TestModelSwitchInterruptsInflightCall:
 
         release.set()
         assert await asyncio.wait_for(task, timeout=2) == "mock response"
+
+
+class TestPauseSuspendsInflightCall:
+    """管理端暂停要即时打断主线模型请求，且打断后不重试。"""
+
+    @pytest.mark.asyncio
+    async def test_pause_aborts_main_call_without_retry(self):
+        set_model_call_owner("main")
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release, block_only_first=True)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        assert brain.suspend_main_calls() == 1
+
+        with pytest.raises(ModelCallSuspended):
+            await asyncio.wait_for(task, timeout=2)
+        # 暂停不是切换：不会用旧模型重发请求。
+        assert stuck.calls == 1
+        assert stuck.cancelled is True
+        release.set()
+
+    @pytest.mark.asyncio
+    async def test_pause_leaves_background_calls_running(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        # 默认归属是 background（Bubble、回溯等），暂停不打断它们。
+        assert brain.suspend_main_calls() == 0
+        await asyncio.sleep(0.01)
+        assert task.done() is False
+
+        release.set()
+        assert (await asyncio.wait_for(task, timeout=2)).content == "mock response"
+
+    @pytest.mark.asyncio
+    async def test_suspended_brain_refuses_new_main_calls_until_resume(self):
+        set_model_call_owner("main")
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(MockProvider())
+
+        assert brain.suspend_main_calls() == 0
+        with pytest.raises(ModelCallSuspended):
+            await brain.think([], "", [])
+
+        brain.resume_main_calls()
+
+        response = await brain.think([], "", [])
+        assert response.content == "mock response"

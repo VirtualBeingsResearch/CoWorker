@@ -16,6 +16,7 @@ from coworker.agent.bubble_log_index import (
     upsert_completed_bubble_index,
 )
 from coworker.agent.incoming_content import build_content_blocks
+from coworker.brain.brain import set_model_call_owner
 from coworker.core.types import IncomingEvent, Message, SummaryResult
 from coworker.i18n import tr
 
@@ -100,6 +101,8 @@ class BubbleMiniLoop:
 
     async def run(self) -> None:
         bubble = self._bubble
+        # Bubble 的模型调用有独立归属：管理端暂停只停主循环，不打断并行思考。
+        set_model_call_owner("bubble")
         try:
             await self._run_inner()
         except asyncio.CancelledError:

@@ -11,6 +11,7 @@ from loguru import logger
 
 from coworker.agent.concurrency_hint import ConcurrencyHintTracker
 from coworker.agent.incoming_content import build_content_blocks
+from coworker.brain.brain import ModelCallSuspended, set_model_call_owner
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
@@ -114,6 +115,8 @@ class AgentLoop:
 
     async def run(self) -> None:
         self.state.is_running = True
+        # 主循环负责的模型调用会随管理端暂停中断；Bubble 与后台任务有自己的归属。
+        set_model_call_owner("main")
         logger.info("AgentLoop started")
 
         watcher: asyncio.Task | None = None
@@ -142,6 +145,16 @@ class AgentLoop:
             except RestartRequestedException:
                 self.state.restart_requested = True
                 break
+            except ModelCallSuspended:
+                # 管理端暂停打断了本回合的在途模型调用：不算错误，下一轮停靠等恢复。
+                logger.info(tr("loop.pause_cycle_stopped"))
+                self._consecutive_errors = 0
+                # 本轮已经从 inbox 取走了消息：保存快照，重启后不会丢掉这一回合。
+                if self._snapshot_path and not self.state.restart_requested:
+                    self._short_term.active_provider = self._brain.current_provider_name
+                    self._short_term.active_model = self._brain.current_model
+                    self._short_term.save_to_file(self._snapshot_path)
+                continue
             except Exception as e:
                 self._consecutive_errors += 1
                 logger.exception(
@@ -238,6 +251,18 @@ class AgentLoop:
         """
         self._inbox.message_event.set()
 
+    def request_pause(self) -> int:
+        """Pause now: wake an idle loop and abort the in-flight main-model call.
+
+        Returns how many in-flight calls were aborted. Callers set
+        ``agent.paused`` first, so the loop parks at its next cycle boundary.
+        """
+        self.interrupt_rest()
+        cancelled = self._brain.suspend_main_calls()
+        if cancelled:
+            logger.info(tr("loop.pause_interrupted", count=cancelled))
+        return cancelled
+
     def resume_from_rest(self) -> bool:
         """Wake a resting loop without adding a message to its context."""
         if not self.state.is_running or not self.state.is_sleeping or self._stop_event.is_set():
@@ -279,6 +304,8 @@ class AgentLoop:
             # 恢复后随下一轮 _cycle() 一起取出处理。
             await self._pause_rest()
             return
+        # 暂停已解除：恢复主循环的模型调用（幂等，每轮都调用）。
+        self._brain.resume_main_calls()
         self._sync_task_pins()
         reinjected_pins = self._short_term.reinject_missing_pins()
         if reinjected_pins and self._ilog:

@@ -597,6 +597,9 @@ class _StubBrain:
         self.requests.append(list(messages))
         return self._responses.pop(0)
 
+    def resume_main_calls(self) -> None:
+        """Mirror the real Brain, which re-enables calls after an admin pause."""
+
 
 def _tool_use_response() -> SimpleNamespace:
     return SimpleNamespace(

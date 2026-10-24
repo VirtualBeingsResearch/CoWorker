@@ -97,7 +97,7 @@ def _client(
         state=SimpleNamespace(current_provider="", current_model=""),
         request_restart=lambda reason="normal": None,
         resume_from_rest=MagicMock(return_value=True),
-        interrupt_rest=MagicMock(),
+        request_pause=MagicMock(return_value=0),
         current_system_prompt=MagicMock(return_value="[IDENTITY]\nMy name is Luna.\n"),
         current_system_prompt_sections=MagicMock(return_value=section_previews),
         refresh_system_prompt=MagicMock(),
@@ -449,17 +449,17 @@ def test_admin_pause_persists_override_and_audits(tmp_path):
     assert config.agent.paused is True
     overrides = json.loads(Path(config.admin.config_file).read_text(encoding="utf-8"))
     assert overrides["agent"]["paused"] is True
-    admin._agent.interrupt_rest.assert_called_once_with()
+    admin._agent.request_pause.assert_called_once_with()
     audit_lines = (Path(config.agent.logs_dir) / "admin_audit.jsonl").read_text(
         encoding="utf-8"
     ).splitlines()
     assert json.loads(audit_lines[-1])["action"] == "runtime.pause"
 
     # 重复暂停幂等：不重写覆盖配置，也不再次打断循环。
-    admin._agent.interrupt_rest.reset_mock()
+    admin._agent.request_pause.reset_mock()
     repeat = client.post("/api/admin/pause", headers=headers)
     assert repeat.status_code == 200
-    admin._agent.interrupt_rest.assert_not_called()
+    admin._agent.request_pause.assert_not_called()
 
 
 def test_admin_resume_clears_pause_override(tmp_path):

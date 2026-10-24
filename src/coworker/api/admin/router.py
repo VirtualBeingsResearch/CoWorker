@@ -1853,8 +1853,8 @@ async def pause(
             )
         except ConfigUpdateError as error:
             raise HTTPException(status_code=error.status_code, detail=error.detail) from error
-        # 让休眠中的循环立刻停靠，而不等满 idle 间隔。
-        _require_agent().interrupt_rest()
+        # 让休眠中的循环立刻停靠，并打断正在执行的主线调用：卡住的请求不会挡住暂停。
+        _require_agent().request_pause()
     _audit(request, "runtime.pause", "coworker")
     return {"paused": True}
 

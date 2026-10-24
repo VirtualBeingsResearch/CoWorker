@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -30,6 +31,19 @@ _MODEL_CATALOG_FETCH_TIMEOUT = 30.0
 # 显式切换模型会打断在途主线调用；连续切换时限制重试次数，避免无限循环。
 _MAX_MODEL_SWITCH_INTERRUPTS = 8
 
+# 模型调用的协程归属。只有主循环（"main"）发起的调用会随管理端暂停中断，
+# 后台任务（Bubble、回溯等）保持运行。
+ModelCallOwner = Literal["main", "bubble", "background"]
+
+_MODEL_CALL_OWNER: ContextVar[ModelCallOwner] = ContextVar(
+    "coworker_model_call_owner", default="background"
+)
+
+
+def set_model_call_owner(owner: ModelCallOwner) -> None:
+    """Tag the model calls issued from the current task and its children."""
+    _MODEL_CALL_OWNER.set(owner)
+
 
 class ModelCallInterrupted(Exception):
     """An explicit model switch aborted this in-flight provider call."""
@@ -42,12 +56,24 @@ class ModelCallInterrupted(Exception):
         self.model = model
 
 
+class ModelCallSuspended(Exception):
+    """An admin pause aborted this provider call; the turn must not retry."""
+
+    def __init__(self, provider: str, model: str) -> None:
+        super().__init__(
+            tr("brain.pause.call_suspended", provider=provider, model=model)
+        )
+        self.provider = provider
+        self.model = model
+
+
 @dataclass(eq=False)
 class _InflightCall:
-    """One main-model provider call that an explicit switch may abort."""
+    """One main-model provider call that a switch or a pause may abort."""
 
     task: asyncio.Task[Any]
-    interrupted: bool = False
+    owner: ModelCallOwner
+    abort: str | None = None  # "switch" | "suspend"
 
 
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
@@ -117,6 +143,8 @@ class Brain:
         # 显式切换模型时打断在途主线调用，避免卡死的 Provider 请求拖住主循环。
         self._inflight_calls: set[_InflightCall] = set()
         self._switch_generation = 0
+        # 管理端暂停期间拒绝新的主线模型调用，直到主循环恢复。
+        self._main_calls_suspended = False
 
     @property
     def message_time_prefix(self) -> bool:
@@ -501,20 +529,23 @@ class Brain:
         provider: BaseLLMProvider,
         provider_name: str,
         model: str,
+        owner: ModelCallOwner,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Run one provider call in its own task so a model switch can abort it.
+        """Run one provider call in its own task so a switch or pause can abort it.
 
         The provider call must not run inside the caller's task: cancelling that
         task would cancel the whole agent turn instead of just this request.
         """
-        call = _InflightCall(asyncio.ensure_future(provider.complete(**kwargs)))
+        call = _InflightCall(asyncio.ensure_future(provider.complete(**kwargs)), owner)
         self._inflight_calls.add(call)
         try:
             return await call.task
         except asyncio.CancelledError:
-            if call.interrupted:
+            if call.abort == "switch":
                 raise ModelCallInterrupted(provider_name, model) from None
+            if call.abort == "suspend":
+                raise ModelCallSuspended(provider_name, model) from None
             raise
         finally:
             self._inflight_calls.discard(call)
@@ -530,10 +561,31 @@ class Brain:
         for call in list(self._inflight_calls):
             if call.task.done():
                 continue
-            call.interrupted = True
+            call.abort = "switch"
             call.task.cancel()
             interrupted += 1
         return interrupted
+
+    def suspend_main_calls(self) -> int:
+        """Abort in-flight main-loop calls and refuse new ones until resume.
+
+        An admin pause uses this: unlike a switch, the aborted turn must not
+        retry, because the loop is about to park and wait for a resume signal.
+        Background owners (Bubble, backfill) keep their calls.
+        """
+        self._main_calls_suspended = True
+        cancelled = 0
+        for call in list(self._inflight_calls):
+            if call.owner != "main" or call.task.done():
+                continue
+            call.abort = "suspend"
+            call.task.cancel()
+            cancelled += 1
+        return cancelled
+
+    def resume_main_calls(self) -> None:
+        """Allow main-loop model calls again after an admin pause."""
+        self._main_calls_suspended = False
 
     async def _attempt(
         self,
@@ -550,6 +602,7 @@ class Brain:
         expected_generation: int | None = None,
     ) -> LLMResponse:
         """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
+        owner = _MODEL_CALL_OWNER.get()
         last_err: Exception | None = None
         for attempt in range(tries):
             if (
@@ -557,6 +610,8 @@ class Brain:
                 and self._switch_generation != expected_generation
             ):
                 raise ModelCallInterrupted(provider_name, model)
+            if interruptible and owner == "main" and self._main_calls_suspended:
+                raise ModelCallSuspended(provider_name, model)
             try:
                 provider = self._providers.get(provider_name)
                 if not provider:
@@ -567,6 +622,7 @@ class Brain:
                         provider,
                         provider_name,
                         model,
+                        owner,
                         messages=messages,
                         system_prompt=system_prompt,
                         tools=tools,
@@ -582,7 +638,12 @@ class Brain:
                     thinking=thinking,
                     thinking_effort=thinking_effort,
                 )
-            except (ProviderNotFoundError, ModelNotSupportedError, ModelCallInterrupted):
+            except (
+                ProviderNotFoundError,
+                ModelNotSupportedError,
+                ModelCallInterrupted,
+                ModelCallSuspended,
+            ):
                 raise
             except Exception as e:
                 last_err = e
@@ -639,6 +700,9 @@ class Brain:
                         interruptible=_interruptible,
                         expected_generation=generation if _interruptible else None,
                     )
+                except ModelCallSuspended:
+                    # 暂停打断不重试：主循环会停靠，恢复后从同一上下文继续。
+                    raise
                 except ModelCallInterrupted as e:
                     interrupted = e
                     break

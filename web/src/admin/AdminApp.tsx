@@ -884,12 +884,12 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
       <div className="overview-status-actions">
-        {running && !paused && <button type="button" className="ghost mini" disabled={pausing} onClick={() => void pause()} title={t('暂停主线：新消息保留，恢复后一起处理')}><Pause size={14} />{t(pausing ? '正在暂停…' : '暂停')}</button>}
+        {running && !paused && <button type="button" className="ghost mini" disabled={pausing} onClick={() => void pause()} title={t('暂停主线：立即中断当前模型调用；新消息保留，恢复后一起处理')}><Pause size={14} />{t(pausing ? '正在暂停…' : '暂停')}</button>}
         {(paused || (resting && !firstPassiveStart)) && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={paused ? t('结束暂停，继续处理保留的消息') : t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : paused ? '恢复运行' : '继续运行')}</button>}
         <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
       </div>
     </section>
-    {paused && <div className="notice paused"><Pause size={17} /><span>{t('搭档已暂停：新消息会保留在收件队列，恢复运行后一起处理。暂停状态在重启后保持。')}</span></div>}
+    {paused && <div className="notice paused"><Pause size={17} /><span>{t('搭档已暂停：当前模型调用已中断，新消息会保留在收件队列，恢复运行后一起处理。暂停状态在重启后保持。')}</span></div>}
     {firstPassiveStart && <section className="overview-first-cycle" role="note"><div className="overview-first-cycle-mark"><Orbit size={22} /><i /></div><div><span>{t('Passive 模式 · 第一次运行')}</span><h2>{t('请由你开启她对世界的第一次观察')}</h2><p>{t('被动模式不会自行开始生命循环。点击“开始第一次运行”会在不添加对话消息的情况下主动继续；这次醒来所感知的环境，将参与形成她最初的世界记忆。')}</p></div>{resting ? <button type="button" className="primary" disabled={resuming} onClick={() => void resume()}><Play size={15} />{t(resuming ? '正在开始…' : '开始第一次运行')}</button> : <small>{t('正在准备第一次运行，请稍候刷新。')}</small>}</section>}
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}

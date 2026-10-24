@@ -54,6 +54,9 @@ interrupted_calls = "Interrupted {{count}} in-flight main-model call(s) to switc
 retry_with_active = "An in-flight call was interrupted by a model switch; retrying with {{provider}}/{{model}}"
 call_interrupted = "Model call interrupted by an explicit switch ({{provider}}/{{model}})"
 
+[brain.pause]
+call_suspended = "Model call stopped by the admin pause ({{provider}}/{{model}})"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support the active model '{{model}}'"
 max_tokens_positive = "max_tokens must be greater than 0"
@@ -377,6 +380,8 @@ skill_warning_title = "[skill loading warning] The following skills failed to lo
 skill_warning_tail = "Do not assume these skills are available. If the current task depends on them, repair the skill files first or use other tools."
 model_fallback = "[system notice] The primary model failed and automatically fell back to {{provider}}/{{model}}. When the primary model recovers, use switch_model to switch back manually."
 model_switched = "[system notice] The model was switched to {{provider}}/{{model}}"
+pause_interrupted = "Admin pause aborted {{count}} in-flight main-model call(s)"
+pause_cycle_stopped = "The cycle stopped because of the admin pause (its in-flight model call was aborted); it continues from the same context after resume"
 tool_parse_error = "Tool argument JSON could not be parsed. Generate valid arguments and try again: {{error}}"
 auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"
