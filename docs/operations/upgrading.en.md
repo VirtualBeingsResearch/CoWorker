@@ -22,6 +22,17 @@ checking for data-format or protocol changes are part of the procedure.
 > A force-sync, reset, or overwrite discards unreviewed changes in the working tree, including
 > branches or commits Coworker may have created in the checkout.
 
+## Model ID migration
+
+If the pre-upgrade configuration uses `deepseek-flash`, `deepseek-v4-flash`, or
+`deepseek-v4-flash-vision-exp` under OpenCode Go, startup migrates those IDs to
+`deepseek-v4.1-flash`. The migration covers the startup model, summary, vision, fallbacks, and
+named Providers' `default_model`, and rewrites matching fields in the admin and runtime model
+config files; legacy values in `.env` or `providers.json` apply in memory only. The official
+`deepseek` Provider keeps its `deepseek-flash` ID. The active model in the short-term snapshot is
+migrated on load and written back on the next normal save. Keep a
+[backup](backup-and-restore.en.md) of `data/` and the configuration before upgrading.
+
 ## Connect the workspace to your repository
 
 Coworker always works in a complete Git repository, whether the service runs from source, through

@@ -59,6 +59,10 @@ from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import apply_runtime_model_config_file
+from coworker.core.model_migrations import (
+    migrate_model_configuration,
+    migrate_provider_model_reference,
+)
 from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
@@ -285,6 +289,13 @@ def _load_config_layers() -> tuple[Config, Config]:
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
     apply_runtime_model_config_file(config.llm)
+    migrations = migrate_model_configuration(config, inherited)
+    for migration in migrations:
+        logger.info(
+            "Migrated legacy model reference "
+            f"{migration.provider}/{migration.old} -> {migration.new} "
+            f"({migration.scope})"
+        )
     return inherited, config
 
 
@@ -305,6 +316,28 @@ async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
         vision_thinking=config.llm.vision_thinking,
         vision_thinking_effort=config.llm.vision_thinking_effort,
     )
+
+
+def _migrate_short_term_active_model(
+    short_term: ShortTermMemory,
+    config: Config,
+) -> None:
+    """Apply the same provider-scoped model migration to a restored snapshot."""
+
+    if not short_term.active_provider or not short_term.active_model:
+        return
+    migrated = migrate_provider_model_reference(
+        config.llm,
+        short_term.active_provider,
+        short_term.active_model,
+    )
+    if migrated != short_term.active_model:
+        logger.info(
+            "Migrated legacy snapshot model reference "
+            f"{short_term.active_provider}/{short_term.active_model} -> "
+            f"{short_term.active_provider}/{migrated}"
+        )
+        short_term.active_model = migrated
 
 
 def _bind_memory_model_following(
@@ -408,6 +441,7 @@ async def _run_backfill() -> int:
             short_term = ShortTermMemory.load_from_file(snapshot_path, **stm_kwargs)
         else:
             short_term = ShortTermMemory(**stm_kwargs)
+        _migrate_short_term_active_model(short_term, config)
 
         brain = Brain(
             config.llm.default_provider,
@@ -639,6 +673,8 @@ async def _main() -> bool:
         )
     else:
         short_term = ShortTermMemory(**stm_kwargs)
+
+    _migrate_short_term_active_model(short_term, config)
 
     if (
         short_term.active_provider

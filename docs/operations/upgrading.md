@@ -19,6 +19,16 @@
 > 强制同步、重置或覆盖代码会丢弃工作区中未确认的修改，包括 Coworker 自己在当前
 > checkout 中留下的分支和提交。
 
+## 模型 ID 迁移
+
+如果升级前的配置在 OpenCode Go 下使用 `deepseek-flash`、`deepseek-v4-flash` 或
+`deepseek-v4-flash-vision-exp`，启动时会自动迁移为 `deepseek-v4.1-flash`。迁移覆盖启动
+模型、summary、vision、fallback 和命名 Provider 的 `default_model`，并写回管理配置与
+运行态模型配置中已有的对应字段；`.env` 和 `providers.json` 中的旧值只在内存中生效。
+官方 `deepseek` Provider 的 `deepseek-flash` 不受影响。短期记忆快照中的活动模型会在加载
+时迁移，下一次正常保存时写回。迁移前仍建议按[备份与恢复](backup-and-restore.md)保留
+`data/` 和配置。
+
 ## 将工作区关联到自己的仓库
 
 无论是源码、Compose 还是直接 Docker 运行，Coworker 使用的工作区都是完整 Git

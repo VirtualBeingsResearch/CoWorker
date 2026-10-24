@@ -86,9 +86,17 @@ LLM__VISION_THINKING_EFFORT=medium
 （`https://opencode.ai/zen/go/v1`），密钥来自 `LLM__OPENCODE_GO_API_KEY`
 （未设置时兜底读取官方 `OPENCODE_API_KEY`）或 `providers.json`。每次请求会带上稳定的
 `x-opencode-session` 以及 `Coworker/<version>` User-Agent，供 OpenCode Go 识别客户端
-并优化 prompt cache。内置目录包含 DeepSeek Flash 与 V4、Kimi K2.5+、GLM-5 系列、MiMo 和 HY
+并优化 prompt cache。内置目录包含 DeepSeek V4.1 Flash 与 V4 Pro、Kimi K2.6+、GLM-5 系列、MiMo 和 HY
 等 OpenAI 兼容模型；MiniMax/Qwen 模型在 OpenCode Go 订阅中走 Anthropic 兼容端点，不在
 内置目录内，需以 `type: anthropic` + `base_url: https://opencode.ai/zen/go` 自行配置。
+
+OpenCode Go 曾提供 `deepseek-flash`、`deepseek-v4-flash` 和
+`deepseek-v4-flash-vision-exp`。启动时 Coworker 会把这些旧 ID 迁移为
+`deepseek-v4.1-flash`，覆盖启动模型、summary、vision、fallback 和命名 Provider 的
+`default_model`；管理配置和运行态模型配置中已有的对应字段会同步写回，`.env` 与
+`providers.json` 中的旧值只在内存中生效，不会改写文件。官方 `deepseek` Provider 的
+`deepseek-flash` ID 不受影响。短期记忆快照中的活动模型会在加载时迁移，并在下一次正常
+保存时写回。
 
 ## 同类型多实例
 
