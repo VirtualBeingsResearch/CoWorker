@@ -225,9 +225,11 @@ This area manages:
 - vision model;
 - fallback chain.
 
-A main-model switch applies to later calls and does not interrupt a call already
-in progress. Summary and vision models can use different Providers. The fallback
-chain is evaluated from first to last; the usual practice is to keep that order
+A main-model switch applies to later calls and immediately aborts a main-model call still in
+progress, so the Agent stops waiting on a request the previous model never answers; the interrupted
+turn (and summary calls that follow the main model) retries on the new model. Summary and vision
+calls with their own Provider are unaffected. The fallback chain is evaluated from
+first to last; the usual practice is to keep that order
 and remove Providers that are no longer valid.
 
 The first real call may incur cost or expose an incompatible model or gateway.

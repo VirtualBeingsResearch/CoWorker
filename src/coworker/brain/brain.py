@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from loguru import logger
@@ -26,6 +26,28 @@ _WEEKDAY_KEYS = [
 
 # 单个 Provider 远端模型目录拉取的最长等待时间；超时按失败缓存，不阻塞管理页面。
 _MODEL_CATALOG_FETCH_TIMEOUT = 30.0
+
+# 显式切换模型会打断在途主线调用；连续切换时限制重试次数，避免无限循环。
+_MAX_MODEL_SWITCH_INTERRUPTS = 8
+
+
+class ModelCallInterrupted(Exception):
+    """An explicit model switch aborted this in-flight provider call."""
+
+    def __init__(self, provider: str, model: str) -> None:
+        super().__init__(
+            tr("brain.switch.call_interrupted", provider=provider, model=model)
+        )
+        self.provider = provider
+        self.model = model
+
+
+@dataclass(eq=False)
+class _InflightCall:
+    """One main-model provider call that an explicit switch may abort."""
+
+    task: asyncio.Task[Any]
+    interrupted: bool = False
 
 
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
@@ -92,6 +114,9 @@ class Brain:
         self._summary_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._vision_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._model_switch_listeners: list[Callable[[str, str], Awaitable[None]]] = []
+        # 显式切换模型时打断在途主线调用，避免卡死的 Provider 请求拖住主循环。
+        self._inflight_calls: set[_InflightCall] = set()
+        self._switch_generation = 0
 
     @property
     def message_time_prefix(self) -> bool:
@@ -471,6 +496,45 @@ class Brain:
             candidates.append((name, model, 2))
         return candidates
 
+    async def _complete_interruptible(
+        self,
+        provider: BaseLLMProvider,
+        provider_name: str,
+        model: str,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Run one provider call in its own task so a model switch can abort it.
+
+        The provider call must not run inside the caller's task: cancelling that
+        task would cancel the whole agent turn instead of just this request.
+        """
+        call = _InflightCall(asyncio.ensure_future(provider.complete(**kwargs)))
+        self._inflight_calls.add(call)
+        try:
+            return await call.task
+        except asyncio.CancelledError:
+            if call.interrupted:
+                raise ModelCallInterrupted(provider_name, model) from None
+            raise
+        finally:
+            self._inflight_calls.discard(call)
+
+    def _interrupt_inflight_calls(self) -> int:
+        """Abort main-model calls still waiting on the previous model.
+
+        Bumping the generation also makes ``_attempt`` abandon retry loops and
+        stale candidate lists, so the interrupted turn retries on the new model.
+        """
+        self._switch_generation += 1
+        interrupted = 0
+        for call in list(self._inflight_calls):
+            if call.task.done():
+                continue
+            call.interrupted = True
+            call.task.cancel()
+            interrupted += 1
+        return interrupted
+
     async def _attempt(
         self,
         provider_name: str,
@@ -482,15 +546,34 @@ class Brain:
         tries: int,
         thinking: bool = True,
         thinking_effort: str | None = None,
+        interruptible: bool = True,
+        expected_generation: int | None = None,
     ) -> LLMResponse:
         """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
         last_err: Exception | None = None
         for attempt in range(tries):
+            if (
+                expected_generation is not None
+                and self._switch_generation != expected_generation
+            ):
+                raise ModelCallInterrupted(provider_name, model)
             try:
                 provider = self._providers.get(provider_name)
                 if not provider:
                     raise ProviderNotFoundError(provider_name)
                 provider.set_model(model)
+                if interruptible:
+                    return await self._complete_interruptible(
+                        provider,
+                        provider_name,
+                        model,
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        thinking=thinking,
+                        thinking_effort=thinking_effort,
+                    )
                 return await provider.complete(
                     messages,
                     system_prompt,
@@ -499,7 +582,7 @@ class Brain:
                     thinking=thinking,
                     thinking_effort=thinking_effort,
                 )
-            except (ProviderNotFoundError, ModelNotSupportedError):
+            except (ProviderNotFoundError, ModelNotSupportedError, ModelCallInterrupted):
                 raise
             except Exception as e:
                 last_err = e
@@ -521,50 +604,74 @@ class Brain:
         _persist_switch: bool = True,
         _thinking_override: bool | None = None,
         _thinking_effort_override: str | None = None,
+        _interruptible: bool = True,
     ) -> LLMResponse:
 
         if self._message_time_prefix:
             messages = _prepend_timestamps(messages)
         tokens = max_tokens if max_tokens is not None else self._max_tokens
 
-        candidates = self._resolve_candidates()
         last_err: Exception | None = None
-        for idx, (name, model, tries) in enumerate(candidates):
-            try:
-                response = await self._attempt(
-                    name,
-                    model,
-                    messages,
-                    system_prompt,
-                    tools,
-                    tokens,
-                    tries,
-                    thinking=self._thinking if _thinking_override is None else _thinking_override,
-                    thinking_effort=(
-                        self._thinking_effort
-                        if _thinking_effort_override is None
-                        else _thinking_effort_override
-                    ),
-                )
-            except Exception as e:
-                last_err = e
-                logger.warning(f"Provider {name}/{model} exhausted ({tries} tries): {e}")
-                continue
-            response.provider = name
-            # 非首选候选成功 = 主模型已降级。_persist_switch 时把 active 切到它（停在备用，
-            # 等手动切回）；summarize 等后台调用传 False，仅本次借用 fallback，不劫持主模型。
-            if idx > 0 and _persist_switch:
-                async with self._lock:
-                    old = (self._active_provider_name, self._active_model)
-                    self._active_provider_name = name
-                    self._active_model = model
-                    self._last_switch_was_fallback = True
-                logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
-                await self._notify_model_switch_listeners(name, model)
-            return response
+        interruptions = 0
+        while True:
+            # 与候选列表一起记录代数：切换发生在解析与调用之间时，用新 active 重新解析。
+            generation = self._switch_generation
+            candidates = self._resolve_candidates()
+            interrupted: ModelCallInterrupted | None = None
+            for idx, (name, model, tries) in enumerate(candidates):
+                try:
+                    response = await self._attempt(
+                        name,
+                        model,
+                        messages,
+                        system_prompt,
+                        tools,
+                        tokens,
+                        tries,
+                        thinking=(
+                            self._thinking if _thinking_override is None else _thinking_override
+                        ),
+                        thinking_effort=(
+                            self._thinking_effort
+                            if _thinking_effort_override is None
+                            else _thinking_effort_override
+                        ),
+                        interruptible=_interruptible,
+                        expected_generation=generation if _interruptible else None,
+                    )
+                except ModelCallInterrupted as e:
+                    interrupted = e
+                    break
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"Provider {name}/{model} exhausted ({tries} tries): {e}")
+                    continue
+                response.provider = name
+                # 非首选候选成功 = 主模型已降级。_persist_switch 时把 active 切到它（停在备用，
+                # 等手动切回）；summarize 等后台调用传 False，仅本次借用 fallback，不劫持主模型。
+                if idx > 0 and _persist_switch:
+                    async with self._lock:
+                        old = (self._active_provider_name, self._active_model)
+                        self._active_provider_name = name
+                        self._active_model = model
+                        self._last_switch_was_fallback = True
+                    logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
+                    await self._notify_model_switch_listeners(name, model)
+                return response
 
-        assert last_err is not None
-        raise last_err
+            if interrupted is None:
+                assert last_err is not None
+                raise last_err
+            interruptions += 1
+            if interruptions > _MAX_MODEL_SWITCH_INTERRUPTS:
+                raise interrupted
+            logger.info(
+                tr(
+                    "brain.switch.retry_with_active",
+                    provider=interrupted.provider,
+                    model=interrupted.model,
+                )
+            )
 
     def _resolve_summary_model(self) -> tuple[str, str] | None:
         if not self._summary_provider_name and not self._summary_model:
@@ -592,6 +699,7 @@ class Brain:
     ) -> LLMResponse:
         summary_target = self._resolve_summary_model()
         if summary_target is None:
+            # 跟随主线：切换会打断这次摘要，think 的切换重试会在新模型上重新压缩。
             return await self.think(
                 messages=messages,
                 system_prompt=system_prompt,
@@ -615,6 +723,8 @@ class Brain:
             tries=3,
             thinking=self._summary_thinking,
             thinking_effort=self._summary_thinking_effort,
+            # 独立摘要模型不随主线切换中断：切换针对的是旧的主线模型。
+            interruptible=False,
         )
         response.provider = provider_name
         return response
@@ -698,6 +808,17 @@ class Brain:
             self._active_provider_name = provider_name
             self._active_model = model_id
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
+        # 显式切换必须打断在途调用：旧 Provider 的请求可能永远不返回，否则主循环会一直卡着。
+        interrupted = self._interrupt_inflight_calls()
+        if interrupted:
+            logger.info(
+                tr(
+                    "brain.switch.interrupted_calls",
+                    count=interrupted,
+                    provider=provider_name,
+                    model=model_id,
+                )
+            )
         if old != (provider_name, model_id):
             await self._notify_model_switch_listeners(provider_name, model_id)
 

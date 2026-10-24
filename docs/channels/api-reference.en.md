@@ -111,6 +111,12 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
+`/switch_model` installs the new main Provider/model immediately and aborts any main-model call in
+progress: the interrupted turn retries on the new model, and summary calls that follow the main
+model also retry there. Explicitly configured summary and vision calls are unaffected. A hung
+request on the previous Provider therefore cannot keep the Agent stuck. Re-submitting the same
+target still counts as an explicit switch and can be used to unstick a request.
+
 When an administrator has configured a communication token, unauthenticated `/status` returns
 `status`, `is_running`, `is_sleeping`, `setup_mode`, `communication_token_configured`, and
 `authenticated`; it never includes providers, model configuration, or usage. When no token is

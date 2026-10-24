@@ -620,7 +620,7 @@ export const ENGLISH_PHRASES: Record<string, string> = {
   '进程驻留': 'Process presence',
   '当前实例的连续运行时间': 'Continuous uptime for this instance',
   '本轮启动时间': 'Current start time',
-  '切换立即生效，正在执行的单次调用不会被中断。': 'Changes apply immediately; calls already in progress are not interrupted.',
+  '切换立即生效，并会中断正在执行的主线调用（可用来解卡）。': 'Changes apply immediately and abort the main-model call in progress (use this to unstick a hung request).',
   '当前接棒者': 'Current handler',
   '选择 Provider': 'Select provider',
   '模型 ID（留空使用默认）': 'Model ID (leave empty for default)',

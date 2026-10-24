@@ -49,6 +49,11 @@ objective_hint = '''
 [brain.listeners]
 model_switch_failed = "主模型切换监听失败（{{provider}}/{{model}}）：{{error}}"
 
+[brain.switch]
+interrupted_calls = "已中断 {{count}} 个在途主线调用（切换到 {{provider}}/{{model}}）"
+retry_with_active = "在途调用被模型切换打断，改用 {{provider}}/{{model}} 重试"
+call_interrupted = "模型调用被显式切换打断（{{provider}}/{{model}}）"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support active model '{{model}}'"
 max_tokens_positive = "max_tokens 必须大于 0"

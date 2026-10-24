@@ -49,6 +49,11 @@ Context hint: {{hint}}'''
 [brain.listeners]
 model_switch_failed = "Active-model listener failed for {{provider}}/{{model}}: {{error}}"
 
+[brain.switch]
+interrupted_calls = "Interrupted {{count}} in-flight main-model call(s) to switch to {{provider}}/{{model}}"
+retry_with_active = "An in-flight call was interrupted by a model switch; retrying with {{provider}}/{{model}}"
+call_interrupted = "Model call interrupted by an explicit switch ({{provider}}/{{model}})"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support the active model '{{model}}'"
 max_tokens_positive = "max_tokens must be greater than 0"
