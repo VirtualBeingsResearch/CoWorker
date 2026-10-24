@@ -49,6 +49,14 @@ objective_hint = '''
 [brain.listeners]
 model_switch_failed = "主模型切换监听失败（{{provider}}/{{model}}）：{{error}}"
 
+[brain.switch]
+interrupted_calls = "已中断 {{count}} 个在途主线调用（切换到 {{provider}}/{{model}}）"
+retry_with_active = "在途调用被模型切换打断，改用 {{provider}}/{{model}} 重试"
+call_interrupted = "模型调用被显式切换打断（{{provider}}/{{model}}）"
+
+[brain.pause]
+call_suspended = "模型调用因管理端暂停而中止（{{provider}}/{{model}}）"
+
 [brain.validation]
 active_model_unsupported = "Provider '{{provider}}' does not support active model '{{model}}'"
 max_tokens_positive = "max_tokens 必须大于 0"
@@ -372,6 +380,8 @@ skill_warning_title = "[技能加载异常] 以下 skill 加载失败或不可�
 skill_warning_tail = "请不要假设这些 skill 可用；如果当前任务依赖它们，请先修复 skill 文件或改用其他工具。"
 model_fallback = "[系统通知] 主模型调用失败，已自动降级至 {{provider}}/{{model}}。主模型恢复后可用 switch_model 手动切回。"
 model_switched = "[系统通知] 模型已切换至 {{provider}}/{{model}}"
+pause_interrupted = "管理端暂停：已中断 {{count}} 个在途主线模型调用"
+pause_cycle_stopped = "本回合因管理端暂停而中止（在途模型调用已打断），恢复后从同一上下文继续"
 tool_parse_error = "工具参数 JSON 解析失败，请重新生成正确格式的参数：{{error}}"
 auto_recall_title = "[自动回忆] 以下长期记忆与当前对话相关："
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"

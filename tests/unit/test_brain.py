@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
 
-from coworker.brain.brain import Brain
+from coworker.brain.brain import Brain, ModelCallSuspended, set_model_call_owner
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from tests.conftest import MockProvider
@@ -856,3 +857,189 @@ class TestBrainModelConfig:
 
         with pytest.raises(ModelNotSupportedError, match="does not support vision"):
             await brain.update_model_config(vision_provider="novision", vision_model="text-only")
+
+
+def _blocking_provider(
+    started: asyncio.Event,
+    release: asyncio.Event,
+    *,
+    block_only_first: bool = False,
+) -> MockProvider:
+    """A provider whose complete() hangs until released, to emulate a wedged request."""
+
+    class BlockingProvider(MockProvider):
+        provider_name = "stuck"
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+            self.cancelled = False
+
+        async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
+            self.calls += 1
+            if block_only_first and self.calls > 1:
+                return await super().complete(messages, system_prompt, tools, max_tokens)
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+            return await super().complete(messages, system_prompt, tools, max_tokens)
+
+    return BlockingProvider()
+
+
+class TestModelSwitchInterruptsInflightCall:
+    """切换主线模型必须打断卡在旧 Provider 的主线请求，否则主循环会一直等下去。"""
+
+    @pytest.mark.asyncio
+    async def test_switch_aborts_stuck_call_and_retries_with_new_model(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+        brain.register_provider(MockProvider())
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        await brain.switch_model("mock", "mock-model")
+        response = await asyncio.wait_for(task, timeout=2)
+
+        assert stuck.cancelled is True
+        assert response.provider == "mock"
+        assert brain.current_provider_name == "mock"
+        release.set()
+
+    @pytest.mark.asyncio
+    async def test_reselecting_same_model_still_unsticks_the_call(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release, block_only_first=True)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        # 同一目标也应视为「现在就用这个模型」：打断在途调用后立即重试。
+        await brain.switch_model("stuck", "stuck-model")
+        response = await asyncio.wait_for(task, timeout=2)
+
+        assert stuck.calls == 2
+        assert response.content == "mock response"
+        assert brain.current_model == "stuck-model"
+
+    @pytest.mark.asyncio
+    async def test_external_cancellation_is_not_swallowed(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert stuck.cancelled is True
+        release.set()
+
+    @pytest.mark.asyncio
+    async def test_summary_following_active_model_retries_after_switch(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release, block_only_first=True)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+        brain.register_provider(MockProvider())
+
+        task = asyncio.create_task(brain.summarize([Message(role="user", content="history")]))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        assert stuck.calls == 1
+
+        # 摘要跟随主线时也属于「当前模型请求」：打断后应在切换后的模型上重新压缩。
+        await brain.switch_model("mock", "mock-model")
+
+        assert await asyncio.wait_for(task, timeout=2) == "mock response"
+        assert stuck.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_explicit_summary_model_survives_a_model_switch(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release)
+        brain = Brain(
+            "stuck",
+            "stuck-model",
+            summary_provider="stuck",
+            summary_model="stuck-model",
+        )
+        brain.register_provider(stuck)
+        brain.register_provider(MockProvider())
+
+        task = asyncio.create_task(brain.summarize([Message(role="user", content="history")]))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        await brain.switch_model("mock", "mock-model")
+        await asyncio.sleep(0.01)
+        assert task.done() is False
+
+        release.set()
+        assert await asyncio.wait_for(task, timeout=2) == "mock response"
+
+
+class TestPauseSuspendsInflightCall:
+    """管理端暂停要即时打断主线模型请求，且打断后不重试。"""
+
+    @pytest.mark.asyncio
+    async def test_pause_aborts_main_call_without_retry(self):
+        set_model_call_owner("main")
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release, block_only_first=True)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        assert brain.suspend_main_calls() == 1
+
+        with pytest.raises(ModelCallSuspended):
+            await asyncio.wait_for(task, timeout=2)
+        # 暂停不是切换：不会用旧模型重发请求。
+        assert stuck.calls == 1
+        assert stuck.cancelled is True
+        release.set()
+
+    @pytest.mark.asyncio
+    async def test_pause_leaves_background_calls_running(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        stuck = _blocking_provider(started, release)
+        brain = Brain("stuck", "stuck-model")
+        brain.register_provider(stuck)
+
+        task = asyncio.create_task(brain.think([], "", []))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        # 默认归属是 background（Bubble、回溯等），暂停不打断它们。
+        assert brain.suspend_main_calls() == 0
+        await asyncio.sleep(0.01)
+        assert task.done() is False
+
+        release.set()
+        assert (await asyncio.wait_for(task, timeout=2)).content == "mock response"
+
+    @pytest.mark.asyncio
+    async def test_suspended_brain_refuses_new_main_calls_until_resume(self):
+        set_model_call_owner("main")
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(MockProvider())
+
+        assert brain.suspend_main_calls() == 0
+        with pytest.raises(ModelCallSuspended):
+            await brain.think([], "", [])
+
+        brain.resume_main_calls()
+
+        response = await brain.think([], "", [])
+        assert response.content == "mock response"

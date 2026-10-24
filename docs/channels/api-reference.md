@@ -105,6 +105,10 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
+`/switch_model` 立即写入新的主线 Provider/模型，并中断正在执行的主线调用：被打断的回合会用新模型重试，
+跟随主线的摘要调用也会改在新模型上重试；独立配置的摘要与视觉调用不受影响。因此旧 Provider 卡住的请求
+不会继续拖住 Agent。重复提交同一个目标也算一次显式切换，可作为解卡手段。
+
 管理员配置了通信令牌时，未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、
 `setup_mode`、`communication_token_configured` 和 `authenticated`；不包含 Provider、模型
 配置与用量。未配置通信令牌或携带有效 Bearer 时返回完整快照。字段会随可用模块增加，容忍未知字段的

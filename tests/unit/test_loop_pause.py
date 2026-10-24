@@ -8,6 +8,7 @@ import pytest
 
 from coworker.agent.inbox_watcher import InboxWatcher
 from coworker.agent.loop import AgentLoop
+from coworker.brain.brain import ModelCallSuspended
 from coworker.core.types import AgentState, IncomingEvent
 
 
@@ -107,6 +108,53 @@ async def test_interrupt_rest_only_sets_message_event():
 
     assert loop._inbox.message_event.is_set()
     assert not loop._resume_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_request_pause_wakes_loop_and_suspends_model_calls():
+    loop = _make_loop(paused=False)
+    loop._brain = MagicMock()
+    loop._brain.suspend_main_calls.return_value = 1
+
+    assert loop.request_pause() == 1
+
+    assert loop._inbox.message_event.is_set()
+    loop._brain.suspend_main_calls.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cycle_lifts_model_call_suspension_once_pause_is_lifted():
+    loop = _make_loop(paused=False)
+    loop._brain = MagicMock()
+    # 用一个哨兵异常在恢复模型调用后立刻退出 _cycle，避免搭整套循环。
+    loop._sync_task_pins = MagicMock(side_effect=RuntimeError("stop after resume"))
+
+    with pytest.raises(RuntimeError, match="stop after resume"):
+        await loop._cycle()
+
+    loop._brain.resume_main_calls.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_run_keeps_looping_after_pause_interrupts_a_cycle():
+    loop = _make_loop(paused=False)
+    loop._brain = MagicMock()
+    cycles: list[int] = []
+
+    async def _cycle() -> None:
+        cycles.append(1)
+        if len(cycles) == 1:
+            loop._config.agent.paused = True
+            raise ModelCallSuspended("p", "m")
+        loop._stop_event.set()
+
+    loop._cycle = AsyncMock(side_effect=_cycle)
+
+    await asyncio.wait_for(loop.run(), timeout=2)
+
+    # 暂停打断不算错误：循环继续到下一轮，由 _cycle 自己停靠。
+    assert len(cycles) == 2
+    assert loop.state.is_running is False
 
 
 @pytest.mark.asyncio

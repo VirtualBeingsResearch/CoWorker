@@ -884,12 +884,12 @@ function Overview({ name, onNavigate }: { name: string; onNavigate: (event: Reac
         <div><span>{t('本次采样')}</span><strong>{sampledAt}</strong></div>
       </div>
       <div className="overview-status-actions">
-        {running && !paused && <button type="button" className="ghost mini" disabled={pausing} onClick={() => void pause()} title={t('暂停主线：新消息保留，恢复后一起处理')}><Pause size={14} />{t(pausing ? '正在暂停…' : '暂停')}</button>}
+        {running && !paused && <button type="button" className="ghost mini" disabled={pausing} onClick={() => void pause()} title={t('暂停主线：立即中断当前模型调用；新消息保留，恢复后一起处理')}><Pause size={14} />{t(pausing ? '正在暂停…' : '暂停')}</button>}
         {(paused || (resting && !firstPassiveStart)) && <button type="button" className="primary mini" disabled={resuming} onClick={() => void resume()} title={paused ? t('结束暂停，继续处理保留的消息') : t('不添加消息，直接唤醒主循环')}><Play size={14} />{t(resuming ? '正在继续…' : paused ? '恢复运行' : '继续运行')}</button>}
         <button className="icon-btn" onClick={() => void reloadAll()} title={t('刷新总览')} aria-label={t('刷新总览')}><RefreshCw size={16} /></button>
       </div>
     </section>
-    {paused && <div className="notice paused"><Pause size={17} /><span>{t('搭档已暂停：新消息会保留在收件队列，恢复运行后一起处理。暂停状态在重启后保持。')}</span></div>}
+    {paused && <div className="notice paused"><Pause size={17} /><span>{t('搭档已暂停：当前模型调用已中断，新消息会保留在收件队列，恢复运行后一起处理。暂停状态在重启后保持。')}</span></div>}
     {firstPassiveStart && <section className="overview-first-cycle" role="note"><div className="overview-first-cycle-mark"><Orbit size={22} /><i /></div><div><span>{t('Passive 模式 · 第一次运行')}</span><h2>{t('请由你开启她对世界的第一次观察')}</h2><p>{t('被动模式不会自行开始生命循环。点击“开始第一次运行”会在不添加对话消息的情况下主动继续；这次醒来所感知的环境，将参与形成她最初的世界记忆。')}</p></div>{resting ? <button type="button" className="primary" disabled={resuming} onClick={() => void resume()}><Play size={15} />{t(resuming ? '正在开始…' : '开始第一次运行')}</button> : <small>{t('正在准备第一次运行，请稍候刷新。')}</small>}</section>}
     {resumeError && <div className="notice error"><TriangleAlert size={17} /><span>{resumeError}</span></div>}
     {data.pending_restart && <div className="notice amber"><TriangleAlert size={17} /><span>{t('有配置等待重启后生效。')}</span></div>}
@@ -1009,7 +1009,7 @@ function Models() {
   const visionModelOptions = modelOptionsFor(draft.vision.provider);
   const mem0ModelOptions = modelOptionsFor(draft.mem0.provider || draft.active.provider);
   return <div className="page-stack">
-    <Panel title="主线模型" note="切换立即生效，正在执行的单次调用不会被中断。">
+    <Panel title="主线模型" note="切换立即生效，并会中断正在执行的主线调用（可用来解卡）。">
       <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
       <div className="inline-form"><select aria-label={t('选择 Provider')} value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
