@@ -31,6 +31,7 @@ from coworker.core.constants import (
     DEFAULT_LLM_MAX_TOKENS,
     THINKING_EFFORT_LEVELS,
 )
+from coworker.core.model_migrations import migrate_model_id
 from coworker.i18n import SupportedLocale, normalize_locale, tr
 from coworker.prompts.template import (
     MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
@@ -320,6 +321,10 @@ class LLMConfig(_EnvSettings):
 
         for spec in self.managed_providers:
             specs[spec.name] = spec
+
+        for spec in specs.values():
+            if spec.default_model:
+                spec.default_model = migrate_model_id(spec.type, spec.default_model)
 
         return list(specs.values())
 

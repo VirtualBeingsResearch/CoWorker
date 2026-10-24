@@ -32,7 +32,7 @@
     "type": "opencode-go",
     "api_key": "OpenCode Go 订阅 key（也可用 LLM__OPENCODE_GO_API_KEY）",
     "base_url": "",
-    "default_model": "deepseek-v4-flash"
+    "default_model": "deepseek-v4.1-flash"
   },
   {
     "name": "self-hosted-vllm",

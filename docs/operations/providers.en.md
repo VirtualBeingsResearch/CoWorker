@@ -96,10 +96,19 @@ entries. Older entries lack the field and are read with it absent.
 official `OPENCODE_API_KEY` environment variable) or a `providers.json` key.
 Each request sends a stable `x-opencode-session` header and a `Coworker/<version>`
 User-Agent so OpenCode Go can identify the client and optimize prompt caching.
-The built-in catalog covers the OpenAI-compatible DeepSeek Flash and V4, Kimi K2.5+, GLM-5, MiMo, and HY
+The built-in catalog covers the OpenAI-compatible DeepSeek V4.1 Flash and V4 Pro, Kimi K2.6+, GLM-5, MiMo, and HY
 models. OpenCode Go serves MiniMax/Qwen through its Anthropic-compatible endpoint; those models
 are not in this catalog and are configured with `type: anthropic` and
 `base_url: https://opencode.ai/zen/go`.
+
+OpenCode Go previously exposed `deepseek-flash`, `deepseek-v4-flash`, and
+`deepseek-v4-flash-vision-exp`. At startup Coworker migrates these legacy IDs to
+`deepseek-v4.1-flash` for the startup model, summary, vision, fallbacks, and named
+Providers' `default_model`. Matching fields in the admin and runtime model config files
+are rewritten; legacy values in `.env` or `providers.json` apply in memory only and are
+not rewritten. The official `deepseek` Provider keeps its `deepseek-flash` ID. The active
+model in the short-term snapshot is migrated on load and written back on the next normal
+save.
 
 ## Multiple instances of one type
 
