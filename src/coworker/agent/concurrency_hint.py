@@ -35,6 +35,7 @@ _INTERNAL_SOURCES = frozenset(
         "compress_memory",
         "tick",
         "channel_upload",
+        "web_async",
     }
 )
 
