@@ -368,6 +368,14 @@ searxng_missing = "SearXNG instance URL is not configured."
 searxng_auth = "SearXNG instance requires authentication."
 searxng_forbidden = "SearXNG instance refused access."
 
+[tool_result.web_async]
+pending = '''[{{tool}} running in background] Still running after {{seconds}}s, so it continues in the background; the result will arrive later as an asynchronous message. Continue with other work and do not repeat the same request; if that asynchronous result never arrives (for example after a service restart), you may start it once more.
+Request: {{request}}'''
+completed = '''[{{tool}} asynchronous result] Request: {{request}}
+{{content}}'''
+failed = '''[{{tool}} asynchronous result] Request: {{request}} failed
+{{error}}'''
+
 [tool_result.client_tool]
 needs_name = "call_client_tool requires name."
 not_openai = "call_client_tool only works on OpenAI-channel addresses; got '{{participant}}'."

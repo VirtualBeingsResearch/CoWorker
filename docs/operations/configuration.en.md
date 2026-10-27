@@ -284,11 +284,13 @@ silently is still processed in normal order. The corresponding administrator API
 main loop.
 
 The Overview page in the administration console also offers **Pause**. Pausing hot-applies and
-persists the `agent.paused` flag and parks the main loop: new messages are no longer processed
-and the loop stops self-waking on idle timeouts, while incoming messages stay queued in the
-inbox and are handled together after resuming. Bubble thinking and the subconscious background
-keep running. The paused state survives restarts until you click **Resume** in the
-administration console or call `POST /api/admin/resume`, which clears the flag.
+persists the `agent.paused` flag and immediately aborts the main-model call in progress (summary
+calls that follow the main model are aborted as well). The main loop then parks: it issues no new
+model calls, processes no new messages, and stops self-waking on idle timeouts, while incoming
+messages stay queued in the inbox and are handled together after resuming, from the same context.
+The interrupted turn does not retry and does not consume a message twice. Bubble thinking and the
+subconscious background keep running. The paused state survives restarts until you click
+**Resume** in the administration console or call `POST /api/admin/resume`, which clears the flag.
 
 Saving WeCom settings in the admin console immediately enables, disables, or rebuilds the WebSocket connection without restarting Coworker. A reconnect clears reply frames that belong only to the old connection while preserving discovered contacts and recent activity. If WeCom reports that a newer connection has taken over, the runtime waits for the next configuration change instead of competing with that connection.
 
