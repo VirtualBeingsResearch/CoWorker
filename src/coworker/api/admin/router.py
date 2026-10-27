@@ -1702,11 +1702,14 @@ async def connect_tunnel(
     _: None = Depends(require_admin),
 ) -> ApiResponse:
     _require_tunnel_prerequisites()
+    config = _require_config()
+    token = payload.token.strip() or config.tunnel.token.strip()
+    public_url = payload.public_url.strip() or config.tunnel.public_url
     try:
         snapshot = await _require_tunnel_manager().connect(
             mode=payload.mode,
-            token=payload.token,
-            public_url=payload.public_url,
+            token=token,
+            public_url=public_url,
             allowed_emails=payload.allowed_emails,
         )
     except TunnelError as error:
@@ -1716,8 +1719,8 @@ async def connect_tunnel(
         raise HTTPException(status_code=409, detail=str(error)) from error
     _persist_tunnel_settings(
         mode=payload.mode,
-        token=payload.token,
-        public_url=payload.public_url,
+        token=token,
+        public_url=public_url,
         allowed_emails=payload.allowed_emails,
     )
     _audit(request, "tunnel.connect", payload.mode)

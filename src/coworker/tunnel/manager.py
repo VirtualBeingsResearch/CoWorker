@@ -109,13 +109,23 @@ class TunnelManager:
 
     def snapshot(self) -> dict[str, Any]:
         target = self._target
+        settings = self._config.tunnel
+        mode = target.mode if target is not None else settings.mode
+        public_url = (
+            target.public_url if target is not None else settings.public_url
+        )
+        token_configured = bool(
+            (target.token if target is not None else settings.token).strip()
+        )
         return {
-            "mode": target.mode if target is not None else self._config.tunnel.mode,
+            "mode": mode,
+            "configured": mode != "off",
             "phase": self._phase,
             "url": self._url,
-            "public_url": (
-                target.public_url if target is not None else self._config.tunnel.public_url
-            ),
+            "public_url": public_url,
+            "token_configured": token_configured,
+            "quick_allowed_emails": list(settings.quick_allowed_emails),
+            "protocol": settings.protocol,
             "error": self._error,
             "started_at": self._started_at,
             "binary": {
@@ -182,13 +192,18 @@ class TunnelManager:
         """Validate, then start a target supplied by the admin API."""
 
         emails = tuple(str(item).strip() for item in allowed_emails if str(item).strip())
+        settings = self._config.tunnel
         if mode == "named":
-            if not token.strip():
+            resolved_token = token.strip() or settings.token.strip()
+            resolved_public_url = (
+                public_url.strip().rstrip("/") or settings.public_url.rstrip("/")
+            )
+            if not resolved_token:
                 raise TunnelError(tr("tunnel.named_token_required"))
-            if not public_url.strip():
+            if not resolved_public_url:
                 raise TunnelError(tr("tunnel.named_public_url_required"))
             target = TunnelTarget(
-                mode="named", public_url=public_url.strip().rstrip("/"), token=token.strip()
+                mode="named", public_url=resolved_public_url, token=resolved_token
             )
         elif mode == "quick":
             target = TunnelTarget(mode="quick", allowed_emails=emails)

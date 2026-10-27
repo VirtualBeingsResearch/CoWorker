@@ -369,3 +369,39 @@ async def test_manager_test_probe_reports_unreachable(
     result = await manager.test()
     assert result["reachable"] is False
     assert result["status"] == 0
+
+
+def test_snapshot_reports_configuration_without_leaking_token(
+    manager: TunnelManager,
+) -> None:
+    manager._config.tunnel.mode = "named"
+    manager._config.tunnel.public_url = "https://coworker.example.com"
+    manager._config.tunnel.token = "secret-token"
+
+    snapshot = manager.snapshot()
+    assert snapshot["configured"] is True
+    assert snapshot["token_configured"] is True
+    assert "secret-token" not in json.dumps(snapshot)
+
+
+async def test_connect_named_reuses_saved_token(
+    manager: TunnelManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager._config.tunnel.public_url = "https://coworker.example.com"
+    manager._config.tunnel.token = "saved-token"
+
+    async def _spawn(target: TunnelTarget) -> None:
+        manager._process = _BlockingProcess()
+
+    async def _probe(url: str) -> tuple[bool, int, int]:
+        return True, 200, 3
+
+    monkeypatch.setattr(manager, "_spawn", _spawn)
+    monkeypatch.setattr(manager, "_probe", _probe)
+
+    await manager.connect(mode="named", token="", public_url="")
+    target = manager._target
+    assert target is not None
+    assert target.token == "saved-token"
+    assert target.public_url == "https://coworker.example.com"
+    await manager.stop()
