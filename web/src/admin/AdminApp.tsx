@@ -4489,6 +4489,7 @@ function TunnelAccess() {
         <article><span>{t('大文件与长任务')}</span><b>{t('不建议经隧道执行')}</b></article>
       </div>
       <small className="relay-secret-note"><ShieldCheck size={13} />{t('Cloudflare 在边缘能看到明文；需要端到端加密时请使用 Relay。')}</small>
+      {binaryFound && <small className="relay-secret-note">{t('已检测到 cloudflared')} · {String(binary.version || '—')} · {String(binary.path || '')}</small>}
     </details>
     {notice && <div className={`notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
     {tunnel.error && <div className="notice error" role="alert"><span>{tunnel.error}</span><button className="ghost mini" onClick={() => void tunnel.reload()}>{t('重试')}</button></div>}

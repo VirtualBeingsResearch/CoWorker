@@ -178,6 +178,7 @@ export const ENGLISH_PHRASES: Record<string, string> = {
   '正在向 Cloudflare 建立连接，通常只需几秒。': 'Connecting to Cloudflare; this usually takes a few seconds.',
   '连接失败，正在重试': 'Connection failed; retrying',
   '修改隧道配置': 'Edit tunnel configuration',
+  '已检测到 cloudflared': 'cloudflared detected',
   '请先显式设置 API__COMMUNICATION_TOKEN 再启用隧道。': 'Set API__COMMUNICATION_TOKEN explicitly before enabling the tunnel.',
   '启用隧道前必须完成初始化。': 'Finish initial setup before enabling the tunnel.',
   '已停止': 'Stopped',

@@ -130,6 +130,7 @@ class TunnelManager:
             "started_at": self._started_at,
             "binary": {
                 "found": self._binary.found,
+                "checked": self._binary_checked,
                 "path": self._binary.path,
                 "version": self._binary.version,
             },
@@ -335,25 +336,45 @@ class TunnelManager:
 
     # ------------------------------------------------------------------- binary
 
-    async def _ensure_binary(self) -> None:
-        if self._binary_checked and self._binary.found:
-            return
+    async def refresh_binary(self, *, force: bool = False) -> _BinaryInfo:
+        """Detect the configured or PATH-provided cloudflared binary.
+
+        Cheap to call from status endpoints: a cached working path short-circuits
+        before running ``--version`` again, while a missing binary is re-resolved
+        on every call so installing it while the process runs is picked up.
+        """
+
         configured = self._config.tunnel.binary.strip()
         if configured:
             candidate = Path(configured).expanduser()
-            if not candidate.is_file():
-                raise TunnelError(tr("tunnel.binary_missing", path=str(candidate)))
-            path = str(candidate)
+            path = str(candidate) if candidate.is_file() else ""
+            missing_hint = str(candidate)
         else:
-            found = shutil.which("cloudflared")
-            if not found:
-                raise TunnelError(tr("tunnel.binary_missing", path="cloudflared"))
-            path = found
+            path = shutil.which("cloudflared") or ""
+            missing_hint = "cloudflared"
+        if not path:
+            self._binary = _BinaryInfo(found=False, path=missing_hint)
+            self._binary_checked = True
+            return self._binary
+        if (
+            not force
+            and self._binary_checked
+            and self._binary.found
+            and self._binary.path == path
+        ):
+            return self._binary
         version = await self._probe_binary_version(path)
-        if version is None:
-            raise TunnelError(tr("tunnel.binary_not_executable", path=path))
-        self._binary = _BinaryInfo(found=True, path=path, version=version)
+        self._binary = _BinaryInfo(found=version is not None, path=path, version=version or "")
         self._binary_checked = True
+        return self._binary
+
+    async def _ensure_binary(self) -> None:
+        info = await self.refresh_binary(force=True)
+        if info.found:
+            return
+        if info.path and info.path != "cloudflared" and Path(info.path).exists():
+            raise TunnelError(tr("tunnel.binary_not_executable", path=info.path))
+        raise TunnelError(tr("tunnel.binary_missing", path=info.path or "cloudflared"))
 
     async def _probe_binary_version(self, path: str) -> str | None:
         try:

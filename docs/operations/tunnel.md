@@ -77,7 +77,9 @@ apt install cloudflared
 ```
 
 应用不会在运行时下载或升级 `cloudflared`。找不到二进制时，管理端和 API 错误会给出对应
-平台的安装提示。
+平台的安装提示。管理端每次读取隧道状态都会重新查找一次二进制，安装后无需重启；如果终端里
+`where cloudflared` 能找到、管理端仍显示未检测到，说明 Coworker 进程的 `PATH` 与终端不同，
+用 `TUNNEL__BINARY` 指向绝对路径即可。
 
 ## Desktop 连接
 

@@ -1689,8 +1689,10 @@ def _persist_tunnel_settings(
 
 @router.get("/tunnel")
 async def get_tunnel(_: None = Depends(require_admin)) -> ApiResponse:
+    manager = _require_tunnel_manager()
+    await manager.refresh_binary()
     return {
-        **_require_tunnel_manager().snapshot(),
+        **manager.snapshot(),
         "prerequisites": _tunnel_prerequisites(),
     }
 

@@ -87,7 +87,10 @@ apt install cloudflared
 ```
 
 The application never downloads or upgrades `cloudflared` at runtime. When the binary is missing,
-the console and the API error include the platform-specific install hint.
+the console and the API error include the platform-specific install hint. The console re-resolves
+the binary on every status read, so installing it does not require a restart. If
+`where cloudflared` works in a terminal but the console still reports it as missing, the Coworker
+process has a different `PATH`; point `TUNNEL__BINARY` at the absolute path.
 
 ## Desktop connection
 

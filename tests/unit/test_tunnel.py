@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -238,6 +239,11 @@ class _StubTunnelManager:
     def __init__(self, *, url: str = "") -> None:
         self.url = url
         self.stopped = False
+        self.refresh_count = 0
+
+    async def refresh_binary(self) -> dict[str, object]:
+        self.refresh_count += 1
+        return {"found": True}
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -382,6 +388,46 @@ def test_snapshot_reports_configuration_without_leaking_token(
     assert snapshot["configured"] is True
     assert snapshot["token_configured"] is True
     assert "secret-token" not in json.dumps(snapshot)
+
+
+async def test_refresh_binary_detects_configured_path(tmp_path: Path) -> None:
+    manager = TunnelManager(_config(tmp_path, binary=sys.executable))
+
+    info = await manager.refresh_binary()
+    assert info.found is True
+    snapshot = manager.snapshot()
+    assert snapshot["binary"]["found"] is True
+    assert snapshot["binary"]["checked"] is True
+
+
+async def test_refresh_binary_reports_missing_then_recovers(tmp_path: Path) -> None:
+    manager = TunnelManager(_config(tmp_path, binary=str(tmp_path / "missing")))
+
+    info = await manager.refresh_binary()
+    assert info.found is False
+    manager._config.tunnel.binary = sys.executable
+    info = await manager.refresh_binary()
+    assert info.found is True
+
+
+def test_tunnel_status_refreshes_binary_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _StubTunnelManager()
+    monkeypatch.setattr(admin, "_config", _config(tmp_path))
+    monkeypatch.setattr(admin, "_tunnel_manager", stub)
+
+    import coworker.api.routes as routes
+
+    monkeypatch.setattr(routes, "communication_token_required", lambda: True)
+
+    result = asyncio.run(admin.get_tunnel(None))
+
+    assert stub.refresh_count == 1
+    assert result["prerequisites"] == {
+        "communication_token": True,
+        "setup_complete": True,
+    }
 
 
 async def test_connect_named_reuses_saved_token(
