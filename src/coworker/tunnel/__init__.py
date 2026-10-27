@@ -4,6 +4,7 @@ from coworker.tunnel.manager import (
     TunnelError,
     TunnelManager,
     TunnelTarget,
+    quick_tunnel_url,
 )
 
-__all__ = ["TunnelError", "TunnelManager", "TunnelTarget"]
+__all__ = ["TunnelError", "TunnelManager", "TunnelTarget", "quick_tunnel_url"]

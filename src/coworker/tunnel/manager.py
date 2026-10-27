@@ -35,7 +35,13 @@ from coworker.i18n import tr
 TunnelMode = Literal["quick", "named"]
 TunnelPhase = Literal["stopped", "starting", "running", "failed"]
 
-QUICK_URL_PATTERN = re.compile(r"https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com")
+QUICK_URL_PATTERN = re.compile(
+    r"https://([a-z0-9][a-z0-9-]*)\.trycloudflare\.com", re.IGNORECASE
+)
+# cloudflared calls this API to mint a quick tunnel; it is not the tunnel URL.
+QUICK_URL_BLOCKLIST = frozenset(
+    {"api", "www", "dash", "docs", "developers", "blog", "status"}
+)
 CONNECTED_LOG_PATTERN = re.compile(
     r"Registered tunnel connection|registered with protocol", re.IGNORECASE
 )
@@ -50,6 +56,21 @@ BINARY_PROBE_TIMEOUT_SECONDS = 10.0
 TERMINATE_TIMEOUT_SECONDS = 5.0
 RECORD_FILENAME = "cloudflared-child.json"
 LOG_TAIL_LINES = 40
+
+
+def quick_tunnel_url(text: str) -> str | None:
+    """Return the minted quick-tunnel URL carried by one log line.
+
+    cloudflared calls ``https://api.trycloudflare.com`` while minting the
+    hostname, so that address must never be mistaken for the tunnel itself.
+    """
+
+    for match in QUICK_URL_PATTERN.finditer(text):
+        label = match.group(1).lower()
+        if label in QUICK_URL_BLOCKLIST:
+            continue
+        return f"https://{label}.trycloudflare.com"
+    return None
 
 
 class TunnelError(RuntimeError):
@@ -458,9 +479,9 @@ class TunnelManager:
                 self._log_tail.append(text)
                 del self._log_tail[:-LOG_TAIL_LINES]
                 if target.mode == "quick" and not self._minted_url:
-                    match = QUICK_URL_PATTERN.search(text)
+                    match = quick_tunnel_url(text)
                     if match:
-                        self._minted_url = match.group(0)
+                        self._minted_url = match
                         self._url_event.set()
                 if not self._connected_event.is_set() and CONNECTED_LOG_PATTERN.search(text):
                     self._connected_event.set()

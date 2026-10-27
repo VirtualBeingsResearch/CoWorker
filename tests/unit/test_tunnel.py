@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from coworker.api.admin import router_module as admin
 from coworker.core.config import Config, TunnelConfig
-from coworker.tunnel import TunnelError, TunnelManager, TunnelTarget
+from coworker.tunnel import TunnelError, TunnelManager, TunnelTarget, quick_tunnel_url
 from coworker.tunnel import manager as tunnel_module
 
 
@@ -119,6 +119,27 @@ def test_quick_allowed_emails_are_normalized() -> None:
     assert config.quick_allowed_emails == ["me@example.com"]
     with pytest.raises(ValidationError):
         TunnelConfig(_env_file=None, mode="quick", quick_allowed_emails=["not-an-email"])
+
+
+# ----------------------------------------------------------------------- parser
+
+
+def test_quick_url_ignores_the_quick_tunnel_api_endpoint() -> None:
+    line = 'ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": dial tcp'
+    assert quick_tunnel_url(line) is None
+
+
+def test_quick_url_reads_the_minted_hostname() -> None:
+    line = "INF |  https://demo-ui-check.trycloudflare.com                     |"
+    assert quick_tunnel_url(line) == "https://demo-ui-check.trycloudflare.com"
+
+
+def test_quick_url_normalizes_case_and_ignores_other_hosts() -> None:
+    assert (
+        quick_tunnel_url("Visit it at HTTPS://Foo-Bar.trycloudflare.com")
+        == "https://foo-bar.trycloudflare.com"
+    )
+    assert quick_tunnel_url("INF https://region1.v2.argotunnel.com") is None
 
 
 # -------------------------------------------------------------------- lifecycle
