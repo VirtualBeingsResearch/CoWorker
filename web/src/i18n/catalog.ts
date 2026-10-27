@@ -179,6 +179,7 @@ export const ENGLISH_PHRASES: Record<string, string> = {
   '连接失败，正在重试': 'Connection failed; retrying',
   '修改隧道配置': 'Edit tunnel configuration',
   '已检测到 cloudflared': 'cloudflared detected',
+  '已获取隧道地址，正在确认公网可达性…': 'Tunnel URL acquired; confirming public reachability…',
   '请先显式设置 API__COMMUNICATION_TOKEN 再启用隧道。': 'Set API__COMMUNICATION_TOKEN explicitly before enabling the tunnel.',
   '启用隧道前必须完成初始化。': 'Finish initial setup before enabling the tunnel.',
   '已停止': 'Stopped',

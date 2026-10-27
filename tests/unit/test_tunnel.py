@@ -124,6 +124,52 @@ def test_quick_allowed_emails_are_normalized() -> None:
 # -------------------------------------------------------------------- lifecycle
 
 
+async def test_named_tunnel_runs_when_edge_registers_despite_probe_failure(
+    manager: TunnelManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _probe(url: str) -> tuple[bool, int, int]:
+        return False, 0, 8
+
+    async def _spawn(target: TunnelTarget) -> None:
+        manager._process = _BlockingProcess()
+        manager._connected_event.set()
+
+    monkeypatch.setattr(manager, "_probe", _probe)
+    monkeypatch.setattr(manager, "_spawn", _spawn)
+
+    await manager.connect(
+        mode="named", token="tunnel-token", public_url="https://coworker.example.com"
+    )
+    await _wait_for_phase(manager, "running")
+
+    snapshot = manager.snapshot()
+    assert snapshot["phase"] == "running"
+    assert snapshot["url"] == "https://coworker.example.com"
+    await manager.stop()
+
+
+async def test_quick_tunnel_runs_when_edge_registers_despite_probe_failure(
+    manager: TunnelManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _probe(url: str) -> tuple[bool, int, int]:
+        return False, 0, 8
+
+    async def _spawn(target: TunnelTarget) -> None:
+        manager._process = _BlockingProcess()
+        manager._minted_url = "https://demo.trycloudflare.com"
+        manager._url_event.set()
+        manager._connected_event.set()
+
+    monkeypatch.setattr(manager, "_probe", _probe)
+    monkeypatch.setattr(manager, "_spawn", _spawn)
+
+    await manager.connect(mode="quick")
+    await _wait_for_phase(manager, "running")
+
+    assert manager.snapshot()["url"] == "https://demo.trycloudflare.com"
+    await manager.stop()
+
+
 async def test_quick_tunnel_reaches_running(
     manager: TunnelManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:

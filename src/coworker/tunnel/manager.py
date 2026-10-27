@@ -36,6 +36,9 @@ TunnelMode = Literal["quick", "named"]
 TunnelPhase = Literal["stopped", "starting", "running", "failed"]
 
 QUICK_URL_PATTERN = re.compile(r"https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com")
+CONNECTED_LOG_PATTERN = re.compile(
+    r"Registered tunnel connection|registered with protocol", re.IGNORECASE
+)
 URL_TIMEOUT_SECONDS = 30.0
 READY_TIMEOUT_SECONDS = 30.0
 PROBE_TIMEOUT_SECONDS = 10.0
@@ -97,6 +100,7 @@ class TunnelManager:
         self._log_tail: list[str] = []
         self._minted_url = ""
         self._url_event = asyncio.Event()
+        self._connected_event = asyncio.Event()
         self._record_path = (
             Path(config.agent.logs_dir).parent / "run" / RECORD_FILENAME
         )
@@ -176,6 +180,7 @@ class TunnelManager:
         self._error = ""
         self._minted_url = ""
         self._url_event.clear()
+        self._connected_event.clear()
         generation = self._generation
         self._runner = asyncio.create_task(
             self._run(generation), name="cloudflare-tunnel"
@@ -257,8 +262,8 @@ class TunnelManager:
             else:
                 url = target.public_url
             self._url = url
-            reachable = await self._await_reachable(url)
-            if not reachable:
+            ready = await self._await_ready(url)
+            if not ready:
                 raise TunnelError(tr("tunnel.url_timeout", url=url))
             self._started_at = datetime.now().isoformat(timespec="seconds")
             self._error = ""
@@ -423,6 +428,7 @@ class TunnelManager:
         self._log_tail.clear()
         self._minted_url = ""
         self._url_event.clear()
+        self._connected_event.clear()
         self._process = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.DEVNULL,
@@ -456,6 +462,8 @@ class TunnelManager:
                     if match:
                         self._minted_url = match.group(0)
                         self._url_event.set()
+                if not self._connected_event.is_set() and CONNECTED_LOG_PATTERN.search(text):
+                    self._connected_event.set()
                 logger.debug(f"cloudflared: {text}")
         except (asyncio.CancelledError, OSError):
             return
@@ -469,21 +477,36 @@ class TunnelManager:
             raise TunnelError(self._failure_detail(tr("tunnel.url_timeout_short")))
         return self._minted_url
 
-    async def _await_reachable(self, url: str) -> bool:
+    async def _await_ready(self, url: str) -> bool:
+        """Wait until cloudflared registers with the edge or the URL answers.
+
+        The connector's own registration log is the fastest truthful signal: the
+        public hostname may take longer to propagate than the connector takes to
+        come up, and a local probe can be blocked by egress filtering even when
+        the tunnel works for remote clients.
+        """
+
         deadline = time.monotonic() + READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
+            if self._connected_event.is_set():
+                return True
             reachable, _status, latency = await self._probe(url)
             self._health["latency_ms"] = latency
             if reachable:
                 return True
-            await asyncio.sleep(1.0)
-        return False
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._connected_event.wait(), timeout=1.0)
+            if self._connected_event.is_set():
+                return True
+        return self._connected_event.is_set()
 
     async def _probe(self, url: str) -> tuple[bool, int, int]:
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(
-                timeout=PROBE_TIMEOUT_SECONDS, follow_redirects=False
+                timeout=PROBE_TIMEOUT_SECONDS,
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.get(url)
             status = response.status_code

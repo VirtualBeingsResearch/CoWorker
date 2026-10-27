@@ -4455,28 +4455,29 @@ function TunnelAccess() {
     <section className={`relay-hero ${connected ? 'connected' : configured ? 'waiting' : 'idle'}`}>
       <div className="relay-signal"><CloudUpload size={26} /><i /></div>
       <div><span>{t('隧道状态')}</span><h3>{t(headline)}</h3>
-        <p>{connected && url ? url : phase === 'starting' && Boolean(data.error) ? t('连接失败，正在重试') : phase === 'starting' ? t('正在向 Cloudflare 建立连接，通常只需几秒。') : savedPublicUrl || t('通过 cloudflared 出站隧道访问；不会开放入站端口。')}</p>
+        <p>{url || (phase === 'starting' && Boolean(data.error) ? t('连接失败，正在重试') : phase === 'starting' ? t('正在向 Cloudflare 建立连接，通常只需几秒。') : savedPublicUrl || t('通过 cloudflared 出站隧道访问；不会开放入站端口。'))}</p>
       </div>
       <b className={`relay-status-badge ${connected ? 'ok' : phase === 'failed' ? 'error' : configured ? 'pending' : ''}`}>{t(badge)}</b>
     </section>
     {Boolean(data.error) && <div className="notice error" role="alert"><TriangleAlert size={18} /><span>{String(data.error)}</span></div>}
     {!binaryFound && <div className="notice amber" role="alert"><TriangleAlert size={18} /><span>{t('未检测到 cloudflared。容器镜像已内置；源码安装请使用 winget、brew 或 Cloudflare 官方软件源安装后重试。')}</span></div>}
     {(!setupReady || !tokenReady) && <div className="notice amber" role="alert"><TriangleAlert size={18} /><span>{t(headline)}</span>{!tokenReady && setupReady && <a className="ghost mini" href="/admin#settings">{t('去配置令牌')}</a>}</div>}
-    {connected && <div className="tunnel-live">
+    {url ? <div className="tunnel-live">
       <div className="relay-credentials">
         <article><span>{t('隧道地址')}</span><div><code>{url}</code><button className="ghost mini" onClick={() => void copy(url, '隧道地址')}>{t('复制到剪贴板')}</button><a className="ghost mini" href={url} target="_blank" rel="noreferrer">{t('在新标签打开')}</a></div></article>
         {qr && <article><span>{t('扫码打开')}</span><div><img className="tunnel-qr" src={qr} alt={t('隧道二维码')} width={180} height={180} /></div></article>}
       </div>
       <div className="tunnel-side">
-        <div className="tunnel-facts">
-          <span>{t('协议')} <b>{String(data.protocol || '')}</b></span>
-          <span>{t('上次探测')} <b>{health.last_probe_at ? String(health.last_probe_at) : t('尚无')}</b></span>
-          <span>{t('延迟')} <b>{health.latency_ms == null ? '—' : `${Math.round(Number(health.latency_ms))} ms`}</b></span>
-        </div>
+        {connected
+          ? <div className="tunnel-facts">
+            <span>{t('协议')} <b>{String(data.protocol || '')}</b></span>
+            <span>{t('上次探测')} <b>{health.last_probe_at ? formatDateTime(String(health.last_probe_at)) : t('尚无')}</b></span>
+            <span>{t('延迟')} <b>{health.latency_ms == null ? '—' : `${Math.round(Number(health.latency_ms))} ms`}</b></span>
+          </div>
+          : <div className="notice amber"><TriangleAlert size={16} /><span>{t('已获取隧道地址，正在确认公网可达性…')}</span></div>}
         {actions}
       </div>
-    </div>}
-    {!connected && (configured || url) && actions}
+    </div> : (configured && actions)}
     {connected
       ? <details className="tunnel-advanced"><summary><span><b>{t('修改配置并重新连接')}</b><small>{t('重新连接会复用已保存的令牌与地址。')}</small></span></summary>{connectForm}</details>
       : connectForm}

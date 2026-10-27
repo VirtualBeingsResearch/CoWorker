@@ -3955,7 +3955,8 @@ html:has(.admin-login),
 .tunnel-form { max-width: 1100px; }
 .tunnel-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 .tunnel-live { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(250px, .85fr); gap: 16px; align-items: start; margin-top: 12px; }
-.tunnel-live .relay-credentials { border: 1px solid var(--admin-line); border-radius: 12px; overflow: hidden; background: var(--admin-surface); }
+.tunnel-live .relay-credentials { border: 1px solid var(--admin-line); border-radius: 12px; overflow: hidden; background: var(--admin-surface); display: grid; grid-template-columns: 1fr; }
+.tunnel-live .relay-credentials article + article { border-left: 0; border-top: 1px solid var(--admin-line); }
 .tunnel-side { display: grid; gap: 10px; align-content: start; }
 .tunnel-side .relay-maintenance-actions { margin-top: 0; }
 .tunnel-matrix { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-surface); }
