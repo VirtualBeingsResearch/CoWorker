@@ -54,10 +54,19 @@ class TestBubbleMessageRouter:
     def test_internal_event_is_never_routed_to_bubble(self):
         store = BubbleStore()
         bubble = _bubble(store, participant_id="system")
+        web_bubble = _bubble(store, participant_id="search_web")
         router = BubbleMessageRouter(store)
 
-        assert router(IncomingEvent(participant_id="system", content="notice", source="system")) is False
+        assert (
+            router(IncomingEvent(participant_id="system", content="notice", source="system"))
+            is False
+        )
+        assert (
+            router(IncomingEvent(participant_id="search_web", content="result", source="web_async"))
+            is False
+        )
         assert bubble.inbox.empty()
+        assert web_bubble.inbox.empty()
 
     def test_routes_progress_notices_to_the_bubble_that_owns_the_participant(self):
         # 催促与超时通知是关于某个对象正在等待的会话，谁负责这个会话就该谁看到：

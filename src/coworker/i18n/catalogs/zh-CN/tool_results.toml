@@ -368,6 +368,14 @@ searxng_missing = "SearXNG 实例地址未配置。"
 searxng_auth = "SearXNG 实例需要认证。"
 searxng_forbidden = "SearXNG 实例拒绝访问。"
 
+[tool_result.web_async]
+pending = '''[{{tool}} 后台运行中] 已等待 {{seconds}} 秒仍未返回，已转入后台继续执行；结果完成后会自动作为异步消息送达。可先继续其他工作，不要重复发起同一请求；若长时间没有收到该异步结果（例如服务重启），可以重新发起一次。
+请求：{{request}}'''
+completed = '''[{{tool}} 异步结果] 请求：{{request}}
+{{content}}'''
+failed = '''[{{tool}} 异步结果] 请求：{{request}} 执行失败
+{{error}}'''
+
 [tool_result.client_tool]
 needs_name = "call_client_tool 需要 name。"
 not_openai = "call_client_tool 只能用于 OpenAI 信道地址，收到的是 '{{participant}}'。"

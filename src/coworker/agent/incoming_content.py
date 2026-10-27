@@ -28,6 +28,7 @@ _SELF_DESCRIBING_SOURCES = {
     "progress_reminder",
     "progress_expired",
     "channel_upload",
+    "web_async",
 }
 
 # 系统通知：participant_id 是占位符，但 content 不一定自带来源标记

@@ -85,6 +85,7 @@ def test_internal_sources_are_not_counted():
         _event("clock", source="alarm"),
         _event("watcher", source="file"),
         _event("parent", source="bubble"),
+        _event("search_web", source="web_async"),
     ]
     assert tracker.observe(batch) is None
 

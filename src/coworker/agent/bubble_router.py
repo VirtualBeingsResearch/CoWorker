@@ -28,6 +28,7 @@ _INTERNAL_SOURCES = {
     "compress_memory",
     "system",
     "task_reminder",
+    "web_async",
 }
 
 
