@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.8 - Unreleased
+
+- docs(release): finalize v0.4.7 changelog (#249)
+- feat(brain): refresh model catalogs and add DeepSeek search (#250)
+- feat(web-search): add Zhipu Coding Plan search (#252)
+- feat(web): polish Care Station console and localization (#253)
+- fix(config): migrate legacy OpenCode Go model IDs (#254)
+- fix(agent): interrupt in-flight model calls on switch and pause (#255)
+- feat(tools): return slow web search and fetch asynchronously (#256)
+- feat(tunnel): add Cloudflare Tunnel public access (#257)
+
 ## 0.4.7 - 2026-10-14
 
 - docs(release): finalize v0.4.6 changelog (#233)
