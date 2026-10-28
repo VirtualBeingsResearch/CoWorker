@@ -73,6 +73,9 @@ Coworker 进程不需要 root 权限，也不需要工作区之外的文件权�
   `API__COMMUNICATION_TOKEN` 使用强随机值，并限制来源网络。`API__PUBLIC_URL` 为浏览器
   实际访问的公开 origin，初始化和重启因此始终返回反向代理地址，而不是内部监听端口。
 - 公网 Desktop 通过[自托管 Relay](relay.md)访问。Relay 不是通用 HTTP/TCP 代理。
+- 需要临时从公网打开值守台或调用 `/v1` 时，可使用可选的[公网访问（Cloudflare Tunnel）](tunnel.md)。
+  它由本机主动建立出站连接；Cloudflare 在边缘能看到明文，且启用前必须显式配置
+  `API__COMMUNICATION_TOKEN`。
 
 ## 健康、日志与容量
 

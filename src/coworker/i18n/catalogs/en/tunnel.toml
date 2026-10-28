@@ -1,0 +1,21 @@
+[tunnel]
+binary_missing = "cloudflared was not found ({{path}}). Install it first: on Windows use winget install --id Cloudflare.cloudflared; on macOS use brew install cloudflared; on Debian/Ubuntu install it from Cloudflare's package repository; other platforms can download it from https://github.com/cloudflare/cloudflared/releases."
+binary_not_executable = "cloudflared exists but cannot run ({{path}}). The architecture may not match or the file is damaged; reinstall it."
+binary_outdated = "The installed cloudflared is too old to understand the startup flags. Upgrade it and retry."
+named_token_required = "Named mode requires a Cloudflare Tunnel token."
+named_public_url_required = "Named mode requires the public URL (for example https://coworker.example.com)."
+invalid_mode = "Unsupported tunnel mode: {{mode}}"
+not_configured = "No tunnel configuration is available yet."
+no_url = "The tunnel is not connected, so there is no public URL to probe."
+process_exited = "The cloudflared process exited unexpectedly"
+unhealthy = "The tunnel stopped answering at {{url}}"
+url_timeout = "The tunnel started, but {{url}} was not reachable in time"
+url_timeout_short = "Timed out waiting for the ephemeral tunnel URL"
+
+[api.tunnel]
+communication_token_required = "Set API__COMMUNICATION_TOKEN explicitly before enabling the tunnel; otherwise the chat and message routes stay unauthenticated."
+setup_incomplete = "Initial setup is not complete; the public tunnel cannot be enabled."
+qr_unavailable = "The tunnel is not connected, so there is no URL to encode."
+
+[api.state]
+tunnel_not_ready = "The tunnel manager is not ready"

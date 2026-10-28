@@ -51,6 +51,11 @@ For the current v0.x releases:
   `RELAY_TRUSTED_PROXY_CIDRS`.
 - Relay v1 is single-node. Do not share its bbolt volume among replicas or load-balance one
   instance's tunnel and requests across different replicas.
+- Optional [public access (Cloudflare Tunnel)](docs/operations/tunnel.en.md) does not replace
+  Relay: `cloudflared` terminates TLS at Cloudflare's edge, so Cloudflare can read plaintext. Set
+  `API__COMMUNICATION_TOKEN` explicitly before enabling it; prefer Cloudflare Access on the console
+  hostname and rate-limit `/api/admin/*`. Desktop cannot send Access credentials, so do not enable
+  Access on the hostname Desktop uses.
 - Keep `.env`, `providers.json`, runtime data, logs, exported configuration, and desktop credentials
   out of commits and vulnerability reports.
 

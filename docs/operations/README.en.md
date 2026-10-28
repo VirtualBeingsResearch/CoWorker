@@ -14,5 +14,6 @@ This domain contains configuration and operational guidance for deploying and ru
 - [Observability and Routine Operations](observability.en.md): health, diagnostics, logs, usage, cost, and routine checks.
 - [Troubleshooting](troubleshooting.en.md): one diagnostic order for the service, console, models, memory, Desktop, Relay, and containers.
 - [Self-hosted Relay](relay.en.md): path-based public access, end-to-end encryption, pairing, bans, and operations.
+- [Public access (Cloudflare Tunnel)](tunnel.en.md): outbound tunnels, temporary versus fixed hostnames, capability limits, and security prerequisites.
 - [Relay v1 protocol](relay-protocol.en.md): key derivation, inner TLS, virtual HTTP, and compatibility boundaries.
 - For local data, external services, and cleanup scope, see [Data and trust boundaries](../architecture/data-boundaries.en.md).

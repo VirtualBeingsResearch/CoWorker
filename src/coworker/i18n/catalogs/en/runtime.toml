@@ -582,3 +582,11 @@ system_started = "The system started. Current time: {{time}}. {{environment}}."
 
 [system]
 memory_backend_missing_deps = "Cannot start: the configured long-term memory backend \"{{backend}}\" is missing required dependencies ({{missing}}). Install them with `uv sync --extra mem0`."
+
+[config.tunnel]
+public_url_invalid = "TUNNEL__PUBLIC_URL is not a valid URL"
+public_url_https = "TUNNEL__PUBLIC_URL must use https"
+public_url_origin_only = "TUNNEL__PUBLIC_URL must contain only scheme, host, and port; no path, query, or credentials"
+token_required = "TUNNEL__MODE=named requires TUNNEL__TOKEN"
+public_url_required = "TUNNEL__MODE=named requires TUNNEL__PUBLIC_URL"
+allowed_email_invalid = "Invalid email in TUNNEL__QUICK_ALLOWED_EMAILS: {{email}}"

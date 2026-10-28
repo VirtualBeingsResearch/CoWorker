@@ -14,5 +14,6 @@
 - [可观测性与日常运维](observability.md)：健康、诊断、日志、用量、成本和巡检节奏。
 - [故障排查](troubleshooting.md)：服务、管理端、模型、记忆、Desktop、Relay 和容器的统一检查顺序。
 - [自托管中继（Relay）](relay.md)：路径型公网入口、端到端加密、配对、封禁与运维。
+- [公网访问（Cloudflare Tunnel）](tunnel.md)：出站隧道、临时与固定域名、能力边界和安全前提。
 - [Relay v1 协议](relay-protocol.md)：密钥派生、内层 TLS、虚拟 HTTP 与兼容边界。
 - 涉及本地数据、外部服务和清理范围时，另见[数据与信任边界](../architecture/data-boundaries.md)。

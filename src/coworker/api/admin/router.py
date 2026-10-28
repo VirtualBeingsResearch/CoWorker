@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import io
 import json
 import os
 import re
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import qrcode
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -49,6 +51,7 @@ from coworker.core.config import (
     effective_admin_token,
     effective_communication_token,
     load_admin_overrides,
+    write_admin_overrides,
 )
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
@@ -62,6 +65,7 @@ from coworker.prompts.template import (
     SYSTEM_PROMPT_VARIABLES,
     resolve_system_prompt_template,
 )
+from coworker.tunnel import TunnelError, TunnelManager
 
 if TYPE_CHECKING:
     from coworker.agent.bubble import Bubble, BubbleStore
@@ -101,6 +105,8 @@ _channel_modules: ChannelModuleRegistry | None = None
 _process_started_at: datetime = datetime.now()
 _admin_config_service: AdminConfigService | None = None
 _relay_client: RelayClient | None = None
+_tunnel_manager: TunnelManager | None = None
+_setup_required = False
 _person_store: PersonStore | None = None
 _persona_cards: PersonaCard | None = None
 _usage_stats: UsageStatsCollector | None = None
@@ -295,6 +301,8 @@ def setup_admin(
     desktop_update_sync: SyncService | None = None,
     inherited_config: Config | None = None,
     relay_client: RelayClient | None = None,
+    tunnel_manager: TunnelManager | None = None,
+    setup_required: bool = False,
     person_store: PersonStore | None = None,
     persona_cards: PersonaCard | None = None,
     usage_stats: UsageStatsCollector | None = None,
@@ -311,6 +319,8 @@ def setup_admin(
         _desktop_update_sync, \
         _admin_config_service, \
         _relay_client, \
+        _tunnel_manager, \
+        _setup_required, \
         _person_store, \
         _persona_cards, \
         _usage_stats
@@ -324,6 +334,8 @@ def setup_admin(
     _mode_loader = mode_loader
     _desktop_update_sync = desktop_update_sync
     _relay_client = relay_client
+    _tunnel_manager = tunnel_manager
+    _setup_required = setup_required
     _person_store = person_store
     _persona_cards = persona_cards
     _usage_stats = usage_stats
@@ -1605,6 +1617,172 @@ async def disconnect_relay(
     await _require_relay_client().disconnect()
     _audit(request, "relay.disconnect", instance_id or "relay")
     return Response(status_code=204)
+
+
+class TunnelConnectPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["quick", "named"]
+    token: str = Field(default="", max_length=8192)
+    public_url: str = Field(default="", max_length=2048)
+    allowed_emails: list[str] = Field(default_factory=list, max_length=20)
+
+
+def _require_tunnel_manager() -> TunnelManager:
+    if _tunnel_manager is None:
+        raise HTTPException(status_code=503, detail=tr("api.state.tunnel_not_ready"))
+    return _tunnel_manager
+
+
+def _tunnel_prerequisites() -> dict[str, bool]:
+    from coworker.api.routes import communication_token_required
+
+    return {
+        "communication_token": communication_token_required(),
+        "setup_complete": not _setup_required,
+    }
+
+
+def _require_tunnel_prerequisites() -> None:
+    prerequisites = _tunnel_prerequisites()
+    if not prerequisites["setup_complete"]:
+        raise HTTPException(status_code=409, detail=tr("api.tunnel.setup_incomplete"))
+    if not prerequisites["communication_token"]:
+        raise HTTPException(
+            status_code=409, detail=tr("api.tunnel.communication_token_required")
+        )
+
+
+def _persist_tunnel_settings(
+    *,
+    mode: str,
+    token: str = "",
+    public_url: str = "",
+    allowed_emails: list[str] | None = None,
+) -> None:
+    """Persist the tunnel section so the next process start restores it."""
+
+    config = _require_config()
+    path = Path(config.admin.config_file)
+    overrides = load_admin_overrides(path)
+    current = overrides.get("tunnel")
+    section = dict(current) if isinstance(current, dict) else {}
+    emails = list(allowed_emails or [])
+    section["mode"] = mode
+    section["quick_allowed_emails"] = emails
+    if mode == "named":
+        section["public_url"] = public_url.strip().rstrip("/")
+        if token.strip():
+            section["token"] = token.strip()
+    else:
+        section["public_url"] = ""
+        section.pop("token", None)
+    overrides["tunnel"] = section
+    write_admin_overrides(path, overrides)
+    # Keep the running process's config object consistent with the saved state.
+    config.tunnel.mode = cast(Any, mode)
+    config.tunnel.public_url = str(section.get("public_url") or "")
+    config.tunnel.quick_allowed_emails = emails
+    if mode == "named" and token.strip():
+        config.tunnel.token = token.strip()
+
+
+@router.get("/tunnel")
+async def get_tunnel(_: None = Depends(require_admin)) -> ApiResponse:
+    manager = _require_tunnel_manager()
+    await manager.refresh_binary()
+    return {
+        **manager.snapshot(),
+        "prerequisites": _tunnel_prerequisites(),
+    }
+
+
+@router.post("/tunnel/connect")
+async def connect_tunnel(
+    payload: TunnelConnectPayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    _require_tunnel_prerequisites()
+    config = _require_config()
+    token = payload.token.strip() or config.tunnel.token.strip()
+    public_url = payload.public_url.strip() or config.tunnel.public_url
+    try:
+        snapshot = await _require_tunnel_manager().connect(
+            mode=payload.mode,
+            token=token,
+            public_url=public_url,
+            allowed_emails=payload.allowed_emails,
+        )
+    except TunnelError as error:
+        _audit(
+            request, "tunnel.connect", payload.mode, result="error", detail=str(error)
+        )
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    _persist_tunnel_settings(
+        mode=payload.mode,
+        token=token,
+        public_url=public_url,
+        allowed_emails=payload.allowed_emails,
+    )
+    _audit(request, "tunnel.connect", payload.mode)
+    return {**snapshot, "prerequisites": _tunnel_prerequisites()}
+
+
+@router.post("/tunnel/reconnect", status_code=202)
+async def reconnect_tunnel(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    _require_tunnel_prerequisites()
+    try:
+        snapshot = await _require_tunnel_manager().reconnect()
+    except TunnelError as error:
+        _audit(
+            request, "tunnel.reconnect", "tunnel", result="error", detail=str(error)
+        )
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    _audit(request, "tunnel.reconnect", "tunnel")
+    return {"accepted": True, **snapshot}
+
+
+@router.post("/tunnel/test")
+async def test_tunnel(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    try:
+        result = await _require_tunnel_manager().test()
+    except TunnelError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    _audit(request, "tunnel.test", str(result.get("url", "tunnel")))
+    return result
+
+
+@router.delete("/tunnel", status_code=204)
+async def disconnect_tunnel(
+    request: Request,
+    _: None = Depends(require_admin),
+) -> Response:
+    await _require_tunnel_manager().stop()
+    _persist_tunnel_settings(mode="off")
+    _audit(request, "tunnel.disconnect", "tunnel")
+    return Response(status_code=204)
+
+
+@router.get("/tunnel/qr.png")
+async def tunnel_qr(_: None = Depends(require_admin)) -> Response:
+    url = str(_require_tunnel_manager().snapshot().get("url") or "")
+    if not url:
+        raise HTTPException(status_code=404, detail=tr("api.tunnel.qr_unavailable"))
+    image = qrcode.make(url)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/channels/{channel_name}/management/{command}")

@@ -73,6 +73,7 @@ Runtime configuration, model providers, multi-instance setup, and operational gu
 - [Observability and Routine Operations](operations/observability.en.md)
 - [Troubleshooting](operations/troubleshooting.en.md)
 - [Self-hosted Relay](operations/relay.en.md)
+- [Public access (Cloudflare Tunnel)](operations/tunnel.en.md)
 - [Relay v1 protocol](operations/relay-protocol.en.md)
 
 ### [Development and collaboration](development/README.en.md)

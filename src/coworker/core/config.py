@@ -519,6 +519,76 @@ class RelayConfig(_EnvSettings):
         return value
 
 
+class TunnelConfig(_EnvSettings):
+    """Optional Cloudflare Tunnel exposure for the local API."""
+
+    model_config = SettingsConfigDict(env_prefix="TUNNEL__", env_file=".env", extra="ignore")
+
+    # off: no child process; quick: ephemeral trycloudflare hostname; named: fixed hostname.
+    mode: Literal["off", "quick", "named"] = "off"
+    # cloudflared named-tunnel token. Passed through TUNNEL_TOKEN, never argv.
+    token: str = Field(default="", repr=False)
+    # Public origin for named mode, e.g. https://coworker.example.com
+    public_url: str = Field(default="", max_length=2048)
+    protocol: Literal["auto", "http2", "quic"] = "http2"
+    # Optional explicit path to the cloudflared binary; defaults to PATH lookup.
+    binary: str = ""
+    # Quick mode only: restrict access with cloudflared --allowed-mail.
+    quick_allowed_emails: list[str] = Field(default_factory=list)
+
+    @field_validator("public_url")
+    @classmethod
+    def _validate_public_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        try:
+            parsed.port
+        except ValueError as error:
+            raise ValueError(tr("config.tunnel.public_url_invalid")) from error
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError(tr("config.tunnel.public_url_https"))
+        if parsed.hostname in {"0.0.0.0", "::"}:
+            raise ValueError(tr("config.tunnel.public_url_invalid"))
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(tr("config.tunnel.public_url_origin_only"))
+        return value
+
+    @field_validator("binary")
+    @classmethod
+    def _validate_binary(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("quick_allowed_emails")
+    @classmethod
+    def _validate_allowed_emails(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for item in value:
+            email = str(item).strip()
+            if not email:
+                continue
+            if "@" not in email or len(email) > 254:
+                raise ValueError(tr("config.tunnel.allowed_email_invalid", email=email))
+            cleaned.append(email)
+        return cleaned
+
+    @model_validator(mode="after")
+    def _require_named_fields(self) -> TunnelConfig:
+        if self.mode == "named":
+            if not self.token.strip():
+                raise ValueError(tr("config.tunnel.token_required"))
+            if not self.public_url:
+                raise ValueError(tr("config.tunnel.public_url_required"))
+        return self
+
+
 class DesktopUpdateSourceBase(BaseModel):
     """A named upstream connection.  ``id`` is the durable identity; ``name`` is display-only."""
 
@@ -1190,6 +1260,7 @@ class Config(_EnvSettings):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     api: APIConfig = Field(default_factory=APIConfig)
     relay: RelayConfig = Field(default_factory=RelayConfig)
+    tunnel: TunnelConfig = Field(default_factory=TunnelConfig)
     desktop_updates: DesktopUpdatesConfig = Field(default_factory=DesktopUpdatesConfig)
     admin: AdminConfig = Field(default_factory=AdminConfig)
     i18n: I18NConfig = Field(default_factory=I18NConfig)

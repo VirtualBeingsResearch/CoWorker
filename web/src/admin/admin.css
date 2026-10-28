@@ -3946,3 +3946,59 @@ html:has(.admin-login),
 @media (max-width: 1280px) {
   .channel-access-grid { grid-template-columns: 1fr; }
 }
+
+/* Cloudflare Tunnel card */
+.remote-access-tabs { display: inline-flex; width: fit-content; gap: 6px; padding: 4px; border: 1px solid var(--admin-line); border-radius: 999px; background: var(--admin-surface); align-self: flex-start; }
+.remote-access-tabs button { padding: 7px 15px; border: 0; border-radius: 999px; color: var(--admin-muted); background: transparent; font-size: 12px; cursor: pointer; transition: color .16s ease, background .16s ease; }
+.remote-access-tabs button:hover { color: var(--admin-ink); }
+.remote-access-tabs button.active { color: var(--admin-ink); background: color-mix(in oklch, var(--admin-vital) 10%, var(--admin-surface)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--admin-vital) 30%, transparent); }
+.tunnel-form { max-width: 1100px; }
+.tunnel-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.tunnel-live { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(250px, .85fr); gap: 16px; align-items: start; margin-top: 12px; }
+.tunnel-live .relay-credentials { border: 1px solid var(--admin-line); border-radius: 12px; overflow: hidden; background: var(--admin-surface); display: grid; grid-template-columns: 1fr; }
+.tunnel-live .relay-credentials article + article { border-left: 0; border-top: 1px solid var(--admin-line); }
+.tunnel-side { display: grid; gap: 10px; align-content: start; }
+.tunnel-side .relay-maintenance-actions { margin-top: 0; }
+.tunnel-matrix { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-surface); }
+.tunnel-advanced { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-surface); }
+.tunnel-advanced summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.tunnel-advanced summary::-webkit-details-marker { display: none; }
+.tunnel-advanced summary span { display: grid; gap: 3px; }
+.tunnel-advanced summary small { color: var(--admin-muted); font-size: 11px; }
+.tunnel-advanced[open] { padding-bottom: 4px; }
+.tunnel-matrix summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.tunnel-matrix summary::-webkit-details-marker { display: none; }
+.tunnel-matrix summary span { display: grid; gap: 3px; }
+.tunnel-matrix summary small { color: var(--admin-muted); font-size: 11px; }
+.tunnel-matrix[open] { padding-bottom: 16px; }
+.tunnel-matrix .relay-health-grid { margin-top: 12px; }
+.tunnel-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tunnel-mode-switch button {
+  display: grid; gap: 4px; padding: 12px 14px;
+  border: 1px solid var(--admin-line); border-radius: 11px;
+  color: var(--admin-ink); background: var(--admin-surface);
+  text-align: left; cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.tunnel-mode-switch button:hover { border-color: color-mix(in oklch, var(--admin-vital) 34%, var(--admin-line)); }
+.tunnel-mode-switch button.active {
+  border-color: var(--admin-vital);
+  background: color-mix(in oklch, var(--admin-vital) 7%, var(--admin-surface));
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--admin-vital) 10%, transparent);
+}
+.tunnel-mode-switch b { font-size: 13px; }
+.tunnel-mode-switch small { color: var(--admin-muted); font-size: 11px; line-height: 1.45; }
+.tunnel-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 10px; }
+.tunnel-facts span { color: var(--admin-muted); font-size: 11px; }
+.tunnel-facts b { color: var(--admin-ink); font-weight: 600; }
+.tunnel-error { color: color-mix(in oklch, var(--admin-red) 76%, var(--admin-ink)); }
+.tunnel-qr { border-radius: 10px; background: white; padding: 6px; }
+
+@media (max-width: 980px) {
+  .tunnel-live { grid-template-columns: 1fr; }
+  .tunnel-form-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .tunnel-mode-switch { grid-template-columns: 1fr; }
+}

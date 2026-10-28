@@ -34,6 +34,14 @@ ARG COWORKER_BUNDLE_REPOSITORY_URL
 ARG COWORKER_BUNDLE_REPOSITORY_REF
 ARG WITH_MEM0=true
 
+# Bundled Cloudflare Tunnel connector. Pinned by version and digest so an image
+# never ships a binary that was not the one reviewed here.
+ARG TARGETARCH=amd64
+ARG CLOUDFLARED_VERSION=2026.10.3
+ARG CLOUDFLARED_SHA256_AMD64=053b80b0a23031a038fdbf3c073f59f82b8f1f152aa67971d7383ffafc0dbab0
+ARG CLOUDFLARED_SHA256_ARM64=89297ebfb9e8c99c0dc013a1140601453cf3798d8306c5591651f4a3f5210be8
+ARG CLOUDFLARED_SHA256_ARM=76f35faae119881ddf766b61baa9e27803aea6bea7111ed4170ed1b7a5c8637e
+
 # Install system deps, lightweight workspace tools, and Node.js 24 via NodeSource.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl ffmpeg git gnupg jq less nano openssh-client ripgrep \
@@ -47,6 +55,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && ln -s /usr/bin/vim.tiny /usr/local/bin/vim \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the pinned cloudflared binary and verify its digest. The application
+# only supervises this binary; it never downloads or updates it at runtime.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) asset="cloudflared-linux-amd64"; digest="${CLOUDFLARED_SHA256_AMD64}" ;; \
+      arm64) asset="cloudflared-linux-arm64"; digest="${CLOUDFLARED_SHA256_ARM64}" ;; \
+      arm) asset="cloudflared-linux-arm"; digest="${CLOUDFLARED_SHA256_ARM}" ;; \
+      *) echo "unsupported TARGETARCH for cloudflared: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/cloudflared \
+      "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${asset}"; \
+    echo "${digest}  /usr/local/bin/cloudflared" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/cloudflared; \
+    mkdir -p /usr/share/doc/cloudflared; \
+    curl -fsSL -o /usr/share/doc/cloudflared/LICENSE \
+      "https://github.com/cloudflare/cloudflared/raw/${CLOUDFLARED_VERSION}/LICENSE"; \
+    cloudflared --version
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
