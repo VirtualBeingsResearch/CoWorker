@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.8 - Unreleased
+## 0.4.8 - 2026-10-28
 
 - docs(release): finalize v0.4.7 changelog (#249)
 - feat(brain): refresh model catalogs and add DeepSeek search (#250)
