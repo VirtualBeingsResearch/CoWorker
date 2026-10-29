@@ -82,6 +82,7 @@ backup_full = "[系统通知] 已从应急备份 {{name}} 恢复 {{count}} 条�
 backfill_empty = "记忆树回溯完成：无可回溯的历史内容。"
 backfill_done = "记忆树回溯完成：从原始日志重建，生成 {{leaves}} 个叶子，脊柱 {{nodes}} 节点。"
 backfill_failed = "记忆树回溯失败：{{error}}"
+full_compression_done = "[记忆压缩] 后台全量压缩完成：已压缩 {{count}} 条短期记忆消息，耗时 {{seconds}} 秒。"
 profile_reminder = "[档案自述提醒] 请用 write_file 生成或更新 `{{path}}`，作为 /profile 状态页展示的模型自述。建议 {{max_chars}} 字以内；超过 {{days}} 天未更新时会再次提醒。"
 
 [channel.wecom]

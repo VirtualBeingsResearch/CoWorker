@@ -82,6 +82,7 @@ backup_full = "[system notice] Restored {{count}} messages from emergency backup
 backfill_empty = "Memory-tree backfill completed: no historical content was available."
 backfill_done = "Memory-tree backfill completed from raw logs: {{leaves}} leaves and {{nodes}} spine nodes were generated."
 backfill_failed = "Memory-tree backfill failed: {{error}}"
+full_compression_done = "[memory compression] Background full compression finished: {{count}} short-term messages compressed in {{seconds}} seconds."
 profile_reminder = "[profile reminder] Use write_file to create or update `{{path}}` as the model-authored description shown on /profile. Keep it within {{max_chars}} characters; another reminder is sent after {{days}} days without an update."
 
 [channel.wecom]
