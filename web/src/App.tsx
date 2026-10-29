@@ -674,6 +674,13 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
                   share: formatCacheRate(windowStats.reasoning_output_share),
                 })
                 : t('{{count}} 轮推理', { count: formatCount(windowStats.thinking_calls) })}
+              title={windowStats.reasoning_tracking_coverage != null
+                && windowStats.reasoning_tracking_coverage < 1
+                ? t('思考数据覆盖 {{covered}}/{{total}} 次调用', {
+                  covered: formatCount(windowStats.reasoning_tracked_calls),
+                  total: formatCount(windowStats.tracked_calls),
+                })
+                : undefined}
               compact
               icon={Timer}
             />

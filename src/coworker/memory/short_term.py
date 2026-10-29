@@ -44,6 +44,9 @@ class _CompressionUsage:
     output_tokens: int = 0
     # 其中被思考消耗的部分；provider 不区分时为 0。
     reasoning_tokens: int = 0
+    # Provider 确实返回 reasoning_tokens 的摘要调用数；旧日志与不返回该字段的
+    # Provider 不计入，避免把思考平均值摊薄。
+    reasoning_tracked_calls: int = 0
     cached_tokens: int = 0
 
     @staticmethod
@@ -69,6 +72,8 @@ class _CompressionUsage:
         self.output_tokens += output_tokens
         # 思考 token 是 output_tokens 的子集；超出部分视为 provider 数据异常，不让计数互相矛盾。
         self.reasoning_tokens += min(output_tokens, self._token_value(usage.get("reasoning_tokens")))
+        if "reasoning_tokens" in usage and usage.get("reasoning_tokens") is not None:
+            self.reasoning_tracked_calls += 1
         self.cached_tokens += self._token_value(usage.get("cached_tokens"))
 
 class ShortTermMemory:
@@ -145,6 +150,7 @@ class ShortTermMemory:
             "summary_input_tokens": usage.input_tokens,
             "summary_output_tokens": usage.output_tokens,
             "summary_reasoning_tokens": usage.reasoning_tokens,
+            "summary_reasoning_tracked_calls": usage.reasoning_tracked_calls,
             "summary_content_output_tokens": max(
                 0, usage.output_tokens - usage.reasoning_tokens
             ),

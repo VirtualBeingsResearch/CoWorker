@@ -134,6 +134,9 @@ When a Provider reports thinking tokens separately, summary content tokens are t
 output minus thinking, and both memory-tree node size and compression statistics use
 the content count (Anthropic exposes it through `output_tokens_details.thinking_tokens`).
 Providers that do not split thinking tokens can only be counted by total output.
+Thinking averages include only calls whose Provider actually returned thinking tokens:
+old logs and calls without that field stay out of the denominator, and the console
+shows the covered-call ratio as thinking coverage.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Diagnostics and Audit, logs, and the

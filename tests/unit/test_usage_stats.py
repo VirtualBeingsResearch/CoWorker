@@ -159,23 +159,29 @@ def test_separates_reasoning_tokens_from_output():
 
     today = collector.snapshot()["today"]
 
-    assert today["output_tokens"] == 280
+    assert today["tracked_calls"] == 2
+    assert today["reasoning_tracked_calls"] == 1
+    assert today["reasoning_tracking_coverage"] == 0.5
     assert today["reasoning_tokens"] == 200
+    assert today["avg_reasoning_tokens_per_call"] == 200
+    assert today["reasoning_output_share"] == 0.8
+    assert today["output_tokens"] == 280
     assert today["content_output_tokens"] == 80
     assert today["total_tokens"] == 430
-    assert today["avg_reasoning_tokens_per_call"] == 100
-    assert today["reasoning_output_share"] == 200 / 280
     assert today["by_model"]["gpt-5"]["reasoning_tokens"] == 200
     assert today["by_model"]["gpt-5"]["content_output_tokens"] == 50
     assert today["by_model"]["gpt-5"]["avg_reasoning_tokens_per_call"] == 200
     assert today["by_model"]["gpt-5"]["reasoning_output_share"] == 0.8
+    assert today["by_model"]["gpt-5"]["reasoning_tracking_coverage"] == 1
     assert today["by_provider_model"]["openai/gpt-5"]["reasoning_tokens"] == 200
     assert today["by_provider_model"]["openai/gpt-5"]["content_output_tokens"] == 50
-    # 没有拆分数据的 provider 退回「正文 = 总输出」。
+    # 没有拆分数据的 provider 退回「正文 = 总输出」，且不摊薄思考平均值。
     assert today["by_model"]["claude"]["reasoning_tokens"] == 0
     assert today["by_model"]["claude"]["content_output_tokens"] == 30
-    assert today["by_model"]["claude"]["avg_reasoning_tokens_per_call"] == 0
-    assert today["by_model"]["claude"]["reasoning_output_share"] == 0
+    assert today["by_model"]["claude"]["reasoning_tracked_calls"] == 0
+    assert today["by_model"]["claude"]["avg_reasoning_tokens_per_call"] is None
+    assert today["by_model"]["claude"]["reasoning_output_share"] is None
+    assert today["by_model"]["claude"]["reasoning_tracking_coverage"] == 0
 
 
 def test_provider_model_breakdown_separates_same_model_across_providers():
@@ -750,11 +756,12 @@ def test_memory_compression_separates_reasoning_tokens_from_summary_content():
             "summary_input_tokens": 100,
             "summary_output_tokens": 60,
             "summary_reasoning_tokens": 40,
+            "summary_reasoning_tracked_calls": 1,
             "summary_content_output_tokens": 20,
             "summary_cached_tokens": 10,
         },
         {
-            # 旧日志没有拆分思考 token：内容退回总输出，避免历史统计骤降为 0。
+            # 旧日志没有拆分思考 token：内容退回总输出，且不摊薄思考平均值。
             "type": "memory_compression",
             "seq": 1,
             "ts": "2026-06-29T10:15:00",
@@ -772,12 +779,14 @@ def test_memory_compression_separates_reasoning_tokens_from_summary_content():
     assert today["memory_compression_output_tokens"] == 90
     assert today["memory_compression_reasoning_tokens"] == 40
     assert today["memory_compression_content_output_tokens"] == 50
+    assert today["memory_compression_reasoning_compressions"] == 1
+    assert today["memory_compression_reasoning_coverage"] == 0.5
     assert today["memory_compression_total_tokens"] == 240
     assert today["avg_memory_compression_content_tokens"] == 25
-    assert today["avg_memory_compression_reasoning_tokens"] == 20
+    assert today["avg_memory_compression_reasoning_tokens"] == 40
     assert today["by_scope"]["main"]["memory_compression_content_output_tokens"] == 50
     assert today["by_scope"]["main"]["avg_memory_compression_content_tokens"] == 25
-    assert today["by_scope"]["main"]["avg_memory_compression_reasoning_tokens"] == 20
+    assert today["by_scope"]["main"]["avg_memory_compression_reasoning_tokens"] == 40
 
 
 def test_public_snapshot_does_not_expose_memory_compression_details():

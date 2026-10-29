@@ -204,6 +204,7 @@ function exportCsv(
     'reasoning_tokens',
     'content_output_tokens',
     'reasoning_output_share',
+    'reasoning_tracking_coverage',
     'avg_reasoning_tokens_per_call',
     'total_tokens',
     'llm_calls',
@@ -228,6 +229,7 @@ function exportCsv(
     'memory_compression_content_output_tokens',
     'avg_memory_compression_content_tokens',
     'avg_memory_compression_reasoning_tokens',
+    'memory_compression_reasoning_coverage',
     'priced_tokens',
     'unpriced_tokens',
     'pricing_coverage',
@@ -1015,7 +1017,12 @@ export function AdminUsageAnalytics({
               : t('未定价')}</td>
             <td>{formatOptionalTokenUnits(item.avg_tokens_per_call)}</td>
             <td title={finite(item.reasoning_output_share) > 0
-              ? t('占输出 {{share}}', { share: formatCacheRate(item.reasoning_output_share) })
+              ? finite(item.reasoning_tracking_coverage) < 1
+                ? t('占输出 {{share}} · 思考覆盖 {{coverage}}', {
+                  share: formatCacheRate(item.reasoning_output_share),
+                  coverage: formatCacheRate(item.reasoning_tracking_coverage),
+                })
+                : t('占输出 {{share}}', { share: formatCacheRate(item.reasoning_output_share) })
               : undefined}>{formatOptionalTokenUnits(item.avg_reasoning_tokens_per_call)}</td>
             <td>{formatCacheRate(item.cache_rate)}</td>
             <td>{formatCacheRate(item.exact_coverage)}</td>

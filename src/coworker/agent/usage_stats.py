@@ -22,6 +22,8 @@ _METRIC_KEYS = (
     "output_tokens",
     "cached_tokens",
     "reasoning_tokens",
+    "reasoning_tracked_calls",
+    "reasoning_tracked_output_tokens",
     "tool_calls",
     "tool_successes",
     "tool_errors",
@@ -47,6 +49,7 @@ _METRIC_KEYS = (
     "memory_compression_output_tokens",
     "memory_compression_reasoning_tokens",
     "memory_compression_content_output_tokens",
+    "memory_compression_reasoning_compressions",
     "memory_compression_cached_tokens",
 )
 _SCHEMA_VERSION = 11
@@ -65,6 +68,8 @@ _SUMMARY_KEYS = (
     "cached_tokens",
     "reasoning_tokens",
     "content_output_tokens",
+    "reasoning_tracked_calls",
+    "reasoning_tracking_coverage",
     "reasoning_output_share",
     "total_tokens",
     "avg_tokens_per_call",
@@ -103,6 +108,8 @@ _SUMMARY_KEYS = (
     "memory_compression_output_tokens",
     "memory_compression_reasoning_tokens",
     "memory_compression_content_output_tokens",
+    "memory_compression_reasoning_compressions",
+    "memory_compression_reasoning_coverage",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
     "avg_memory_compression_content_tokens",
@@ -171,6 +178,8 @@ _ADMIN_WINDOW_KEYS = {
     "memory_compression_output_tokens",
     "memory_compression_reasoning_tokens",
     "memory_compression_content_output_tokens",
+    "memory_compression_reasoning_compressions",
+    "memory_compression_reasoning_coverage",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
     "avg_memory_compression_content_tokens",
@@ -189,6 +198,8 @@ def _new_model_bucket() -> dict[str, int]:
         "output_tokens": 0,
         "cached_tokens": 0,
         "reasoning_tokens": 0,
+        "reasoning_tracked_calls": 0,
+        "reasoning_tracked_output_tokens": 0,
     }
 
 
@@ -203,6 +214,8 @@ def _new_provider_model_bucket(provider: str, model: str) -> dict[str, Any]:
         "output_tokens": 0,
         "cached_tokens": 0,
         "reasoning_tokens": 0,
+        "reasoning_tracked_calls": 0,
+        "reasoning_tracked_output_tokens": 0,
     }
 
 
@@ -241,6 +254,8 @@ def _new_bucket() -> dict[str, Any]:
         "output_tokens": 0,
         "cached_tokens": 0,
         "reasoning_tokens": 0,
+        "reasoning_tracked_calls": 0,
+        "reasoning_tracked_output_tokens": 0,
         "tool_calls": 0,
         "tool_successes": 0,
         "tool_errors": 0,
@@ -268,6 +283,7 @@ def _new_bucket() -> dict[str, Any]:
         "memory_compression_output_tokens": 0,
         "memory_compression_reasoning_tokens": 0,
         "memory_compression_content_output_tokens": 0,
+        "memory_compression_reasoning_compressions": 0,
         "memory_compression_cached_tokens": 0,
         "memory_compression_triggers": _new_compression_trigger_bucket(),
         "last_memory_compression_at": None,
@@ -346,6 +362,13 @@ def _add_usage(
         bucket[key] += value
         model_bucket[key] += value
         provider_model_bucket[key] += value
+    # 只有 Provider 真正返回思考 token 的调用才进入思考平均值分母：
+    # 旧日志、以及不返回该字段的 Provider 不会把平均值摊薄。
+    if "reasoning_tokens" in usage and usage.get("reasoning_tokens") is not None:
+        output_tokens = _int_value(usage.get("output_tokens"))
+        for target in (bucket, model_bucket, provider_model_bucket):
+            target["reasoning_tracked_calls"] += 1
+            target["reasoning_tracked_output_tokens"] += output_tokens
 
 
 def _add_tool_call(bucket: dict[str, Any], tool_name: str) -> None:
@@ -427,6 +450,13 @@ def _add_memory_compression(
         summary_output_tokens,
         _int_value(entry.get("summary_reasoning_tokens")),
     )
+    summary_reasoning_tracked_calls = min(
+        _int_value(entry.get("summary_calls")),
+        _int_value(entry.get("summary_reasoning_tracked_calls")),
+    )
+    # 只有真正上报思考 token 的压缩才参与「每次压缩平均思考」。
+    if summary_reasoning_tracked_calls:
+        bucket["memory_compression_reasoning_compressions"] += 1
     # 旧日志没有拆分思考 token，退回总输出，保持「摘要内容」不为 0。
     summary_content_tokens = entry.get("summary_content_output_tokens")
     bucket["memory_compression_output_tokens"] += summary_output_tokens
@@ -449,14 +479,28 @@ def _add_memory_compression(
 
 
 def _merge_model_bucket(dst: dict[str, int], src: dict[str, int]) -> None:
-    for key in ("llm_calls", "tracked_calls", "estimated_calls", *_TOKEN_KEYS):
+    for key in (
+        "llm_calls",
+        "tracked_calls",
+        "estimated_calls",
+        "reasoning_tracked_calls",
+        "reasoning_tracked_output_tokens",
+        *_TOKEN_KEYS,
+    ):
         dst[key] = dst.get(key, 0) + _int_value(src.get(key))
 
 
 def _merge_provider_model_bucket(dst: dict[str, Any], src: dict[str, Any]) -> None:
     dst["provider"] = _norm_part(dst.get("provider") or src.get("provider"), _UNKNOWN_PROVIDER)
     dst["model"] = _norm_part(dst.get("model") or src.get("model"), _UNKNOWN_MODEL)
-    for key in ("llm_calls", "tracked_calls", "estimated_calls", *_TOKEN_KEYS):
+    for key in (
+        "llm_calls",
+        "tracked_calls",
+        "estimated_calls",
+        "reasoning_tracked_calls",
+        "reasoning_tracked_output_tokens",
+        *_TOKEN_KEYS,
+    ):
         dst[key] = dst.get(key, 0) + _int_value(src.get(key))
 
 
@@ -541,6 +585,18 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
     tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
     estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
     exact_calls = max(0, tracked_calls - estimated_calls)
+    reasoning_tracked_calls = min(
+        tracked_calls,
+        _int_value(bucket.get("reasoning_tracked_calls")),
+    )
+    reasoning_tracked_output_tokens = _int_value(
+        bucket.get("reasoning_tracked_output_tokens")
+    )
+    reasoning_output_share = (
+        min(1.0, reasoning_tokens / reasoning_tracked_output_tokens)
+        if reasoning_tracked_output_tokens
+        else None
+    )
     return {
         "llm_calls": llm_calls,
         "tracked_calls": tracked_calls,
@@ -554,15 +610,19 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
         "cached_tokens": cached_tokens,
         "reasoning_tokens": reasoning_tokens,
         "content_output_tokens": max(0, output_tokens - reasoning_tokens),
-        "reasoning_output_share": (
-            reasoning_tokens / output_tokens if output_tokens else None
+        "reasoning_tracked_calls": reasoning_tracked_calls,
+        "reasoning_tracking_coverage": (
+            reasoning_tracked_calls / tracked_calls if tracked_calls else None
         ),
+        "reasoning_output_share": reasoning_output_share,
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
         ),
         "avg_reasoning_tokens_per_call": (
-            reasoning_tokens / tracked_calls if tracked_calls else None
+            reasoning_tokens / reasoning_tracked_calls
+            if reasoning_tracked_calls
+            else None
         ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
     }
@@ -732,6 +792,18 @@ def _finalize_bucket(
     tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
     estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
     exact_calls = max(0, tracked_calls - estimated_calls)
+    reasoning_tracked_calls = min(
+        tracked_calls,
+        _int_value(bucket.get("reasoning_tracked_calls")),
+    )
+    reasoning_tracked_output_tokens = _int_value(
+        bucket.get("reasoning_tracked_output_tokens")
+    )
+    reasoning_output_share = (
+        min(1.0, reasoning_tokens / reasoning_tracked_output_tokens)
+        if reasoning_tracked_output_tokens
+        else None
+    )
     tool_calls = _int_value(bucket.get("tool_calls"))
     tool_successes = min(tool_calls, _int_value(bucket.get("tool_successes")))
     tool_errors = min(
@@ -772,6 +844,10 @@ def _finalize_bucket(
         memory_compression_output_tokens,
         _int_value(bucket.get("memory_compression_reasoning_tokens")),
     )
+    memory_compression_reasoning_compressions = min(
+        memory_compressions,
+        _int_value(bucket.get("memory_compression_reasoning_compressions")),
+    )
     memory_compression_content_output_tokens = min(
         max(0, memory_compression_output_tokens - memory_compression_reasoning_tokens),
         _int_value(bucket.get("memory_compression_content_output_tokens")),
@@ -797,15 +873,19 @@ def _finalize_bucket(
         "cached_tokens": cached_tokens,
         "reasoning_tokens": reasoning_tokens,
         "content_output_tokens": max(0, output_tokens - reasoning_tokens),
-        "reasoning_output_share": (
-            reasoning_tokens / output_tokens if output_tokens else None
+        "reasoning_tracked_calls": reasoning_tracked_calls,
+        "reasoning_tracking_coverage": (
+            reasoning_tracked_calls / tracked_calls if tracked_calls else None
         ),
+        "reasoning_output_share": reasoning_output_share,
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
         ),
         "avg_reasoning_tokens_per_call": (
-            reasoning_tokens / tracked_calls if tracked_calls else None
+            reasoning_tokens / reasoning_tracked_calls
+            if reasoning_tracked_calls
+            else None
         ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
         "tool_calls": tool_calls,
@@ -874,7 +954,16 @@ def _finalize_bucket(
             else None
         ),
         "avg_memory_compression_reasoning_tokens": (
-            memory_compression_reasoning_tokens / memory_compressions
+            memory_compression_reasoning_tokens
+            / memory_compression_reasoning_compressions
+            if memory_compression_reasoning_compressions
+            else None
+        ),
+        "memory_compression_reasoning_compressions": (
+            memory_compression_reasoning_compressions
+        ),
+        "memory_compression_reasoning_coverage": (
+            memory_compression_reasoning_compressions / memory_compressions
             if memory_compressions
             else None
         ),

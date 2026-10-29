@@ -222,6 +222,7 @@ class TestShortTermMemory:
             "summary_input_tokens": 100,
             "summary_output_tokens": 12,
             "summary_reasoning_tokens": 0,
+            "summary_reasoning_tracked_calls": 0,
             "summary_content_output_tokens": 12,
             "summary_cached_tokens": 40,
         }
@@ -300,6 +301,7 @@ class TestShortTermMemory:
         assert mem.tree.nodes[0].token_count_source == "exact"
         assert events[0]["summary_output_tokens"] == 37
         assert events[0]["summary_reasoning_tokens"] == 25
+        assert events[0]["summary_reasoning_tracked_calls"] == 1
         assert events[0]["summary_content_output_tokens"] == 12
 
     @pytest.mark.asyncio

@@ -87,6 +87,8 @@ Palace 或潜意识模式时使用[能力内容创作](capability-authoring.md)�
 Summary 模型还用于 Bubble、回溯、记忆树合并等其他职责。页面会显示压缩精确统计的起始日期。
 Provider 单列思考 token 时，摘要正文 Token = 总输出 − 思考 Token，记忆树节点体量与压缩统计都按正文计
 （Anthropic 通过 `output_tokens_details.thinking_tokens` 提供该拆分）；不单列思考 Token 的 Provider 只能按总输出统计。
+思考平均值只统计 Provider 实际返回思考 token 的调用：旧日志和不返回该字段的调用不计入分母，
+页面通过「思考覆盖」显示参与平均的调用比例。
 
 `pending` 任务经常表示正在等待消息或定时器，并不自动等同于卡死。“诊断与审计”、日志和
 最近一次成功活动是判断故障的依据。

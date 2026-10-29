@@ -138,6 +138,7 @@ class TestInteractionLogSeq:
             summary_input_tokens=800,
             summary_output_tokens=120,
             summary_reasoning_tokens=30,
+            summary_reasoning_tracked_calls=2,
             summary_content_output_tokens=90,
             summary_cached_tokens=300,
         )
@@ -155,6 +156,7 @@ class TestInteractionLogSeq:
             "summary_input_tokens": 800,
             "summary_output_tokens": 120,
             "summary_reasoning_tokens": 30,
+            "summary_reasoning_tracked_calls": 2,
             "summary_content_output_tokens": 90,
             "summary_cached_tokens": 300,
             "summary_total_tokens": 920,
@@ -182,6 +184,7 @@ class TestInteractionLogSeq:
 
         entry = json.loads(path.read_text(encoding="utf-8").strip())
         assert entry["summary_reasoning_tokens"] == 0
+        assert entry["summary_reasoning_tracked_calls"] == 0
         assert entry["summary_content_output_tokens"] == 40
 
 
