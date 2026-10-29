@@ -185,12 +185,31 @@ class SummaryResult:
     content: str
     usage: dict[str, int] = field(default_factory=dict)
 
-    @property
-    def output_tokens(self) -> int:
+    def _usage_int(self, key: str) -> int:
         try:
-            return int(self.usage.get("output_tokens", 0) or 0)
+            return max(0, int(self.usage.get(key, 0) or 0))
         except (TypeError, ValueError):
             return 0
+
+    @property
+    def output_tokens(self) -> int:
+        """Total completion tokens reported by the provider (thinking included)."""
+        return self._usage_int("output_tokens")
+
+    @property
+    def reasoning_tokens(self) -> int:
+        """Completion tokens spent on thinking, when the provider reports them."""
+        return self._usage_int("reasoning_tokens")
+
+    @property
+    def content_output_tokens(self) -> int:
+        """Completion tokens that produced summary content, excluding thinking.
+
+        Providers that report ``reasoning_tokens`` bill thinking as output, so the
+        provider total overstates the summary itself. Providers without that split
+        keep returning the total, because the two cannot be told apart.
+        """
+        return max(0, self.output_tokens - self.reasoning_tokens)
 
 
 @dataclass

@@ -906,6 +906,10 @@ h1, h2, h3, p { margin: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.usage-metric-compact strong {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
 .usage-metric em {
   min-width: 0;
   font-family: var(--font-mono);

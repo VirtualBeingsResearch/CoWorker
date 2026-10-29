@@ -263,6 +263,33 @@ async def _enqueue_startup_event(
     await inbox_watcher.push(event, wake=not passive_mode)
 
 
+def _full_compression_completion_event(event: dict[str, Any]) -> IncomingEvent | None:
+    """Build the inbox notice for a completed tool-triggered full compression.
+
+    Automatic incremental compression runs on every budget overshoot and must not
+    wake the agent; console-triggered compression already returns its result to the
+    caller. Only the background full pass started by ``clear_short_term_memory``
+    needs a follow-up message so the model knows the new context is active.
+    """
+    if event.get("mode") != "full" or event.get("trigger") != "tool":
+        return None
+    try:
+        count = max(0, int(event.get("messages_compressed") or 0))
+        seconds = max(0.0, float(event.get("duration_ms") or 0) / 1000)
+    except (TypeError, ValueError):
+        count, seconds = 0, 0.0
+    return IncomingEvent(
+        participant_id="system",
+        content=tr(
+            "notification.full_compression_done",
+            count=count,
+            seconds=f"{seconds:.1f}",
+        ),
+        source="memory_compression",
+        timestamp=datetime.now(),
+    )
+
+
 def _register_providers(brain: Brain, config: Config) -> None:
     for spec in config.llm.resolved_providers():
         if not spec.api_key.strip():
@@ -472,6 +499,7 @@ async def _run_backfill() -> int:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                reasoning_content=response.reasoning_content,
                 thinking=(
                     bool(meta.get("thinking"))
                     if meta.get("thinking") is not None
@@ -739,6 +767,11 @@ async def _main() -> bool:
             usage=usage if isinstance(usage, dict) else {},
             usage_source=str(entry.get("usage_source") or ""),
             operation=str(entry.get("operation") or ""),
+            reasoning_content=(
+                entry.get("reasoning_content")
+                if isinstance(entry.get("reasoning_content"), str)
+                else None
+            ),
         )
 
     long_term.add_usage_listener(log_long_term_usage)
@@ -748,6 +781,7 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             context_hint=str(meta.get("context_hint") or ""),
+            reasoning_content=response.reasoning_content,
             thinking=(
                 bool(meta.get("thinking"))
                 if meta.get("thinking") is not None
@@ -762,6 +796,7 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             label=str(meta.get("label") or ""),
+            reasoning_content=response.reasoning_content,
             thinking=(
                 bool(meta.get("thinking"))
                 if meta.get("thinking") is not None
@@ -772,6 +807,26 @@ async def _main() -> bool:
     )
 
     inbox_watcher = InboxWatcher(config.agent.inbox_dir, config.agent.inbox_poll_interval)
+
+    def _notify_full_compression(event: dict[str, Any]) -> None:
+        completion = _full_compression_completion_event(event)
+        if completion is None:
+            return
+
+        async def push_notice() -> None:
+            try:
+                await inbox_watcher.push(completion)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to enqueue full-compression completion notice: {e}"
+                )
+
+        try:
+            asyncio.get_running_loop().create_task(push_notice())
+        except RuntimeError:
+            logger.debug("No running event loop for full-compression completion notice")
+
+    short_term.add_compression_listener(_notify_full_compression)
 
     channel_system = create_channel_system(
         outbox_dir=config.agent.outbox_dir,

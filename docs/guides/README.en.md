@@ -79,7 +79,8 @@ group. It continues from the summary and provides:
 - yesterday, the preceding 7 days, or the preceding 30 days as preset
   baselines, with every custom range compared against the immediately
   preceding equal-length period;
-- a first-screen summary of tokens, model calls, caching, tools, skill loads,
+- a first-screen summary of tokens (input/output/thinking), model calls
+  (including average thinking tokens per call), caching, tools, skill loads,
   autonomous runs, and memory compression next to data confidence and
   attention items;
 - a 24-hour input/output increment chart and running daily-token line whenever
@@ -96,8 +97,9 @@ group. It continues from the summary and provides:
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
 - completed memory-compression counts, affected messages, summary-model calls
-  and tokens, split by automatic, administrator, and tool triggers, with the
-  metric linking directly to filtered compression-event logs;
+  and tokens (summary tokens split into content and thinking, with thinking
+  average per compression), split by automatic, administrator, and tool
+  triggers, with the metric linking directly to filtered compression-event logs;
 - technical Bubble and subconscious outcomes such as completion, errors,
   timeouts, cycles, and resumes;
 - the first eight ranked model, tool, and skill rows by default, with an
@@ -110,8 +112,10 @@ group. It continues from the summary and provides:
 <p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical outcomes by a single day or date range.</sub></p>
 
 The public status page continues to use a compact snapshot without daily
-details. The 30-day and custom-range trends and exports are available only
-through the authenticated administrator endpoint. Statistics come from local
+details; its average-thinking card shows both the average duration and the
+average thinking tokens per call, with their share of output in the caption.
+The 30-day and custom-range trends and exports are available only through the
+authenticated administrator endpoint. Statistics come from local
 logs, so a low coverage rate can understate totals; the console does not convert
 them into Provider cost estimates.
 The hourly chart reads privacy-safe aggregates only. Its log drill-through
@@ -126,6 +130,13 @@ do not increment the count. Older logs are not inferred from ordinary
 `summary_llm_response` calls because the Summary model also serves Bubble,
 backfill, memory-tree merging, and other responsibilities. The console displays
 the date on which exact compression tracking began.
+When a Provider reports thinking tokens separately, summary content tokens are total
+output minus thinking, and both memory-tree node size and compression statistics use
+the content count (Anthropic exposes it through `output_tokens_details.thinking_tokens`).
+Providers that do not split thinking tokens can only be counted by total output.
+Thinking averages include only calls whose Provider actually returned thinking tokens:
+old logs and calls without that field stay out of the denominator, and the console
+shows the covered-call ratio as thinking coverage.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Diagnostics and Audit, logs, and the
@@ -151,9 +162,13 @@ Memory Center contains:
   persistent logs.
 
 Full compression calls a model and changes short-context structure, so it needs
-an available model. Backfill runs in the background; the offline backfill command
-running at the same time contends for the snapshot files. Removing long-term memory cannot
-be undone from the ordinary page, so verify that it is no longer needed.
+an available model. Compression started by the `clear_short_term_memory` tool
+runs as a background task; the tool returns immediately and the compressed
+context applies from the next cycle, while console-initiated compression waits
+for the pass to finish. Backfill also runs in the background; the offline
+backfill command running at the same time contends for the snapshot files.
+Removing long-term memory cannot be undone from the ordinary page, so verify
+that it is no longer needed.
 
 Pinned context carries a small amount of stable information that must remain
 visible; pinned large source documents permanently consume context.
@@ -171,6 +186,11 @@ Runtime Center brings together:
 
 Tasks and alarms share the same data with Coworker's model tools. A change made
 on the page is visible the next time the Agent reads them.
+
+The interaction log records thinking text returned by the model
+(`reasoning_content`) for main and Bubble calls as well as summary, vision, and
+long-term-memory calls whenever the Provider returns it; the field is omitted
+otherwise.
 
 Emergency backups recover short-term context after repeated Agent errors:
 

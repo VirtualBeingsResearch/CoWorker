@@ -221,6 +221,9 @@ class TestShortTermMemory:
             "summary_tracked_calls": 1,
             "summary_input_tokens": 100,
             "summary_output_tokens": 12,
+            "summary_reasoning_tokens": 0,
+            "summary_reasoning_tracked_calls": 0,
+            "summary_content_output_tokens": 12,
             "summary_cached_tokens": 40,
         }
         assert events[0]["duration_ms"] >= 0
@@ -269,6 +272,37 @@ class TestShortTermMemory:
         assert mem.tree.nodes[0].token_estimate == 37
         assert mem.tree.nodes[0].token_count_source == "exact"
         assert mem.serialize()["tree"]["nodes"][0]["token_count_source"] == "exact"
+
+    @pytest.mark.asyncio
+    async def test_tree_promotion_counts_summary_content_without_reasoning_tokens(self):
+        from coworker.brain.brain import Brain
+        from coworker.core.types import LLMResponse
+        from tests.conftest import MockProvider
+
+        provider = MockProvider(LLMResponse(
+            content="节点摘要",
+            tool_calls=[], stop_reason="end_turn",
+            model="mock-model",
+            usage={"input_tokens": 100, "output_tokens": 37, "reasoning_tokens": 25},
+        ))
+        brain = Brain("mock", "mock-model")
+        brain.register_provider(provider)
+
+        mem = ShortTermMemory(max_tokens=10_000)
+        events: list[dict] = []
+        mem.add_compression_listener(events.append)
+        for i in range(8):
+            mem.primary.append(Message(role="user", content=f"message {i} " * 5))
+
+        await mem.compress_now(brain)
+
+        # 思考 token 计入 provider 输出，但不应算进摘要节点体量。
+        assert mem.tree.nodes[0].token_estimate == 12
+        assert mem.tree.nodes[0].token_count_source == "exact"
+        assert events[0]["summary_output_tokens"] == 37
+        assert events[0]["summary_reasoning_tokens"] == 25
+        assert events[0]["summary_reasoning_tracked_calls"] == 1
+        assert events[0]["summary_content_output_tokens"] == 12
 
     @pytest.mark.asyncio
     async def test_tree_serialize_round_trip(self):

@@ -24,6 +24,15 @@ def _memory_log_payload(memory: MemoryRecord) -> dict[str, object]:
     return payload
 
 
+def _reasoning_text(value: Any) -> str | None:
+    """Return non-empty thinking text, or None when the provider returned none.
+
+    Some Providers cannot disable thinking, so summary/vision/long-term calls can
+    return reasoning even when the role does not request it; log whatever arrived.
+    """
+    return value if isinstance(value, str) and value else None
+
+
 class InteractionLogger:
     """Append-only interaction logger with optional size-based shard rotation.
 
@@ -237,6 +246,7 @@ class InteractionLogger:
         model: str,
         usage: dict,
         context_hint: str = "",
+        reasoning_content: str | None = None,
         thinking: bool | None = None,
         thinking_effort: str | None = None,
     ) -> None:
@@ -248,6 +258,8 @@ class InteractionLogger:
         }
         if context_hint:
             entry["context_hint"] = context_hint[:200]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         if thinking is not None:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
@@ -267,6 +279,9 @@ class InteractionLogger:
         summary_input_tokens: int,
         summary_output_tokens: int,
         summary_cached_tokens: int,
+        summary_reasoning_tokens: int = 0,
+        summary_reasoning_tracked_calls: int = 0,
+        summary_content_output_tokens: int | None = None,
     ) -> None:
         """Persist privacy-safe facts for one completed short-term compression."""
 
@@ -281,6 +296,16 @@ class InteractionLogger:
         normalized_storage = storage if storage in {"tree", "legacy"} else "unknown"
         input_tokens = nonnegative(summary_input_tokens)
         output_tokens = nonnegative(summary_output_tokens)
+        reasoning_tokens = min(output_tokens, nonnegative(summary_reasoning_tokens))
+        reasoning_tracked_calls = min(
+            nonnegative(summary_calls),
+            nonnegative(summary_reasoning_tracked_calls),
+        )
+        content_output_tokens = (
+            nonnegative(summary_content_output_tokens)
+            if summary_content_output_tokens is not None
+            else max(0, output_tokens - reasoning_tokens)
+        )
         self._write({
             "type": "memory_compression",
             "trigger": normalized_trigger,
@@ -292,6 +317,9 @@ class InteractionLogger:
             "summary_tracked_calls": nonnegative(summary_tracked_calls),
             "summary_input_tokens": input_tokens,
             "summary_output_tokens": output_tokens,
+            "summary_reasoning_tokens": reasoning_tokens,
+            "summary_reasoning_tracked_calls": reasoning_tracked_calls,
+            "summary_content_output_tokens": content_output_tokens,
             "summary_cached_tokens": nonnegative(summary_cached_tokens),
             "summary_total_tokens": input_tokens + output_tokens,
         })
@@ -303,6 +331,7 @@ class InteractionLogger:
         model: str,
         usage: dict,
         label: str = "",
+        reasoning_content: str | None = None,
         thinking: bool | None = None,
         thinking_effort: str | None = None,
     ) -> None:
@@ -314,6 +343,8 @@ class InteractionLogger:
         }
         if label:
             entry["label"] = label[:200]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         if thinking is not None:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
@@ -328,6 +359,7 @@ class InteractionLogger:
         usage: dict,
         usage_source: str = "",
         operation: str = "",
+        reasoning_content: str | None = None,
     ) -> None:
         entry = {
             "type": "long_term_llm_response",
@@ -339,6 +371,8 @@ class InteractionLogger:
             entry["usage_source"] = usage_source[:40]
         if operation:
             entry["operation"] = operation[:80]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         self._write(entry)
 
     def log_tool_call(self, id: str, name: str, arguments: dict) -> None:

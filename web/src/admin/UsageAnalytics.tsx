@@ -201,6 +201,11 @@ function exportCsv(
     'input_tokens',
     'output_tokens',
     'cached_tokens',
+    'reasoning_tokens',
+    'content_output_tokens',
+    'reasoning_output_share',
+    'reasoning_tracking_coverage',
+    'avg_reasoning_tokens_per_call',
     'total_tokens',
     'llm_calls',
     'exact_calls',
@@ -220,6 +225,11 @@ function exportCsv(
     'messages_compressed',
     'memory_compression_summary_calls',
     'memory_compression_total_tokens',
+    'memory_compression_reasoning_tokens',
+    'memory_compression_content_output_tokens',
+    'avg_memory_compression_content_tokens',
+    'avg_memory_compression_reasoning_tokens',
+    'memory_compression_reasoning_coverage',
     'priced_tokens',
     'unpriced_tokens',
     'pricing_coverage',
@@ -439,8 +449,19 @@ function IntradayTrend({
       <div><span>{t('所选时段')}</span><strong>{date} · {selectedLabel}</strong></div>
       <div><span>{currency || 'Token'}</span><strong>{formatTrendValue(trendValue(selected, metric), metric, language)}</strong><small>{currency
         ? t('定价覆盖率 {{coverage}}', { coverage: formatCacheRate(selected.pricing_coverage) })
-        : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
-      <div><span>{t('模型调用')}</span><strong>{formatCount(selected.llm_calls)}</strong><small>{t('缓存 Token {{count}}', { count: formatTokenUnits(selected.cached_tokens) })}</small></div>
+        : finite(selected.reasoning_tokens) > 0
+          ? t('输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}', {
+            input: formatTokenUnits(selected.input_tokens),
+            output: formatTokenUnits(selected.output_tokens),
+            reasoning: formatTokenUnits(selected.reasoning_tokens),
+          })
+          : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
+      <div><span>{t('模型调用')}</span><strong>{formatCount(selected.llm_calls)}</strong><small>{finite(selected.avg_reasoning_tokens_per_call) > 0
+        ? t('缓存 Token {{count}} · 思考 {{thinking}}/次', {
+          count: formatTokenUnits(selected.cached_tokens),
+          thinking: formatOptionalTokenUnits(selected.avg_reasoning_tokens_per_call),
+        })
+        : t('缓存 Token {{count}}', { count: formatTokenUnits(selected.cached_tokens) })}</small></div>
       <button type="button" className="ghost mini" onClick={() => onOpenLogs(selected.start_time, selected.end_time)}><FileText size={13} />{t('查看该时段日志')}</button>
     </div>
   </section>;
@@ -849,12 +870,23 @@ export function AdminUsageAnalytics({
         {rangeError && <span className="usage-date-range-error" role="alert"><TriangleAlert size={13} />{rangeError}</span>}
       </form>}
       <div className="usage-analytics-metrics">
-        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
+        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={finite(windowStats.reasoning_tokens) > 0
+          ? t('输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}', {
+            input: formatTokenUnits(windowStats.input_tokens),
+            output: formatTokenUnits(windowStats.output_tokens),
+            reasoning: formatTokenUnits(windowStats.reasoning_tokens),
+          })
+          : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
         <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} limit={1} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
           coverage: formatCacheRate(windowStats.pricing_coverage),
           count: formatTokenUnits(windowStats.unpriced_tokens),
         })} icon={CircleDollarSign} compactValue featured actionHref={pricingHref} actionLabel={t('管理定价')} />
-        <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
+        <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={finite(windowStats.avg_reasoning_tokens_per_call) > 0
+          ? t('单次平均 {{count}} Token · 思考 {{thinking}} Token/次', {
+            count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call),
+            thinking: formatOptionalTokenUnits(windowStats.avg_reasoning_tokens_per_call),
+          })
+          : t('单次平均 {{count}} Token', { count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call) })} icon={Bot} />
         <MetricCard label={t('缓存 Token')} value={formatTokenUnits(windowStats.cached_tokens)} detail={t('命中率 {{rate}}', { rate: formatCacheRate(windowStats.cache_rate) })} icon={Activity} />
         <MetricCard label={t('工具执行')} value={formatCount(windowStats.tool_calls)} detail={t('{{success}} 成功 · {{errors}} 错误 · {{pending}} 未结算', {
           success: formatCount(windowStats.tool_successes),
@@ -874,10 +906,17 @@ export function AdminUsageAnalytics({
         <MetricCard
           label={t('记忆压缩')}
           value={formatCount(windowStats.memory_compressions)}
-          detail={t('{{messages}} 条消息 · {{tokens}} Token', {
-            messages: formatCount(windowStats.messages_compressed),
-            tokens: formatTokenUnits(windowStats.memory_compression_total_tokens),
-          })}
+          detail={finite(windowStats.memory_compression_reasoning_tokens) > 0
+            ? t('{{messages}} 条消息 · 摘要 {{content}} · 思考 {{reasoning}}（均 {{avg}}/次）', {
+              messages: formatCount(windowStats.messages_compressed),
+              content: formatTokenUnits(windowStats.memory_compression_content_output_tokens),
+              reasoning: formatTokenUnits(windowStats.memory_compression_reasoning_tokens),
+              avg: formatOptionalTokenUnits(windowStats.avg_memory_compression_reasoning_tokens),
+            })
+            : t('{{messages}} 条消息 · {{tokens}} Token', {
+              messages: formatCount(windowStats.messages_compressed),
+              tokens: formatTokenUnits(windowStats.memory_compression_total_tokens),
+            })}
           icon={Minimize2}
           tone="memory"
           onActivate={() => onOpenLogs('', '', 'memory_compression')}
@@ -964,7 +1003,7 @@ export function AdminUsageAnalytics({
       <section className="admin-panel usage-model-table-panel">
         <header><div><h2>{t('模型与 Provider')}</h2><p>{t('资源消耗驱动，按当前窗口 Token 排序')}</p></div><div className="usage-panel-actions"><b>{allModelEntries.length}</b><DetailToggle expanded={expandedModels} label={t('模型与 Provider')} total={allModelEntries.length} onToggle={() => setExpandedModels(value => !value)} /></div></header>
         <div className="usage-model-table-wrap"><table className="usage-model-table">
-          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('预估消费')}</th><th>{t('单次平均')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
+          <thead><tr><th>{t('模型')}</th><th>{t('调用')}</th><th>Token</th><th>{t('预估消费')}</th><th>{t('单次平均')}</th><th>{t('思考/次')}</th><th>{t('缓存 Token 占比')}</th><th>{t('精确')}</th></tr></thead>
           <tbody>{modelEntries.length ? modelEntries.map(([key, item]) => <tr key={key}>
             <td title={usageModelLabel(key, item)}>{usageModelLabel(key, item)}</td>
             <td>{formatCount(item.llm_calls)}</td>
@@ -977,9 +1016,17 @@ export function AdminUsageAnalytics({
               )
               : t('未定价')}</td>
             <td>{formatOptionalTokenUnits(item.avg_tokens_per_call)}</td>
+            <td title={finite(item.reasoning_output_share) > 0
+              ? finite(item.reasoning_tracking_coverage) < 1
+                ? t('占输出 {{share}} · 思考覆盖 {{coverage}}', {
+                  share: formatCacheRate(item.reasoning_output_share),
+                  coverage: formatCacheRate(item.reasoning_tracking_coverage),
+                })
+                : t('占输出 {{share}}', { share: formatCacheRate(item.reasoning_output_share) })
+              : undefined}>{formatOptionalTokenUnits(item.avg_reasoning_tokens_per_call)}</td>
             <td>{formatCacheRate(item.cache_rate)}</td>
             <td>{formatCacheRate(item.exact_coverage)}</td>
-          </tr>) : <tr><td colSpan={7}>{t('暂无模型调用')}</td></tr>}</tbody>
+          </tr>) : <tr><td colSpan={8}>{t('暂无模型调用')}</td></tr>}</tbody>
         </table></div>
       </section>
 

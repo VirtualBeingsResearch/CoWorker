@@ -71,6 +71,8 @@ restart_check_failed = '''代码环境校验失败，取消重启。
 restart_snapshot_failed = "快照保存后校验失败，取消重启。"
 compress_empty = "当前没有可压缩的短期记忆消息。"
 compressed = "已压缩 {{count}} 条短期记忆消息。"
+compress_started = "已开始后台全量压缩，完成后下一轮生效。"
+compress_busy = "已有压缩任务在进行中，请稍后再试。"
 
 [tool_result.task]
 unknown_time = "未知"

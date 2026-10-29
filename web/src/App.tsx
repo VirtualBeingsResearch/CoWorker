@@ -439,16 +439,18 @@ function UsageMetric({
   value,
   detail,
   title,
+  compact = false,
   icon: Icon,
 }: {
   label: string;
   value: string;
   detail?: string;
   title?: string;
+  compact?: boolean;
   icon: LucideIcon;
 }) {
   return (
-    <div className="usage-metric" title={title}>
+    <div className={`usage-metric${compact ? ' usage-metric-compact' : ''}`} title={title}>
       <div className="usage-metric-label">
         <span>{label}</span>
         <Icon size={15} strokeWidth={2} aria-hidden="true" />
@@ -660,8 +662,26 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
             />
             <UsageMetric
               label={t('平均思考')}
-              value={formatDurationSeconds(windowStats.avg_thinking_seconds)}
-              detail={t('{{count}} 轮推理', { count: formatCount(windowStats.thinking_calls) })}
+              value={windowStats.avg_reasoning_tokens_per_call != null
+                ? t('{{duration}}/{{tokens}} Token', {
+                  duration: formatDurationSeconds(windowStats.avg_thinking_seconds),
+                  tokens: formatTokenUnits(windowStats.avg_reasoning_tokens_per_call),
+                })
+                : formatDurationSeconds(windowStats.avg_thinking_seconds)}
+              detail={windowStats.avg_reasoning_tokens_per_call != null
+                ? t('{{count}} 轮推理 · 占输出 {{share}}', {
+                  count: formatCount(windowStats.thinking_calls),
+                  share: formatCacheRate(windowStats.reasoning_output_share),
+                })
+                : t('{{count}} 轮推理', { count: formatCount(windowStats.thinking_calls) })}
+              title={windowStats.reasoning_tracking_coverage != null
+                && windowStats.reasoning_tracking_coverage < 1
+                ? t('思考数据覆盖 {{covered}}/{{total}} 次调用', {
+                  covered: formatCount(windowStats.reasoning_tracked_calls),
+                  total: formatCount(windowStats.tracked_calls),
+                })
+                : undefined}
+              compact
               icon={Timer}
             />
           </div>

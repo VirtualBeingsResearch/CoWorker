@@ -2358,7 +2358,7 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
             "pinned_count": len(stm.pinned_items),
             "thread_count": len(stm.threads),
             "tree_enabled": stm._tree_enabled,
-            "compressing": stm._compressing,
+            "compressing": stm.compression_in_progress,
         },
         "messages": messages,
         "tree": {"nodes": [node.to_dict() for node in stm.tree.nodes]},

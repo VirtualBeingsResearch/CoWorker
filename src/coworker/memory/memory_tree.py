@@ -47,7 +47,9 @@ SUMMARY_BUDGET_TOLERANCE = 0.10
 def _summary_text_tokens_and_source(result: SummaryLike) -> tuple[str, int, TokenCountSource]:
     if isinstance(result, SummaryResult):
         text = result.content
-        tokens = result.output_tokens
+        # 思考 token 也计入 provider 的 output_tokens；节点体量只应算摘要正文，
+        # 否则摘要预算会被思考消耗虚高、触发无意义的重摘要与截断。
+        tokens = result.content_output_tokens
         if tokens > 0:
             return text, tokens, "exact"
         return text, estimate_content_tokens(text), "estimated"

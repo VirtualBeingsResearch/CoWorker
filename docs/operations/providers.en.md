@@ -166,7 +166,7 @@ usage; it neither changes `usage_stats.json` nor preserves the price that applie
 ## Model roles
 
 - main: conversation, tool planning, and persistent tasks;
-- summary: compression and summarization, usually without thinking to reduce cost;
+- summary: compression and summarization, usually without thinking to reduce cost; when a Provider splits thinking tokens (for example Anthropic's `output_tokens_details.thinking_tokens`), summary content and thinking tokens are counted separately and memory-tree nodes are sized by content only;
 - vision: image/video analysis, requiring declared Provider capability;
 - long_term: long-term-memory extraction (run by the mem0 backend by default);
 - fallback: ordered takeover after main-model failure.

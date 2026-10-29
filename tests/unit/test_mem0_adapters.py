@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from mem0.configs.llms.anthropic import AnthropicConfig
 from mem0.utils.factory import LlmFactory
 
+from coworker.memory.backends.mem0 import Mem0Backend
 from coworker.memory.mem0_adapters import (
     CoworkerAnthropicLLM,
     CoworkerOpenAIConfig,
@@ -130,6 +132,30 @@ def test_generate_response_skips_extra_body_for_non_thinking_model() -> None:
     llm.generate_response(messages=[{"role": "user", "content": "hi"}])
 
     assert "extra_body" not in create.call_args.kwargs
+
+
+def test_extract_response_reasoning_from_openai_style_message() -> None:
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(reasoning_content="think first"))]
+    )
+
+    assert Mem0Backend._extract_response_reasoning(response) == "think first"
+
+
+def test_extract_response_reasoning_from_anthropic_thinking_blocks() -> None:
+    response = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="thinking", thinking="first"),
+            SimpleNamespace(type="text", text="answer"),
+            SimpleNamespace(type="thinking", thinking="second"),
+        ]
+    )
+
+    assert Mem0Backend._extract_response_reasoning(response) == "first\nsecond"
+
+
+def test_extract_response_reasoning_returns_none_without_thinking() -> None:
+    assert Mem0Backend._extract_response_reasoning(SimpleNamespace()) is None
 
 
 def test_generate_response_skips_extra_body_for_unknown_provider() -> None:

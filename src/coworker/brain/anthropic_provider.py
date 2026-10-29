@@ -186,11 +186,26 @@ class AnthropicProvider(BaseLLMProvider):
             tool_calls=tool_calls,
             stop_reason=response.stop_reason or "end_turn",
             model=response.model,
-            usage={
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-            },
+            usage=self._extract_usage(response),
         )
+
+    @staticmethod
+    def _extract_usage(response) -> dict[str, int]:
+        usage = getattr(response, "usage", None)
+        result = {
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        }
+        # Anthropic 的 output_tokens 含思考，并在 output_tokens_details.thinking_tokens
+        # 单列（含思考块分隔符；output_tokens - thinking_tokens 即非思考输出）。
+        thinking_tokens = getattr(
+            getattr(usage, "output_tokens_details", None),
+            "thinking_tokens",
+            None,
+        )
+        if thinking_tokens is not None:
+            result["reasoning_tokens"] = thinking_tokens
+        return result
 
     def set_model(self, model_id: str) -> None:
         self._current_model = model_id

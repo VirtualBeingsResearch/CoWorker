@@ -150,7 +150,7 @@ OpenCode Go 曾提供 `deepseek-flash`、`deepseek-v4-flash` 和
 ## 模型分工
 
 - 主线：对话、工具规划和持续任务；
-- summary：短期压缩与摘要，通常关闭 thinking 以降低成本；
+- summary：短期压缩与摘要，通常关闭 thinking 以降低成本；Provider 单列思考 token（如 Anthropic 的 `output_tokens_details.thinking_tokens`）时，摘要正文与思考 Token 分别统计，记忆树节点只按正文计体量；
 - vision：图片/视频分析，必须由 Provider 声明相应能力；
 - long_term：长期记忆提取（默认由 mem0 后端执行）；
 - fallback：主模型失败后的有序接棒链。
