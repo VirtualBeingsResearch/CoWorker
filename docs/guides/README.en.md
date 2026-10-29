@@ -162,9 +162,13 @@ Memory Center contains:
   persistent logs.
 
 Full compression calls a model and changes short-context structure, so it needs
-an available model. Backfill runs in the background; the offline backfill command
-running at the same time contends for the snapshot files. Removing long-term memory cannot
-be undone from the ordinary page, so verify that it is no longer needed.
+an available model. Compression started by the `clear_short_term_memory` tool
+runs as a background task; the tool returns immediately and the compressed
+context applies from the next cycle, while console-initiated compression waits
+for the pass to finish. Backfill also runs in the background; the offline
+backfill command running at the same time contends for the snapshot files.
+Removing long-term memory cannot be undone from the ordinary page, so verify
+that it is no longer needed.
 
 Pinned context carries a small amount of stable information that must remain
 visible; pinned large source documents permanently consume context.

@@ -71,6 +71,8 @@ restart_check_failed = '''Code-environment validation failed; restart cancelled.
 restart_snapshot_failed = "Snapshot validation failed after saving; restart cancelled."
 compress_empty = "There are no short-term memory messages to compress."
 compressed = "Compressed {{count}} short-term memory messages."
+compress_started = "Started background full compression; it takes effect from the next cycle."
+compress_busy = "A compression pass is already running; try again later."
 
 [tool_result.task]
 unknown_time = "unknown"

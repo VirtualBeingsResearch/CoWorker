@@ -301,7 +301,11 @@ class ClearShortTermMemoryTool(Tool):
 
     async def execute(self, **_) -> ToolResult:
         to_summarize = self._short_term.compress_all_preview()
-        if to_summarize and self._subconscious is not None:
+        if not to_summarize:
+            return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_empty"))
+        if self._short_term.compression_in_progress:
+            return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_busy"))
+        if self._subconscious is not None:
             try:
                 await self._subconscious.notify_pre_compress(
                     to_summarize,
@@ -314,12 +318,9 @@ class ClearShortTermMemoryTool(Tool):
                 )
             except Exception as e:
                 logger.warning(f"Pre-compress subconscious notification failed: {e}")
-        compressed, _remaining = await self._short_term.compress_all_now(
-            self._brain,
-            trigger="tool",
-        )
-        if compressed == 0:
-            return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_empty"))
+        # 半后台：工具立即返回，压缩在独立任务中完成；下一轮模型请求看到压缩后的上下文。
+        if not self._short_term.schedule_full_compression(self._brain, trigger="tool"):
+            return ToolResult(tool_call_id="", content=tr("tool_result.system.compress_busy"))
         return ToolResult(
-            tool_call_id="", content=tr("tool_result.system.compressed", count=compressed)
+            tool_call_id="", content=tr("tool_result.system.compress_started")
         )

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
 
+from coworker.brain.brain import ModelCallSuspended
 from coworker.core.types import (
     ConversationThread,
     Message,
@@ -100,6 +101,9 @@ class ShortTermMemory:
         self._compress_ratio = compress_ratio
         self._compressing = False
         self._tree_rebalance_task: asyncio.Task | None = None
+        # 手动全量压缩（clear_short_term_memory 工具）的后台任务：工具立即返回，
+        # 压缩在 cycle 之外完成，下一次模型请求才看到压缩后的上下文。
+        self._full_compress_task: asyncio.Task | None = None
         # 每发生一次实际压缩自增，作为进程内「上下文已被压缩」的信号，
         # 供主循环检测并在压缩时刷新系统提示词快照。
         self.compress_generation: int = 0
@@ -909,6 +913,88 @@ class ShortTermMemory:
             agent_system_prompt,
             trigger=trigger,
         )
+
+    @property
+    def compression_in_progress(self) -> bool:
+        """Whether a compression pass is running or already scheduled."""
+        task = self._full_compress_task
+        return self._compressing or (task is not None and not task.done())
+
+    def schedule_full_compression(
+        self,
+        brain: Brain,
+        context_hint: str | None = None,
+        agent_system_prompt: str = "",
+        *,
+        trigger: CompressionTrigger = "other",
+    ) -> bool:
+        """Schedule one full compression pass and return immediately.
+
+        Returns False when a pass is already running or scheduled, so callers can
+        tell the model the request was skipped. The pass keeps ``compress_all_now``
+        semantics (active tool_use tail preserved, compression lock) and runs
+        outside the caller's cycle; the next model request sees the new context.
+        """
+        if self.compression_in_progress:
+            return False
+        self._full_compress_task = asyncio.create_task(
+            bind_locale(
+                lambda: self._run_scheduled_full_compression(
+                    brain,
+                    context_hint,
+                    agent_system_prompt,
+                    trigger,
+                )
+            ),
+            name="full-memory-compression",
+        )
+        self._full_compress_task.add_done_callback(self._on_full_compression_done)
+        return True
+
+    async def _run_scheduled_full_compression(
+        self,
+        brain: Brain,
+        context_hint: str | None,
+        agent_system_prompt: str,
+        trigger: CompressionTrigger,
+    ) -> None:
+        try:
+            await self.compress_all_now(
+                brain,
+                context_hint,
+                agent_system_prompt,
+                trigger=trigger,
+            )
+        except ModelCallSuspended:
+            # 管理端暂停打断了摘要：不算失败，恢复后可再次触发。
+            logger.info(tr("memory.full_compression_paused"))
+        except Exception as e:
+            logger.opt(exception=True).warning(
+                tr(
+                    "memory.full_compression_failed",
+                    error=f"{type(e).__name__}: {str(e)[:200]}",
+                )
+            )
+
+    def _on_full_compression_done(self, task: asyncio.Task) -> None:
+        if task is self._full_compress_task:
+            self._full_compress_task = None
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.opt(exception=error).error("Background full memory compression failed")
+
+    async def cancel_pending_compression(self) -> None:
+        """Cancel the scheduled full compression pass (shutdown/restart)."""
+        task = self._full_compress_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     @staticmethod
     def _chunk_span(chunk: list[dict[str, Any]]) -> tuple[datetime, datetime]:

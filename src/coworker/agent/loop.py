@@ -244,6 +244,11 @@ class AgentLoop:
                 await compress_task
             except asyncio.CancelledError:
                 pass
+        cancel_full = getattr(self._short_term, "cancel_pending_compression", None)
+        if callable(cancel_full):
+            pending = cancel_full()
+            if asyncio.iscoroutine(pending) or isinstance(pending, asyncio.Future):
+                await pending
 
         if watcher is not None:
             watcher.cancel()
@@ -583,6 +588,9 @@ class AgentLoop:
         if self._compress_task is not None and not self._compress_task.done():
             return
         if time.monotonic() < self._compress_retry_at:
+            return
+        # 手动全量压缩（工具）可能已调度但尚未开始；避免与其争抢压缩锁。
+        if getattr(self._short_term, "compression_in_progress", False):
             return
         if not self._short_term.compression_budget_reached(observed_input_tokens):
             return

@@ -1987,17 +1987,37 @@ class TestClearShortTermMemoryTool:
         brain.summarize = AsyncMock(return_value="工具压缩摘要")
         return ClearShortTermMemoryTool(short_term, brain), short_term, brain
 
+    async def _finish_scheduled_compression(self, short_term):
+        task = short_term._full_compress_task
+        assert task is not None
+        await task
+        await asyncio.sleep(0)  # 让 done 回调清空任务引用
+
     @pytest.mark.asyncio
-    async def test_compresses_messages_and_returns_count(self):
+    async def test_schedules_compression_and_returns_started(self):
         tool, short_term, _ = self._make_tool(msg_count=5)
+
         result = await tool.execute()
+
         assert not result.is_error
-        assert "5" in result.content
-        assert "已压缩" in result.content
-        assert "清空" not in result.content
+        assert "已开始" in result.content
+        assert short_term._full_compress_task is not None
+        await self._finish_scheduled_compression(short_term)
         assert len(short_term.primary) == 0
         assert len(short_term.tree.nodes) == 1
         assert short_term.tree.nodes[0].summary == "工具压缩摘要"
+
+    @pytest.mark.asyncio
+    async def test_returns_busy_when_compression_is_already_running(self):
+        tool, short_term, _ = self._make_tool(msg_count=5)
+        short_term._compressing = True
+
+        result = await tool.execute()
+
+        assert not result.is_error
+        assert "请稍后再试" in result.content
+        assert short_term._full_compress_task is None
+        assert len(short_term.primary) == 5
 
     @pytest.mark.asyncio
     async def test_notifies_subconscious_before_compressing(self):
@@ -2018,6 +2038,7 @@ class TestClearShortTermMemoryTool:
 
         assert not result.is_error
         subconscious.notify_pre_compress.assert_awaited_once()
+        await self._finish_scheduled_compression(short_term)
         assert short_term.primary == []
         assert len(short_term.tree.nodes) == 1
 
@@ -2051,6 +2072,7 @@ class TestClearShortTermMemoryTool:
             stable_prefix,
             full_snapshot=stable_prefix,
         )
+        await self._finish_scheduled_compression(short_term)
         assert short_term.primary == [active_call]
 
     @pytest.mark.asyncio
@@ -2063,13 +2085,27 @@ class TestClearShortTermMemoryTool:
         result = await tool.execute()
 
         assert not result.is_error
+        await self._finish_scheduled_compression(short_term)
         assert len(short_term.tree.nodes) == 1
+
+    @pytest.mark.asyncio
+    async def test_background_failure_is_logged_and_keeps_messages(self):
+        tool, short_term, brain = self._make_tool(msg_count=5)
+        brain.summarize = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = await tool.execute()
+
+        assert not result.is_error
+        await self._finish_scheduled_compression(short_term)
+        assert len(short_term.primary) == 5
+        assert short_term._full_compress_task is None
 
     @pytest.mark.asyncio
     async def test_unexpected_legacy_arguments_are_ignored(self):
         tool, short_term, _ = self._make_tool()
         result = await tool.execute(leave_message="交接内容")
         assert not result.is_error
+        await self._finish_scheduled_compression(short_term)
         assert len(short_term.tree.nodes) == 1
 
     @pytest.mark.asyncio
@@ -2080,6 +2116,7 @@ class TestClearShortTermMemoryTool:
         assert result.content == "当前没有可压缩的短期记忆消息。"
         assert short_term.primary == []
         assert short_term.tree.nodes == []
+        assert short_term._full_compress_task is None
 
     @pytest.mark.asyncio
     async def test_no_messages_does_not_notify_subconscious(self):
@@ -2098,6 +2135,7 @@ class TestClearShortTermMemoryTool:
         short_term.pin("rules", "规范", "内容")
         short_term.reinject_missing_pins()
         await tool.execute()
+        await self._finish_scheduled_compression(short_term)
         assert len(short_term.pinned_items) == 1
         assert short_term.pinned_items[0].pin_id == "rules"
         assert short_term.primary == []
