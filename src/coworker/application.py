@@ -472,6 +472,7 @@ async def _run_backfill() -> int:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                reasoning_content=response.reasoning_content,
                 thinking=(
                     bool(meta.get("thinking"))
                     if meta.get("thinking") is not None
@@ -739,6 +740,11 @@ async def _main() -> bool:
             usage=usage if isinstance(usage, dict) else {},
             usage_source=str(entry.get("usage_source") or ""),
             operation=str(entry.get("operation") or ""),
+            reasoning_content=(
+                entry.get("reasoning_content")
+                if isinstance(entry.get("reasoning_content"), str)
+                else None
+            ),
         )
 
     long_term.add_usage_listener(log_long_term_usage)
@@ -748,6 +754,7 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             context_hint=str(meta.get("context_hint") or ""),
+            reasoning_content=response.reasoning_content,
             thinking=(
                 bool(meta.get("thinking"))
                 if meta.get("thinking") is not None
@@ -762,6 +769,7 @@ async def _main() -> bool:
             model=response.model,
             usage=response.usage,
             label=str(meta.get("label") or ""),
+            reasoning_content=response.reasoning_content,
             thinking=(
                 bool(meta.get("thinking"))
                 if meta.get("thinking") is not None

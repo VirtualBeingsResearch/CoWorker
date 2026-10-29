@@ -183,6 +183,11 @@ Runtime Center brings together:
 Tasks and alarms share the same data with Coworker's model tools. A change made
 on the page is visible the next time the Agent reads them.
 
+The interaction log records thinking text returned by the model
+(`reasoning_content`) for main and Bubble calls as well as summary, vision, and
+long-term-memory calls whenever the Provider returns it; the field is omitted
+otherwise.
+
 Emergency backups recover short-term context after repeated Agent errors:
 
 - **Summary restore** compresses a backup and sends it to the inbox at lower

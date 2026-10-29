@@ -205,6 +205,7 @@ class BubbleMiniLoop:
                 model=response.model,
                 usage=response.usage,
                 context_hint=str(meta.get("context_hint") or ""),
+                reasoning_content=response.reasoning_content,
                 thinking=(
                     bool(meta.get("thinking"))
                     if meta.get("thinking") is not None
@@ -219,6 +220,7 @@ class BubbleMiniLoop:
                 model=response.model,
                 usage=response.usage,
                 label=str(meta.get("label") or ""),
+                reasoning_content=response.reasoning_content,
                 thinking=(
                     bool(meta.get("thinking"))
                     if meta.get("thinking") is not None

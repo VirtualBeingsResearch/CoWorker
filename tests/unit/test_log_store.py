@@ -106,6 +106,39 @@ class TestInteractionLogSeq:
         assert entries[1]["thinking"] is True
         assert entries[1]["thinking_effort"] == "medium"
 
+    def test_summary_vision_and_long_term_record_returned_reasoning_content(self, tmp_path):
+        p = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(p))
+
+        log.log_summary_llm_response(
+            provider="mock",
+            model="summary-model",
+            usage={},
+            reasoning_content="summary thinking",
+            thinking=False,
+        )
+        log.log_vision_llm_response(
+            provider="mock",
+            model="vision-model",
+            usage={},
+            label="screenshot",
+            reasoning_content="vision thinking",
+        )
+        log.log_long_term_llm_response(
+            provider="mock",
+            model="mem-model",
+            usage={},
+            reasoning_content="long-term thinking",
+        )
+        # Provider 没有返回思考内容时不写该字段。
+        log.log_summary_llm_response(provider="mock", model="summary-model", usage={})
+
+        entries = [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert entries[0]["reasoning_content"] == "summary thinking"
+        assert entries[1]["reasoning_content"] == "vision thinking"
+        assert entries[2]["reasoning_content"] == "long-term thinking"
+        assert "reasoning_content" not in entries[3]
+
     def test_long_term_usage_source_is_logged(self, tmp_path):
         p = tmp_path / "interactions.jsonl"
         log = InteractionLogger(str(p))

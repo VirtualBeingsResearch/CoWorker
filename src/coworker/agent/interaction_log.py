@@ -24,6 +24,15 @@ def _memory_log_payload(memory: MemoryRecord) -> dict[str, object]:
     return payload
 
 
+def _reasoning_text(value: Any) -> str | None:
+    """Return non-empty thinking text, or None when the provider returned none.
+
+    Some Providers cannot disable thinking, so summary/vision/long-term calls can
+    return reasoning even when the role does not request it; log whatever arrived.
+    """
+    return value if isinstance(value, str) and value else None
+
+
 class InteractionLogger:
     """Append-only interaction logger with optional size-based shard rotation.
 
@@ -237,6 +246,7 @@ class InteractionLogger:
         model: str,
         usage: dict,
         context_hint: str = "",
+        reasoning_content: str | None = None,
         thinking: bool | None = None,
         thinking_effort: str | None = None,
     ) -> None:
@@ -248,6 +258,8 @@ class InteractionLogger:
         }
         if context_hint:
             entry["context_hint"] = context_hint[:200]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         if thinking is not None:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
@@ -319,6 +331,7 @@ class InteractionLogger:
         model: str,
         usage: dict,
         label: str = "",
+        reasoning_content: str | None = None,
         thinking: bool | None = None,
         thinking_effort: str | None = None,
     ) -> None:
@@ -330,6 +343,8 @@ class InteractionLogger:
         }
         if label:
             entry["label"] = label[:200]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         if thinking is not None:
             entry["thinking"] = thinking
         if isinstance(thinking_effort, str) and thinking_effort:
@@ -344,6 +359,7 @@ class InteractionLogger:
         usage: dict,
         usage_source: str = "",
         operation: str = "",
+        reasoning_content: str | None = None,
     ) -> None:
         entry = {
             "type": "long_term_llm_response",
@@ -355,6 +371,8 @@ class InteractionLogger:
             entry["usage_source"] = usage_source[:40]
         if operation:
             entry["operation"] = operation[:80]
+        if reasoning := _reasoning_text(reasoning_content):
+            entry["reasoning_content"] = reasoning
         self._write(entry)
 
     def log_tool_call(self, id: str, name: str, arguments: dict) -> None:
