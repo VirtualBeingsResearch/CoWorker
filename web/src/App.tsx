@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Bot,
+  Brain,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -663,6 +664,18 @@ function UsageStatsPanel({ data }: { data: FullStatus }) {
               value={formatDurationSeconds(windowStats.avg_thinking_seconds)}
               detail={t('{{count}} 轮推理', { count: formatCount(windowStats.thinking_calls) })}
               icon={Timer}
+            />
+            <UsageMetric
+              label={t('思考 Token')}
+              value={formatTokenUnits(windowStats.reasoning_tokens)}
+              detail={windowStats.avg_reasoning_tokens_per_call != null
+                ? t('均 {{avg}} Token/次 · 占输出 {{share}}', {
+                  avg: formatTokenUnits(windowStats.avg_reasoning_tokens_per_call),
+                  share: formatCacheRate(windowStats.reasoning_output_share),
+                })
+                : t('暂无思考 Token 数据')}
+              title={t('思考 Token')}
+              icon={Brain}
             />
           </div>
           <div className="usage-detail-grid">

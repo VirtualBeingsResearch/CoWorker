@@ -880,7 +880,7 @@ export function AdminUsageAnalytics({
           count: formatTokenUnits(windowStats.unpriced_tokens),
         })} icon={CircleDollarSign} compactValue featured actionHref={pricingHref} actionLabel={t('管理定价')} />
         <MetricCard label={t('模型调用')} value={formatCount(llmCalls)} detail={finite(windowStats.avg_reasoning_tokens_per_call) > 0
-          ? t('单次平均 {{count}} Token · 思考 {{thinking}}', {
+          ? t('单次平均 {{count}} Token · 思考 {{thinking}} Token/次', {
             count: formatOptionalTokenUnits(windowStats.avg_tokens_per_call),
             thinking: formatOptionalTokenUnits(windowStats.avg_reasoning_tokens_per_call),
           })
