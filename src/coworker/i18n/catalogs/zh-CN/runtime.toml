@@ -382,6 +382,8 @@ model_fallback = "[系统通知] 主模型调用失败，已自动降级至 {{pr
 model_switched = "[系统通知] 模型已切换至 {{provider}}/{{model}}"
 pause_interrupted = "管理端暂停：已中断 {{count}} 个在途主线模型调用"
 pause_cycle_stopped = "本回合因管理端暂停而中止（在途模型调用已打断），恢复后从同一上下文继续"
+compression_paused = "管理端暂停打断了后台记忆压缩，恢复后的下一轮会重新调度"
+compression_failed = "后台记忆压缩失败，{{seconds}} 秒后重试：{{error}}"
 tool_parse_error = "工具参数 JSON 解析失败，请重新生成正确格式的参数：{{error}}"
 auto_recall_title = "[自动回忆] 以下长期记忆与当前对话相关："
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"

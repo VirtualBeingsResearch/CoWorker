@@ -382,6 +382,8 @@ model_fallback = "[system notice] The primary model failed and automatically fel
 model_switched = "[system notice] The model was switched to {{provider}}/{{model}}"
 pause_interrupted = "Admin pause aborted {{count}} in-flight main-model call(s)"
 pause_cycle_stopped = "The cycle stopped because of the admin pause (its in-flight model call was aborted); it continues from the same context after resume"
+compression_paused = "Admin pause interrupted background memory compression; the next cycle after resume reschedules it"
+compression_failed = "Background memory compression failed; retrying in {{seconds}} seconds: {{error}}"
 tool_parse_error = "Tool argument JSON could not be parsed. Generate valid arguments and try again: {{error}}"
 auto_recall_title = "[automatic recall] The following long-term memories are relevant to the current conversation:"
 auto_recall_item = "{{index}}. id={{id}} [{{category}}] {{content}}"

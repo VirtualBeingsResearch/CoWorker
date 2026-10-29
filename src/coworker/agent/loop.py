@@ -15,7 +15,7 @@ from coworker.brain.brain import ModelCallSuspended, set_model_call_owner
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
-from coworker.i18n import tr
+from coworker.i18n import bind_locale, tr
 from coworker.persona import PersonaContext
 
 if TYPE_CHECKING:
@@ -45,8 +45,15 @@ _TASK_BOARD_PIN_ID = "task_board"
 # 总览 pin 中最多列出的任务数，超出部分折叠为「还有 N 个」提示。
 _TASK_BOARD_MAX_TASKS = 20
 
+# 后台压缩失败后的重试冷却（秒）：预算已超时也不要在每轮 cycle 反复重试摘要。
+_COMPRESSION_RETRY_COOLDOWN_SECONDS = 60
+
 
 class AgentLoop:
+    # 后台压缩任务与失败冷却。以类属性给出默认值，兼容测试里 __new__ 构造的最小实例。
+    _compress_task: asyncio.Task[None] | None = None
+    _compress_retry_at: float = 0.0
+
     def __init__(
         self,
         brain: Brain,
@@ -99,6 +106,9 @@ class AgentLoop:
         )
         self._progress = progress
         self._last_compress_generation = short_term.compress_generation
+        # 预算达标后的压缩在 cycle 之外的后台任务里跑，主循环不等摘要返回。
+        self._compress_task = None
+        self._compress_retry_at = 0.0
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
             current_model=brain.current_model,
@@ -225,6 +235,15 @@ class AgentLoop:
 
         if self._bubble_store is not None:
             self._bubble_store.cancel_all()
+
+        # 关闭/重启时取消未完成的压缩，避免本进程退出后仍有任务改写快照。
+        compress_task = self._compress_task
+        if compress_task is not None and not compress_task.done():
+            compress_task.cancel()
+            try:
+                await compress_task
+            except asyncio.CancelledError:
+                pass
 
         if watcher is not None:
             watcher.cancel()
@@ -511,7 +530,7 @@ class AgentLoop:
                     source="system_reminder",
                 )
 
-        await self._compress_after_budget_reached(input_tokens, system_prompt)
+        self._maybe_schedule_compression(input_tokens, system_prompt)
 
         repeated_no_tool_response = (
             not response.tool_calls
@@ -544,18 +563,27 @@ class AgentLoop:
     def _build_content_blocks(events: list[IncomingEvent]) -> str | list[dict]:
         return build_content_blocks(events)
 
-    async def _compress_after_budget_reached(
+    def _maybe_schedule_compression(
         self,
         observed_input_tokens: int,
         system_prompt: str,
     ) -> None:
-        """Run one compression pass after a completed main-model request reaches budget.
+        """Schedule one compression pass after a completed main-model request reaches budget.
 
         Provider usage is the preferred measurement because it reflects the complete
         request. Providers without usage fall back to an estimate of the currently
         rendered short-term context. The budget is a trigger, not a hard request cap:
-        one pass runs per completed main cycle and temporary overshoot is allowed.
+        one pass runs at a time and temporary overshoot is allowed.
+
+        The pass runs as a background task, so the loop keeps draining inbound
+        messages while the summary is generated. The next cycle renders the new
+        context and refreshes the system prompt once ``compress_generation`` moves;
+        a pass already in flight (or a cooled-down failure) suppresses rescheduling.
         """
+        if self._compress_task is not None and not self._compress_task.done():
+            return
+        if time.monotonic() < self._compress_retry_at:
+            return
         if not self._short_term.compression_budget_reached(observed_input_tokens):
             return
 
@@ -566,22 +594,78 @@ class AgentLoop:
             )
             return
 
-        if self._subconscious is not None:
-            await self._subconscious.notify_pre_compress(
-                preview,
-                full_snapshot=list(self._short_term.primary),
-            )
-
-        compressed, _ = await self._short_term.compress_now(
-            self._brain,
-            agent_system_prompt=system_prompt,
-            trigger="automatic",
+        full_snapshot = list(self._short_term.primary)
+        self._compress_task = asyncio.create_task(
+            bind_locale(
+                lambda: self._run_background_compression(
+                    preview,
+                    full_snapshot,
+                    system_prompt,
+                    observed_input_tokens,
+                )
+            ),
+            name="context-compression",
         )
-        if compressed:
-            source = "provider" if observed_input_tokens > 0 else "estimated"
-            logger.info(
-                f"Context compression budget reached ({source}); compressed {compressed} message(s)"
+        self._compress_task.add_done_callback(self._on_compression_done)
+
+    async def _run_background_compression(
+        self,
+        preview: list[Message],
+        full_snapshot: list[Message],
+        system_prompt: str,
+        observed_input_tokens: int,
+    ) -> None:
+        """Compress one slice off the main loop, then refresh the snapshot."""
+        try:
+            if self._subconscious is not None:
+                # 只把即将离开原始尾部的切片交给潜意识，避免重复提炼仍驻留的内容；
+                # 完整上下文模式拿压缩前的整条主线。
+                await self._subconscious.notify_pre_compress(
+                    preview,
+                    full_snapshot=full_snapshot,
+                )
+            compressed, _ = await self._short_term.compress_now(
+                self._brain,
+                agent_system_prompt=system_prompt,
+                trigger="automatic",
             )
+        except ModelCallSuspended:
+            # 管理端暂停打断了这次摘要请求：不算失败，恢复后的下一轮重新调度。
+            logger.info(tr("loop.compression_paused"))
+            return
+        except Exception as e:
+            self._compress_retry_at = time.monotonic() + _COMPRESSION_RETRY_COOLDOWN_SECONDS
+            logger.opt(exception=True).warning(
+                tr(
+                    "loop.compression_failed",
+                    seconds=_COMPRESSION_RETRY_COOLDOWN_SECONDS,
+                    error=f"{type(e).__name__}: {str(e)[:200]}",
+                )
+            )
+            return
+
+        if not compressed:
+            return
+        source = "provider" if observed_input_tokens > 0 else "estimated"
+        logger.info(
+            f"Context compression budget reached ({source}); compressed {compressed} message(s)"
+        )
+        if self._snapshot_path is not None and not self.state.restart_requested:
+            self._short_term.active_provider = self._brain.current_provider_name
+            self._short_term.active_model = self._brain.current_model
+            try:
+                self._short_term.save_to_file(self._snapshot_path)
+            except OSError as e:
+                logger.warning(f"Failed to save snapshot after background compression: {e}")
+
+    def _on_compression_done(self, task: asyncio.Task[None]) -> None:
+        if task is self._compress_task:
+            self._compress_task = None
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.opt(exception=error).error("Background context compression failed")
 
     async def _act(self, tool_calls) -> None:
         results: list[ToolResult] = []

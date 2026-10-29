@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,6 +10,7 @@ from loguru import logger
 
 import coworker.agent.loop as loop_module
 from coworker.agent.loop import AgentLoop
+from coworker.brain.brain import ModelCallSuspended
 from coworker.core.constants import TICK_TAG
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.i18n import locale_context
@@ -70,6 +73,8 @@ def _make_loop(brain, mem, events=None):
     loop._subconscious = None
     loop._consecutive_no_tool_responses = 0
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
+    loop._compress_task = None
+    loop._compress_retry_at = 0.0
     return loop
 
 
@@ -458,10 +463,16 @@ async def test_compresses_once_after_provider_input_reaches_budget():
         mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
     brain = _make_brain(usage={"input_tokens": 100})
     loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
     mem.compress_now = AsyncMock(return_value=(2, 0))
 
     await loop._cycle()
 
+    # 压缩不再占用 cycle：调度后由后台任务完成。
+    mem.compress_now.assert_not_awaited()
+    task = loop._compress_task
+    assert task is not None
+    await task
     mem.compress_now.assert_awaited_once_with(
         brain,
         agent_system_prompt="system prompt",
@@ -482,12 +493,159 @@ async def test_budget_compression_passes_slice_and_full_context_to_subconscious(
     full = list(mem.primary)
     mem.compress_now = AsyncMock(return_value=(2, 0))
 
-    await loop._compress_after_budget_reached(100, "system prompt")
+    loop._maybe_schedule_compression(100, "system prompt")
 
+    task = loop._compress_task
+    assert task is not None
+    await task
     loop._subconscious.notify_pre_compress.assert_awaited_once_with(
         preview,
         full_snapshot=full,
     )
+
+
+@pytest.mark.asyncio
+async def test_cycle_returns_while_background_compression_is_still_running():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_compress(*args, **kwargs):
+        started.set()
+        await release.wait()
+        return (2, 0)
+
+    mem.compress_now = AsyncMock(side_effect=slow_compress)
+
+    await asyncio.wait_for(loop._cycle(), timeout=1.0)
+    await asyncio.sleep(0)  # 让后台任务跑到摘要这一步
+
+    assert started.is_set()
+    task = loop._compress_task
+    assert task is not None and not task.done()
+
+    release.set()
+    await task
+
+
+@pytest.mark.asyncio
+async def test_compression_in_flight_suppresses_another_pass():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_compress(*args, **kwargs):
+        started.set()
+        await release.wait()
+        return (2, 0)
+
+    mem.compress_now = AsyncMock(side_effect=slow_compress)
+
+    await loop._cycle()
+    await asyncio.sleep(0)
+    assert started.is_set()
+    first = loop._compress_task
+    assert first is not None
+
+    # 摘要仍未返回时，下一轮 cycle 不应再压一次。
+    await loop._cycle()
+    await asyncio.sleep(0)
+    assert loop._compress_task is first
+    assert mem.compress_now.await_count == 1
+
+    release.set()
+    await first
+
+
+@pytest.mark.asyncio
+async def test_background_compression_failure_cools_down_before_retry():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+    mem.compress_now = AsyncMock(side_effect=RuntimeError("summary unavailable"))
+
+    await loop._cycle()
+    task = loop._compress_task
+    assert task is not None
+    await task
+    await asyncio.sleep(0)
+
+    assert loop._compress_retry_at > time.monotonic()
+    assert loop._compress_task is None
+
+    # 冷却期内即便预算仍然超出，也不再调度新的摘要请求。
+    await loop._cycle()
+    assert loop._compress_task is None
+    assert mem.compress_now.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_pause_during_background_compression_retries_without_cooldown():
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+    mem.compress_now = AsyncMock(side_effect=ModelCallSuspended("mock", "mock-model"))
+
+    await loop._cycle()
+    task = loop._compress_task
+    assert task is not None
+    await task
+    await asyncio.sleep(0)
+
+    # 暂停打断不算失败：不进入冷却，恢复后的下一轮立即重新调度。
+    assert loop._compress_retry_at == 0.0
+    assert loop._compress_task is None
+
+    await loop._cycle()
+    await asyncio.sleep(0)
+    retried = loop._compress_task
+    assert retried is not None
+    assert retried is not task
+    assert mem.compress_now.await_count == 2
+    await retried
+
+
+@pytest.mark.asyncio
+async def test_background_compression_saves_snapshot(tmp_path):
+    mem = ShortTermMemory(max_tokens=100, compress_ratio=0.30)
+    for index in range(10):
+        mem.primary.append(Message(role="user", content=f"{index}:" + "x" * 400))
+    brain = _make_brain(usage={"input_tokens": 100})
+    loop = _make_loop(brain, mem, events=[])
+    loop._rest = AsyncMock()
+    loop._snapshot_path = tmp_path / "short_term_snapshot.json"
+    loop.state.restart_requested = False
+
+    async def fake_compress(*args, **kwargs):
+        mem.primary = mem.primary[-2:]
+        return (8, 0)
+
+    mem.compress_now = AsyncMock(side_effect=fake_compress)
+
+    await loop._cycle()
+    task = loop._compress_task
+    assert task is not None
+    await task
+    await asyncio.sleep(0)
+
+    data = json.loads(loop._snapshot_path.read_text(encoding="utf-8"))
+    assert len(data["primary"]) == 2
 
 
 @pytest.mark.asyncio
@@ -500,6 +658,7 @@ async def test_does_not_compress_below_provider_input_budget():
 
     await loop._cycle()
 
+    assert loop._compress_task is None
     mem.compress_now.assert_not_awaited()
 
 
@@ -511,10 +670,14 @@ async def test_budget_compression_also_runs_on_event_cycles():
     brain = _make_brain(usage={"input_tokens": 101})
     event = IncomingEvent(participant_id="alice", content="hi")
     loop = _make_loop(brain, mem, events=[event])
+    loop._rest = AsyncMock()
     mem.compress_now = AsyncMock(return_value=(2, 0))
 
     await loop._cycle()
 
+    task = loop._compress_task
+    assert task is not None
+    await task
     mem.compress_now.assert_awaited_once()
 
 

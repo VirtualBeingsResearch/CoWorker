@@ -109,7 +109,7 @@ coworker/
 
 ## Memory system
 
-Short-term memory is divided into the agent's own thought stream and participant-isolated conversation threads. When the latest complete model input reaches the `MEMORY__SHORT_TERM_MAX_TOKENS` budget, the system compresses the oldest share selected by `MEMORY__COMPRESS_RATIO` through the **multiresolution memory tree** described below and dispatches any due pre-compression MODE work. `summarize` receives only the slice leaving the raw tail, while full-context modes such as `audit` and `introspect` receive the complete main line before compression. The budget is a compression trigger and allows temporary overshoot.
+Short-term memory is divided into the agent's own thought stream and participant-isolated conversation threads. When the latest complete model input reaches the `MEMORY__SHORT_TERM_MAX_TOKENS` budget, the system compresses the oldest share selected by `MEMORY__COMPRESS_RATIO` through the **multiresolution memory tree** described below and dispatches any due pre-compression MODE work. `summarize` receives only the slice leaving the raw tail, while full-context modes such as `audit` and `introspect` receive the complete main line before compression. The budget is a compression trigger and allows temporary overshoot. Compression runs as a separate background task while the main loop keeps receiving and handling new messages; only one pass runs at a time, and the next cycle renders the new short-term context once the summary lands.
 
 ### Multiresolution memory tree (short-term memory LOD)
 
