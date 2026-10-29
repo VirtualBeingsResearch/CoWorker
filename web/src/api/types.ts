@@ -110,8 +110,10 @@ export type UsageModelStats = {
   cached_tokens?: number;
   reasoning_tokens?: number;
   content_output_tokens?: number;
+  reasoning_output_share?: number | null;
   total_tokens?: number;
   avg_tokens_per_call?: number | null;
+  avg_reasoning_tokens_per_call?: number | null;
   cache_rate?: number | null;
 };
 
@@ -165,6 +167,8 @@ export type UsageWindowStats = UsageModelStats & {
   memory_compression_content_output_tokens?: number;
   memory_compression_cached_tokens?: number;
   memory_compression_total_tokens?: number;
+  avg_memory_compression_content_tokens?: number | null;
+  avg_memory_compression_reasoning_tokens?: number | null;
   memory_compression_triggers?: Record<'automatic' | 'admin' | 'tool' | 'other', number>;
   last_memory_compression_at?: string | null;
   by_model?: Record<string, UsageModelStats>;

@@ -163,13 +163,19 @@ def test_separates_reasoning_tokens_from_output():
     assert today["reasoning_tokens"] == 200
     assert today["content_output_tokens"] == 80
     assert today["total_tokens"] == 430
+    assert today["avg_reasoning_tokens_per_call"] == 100
+    assert today["reasoning_output_share"] == 200 / 280
     assert today["by_model"]["gpt-5"]["reasoning_tokens"] == 200
     assert today["by_model"]["gpt-5"]["content_output_tokens"] == 50
+    assert today["by_model"]["gpt-5"]["avg_reasoning_tokens_per_call"] == 200
+    assert today["by_model"]["gpt-5"]["reasoning_output_share"] == 0.8
     assert today["by_provider_model"]["openai/gpt-5"]["reasoning_tokens"] == 200
     assert today["by_provider_model"]["openai/gpt-5"]["content_output_tokens"] == 50
     # 没有拆分数据的 provider 退回「正文 = 总输出」。
     assert today["by_model"]["claude"]["reasoning_tokens"] == 0
     assert today["by_model"]["claude"]["content_output_tokens"] == 30
+    assert today["by_model"]["claude"]["avg_reasoning_tokens_per_call"] == 0
+    assert today["by_model"]["claude"]["reasoning_output_share"] == 0
 
 
 def test_provider_model_breakdown_separates_same_model_across_providers():
@@ -767,7 +773,11 @@ def test_memory_compression_separates_reasoning_tokens_from_summary_content():
     assert today["memory_compression_reasoning_tokens"] == 40
     assert today["memory_compression_content_output_tokens"] == 50
     assert today["memory_compression_total_tokens"] == 240
+    assert today["avg_memory_compression_content_tokens"] == 25
+    assert today["avg_memory_compression_reasoning_tokens"] == 20
     assert today["by_scope"]["main"]["memory_compression_content_output_tokens"] == 50
+    assert today["by_scope"]["main"]["avg_memory_compression_content_tokens"] == 25
+    assert today["by_scope"]["main"]["avg_memory_compression_reasoning_tokens"] == 20
 
 
 def test_public_snapshot_does_not_expose_memory_compression_details():

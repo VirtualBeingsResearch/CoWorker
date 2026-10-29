@@ -79,7 +79,8 @@ group. It continues from the summary and provides:
 - yesterday, the preceding 7 days, or the preceding 30 days as preset
   baselines, with every custom range compared against the immediately
   preceding equal-length period;
-- a first-screen summary of tokens, model calls, caching, tools, skill loads,
+- a first-screen summary of tokens (input/output/thinking), model calls
+  (including average thinking tokens per call), caching, tools, skill loads,
   autonomous runs, and memory compression next to data confidence and
   attention items;
 - a 24-hour input/output increment chart and running daily-token line whenever
@@ -96,9 +97,9 @@ group. It continues from the summary and provides:
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
 - completed memory-compression counts, affected messages, summary-model calls
-  and tokens (summary tokens split into content and thinking), split by
-  automatic, administrator, and tool triggers, with the metric linking directly
-  to filtered compression-event logs;
+  and tokens (summary tokens split into content and thinking, with thinking
+  average per compression), split by automatic, administrator, and tool
+  triggers, with the metric linking directly to filtered compression-event logs;
 - technical Bubble and subconscious outcomes such as completion, errors,
   timeouts, cycles, and resumes;
 - the first eight ranked model, tool, and skill rows by default, with an

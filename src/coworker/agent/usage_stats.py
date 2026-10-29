@@ -65,8 +65,10 @@ _SUMMARY_KEYS = (
     "cached_tokens",
     "reasoning_tokens",
     "content_output_tokens",
+    "reasoning_output_share",
     "total_tokens",
     "avg_tokens_per_call",
+    "avg_reasoning_tokens_per_call",
     "cache_rate",
     "tool_calls",
     "tool_successes",
@@ -103,6 +105,8 @@ _SUMMARY_KEYS = (
     "memory_compression_content_output_tokens",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
+    "avg_memory_compression_content_tokens",
+    "avg_memory_compression_reasoning_tokens",
     "memory_compression_triggers",
     "last_memory_compression_at",
 )
@@ -169,6 +173,8 @@ _ADMIN_WINDOW_KEYS = {
     "memory_compression_content_output_tokens",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
+    "avg_memory_compression_content_tokens",
+    "avg_memory_compression_reasoning_tokens",
     "memory_compression_triggers",
     "last_memory_compression_at",
 }
@@ -548,9 +554,15 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
         "cached_tokens": cached_tokens,
         "reasoning_tokens": reasoning_tokens,
         "content_output_tokens": max(0, output_tokens - reasoning_tokens),
+        "reasoning_output_share": (
+            reasoning_tokens / output_tokens if output_tokens else None
+        ),
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
+        ),
+        "avg_reasoning_tokens_per_call": (
+            reasoning_tokens / tracked_calls if tracked_calls else None
         ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
     }
@@ -785,9 +797,15 @@ def _finalize_bucket(
         "cached_tokens": cached_tokens,
         "reasoning_tokens": reasoning_tokens,
         "content_output_tokens": max(0, output_tokens - reasoning_tokens),
+        "reasoning_output_share": (
+            reasoning_tokens / output_tokens if output_tokens else None
+        ),
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
+        ),
+        "avg_reasoning_tokens_per_call": (
+            reasoning_tokens / tracked_calls if tracked_calls else None
         ),
         "cache_rate": cached_tokens / input_tokens if input_tokens else None,
         "tool_calls": tool_calls,
@@ -849,6 +867,16 @@ def _finalize_bucket(
         "memory_compression_reasoning_tokens": memory_compression_reasoning_tokens,
         "memory_compression_content_output_tokens": (
             memory_compression_content_output_tokens
+        ),
+        "avg_memory_compression_content_tokens": (
+            memory_compression_content_output_tokens / memory_compressions
+            if memory_compressions
+            else None
+        ),
+        "avg_memory_compression_reasoning_tokens": (
+            memory_compression_reasoning_tokens / memory_compressions
+            if memory_compressions
+            else None
         ),
         "memory_compression_cached_tokens": _int_value(
             bucket.get("memory_compression_cached_tokens")
