@@ -6,8 +6,8 @@ import {
 } from '../lib/browserCredentials';
 import { clearAdminToken, persistAdminToken, readAdminToken } from '../lib/adminToken';
 import {
-  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleGauge,
-  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, GripVertical, HeartPulse, KeyRound, ListTodo, LogOut,
+  Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronLeft, ChevronRight, CircleGauge,
+  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Pause, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
@@ -21,7 +21,9 @@ import {
 import { EditableCombobox } from './EditableCombobox';
 import type { Json } from './settings/types';
 import { useSettingsDraft } from './settings/useSettingsDraft';
+import { CONFIG_LABELS } from './settings/configLabels';
 import { configFieldPresentation } from './settings/configFieldPresentation';
+import { SearchBackendOrderEditor } from './settings/searchBackends';
 import { AdminLanguageSwitch, t, useAdminI18n } from '../i18n/admin';
 import { loadInteractionHistoryPage } from './interactionHistory';
 import { createBootstrapReconnectProof, resolveBootstrapAdminTarget, type BootstrapAdminTarget } from './bootstrapReconnect';
@@ -1040,112 +1042,6 @@ function ComboboxField({ id, label, hint, children }: { id: string; label: strin
   return <div className="field"><label className="field-label" htmlFor={id}>{t(label)}</label>{children}{hint && <small>{t(hint)}</small>}</div>;
 }
 
-const SEARCH_BACKENDS: { id: string; label: string }[] = [
-  { id: 'bocha', label: 'Bocha 博查' },
-  { id: 'qianfan', label: 'Qianfan 千帆' },
-  { id: 'zhipu', label: 'Zhipu 智谱' },
-  { id: 'zhipu_prime', label: 'Zhipu 套餐搜索' },
-  { id: 'deepseek', label: 'DeepSeek' },
-  { id: 'linkai', label: 'LinkAI' },
-  { id: 'anysearch', label: 'AnySearch' },
-  { id: 'serply', label: 'Serply' },
-  { id: 'tavily', label: 'Tavily' },
-  { id: 'searxng', label: 'SearXNG' },
-  { id: 'keenable', label: 'Keenable' },
-  { id: 'ddgs', label: 'DDGS' },
-];
-
-function searchBackendOrder(value: unknown): string[] {
-  const known = SEARCH_BACKENDS.map(backend => backend.id);
-  const raw = Array.isArray(value) ? value.map(String) : [];
-  const ordered = raw.filter((name, index) => known.includes(name) && raw.indexOf(name) === index);
-  return [...ordered, ...known.filter(name => !ordered.includes(name))];
-}
-
-function SearchBackendOrderEditor({ value, onChange }: {
-  value: Json;
-  onChange: (key: string, next: unknown) => void;
-}) {
-  const order = searchBackendOrder(value.provider_order);
-  const disabled = new Set(Array.isArray(value.disabled_providers) ? value.disabled_providers.map(String) : []);
-  const labels = Object.fromEntries(SEARCH_BACKENDS.map(backend => [backend.id, backend.label]));
-  const dragIndex = useRef<number | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const reorder = (from: number, to: number) => {
-    if (from === to || from < 0 || to < 0 || to >= order.length) return;
-    const next = order.slice();
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    onChange('provider_order', next);
-  };
-  const toggle = (name: string, enabled: boolean) => {
-    onChange('disabled_providers', order.filter(item => (item === name ? !enabled : disabled.has(item))));
-  };
-  const finishDrag = () => {
-    dragIndex.current = null;
-    setDragging(null);
-    setOverIndex(null);
-  };
-  return <div className="field search-backend-order">
-    <span>{t('自动顺序与启用')}</span>
-    <div className="search-backend-list" role="list">
-      {order.map((name, index) => {
-        const label = t(labels[name] || name);
-        const className = [
-          'search-backend-row',
-          disabled.has(name) ? 'disabled' : '',
-          dragging === name ? 'dragging' : '',
-          overIndex === index && dragging && dragging !== name ? 'drop-target' : '',
-        ].filter(Boolean).join(' ');
-        return <div
-          className={className}
-          key={name}
-          role="listitem"
-          title={t('拖动调整 {{name}}', { name: label })}
-          draggable
-          onDragStart={event => {
-            const target = event.target as HTMLElement;
-            if (target.closest('input, button')) {
-              event.preventDefault();
-              return;
-            }
-            dragIndex.current = index;
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', name);
-            if (event.currentTarget instanceof HTMLElement) event.dataTransfer.setDragImage(event.currentTarget, 28, 20);
-            setDragging(name);
-          }}
-          onDragEnd={finishDrag}
-          onDragOver={event => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-            if (overIndex !== index) setOverIndex(index);
-          }}
-          onDrop={event => {
-            event.preventDefault();
-            const from = dragIndex.current;
-            if (from !== null) reorder(from, index);
-            finishDrag();
-          }}
-        >
-          <span className="search-backend-grip" aria-hidden="true"><GripVertical size={16} /></span>
-          <label className="switch">
-            <input type="checkbox" checked={!disabled.has(name)} onChange={event => toggle(name, event.target.checked)} />
-            <i />
-            <span>{label}</span>
-          </label>
-          <div className="search-backend-move">
-            <button type="button" className="ghost mini" disabled={index === 0} aria-label={t('上移 {{name}}', { name: label })} onClick={() => reorder(index, index - 1)}><ChevronUp size={14} /></button>
-            <button type="button" className="ghost mini" disabled={index === order.length - 1} aria-label={t('下移 {{name}}', { name: label })} onClick={() => reorder(index, index + 1)}><ChevronDown size={14} /></button>
-          </div>
-        </div>;
-      })}
-    </div>
-    <small>{t('拖动一行即可调整顺序。靠前的已启用且已配置后端会先被自动模式使用。')}</small>
-  </div>;
-}
-
 function StringListEditor({ label, hint, value, onChange, placeholder }: {
   label: string;
   hint: string;
@@ -1698,137 +1594,6 @@ function DesktopUpdateSettings({ value, change, secretInputs, setSecretInputs, s
     </section>
   </div>;
 }
-
-const CONFIG_LABELS: Record<string, string> = {
-  'llm.default_provider': '启动时使用的 Provider',
-  'llm.default_model': '启动时使用的模型',
-  'llm.max_tokens': '单次输出上限',
-  'llm.thinking_effort': '主线思考强度',
-  'llm.summary_provider': '摘要 Provider',
-  'llm.summary_model': '摘要模型',
-  'llm.summary_thinking': '摘要 Thinking',
-  'llm.summary_thinking_effort': '摘要思考强度',
-  'llm.fallbacks': '主模型降级链',
-  'llm.vision_provider': '视觉 Provider',
-  'llm.vision_model': '视觉模型',
-  'llm.vision_thinking': '视觉 Thinking',
-  'llm.vision_thinking_effort': '视觉思考强度',
-  'i18n.locale': '运行语言',
-  'memory.db_path': '记忆数据目录',
-  'memory.backend': '记忆后端',
-  'memory.short_term_max_tokens': '短期上下文容量',
-  'memory.compress_ratio': '每次自动压缩比例',
-  'memory.tree_enabled': '启用记忆块树',
-  'memory.tree_spine_cap_fraction': '记忆脊柱预算比例',
-  'memory.tree_backfill_max_leaves': '回溯叶子数量上限',
-  'memory.tree_backfill_concurrency': '回溯并发数',
-  'memory.tree_merge_reach_depth': '高层合并下探深度',
-  'memory.summary_budget_retries': '摘要预算重试次数',
-  'memory.summary_budget_tolerance': '摘要预算容差',
-  'memory.auto_recall_enabled': '自动召回长期记忆',
-  'memory.auto_recall_relevance_threshold': '自动召回相关性阈值',
-  'memory.auto_recall_limit': '单次自动召回数量',
-  'agent.passive_mode': 'Passive 模式（开发者控制）',
-  'agent.idle_sleep_seconds': '主动模式自唤醒间隔（秒）',
-  'agent.channel_progress_enabled': '信道处理提示',
-  'agent.channel_progress_reply_reminder_seconds': '处理提示催促秒数',
-  'agent.channel_progress_timeout_seconds': '处理提示超时秒数',
-  'agent.inbox_dir': '收件箱目录',
-  'agent.outbox_dir': '发件箱目录',
-  'agent.desktop_registry_dir': '桌面连接注册目录',
-  'agent.identity_dir': '身份数据目录',
-  'agent.logs_dir': '运行日志目录',
-  'agent.interaction_log_rotation_bytes': '交互日志轮换大小',
-  'agent.skills_dir': 'Skill 目录',
-  'agent.palaces_dir': 'Palace 目录',
-  'agent.subconscious_dir': '潜意识模式目录',
-  'agent.inbox_poll_interval': '收件箱轮询间隔（秒）',
-  'agent.inbox_batch_max': '单批收件数量上限',
-  'agent.tick': '启用生命循环 Tick',
-  'agent.code_hard_timeout': '代码执行硬超时（秒）',
-  'agent.image_max_dimension': '图片最大边长',
-  'agent.message_time_prefix': '消息附加时间前缀',
-  'agent.bubble_thinking': 'Bubble 启用 Thinking',
-  'agent.bubble_max_concurrent': 'Bubble 最大并发数',
-  'agent.concurrency_hint_window_seconds': '并发提示滑动窗口（秒）',
-  'agent.concurrency_hint_threshold': '并发提示会话阈值',
-  'agent.concurrency_hint_cooldown_seconds': '并发提示冷却间隔（秒）',
-  'agent.bubble_handoff_transparency_participant_matches': '透明接管对象',
-  'agent.bubble_handoff_transparency_stream_transports': '透明接管实时信道',
-  'agent.bubble_timeout_resume_seconds': 'Bubble 超时续跑窗口（秒）',
-  'agent.subconscious_thinking': '潜意识启用 Thinking',
-  'agent.subconscious_summarize_before_compress': '压缩前生成潜意识摘要',
-  'agent.subconscious_max_cycles': '潜意识最大循环次数',
-  'api.host': 'API 监听地址',
-  'api.port': 'API 监听端口',
-  'api.public_url': 'API 公开访问地址',
-  'api.communication_token': '通信令牌',
-  'api.communication_tokens': 'OpenAI 额外通信令牌',
-  'api.compat_timeout_seconds': 'OpenAI 兼容请求超时（秒）',
-  'api.compat_tool_result_fold_chars': '工具结果折叠阈值（字符）',
-  'api.cors_origins': '允许的跨域来源',
-  'relay.enabled': '启用 Relay',
-  'relay.url': 'Relay 地址',
-  'relay.instance_id': 'Relay 实例 ID',
-  'relay.instance_private_key': 'Relay 实例私钥',
-  'relay.relay_public_key': 'Relay 公钥',
-  'relay.auth_epoch': 'Relay 认证 Epoch',
-  'desktop_updates.dir': '本地发布目录',
-  'desktop_updates.sync_sources': '上游来源',
-  'desktop_updates.sync_active_source': '当前上游',
-  'desktop_updates.sync_interval_seconds': '检测间隔（秒）',
-  'desktop_updates.sync_on_start': '服务启动时立即检测',
-  'desktop_updates.sync_max_asset_bytes': '单个制品大小上限（字节）',
-  'desktop_updates.sync_max_run_bytes': '单次同步总量上限（字节）',
-  'desktop_updates.feed_token': '下游同步 Feed Token',
-  'memory.mem0_llm_provider': '记忆抽取 Provider（mem0）',
-  'memory.mem0_llm_model': '记忆抽取模型（mem0）',
-  'memory.mem0_llm_thinking': '记忆抽取 Thinking（mem0）',
-  'memory.mem0_embedder_model': '记忆向量模型（mem0）',
-  'memory.persona_enabled': '启用人物记忆',
-  'memory.persona_store_path': '人物记忆文件',
-  'wecom.enabled': '启用企业微信',
-  'wecom.bot_id': '企业微信 Bot ID',
-  'wecom.secret': '企业微信 Secret',
-  'wecom.ws_url': '企业微信 WebSocket 地址',
-  'weixin.enabled': '启用微信 Claw',
-  'web_search.strategy': '选择策略',
-  'web_search.provider': '固定后端',
-  'web_search.provider_order': '自动顺序',
-  'web_search.disabled_providers': '禁用的搜索后端',
-  'web_search.timeout_seconds': '请求超时（秒）',
-  'web_search.ddgs_backend': 'DDGS 引擎',
-  'web_search.bocha_api_key': '博查 API Key',
-  'web_search.zhipu_api_key': '智谱搜索 API Key',
-  'web_search.zhipu_use_llm_key': '使用模型配置中的智谱 API Key',
-  'web_search.zhipu_api_base': '智谱搜索地址',
-  'web_search.zhipu_search_engine': '智谱搜索引擎',
-  'web_search.zhipu_content_size': '智谱摘要长度',
-  'web_search.zhipu_prime_api_key': '智谱套餐搜索 API Key',
-  'web_search.zhipu_prime_use_llm_key': '套餐搜索使用模型配置中的智谱 API Key',
-  'web_search.zhipu_prime_api_base': '智谱套餐搜索地址',
-  'web_search.zhipu_prime_content_size': '智谱套餐摘要长度',
-  'web_search.zhipu_prime_location': '智谱套餐搜索区域',
-  'web_search.deepseek_api_key': 'DeepSeek 搜索 API Key',
-  'web_search.deepseek_use_llm_key': '使用模型配置中的 DeepSeek API Key',
-  'web_search.deepseek_api_base': 'DeepSeek 搜索地址',
-  'web_search.qianfan_api_key': '千帆 API Key',
-  'web_search.qianfan_api_base': '千帆搜索地址',
-  'web_search.linkai_api_key': 'LinkAI API Key',
-  'web_search.linkai_api_base': 'LinkAI 地址',
-  'web_search.anysearch_api_key': 'AnySearch API Key',
-  'web_search.anysearch_anonymous': 'AnySearch 匿名访问',
-  'web_search.anysearch_zone': 'AnySearch 区域',
-  'web_search.anysearch_language': 'AnySearch 语言',
-  'web_search.serply_api_key': 'Serply API Key',
-  'web_search.tavily_api_key': 'Tavily API Key',
-  'web_search.tavily_search_depth': 'Tavily 搜索深度',
-  'web_search.searxng_url': 'SearXNG 地址',
-  'web_search.searxng_language': 'SearXNG 语言',
-  'web_search.searxng_categories': 'SearXNG 分类',
-  'web_search.keenable_api_key': 'Keenable API Key',
-  'web_search.keenable_anonymous': 'Keenable 匿名访问',
-};
 
 function Settings() {
   const { data, error, setData } = useLoad(() => api<Json>('/api/admin/config'), []);

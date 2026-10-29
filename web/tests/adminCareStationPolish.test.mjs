@@ -9,6 +9,10 @@ const configPresentation = await readFile(
   new URL('../src/admin/settings/configFieldPresentation.ts', import.meta.url),
   'utf8',
 );
+const configLabels = await readFile(
+  new URL('../src/admin/settings/configLabels.ts', import.meta.url),
+  'utf8',
+);
 
 test('keeps live status actions and long model names readable', () => {
   assert.match(adminApp, /<span className="overview-name"/);
@@ -54,10 +58,10 @@ test('identity saving is guarded by dirty state and reports failures', () => {
 });
 
 test('localizes every runtime settings field', () => {
-  assert.match(adminApp, /'memory\.backend': '记忆后端'/);
-  assert.match(adminApp, /'memory\.summary_budget_retries': '摘要预算重试次数'/);
-  assert.match(adminApp, /'memory\.summary_budget_tolerance': '摘要预算容差'/);
-  assert.match(adminApp, /'api\.compat_tool_result_fold_chars': '工具结果折叠阈值（字符）'/);
+  assert.match(configLabels, /'memory\.backend': '记忆后端'/);
+  assert.match(configLabels, /'memory\.summary_budget_retries': '摘要预算重试次数'/);
+  assert.match(configLabels, /'memory\.summary_budget_tolerance': '摘要预算容差'/);
+  assert.match(configLabels, /'api\.compat_tool_result_fold_chars': '工具结果折叠阈值（字符）'/);
   assert.match(i18n, /'记忆后端': 'Memory backend'/);
   assert.match(i18n, /'记忆抽取 Provider（mem0）': 'Memory extraction Provider \(mem0\)'/);
 });
