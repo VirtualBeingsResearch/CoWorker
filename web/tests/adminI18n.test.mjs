@@ -12,6 +12,10 @@ const sourceRoot = fileURLToPath(new URL('../src', import.meta.url));
 const i18nSource = await readFile(new URL('../src/i18n/catalog.ts', import.meta.url), 'utf8');
 const i18nEngine = await readFile(new URL('../src/i18n/admin.tsx', import.meta.url), 'utf8');
 const adminAppSource = await readFile(new URL('../src/admin/AdminApp.tsx', import.meta.url), 'utf8');
+const configLabelsSource = await readFile(
+  new URL('../src/admin/settings/configLabels.ts', import.meta.url),
+  'utf8',
+);
 const cjk = /[\u3400-\u9fff]/;
 
 function catalogKeys(source) {
@@ -107,7 +111,7 @@ test('translates every Chinese string passed to t()', async () => {
 
 test('translates every label rendered through the admin label maps', () => {
   const blocks = [
-    blockValues(adminAppSource, 'const CONFIG_LABELS: Record<string, string> = {'),
+    blockValues(configLabelsSource, 'export const CONFIG_LABELS: Record<string, string> = {'),
     blockValues(adminAppSource, 'const BOOTSTRAP_CONFIG_GROUP_LABELS: Record<string, string> = {'),
     blockValues(adminAppSource, 'const BOOTSTRAP_CONFIG_GROUP_NOTES: Record<string, string> = {'),
     blockValues(adminAppSource, 'const GROUP_LABELS: Record<string, string> = {'),

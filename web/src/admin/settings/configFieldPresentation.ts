@@ -193,7 +193,7 @@ export function configFieldPresentation(
   if (path === 'web_search.strategy') {
     return {
       editor: 'choice',
-      hint: '自动使用第一个已配置的后端；固定则使用下方选择的后端。DDGS 始终可用。',
+      hint: '自动使用第一个已启用且已配置的后端；固定则优先使用下方选择的后端，不可用时按顺序回退。DDGS 始终可用。',
       choices: [
         { value: 'auto', label: '自动（按已配置后端）' },
         { value: 'fixed', label: '固定后端' },

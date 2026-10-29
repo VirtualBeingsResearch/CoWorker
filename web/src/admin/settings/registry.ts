@@ -1,6 +1,7 @@
 import { ChannelAccessSettingsPanel } from './panels/ChannelAccessSettingsPanel';
 import { TelegramSettingsPanel } from './panels/TelegramSettingsPanel';
 import { WeComSettingsPanel } from './panels/WeComSettingsPanel';
+import { WebSearchSettingsPanel } from './panels/WebSearchSettingsPanel';
 import { WeixinSettingsPanel } from './panels/WeixinSettingsPanel';
 import type { SettingsPanelRegistration } from './types';
 
@@ -8,6 +9,10 @@ const SETTINGS_PANELS: Record<string, SettingsPanelRegistration> = {
   channel_access: {
     label: '信道访问',
     component: ChannelAccessSettingsPanel,
+  },
+  web_search: {
+    label: '联网搜索',
+    component: WebSearchSettingsPanel,
   },
   weixin: {
     label: '微信 Claw',
