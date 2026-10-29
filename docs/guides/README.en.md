@@ -112,9 +112,10 @@ group. It continues from the summary and provides:
 <p align="center"><sub>Runtime Analytics · Review resource usage, data confidence, and technical outcomes by a single day or date range.</sub></p>
 
 The public status page continues to use a compact snapshot without daily
-details; its usage panel also shows total thinking tokens, average thinking
-tokens per call, and their share of output. The 30-day and custom-range trends
-and exports are available only through the authenticated administrator endpoint. Statistics come from local
+details; its average-thinking card shows both the average duration and the
+average thinking tokens per call, with their share of output in the caption.
+The 30-day and custom-range trends and exports are available only through the
+authenticated administrator endpoint. Statistics come from local
 logs, so a low coverage rate can understate totals; the console does not convert
 them into Provider cost estimates.
 The hourly chart reads privacy-safe aggregates only. Its log drill-through
