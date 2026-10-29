@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.9 - Unreleased
+
+- docs(release): finalize v0.4.8 changelog (#259)
+- fix(memory): run compression in the background and split thinking tokens (#260)
+- feat(web): organize admin web search settings into sections (#261)
+
 ## 0.4.8 - 2026-10-28
 
 - docs(release): finalize v0.4.7 changelog (#249)
