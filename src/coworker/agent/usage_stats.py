@@ -13,7 +13,7 @@ from loguru import logger
 from coworker.agent.log_store import LogStore
 from coworker.core.config import ModelPriceSpec
 
-_TOKEN_KEYS = ("input_tokens", "output_tokens", "cached_tokens")
+_TOKEN_KEYS = ("input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens")
 _METRIC_KEYS = (
     "llm_calls",
     "tracked_calls",
@@ -21,6 +21,7 @@ _METRIC_KEYS = (
     "input_tokens",
     "output_tokens",
     "cached_tokens",
+    "reasoning_tokens",
     "tool_calls",
     "tool_successes",
     "tool_errors",
@@ -44,6 +45,8 @@ _METRIC_KEYS = (
     "memory_compression_summary_tracked_calls",
     "memory_compression_input_tokens",
     "memory_compression_output_tokens",
+    "memory_compression_reasoning_tokens",
+    "memory_compression_content_output_tokens",
     "memory_compression_cached_tokens",
 )
 _SCHEMA_VERSION = 11
@@ -60,6 +63,8 @@ _SUMMARY_KEYS = (
     "input_tokens",
     "output_tokens",
     "cached_tokens",
+    "reasoning_tokens",
+    "content_output_tokens",
     "total_tokens",
     "avg_tokens_per_call",
     "cache_rate",
@@ -94,6 +99,8 @@ _SUMMARY_KEYS = (
     "memory_compression_summary_tracking_coverage",
     "memory_compression_input_tokens",
     "memory_compression_output_tokens",
+    "memory_compression_reasoning_tokens",
+    "memory_compression_content_output_tokens",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
     "memory_compression_triggers",
@@ -158,6 +165,8 @@ _ADMIN_WINDOW_KEYS = {
     "memory_compression_summary_tracking_coverage",
     "memory_compression_input_tokens",
     "memory_compression_output_tokens",
+    "memory_compression_reasoning_tokens",
+    "memory_compression_content_output_tokens",
     "memory_compression_cached_tokens",
     "memory_compression_total_tokens",
     "memory_compression_triggers",
@@ -173,6 +182,7 @@ def _new_model_bucket() -> dict[str, int]:
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
+        "reasoning_tokens": 0,
     }
 
 
@@ -186,6 +196,7 @@ def _new_provider_model_bucket(provider: str, model: str) -> dict[str, Any]:
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
+        "reasoning_tokens": 0,
     }
 
 
@@ -223,6 +234,7 @@ def _new_bucket() -> dict[str, Any]:
         "input_tokens": 0,
         "output_tokens": 0,
         "cached_tokens": 0,
+        "reasoning_tokens": 0,
         "tool_calls": 0,
         "tool_successes": 0,
         "tool_errors": 0,
@@ -248,6 +260,8 @@ def _new_bucket() -> dict[str, Any]:
         "memory_compression_summary_tracked_calls": 0,
         "memory_compression_input_tokens": 0,
         "memory_compression_output_tokens": 0,
+        "memory_compression_reasoning_tokens": 0,
+        "memory_compression_content_output_tokens": 0,
         "memory_compression_cached_tokens": 0,
         "memory_compression_triggers": _new_compression_trigger_bucket(),
         "last_memory_compression_at": None,
@@ -402,8 +416,19 @@ def _add_memory_compression(
     bucket["memory_compression_input_tokens"] += _int_value(
         entry.get("summary_input_tokens")
     )
-    bucket["memory_compression_output_tokens"] += _int_value(
-        entry.get("summary_output_tokens")
+    summary_output_tokens = _int_value(entry.get("summary_output_tokens"))
+    summary_reasoning_tokens = min(
+        summary_output_tokens,
+        _int_value(entry.get("summary_reasoning_tokens")),
+    )
+    # 旧日志没有拆分思考 token，退回总输出，保持「摘要内容」不为 0。
+    summary_content_tokens = entry.get("summary_content_output_tokens")
+    bucket["memory_compression_output_tokens"] += summary_output_tokens
+    bucket["memory_compression_reasoning_tokens"] += summary_reasoning_tokens
+    bucket["memory_compression_content_output_tokens"] += (
+        max(0, summary_output_tokens - summary_reasoning_tokens)
+        if summary_content_tokens is None
+        else _int_value(summary_content_tokens)
     )
     bucket["memory_compression_cached_tokens"] += _int_value(
         entry.get("summary_cached_tokens")
@@ -504,6 +529,8 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
     input_tokens = _int_value(bucket.get("input_tokens"))
     output_tokens = _int_value(bucket.get("output_tokens"))
     cached_tokens = _int_value(bucket.get("cached_tokens"))
+    # 思考 token 是输出的一部分；content_output_tokens 是去掉思考后的正文输出。
+    reasoning_tokens = min(output_tokens, _int_value(bucket.get("reasoning_tokens")))
     llm_calls = _int_value(bucket.get("llm_calls"))
     tracked_calls = min(llm_calls, _int_value(bucket.get("tracked_calls")))
     estimated_calls = min(tracked_calls, _int_value(bucket.get("estimated_calls")))
@@ -519,6 +546,8 @@ def _finalize_model_bucket(bucket: dict[str, int]) -> dict[str, Any]:
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "content_output_tokens": max(0, output_tokens - reasoning_tokens),
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
@@ -623,6 +652,7 @@ def _finalize_bucket(
     input_tokens = _int_value(bucket.get("input_tokens"))
     output_tokens = _int_value(bucket.get("output_tokens"))
     cached_tokens = _int_value(bucket.get("cached_tokens"))
+    reasoning_tokens = min(output_tokens, _int_value(bucket.get("reasoning_tokens")))
     thinking_calls = _int_value(bucket.get("thinking_calls"))
     thinking_seconds = _float_value(bucket.get("thinking_seconds"))
     tools = {
@@ -726,6 +756,14 @@ def _finalize_bucket(
     memory_compression_output_tokens = _int_value(
         bucket.get("memory_compression_output_tokens")
     )
+    memory_compression_reasoning_tokens = min(
+        memory_compression_output_tokens,
+        _int_value(bucket.get("memory_compression_reasoning_tokens")),
+    )
+    memory_compression_content_output_tokens = min(
+        max(0, memory_compression_output_tokens - memory_compression_reasoning_tokens),
+        _int_value(bucket.get("memory_compression_content_output_tokens")),
+    )
     compression_triggers = _new_compression_trigger_bucket()
     raw_compression_triggers = bucket.get("memory_compression_triggers", {})
     if isinstance(raw_compression_triggers, dict):
@@ -745,6 +783,8 @@ def _finalize_bucket(
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "content_output_tokens": max(0, output_tokens - reasoning_tokens),
         "total_tokens": input_tokens + output_tokens,
         "avg_tokens_per_call": (
             (input_tokens + output_tokens) / tracked_calls if tracked_calls else None
@@ -806,6 +846,10 @@ def _finalize_bucket(
         ),
         "memory_compression_input_tokens": memory_compression_input_tokens,
         "memory_compression_output_tokens": memory_compression_output_tokens,
+        "memory_compression_reasoning_tokens": memory_compression_reasoning_tokens,
+        "memory_compression_content_output_tokens": (
+            memory_compression_content_output_tokens
+        ),
         "memory_compression_cached_tokens": _int_value(
             bucket.get("memory_compression_cached_tokens")
         ),

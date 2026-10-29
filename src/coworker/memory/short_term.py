@@ -40,7 +40,10 @@ class _CompressionUsage:
     summary_calls: int = 0
     summary_tracked_calls: int = 0
     input_tokens: int = 0
+    # provider 上报的总输出 token（含思考）。
     output_tokens: int = 0
+    # 其中被思考消耗的部分；provider 不区分时为 0。
+    reasoning_tokens: int = 0
     cached_tokens: int = 0
 
     @staticmethod
@@ -61,8 +64,11 @@ class _CompressionUsage:
             "cached_tokens",
         )):
             self.summary_tracked_calls += 1
+        output_tokens = self._token_value(usage.get("output_tokens"))
         self.input_tokens += self._token_value(usage.get("input_tokens"))
-        self.output_tokens += self._token_value(usage.get("output_tokens"))
+        self.output_tokens += output_tokens
+        # 思考 token 是 output_tokens 的子集；超出部分视为 provider 数据异常，不让计数互相矛盾。
+        self.reasoning_tokens += min(output_tokens, self._token_value(usage.get("reasoning_tokens")))
         self.cached_tokens += self._token_value(usage.get("cached_tokens"))
 
 class ShortTermMemory:
@@ -138,6 +144,10 @@ class ShortTermMemory:
             "summary_tracked_calls": usage.summary_tracked_calls,
             "summary_input_tokens": usage.input_tokens,
             "summary_output_tokens": usage.output_tokens,
+            "summary_reasoning_tokens": usage.reasoning_tokens,
+            "summary_content_output_tokens": max(
+                0, usage.output_tokens - usage.reasoning_tokens
+            ),
             "summary_cached_tokens": usage.cached_tokens,
         }
         for fn in tuple(self._compression_listeners):
@@ -406,7 +416,9 @@ class ShortTermMemory:
     ) -> tuple[str, int, TokenCountSource]:
         if isinstance(raw, SummaryResult):
             summary = ShortTermMemory._parse_summary(raw.content)
-            tokens = raw.output_tokens
+            # 摘要节点体量只算正文：provider 的 output_tokens 含思考 token，
+            # 直接拿来当摘要大小会让树预算虚高。
+            tokens = raw.content_output_tokens
             if tokens > 0:
                 return summary, tokens, "exact"
             return summary, estimate_content_tokens(summary), "estimated"

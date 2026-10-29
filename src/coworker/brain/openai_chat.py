@@ -135,7 +135,7 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
     @staticmethod
     def _extract_usage(response) -> dict[str, int]:
         usage = getattr(response, "usage", None)
-        return {
+        result = {
             "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
             "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
             "cached_tokens": (
@@ -148,6 +148,15 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
                 else 0
             ),
         }
+        # 思考 token 包含在 completion_tokens 里；区分出来，摘要与用量统计才能只算正文。
+        reasoning_tokens = getattr(
+            getattr(usage, "completion_tokens_details", None),
+            "reasoning_tokens",
+            None,
+        )
+        if reasoning_tokens is not None:
+            result["reasoning_tokens"] = reasoning_tokens
+        return result
 
     @staticmethod
     def _extract_reasoning_content(message) -> str | None:

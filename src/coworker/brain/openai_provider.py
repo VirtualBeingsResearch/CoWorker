@@ -289,7 +289,7 @@ class OpenAIProvider(BaseLLMProvider):
     @staticmethod
     def _extract_usage(response) -> dict[str, int]:
         usage = getattr(response, "usage", None)
-        return {
+        result = {
             "input_tokens": getattr(usage, "input_tokens", 0) or 0,
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
             "cached_tokens": (
@@ -302,6 +302,16 @@ class OpenAIProvider(BaseLLMProvider):
                 else 0
             ),
         }
+        # Responses API 把思考 token 藏在 output_tokens_details.reasoning_tokens，
+        # 且已计入 output_tokens；区分出来供摘要体量与用量统计使用。
+        reasoning_tokens = getattr(
+            getattr(usage, "output_tokens_details", None),
+            "reasoning_tokens",
+            None,
+        )
+        if reasoning_tokens is not None:
+            result["reasoning_tokens"] = reasoning_tokens
+        return result
 
     def _apply_reasoning(self, kwargs: dict, effort) -> None:
         """Add Responses API reasoning fields supported by the selected model."""

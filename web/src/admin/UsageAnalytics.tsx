@@ -201,6 +201,8 @@ function exportCsv(
     'input_tokens',
     'output_tokens',
     'cached_tokens',
+    'reasoning_tokens',
+    'content_output_tokens',
     'total_tokens',
     'llm_calls',
     'exact_calls',
@@ -220,6 +222,8 @@ function exportCsv(
     'messages_compressed',
     'memory_compression_summary_calls',
     'memory_compression_total_tokens',
+    'memory_compression_reasoning_tokens',
+    'memory_compression_content_output_tokens',
     'priced_tokens',
     'unpriced_tokens',
     'pricing_coverage',
@@ -439,7 +443,13 @@ function IntradayTrend({
       <div><span>{t('所选时段')}</span><strong>{date} · {selectedLabel}</strong></div>
       <div><span>{currency || 'Token'}</span><strong>{formatTrendValue(trendValue(selected, metric), metric, language)}</strong><small>{currency
         ? t('定价覆盖率 {{coverage}}', { coverage: formatCacheRate(selected.pricing_coverage) })
-        : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
+        : finite(selected.reasoning_tokens) > 0
+          ? t('输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}', {
+            input: formatTokenUnits(selected.input_tokens),
+            output: formatTokenUnits(selected.output_tokens),
+            reasoning: formatTokenUnits(selected.reasoning_tokens),
+          })
+          : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(selected.input_tokens), output: formatTokenUnits(selected.output_tokens) })}</small></div>
       <div><span>{t('模型调用')}</span><strong>{formatCount(selected.llm_calls)}</strong><small>{t('缓存 Token {{count}}', { count: formatTokenUnits(selected.cached_tokens) })}</small></div>
       <button type="button" className="ghost mini" onClick={() => onOpenLogs(selected.start_time, selected.end_time)}><FileText size={13} />{t('查看该时段日志')}</button>
     </div>
@@ -849,7 +859,13 @@ export function AdminUsageAnalytics({
         {rangeError && <span className="usage-date-range-error" role="alert"><TriangleAlert size={13} />{rangeError}</span>}
       </form>}
       <div className="usage-analytics-metrics">
-        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
+        <MetricCard label={t('总 Token')} value={formatTokenUnits(totalTokens)} detail={finite(windowStats.reasoning_tokens) > 0
+          ? t('输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}', {
+            input: formatTokenUnits(windowStats.input_tokens),
+            output: formatTokenUnits(windowStats.output_tokens),
+            reasoning: formatTokenUnits(windowStats.reasoning_tokens),
+          })
+          : t('输入 {{input}} / 输出 {{output}}', { input: formatTokenUnits(windowStats.input_tokens), output: formatTokenUnits(windowStats.output_tokens) })} icon={Database} featured />
         <MetricCard label={t('预估消费')} value={<CurrencyCostSummary costs={windowStats.estimated_costs} language={language} limit={1} />} detail={t('本地估算 · 定价覆盖率 {{coverage}} · {{count}} Token 未定价', {
           coverage: formatCacheRate(windowStats.pricing_coverage),
           count: formatTokenUnits(windowStats.unpriced_tokens),
@@ -874,10 +890,16 @@ export function AdminUsageAnalytics({
         <MetricCard
           label={t('记忆压缩')}
           value={formatCount(windowStats.memory_compressions)}
-          detail={t('{{messages}} 条消息 · {{tokens}} Token', {
-            messages: formatCount(windowStats.messages_compressed),
-            tokens: formatTokenUnits(windowStats.memory_compression_total_tokens),
-          })}
+          detail={finite(windowStats.memory_compression_reasoning_tokens) > 0
+            ? t('{{messages}} 条消息 · 摘要内容 {{content}} Token · 思考 {{reasoning}} Token', {
+              messages: formatCount(windowStats.messages_compressed),
+              content: formatTokenUnits(windowStats.memory_compression_content_output_tokens),
+              reasoning: formatTokenUnits(windowStats.memory_compression_reasoning_tokens),
+            })
+            : t('{{messages}} 条消息 · {{tokens}} Token', {
+              messages: formatCount(windowStats.messages_compressed),
+              tokens: formatTokenUnits(windowStats.memory_compression_total_tokens),
+            })}
           icon={Minimize2}
           tone="memory"
           onActivate={() => onOpenLogs('', '', 'memory_compression')}

@@ -96,8 +96,9 @@ group. It continues from the summary and provides:
 - successful, errored, and unsettled tool outcomes plus explicit and Palace
   automatic skill loads;
 - completed memory-compression counts, affected messages, summary-model calls
-  and tokens, split by automatic, administrator, and tool triggers, with the
-  metric linking directly to filtered compression-event logs;
+  and tokens (summary tokens split into content and thinking), split by
+  automatic, administrator, and tool triggers, with the metric linking directly
+  to filtered compression-event logs;
 - technical Bubble and subconscious outcomes such as completion, errors,
   timeouts, cycles, and resumes;
 - the first eight ranked model, tool, and skill rows by default, with an
@@ -126,6 +127,10 @@ do not increment the count. Older logs are not inferred from ordinary
 `summary_llm_response` calls because the Summary model also serves Bubble,
 backfill, memory-tree merging, and other responsibilities. The console displays
 the date on which exact compression tracking began.
+When a Provider reports thinking tokens separately, summary content tokens are total
+output minus thinking, and both memory-tree node size and compression statistics use
+the content count (Anthropic exposes it through `output_tokens_details.thinking_tokens`).
+Providers that do not split thinking tokens can only be counted by total output.
 
 A `pending` task often means it is waiting for a message or timer and does not
 automatically mean the runtime is stuck. Diagnostics and Audit, logs, and the

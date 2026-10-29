@@ -267,6 +267,8 @@ class InteractionLogger:
         summary_input_tokens: int,
         summary_output_tokens: int,
         summary_cached_tokens: int,
+        summary_reasoning_tokens: int = 0,
+        summary_content_output_tokens: int | None = None,
     ) -> None:
         """Persist privacy-safe facts for one completed short-term compression."""
 
@@ -281,6 +283,12 @@ class InteractionLogger:
         normalized_storage = storage if storage in {"tree", "legacy"} else "unknown"
         input_tokens = nonnegative(summary_input_tokens)
         output_tokens = nonnegative(summary_output_tokens)
+        reasoning_tokens = min(output_tokens, nonnegative(summary_reasoning_tokens))
+        content_output_tokens = (
+            nonnegative(summary_content_output_tokens)
+            if summary_content_output_tokens is not None
+            else max(0, output_tokens - reasoning_tokens)
+        )
         self._write({
             "type": "memory_compression",
             "trigger": normalized_trigger,
@@ -292,6 +300,8 @@ class InteractionLogger:
             "summary_tracked_calls": nonnegative(summary_tracked_calls),
             "summary_input_tokens": input_tokens,
             "summary_output_tokens": output_tokens,
+            "summary_reasoning_tokens": reasoning_tokens,
+            "summary_content_output_tokens": content_output_tokens,
             "summary_cached_tokens": nonnegative(summary_cached_tokens),
             "summary_total_tokens": input_tokens + output_tokens,
         })

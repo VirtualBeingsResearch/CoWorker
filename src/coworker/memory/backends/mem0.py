@@ -214,12 +214,22 @@ class Mem0Backend:
             if token_details is not None
             else getattr(usage, "cache_read_input_tokens", 0) or 0
         )
+        output_details = getattr(usage, "completion_tokens_details", None) or getattr(
+            usage, "output_tokens_details", None
+        )
+        reasoning_tokens = getattr(output_details, "reasoning_tokens", None)
+        if reasoning_tokens is None:
+            # Anthropic 把同一信息命名为 output_tokens_details.thinking_tokens。
+            reasoning_tokens = getattr(output_details, "thinking_tokens", None)
         try:
-            return {
+            result = {
                 "input_tokens": max(0, int(input_tokens or 0)),
                 "output_tokens": max(0, int(output_tokens or 0)),
                 "cached_tokens": max(0, int(cached_tokens or 0)),
             }
+            if reasoning_tokens is not None:
+                result["reasoning_tokens"] = max(0, int(reasoning_tokens or 0))
+            return result
         except (TypeError, ValueError):
             return None
 

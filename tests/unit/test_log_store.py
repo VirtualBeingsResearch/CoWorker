@@ -137,6 +137,8 @@ class TestInteractionLogSeq:
             summary_tracked_calls=2,
             summary_input_tokens=800,
             summary_output_tokens=120,
+            summary_reasoning_tokens=30,
+            summary_content_output_tokens=90,
             summary_cached_tokens=300,
         )
 
@@ -152,12 +154,35 @@ class TestInteractionLogSeq:
             "summary_tracked_calls": 2,
             "summary_input_tokens": 800,
             "summary_output_tokens": 120,
+            "summary_reasoning_tokens": 30,
+            "summary_content_output_tokens": 90,
             "summary_cached_tokens": 300,
             "summary_total_tokens": 920,
             "seq": 0,
             "ts": entry["ts"],
         }
         assert "content" not in entry
+
+    def test_memory_compression_without_reasoning_split_falls_back_to_total(self, tmp_path):
+        path = tmp_path / "interactions.jsonl"
+        log = InteractionLogger(str(path))
+
+        log.log_memory_compression(
+            trigger="automatic",
+            mode="incremental",
+            storage="legacy",
+            messages_compressed=2,
+            duration_ms=10,
+            summary_calls=1,
+            summary_tracked_calls=1,
+            summary_input_tokens=100,
+            summary_output_tokens=40,
+            summary_cached_tokens=0,
+        )
+
+        entry = json.loads(path.read_text(encoding="utf-8").strip())
+        assert entry["summary_reasoning_tokens"] == 0
+        assert entry["summary_content_output_tokens"] == 40
 
 
 class TestInteractionLogRotation:

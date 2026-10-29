@@ -108,6 +108,8 @@ export type UsageModelStats = {
   input_tokens?: number;
   output_tokens?: number;
   cached_tokens?: number;
+  reasoning_tokens?: number;
+  content_output_tokens?: number;
   total_tokens?: number;
   avg_tokens_per_call?: number | null;
   cache_rate?: number | null;
@@ -159,6 +161,8 @@ export type UsageWindowStats = UsageModelStats & {
   memory_compression_summary_tracking_coverage?: number | null;
   memory_compression_input_tokens?: number;
   memory_compression_output_tokens?: number;
+  memory_compression_reasoning_tokens?: number;
+  memory_compression_content_output_tokens?: number;
   memory_compression_cached_tokens?: number;
   memory_compression_total_tokens?: number;
   memory_compression_triggers?: Record<'automatic' | 'admin' | 'tool' | 'other', number>;

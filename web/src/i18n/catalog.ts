@@ -1824,6 +1824,8 @@ export const STATUS_ENGLISH_PHRASES: Record<string, string> = {
   '统计窗口': 'Time range',
   '总令牌': 'Total tokens',
   '输入 {{input}} / 输出 {{output}}': 'Input {{input}} / output {{output}}',
+  '输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}': 'Input {{input}} / output {{output}} / thinking {{reasoning}}',
+  '{{messages}} 条消息 · 摘要内容 {{content}} Token · 思考 {{reasoning}} Token': '{{messages}} messages · {{content}} summary tokens · {{reasoning}} thinking tokens',
   '缓存命中': 'Cache hit',
   '已缓存 {{cached}}': 'Cached {{cached}}',
   '大模型请求': 'LLM requests',
