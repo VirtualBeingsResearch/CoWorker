@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.4.9 - Unreleased
+## 0.4.9 - 2026-10-29
 
 - docs(release): finalize v0.4.8 changelog (#259)
 - fix(memory): run compression in the background and split thinking tokens (#260)
