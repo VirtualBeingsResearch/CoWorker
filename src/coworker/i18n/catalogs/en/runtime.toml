@@ -49,6 +49,24 @@ Context hint: {{hint}}'''
 [brain.listeners]
 model_switch_failed = "Active-model listener failed for {{provider}}/{{model}}: {{error}}"
 
+[brain.routing]
+stale_startup_intent = "Ignoring an obsolete initialization choice; the saved main preference has changed."
+cooldown_order_invalid = "Maximum cooldown must be greater than or equal to initial cooldown."
+preference_pending = "The legacy configuration has no confirmed main preference; model calls are paused. Confirm the main model in Model Orchestration."
+preference_inconsistent = "The saved preference conflicts with its confirmation state; repair the configuration to avoid restoring the wrong model."
+memory_deferred = "Long-term memory initialization is deferred until the main preference is confirmed."
+failure = "Model request failed: {{category}} ({{code}})"
+unavailable = "No configured model is currently available. Context and task progress are retained."
+attempt_failed = "Model request failed ({{role}}): {{provider}}/{{model}}, category={{category}}, code={{code}}"
+state_load_failed = "Could not restore model routing health; connections will be checked on demand."
+state_save_failed = "Could not save model routing health; restart may lose cooldown information."
+listener_failed = "Model-routing listener failed; model execution is unaffected."
+preferred_saved = "Preferred model changed to {{provider}}/{{model}}. Fallbacks do not change this preference."
+legacy_snapshot = "Ignoring the previous execution model in the memory snapshot; the configured preferred model takes precedence."
+legacy_preference_storage_required = "Migrating the legacy main model requires a nonempty LLM__RUNTIME_CONFIG_FILE; the preference has not changed."
+dependency_wait = "Model service unavailable; retaining context and waiting for recovery."
+request_wait = "Model request rejected; retaining context and waiting for a new event or configuration change."
+fallback_used = "Used {{provider}}/{{model}} for this request; preferred model remains {{preferred_provider}}/{{preferred_model}}."
 [brain.switch]
 interrupted_calls = "Interrupted {{count}} in-flight main-model call(s) to switch to {{provider}}/{{model}}"
 retry_with_active = "An in-flight call was interrupted by a model switch; retrying with {{provider}}/{{model}}"

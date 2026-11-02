@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from typing import Any
 
 from coworker.brain.thinking import normalize_thinking_effort, resolve_effort
@@ -9,6 +10,10 @@ from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS, ThinkingEffort
 from coworker.core.token_utils import estimate_content_tokens
 from coworker.core.types import LLMResponse, Message
 from coworker.i18n import tr
+
+# A logical call may delegate to another wire adapter (OpenCode Go). Context-local
+# selection covers both without mutating the shared connection or serializing I/O.
+_REQUEST_MODEL: ContextVar[str | None] = ContextVar("coworker_request_model", default=None)
 
 
 def unsupported_image_fallback() -> str:
@@ -46,6 +51,34 @@ class BaseLLMProvider(ABC):
     # 该实例的默认模型：switch_model 切到本实例但未指定 model_id 时使用。
     # 由工厂从 ProviderSpec.default_model 赋值；空字符串表示未配置。
     default_model: str = ""
+    connection_revision: str = ""
+    connection_config: dict[str, Any]
+    _selected_model: str = ""
+
+    @property
+    def _current_model(self) -> str:
+        return _REQUEST_MODEL.get() or self._selected_model
+
+    @_current_model.setter
+    def _current_model(self, value: str) -> None:
+        self._selected_model = value
+
+    async def complete_for_model(
+        self,
+        model_id: str,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+        *,
+        thinking: bool = True,
+        thinking_effort: str | None = None,
+    ) -> LLMResponse:
+        token = _REQUEST_MODEL.set(model_id)
+        try:
+            return await self.complete(messages, system_prompt, tools, max_tokens, thinking=thinking, thinking_effort=thinking_effort)
+        finally:
+            _REQUEST_MODEL.reset(token)
 
     # 子类按 provider_type 自动登记到这里，工厂据此实例化。无需手动维护任何映射。
     _TYPE_REGISTRY: dict[str, type[BaseLLMProvider]] = {}
@@ -60,6 +93,7 @@ class BaseLLMProvider(ABC):
 
     def __init__(self, name: str | None = None) -> None:
         self.provider_name = name or type(self).provider_type
+        self.connection_config = {}
         self._tool_use_models: set[str] = set()
         self._model_capabilities: dict[str, dict[str, bool]] = {}
         self._remote_models: list[str] = []

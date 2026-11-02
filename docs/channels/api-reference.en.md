@@ -49,8 +49,8 @@ explicitly set. Long-running deployments typically set a dedicated `API__COMMUNI
 | `POST /messages` | Queue a message and optional attachments for the Agent |
 | `GET /status` | Runtime, model, and usage snapshot |
 | `GET /profile` | Identity, profile text, and earliest log time |
-| `POST /switch_model` | Switch the main Provider/model |
-| `GET/PATCH /model_config` | Read or change summary, fallback, and vision settings |
+| `POST /switch_model` | Save and switch the preferred main Provider/model |
+| `GET/PATCH /model_config` | Read preference, execution, and health; change thinking, routing, summary, fallback, and vision settings |
 | `GET/POST /backfill_tree` | Query or start historical memory-tree backfill |
 | `GET /backups` | List emergency short-term-context backups |
 | `POST /backups/restore` | Restore an emergency backup in `full` or `summarize` mode |
@@ -111,11 +111,24 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-`/switch_model` installs the new main Provider/model immediately and aborts any main-model call in
+`/switch_model` saves the new main preference before applying it and aborting any main-model call in
 progress: the interrupted turn retries on the new model, and summary calls that follow the main
 model also retry there. Explicitly configured summary and vision calls are unaffected. A hung
 request on the previous Provider therefore cannot keep the Agent stuck. Re-submitting the same
 target still counts as an explicit switch and can be used to unstick a request.
+
+A failed save returns `400` and preserves the old preference and in-flight calls. Temporary
+fallback neither invokes this switch endpoint nor rewrites preference. `GET /model_config` keeps
+`active` as a preference view and adds `preferred`, `preference`, `last_used`, `routing`, and
+`health`; read the response or `last_used` for actual execution. The `routing` object in
+`PATCH /model_config` accepts partial fields, such as `{"routing":{"cooldown_seconds":120}}`,
+preserving omitted values. Main preference changes through explicit selection, never by inference
+from the fallback list or execution snapshots. Cooldown policy requires
+`max_cooldown_seconds >= cooldown_seconds`. Partial updates validate after merging with the
+current policy; an invalid merged combination returns `400`. An invalid combination submitted
+together, or invalid individual request fields, returns `422`.
+Neither saves configuration. See [Model Routing](../architecture/model-routing.en.md)
+for legacy confirmation and compatibility.
 
 When an administrator has configured a communication token, unauthenticated `/status` returns
 `status`, `is_running`, `is_sleeping`, `setup_mode`, `communication_token_configured`, and
@@ -171,5 +184,12 @@ artifacts, and they follow the contract of the matching official console. The We
 entry point for these operations; see
 [Web Management Console](../guides/README.en.md) and
 [Data and Trust Boundaries](../architecture/data-boundaries.en.md) for context.
+
+While a legacy main preference awaits confirmation, `GET /api/admin/bootstrap` returns
+`required=false` and `preference_pending=true`. The console defaults to Model Orchestration and
+retains access to Runtime Settings. `POST /api/admin/bootstrap` returns `409` in this state,
+preventing first-run setup from overwriting existing data. Confirming a valid preference through
+`POST /api/admin/model/switch` returns `restart_required=true`. Partial `routing` updates through
+`PATCH /api/admin/model` follow the same merged validation as `/model_config`.
 
 [← Back to project home](../../README.en.md)

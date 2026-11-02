@@ -49,6 +49,7 @@
 - [虚拟生命理念与生命架构](architecture/lifeform-philosophy.md)
 - [核心概念与能力](architecture/concepts.md)
 - [运行时架构与消息流](architecture/runtime-flow.md)
+- [首选模型、临时降级与恢复](architecture/model-routing.md)
 - [数据与信任边界](architecture/data-boundaries.md)
 
 ### [通信与客户端](channels/README.md)

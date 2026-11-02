@@ -33,6 +33,7 @@ def _create_bubble_brain(
     provider: str,
     model: str,
     thinking: bool = True,
+    inherit_policy: bool = False,
 ) -> Brain:
     from coworker.brain.brain import Brain as _Brain
 
@@ -43,7 +44,12 @@ def _create_bubble_brain(
         default_model=model,
         message_time_prefix=parent_brain.message_time_prefix,
         max_tokens=parent_brain.max_tokens,
-        fallbacks=parent_brain._fallbacks,
+        fallbacks=parent_brain.fallbacks if inherit_policy else [],
+        router=parent_brain.router if inherits_effort else None,
+        policy_parent=parent_brain if inherit_policy and inherits_effort else None,
+        routing_parent=parent_brain if inherits_effort else None,
+        routing=parent_brain.routing_config if inherits_effort else None,
+        routing_role="bubble",
         thinking=thinking,
         thinking_effort=parent_brain.thinking_effort if inherits_effort else "",
         summary_provider=parent_brain.summary_provider_name,
@@ -223,6 +229,7 @@ class BubbleSpawnTool(Tool):
                 return ToolResult(tool_call_id="", content=str(error), is_error=True)
 
         max_cycles = max(1, min(max_cycles, 50))
+        inherit_model_policy = not provider and not model
         provider, model = _resolve_bubble_model_config(self._parent_brain, provider, model)
         provider_obj = self._parent_brain._providers.get(provider)
         if provider_obj is None:
@@ -336,6 +343,7 @@ class BubbleSpawnTool(Tool):
             provider=bubble.provider,
             model=bubble.model,
             thinking=thinking,
+            inherit_policy=inherit_model_policy,
         )
         bubble.brain = bubble_brain
         forked_tokens = sum(estimate_content_tokens(m.content) for m in bubble.forked_context)

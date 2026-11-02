@@ -32,6 +32,7 @@ from coworker.core.constants import (
     THINKING_EFFORT_LEVELS,
 )
 from coworker.core.model_migrations import migrate_model_id
+from coworker.core.model_routing import ModelRoutingConfig
 from coworker.i18n import SupportedLocale, normalize_locale, tr
 from coworker.prompts.template import (
     MAX_SYSTEM_PROMPT_TEMPLATE_CHARS,
@@ -226,6 +227,7 @@ class LLMConfig(_EnvSettings):
     # 主线思考强度。空字符串沿用 provider 默认请求形状（历史行为），
     # 否则取值 none/minimal/low/medium/high/xhigh/max，由各 provider 映射。
     thinking_effort: str = ""
+    routing: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
     summary_provider: str = ""
     summary_model: str = ""
     summary_thinking: bool = False
@@ -249,7 +251,7 @@ class LLMConfig(_EnvSettings):
 
     # 主模型调用失败后的降级链（有序）。每项为 "providerName" 或 "providerName/modelId"；
     # 省略 modelId 时用该 provider 实例的 default_model。环境变量 LLM__FALLBACKS 传 JSON 数组，
-    # 如 LLM__FALLBACKS='["zhipu-userB","deepseek/deepseek-chat"]'。降级后停在备用模型，等手动切回。
+    # 如 LLM__FALLBACKS='["zhipu-userB","deepseek/deepseek-chat"]'。备用仅处理本次请求，不改变首选。
     fallbacks: list[str] = Field(default_factory=list)
 
     anthropic_api_key: str = ""

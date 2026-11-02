@@ -260,6 +260,14 @@ def _persist_runtime_model_config(llm: LLMConfig, types: dict[str, str]) -> None
         return
 
     changed = False
+    preferred = raw.get("preferred")
+    if isinstance(preferred, dict) and isinstance(preferred.get("model"), str):
+        provider = str(preferred.get("provider") or "")
+        new = migrate_model_id(_provider_type(provider, types), preferred["model"])
+        if new != preferred["model"]:
+            preferred["model"] = new
+            changed = True
+
     summary = raw.get("summary")
     if isinstance(summary, dict) and isinstance(summary.get("model"), str):
         provider = str(summary.get("provider") or llm.summary_provider or llm.default_provider or "")

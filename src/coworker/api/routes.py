@@ -20,7 +20,7 @@ from coworker.core.communication_tokens import (
     participant_id_for_token_name,
     validate_token_name,
 )
-from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
+from coworker.core.model_routing import ModelRoutingPatch
 from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
@@ -260,6 +260,7 @@ class VisionModelConfigPayload(BaseModel):
 
 class ModelConfigPatchPayload(BaseModel):
     thinking_effort: str | None = None
+    routing: ModelRoutingPatch | None = None
     summary: SummaryModelConfigPayload | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelConfigPayload | None = None
@@ -454,7 +455,7 @@ async def switch_model(payload: SwitchModelPayload):
     if _brain is None:
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
     try:
-        await _brain.switch_model(payload.provider, payload.model_id)
+        await _brain.switch_model(payload.provider, payload.model_id, persistence_path=_model_config_path)
         return {
             "status": "switched",
             "provider": payload.provider,
@@ -475,8 +476,10 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
         raise HTTPException(status_code=503, detail=tr("api.state.agent_not_ready"))
 
     try:
-        snapshot = await _brain.update_model_config(
+        await _brain.update_model_config(
             thinking_effort=payload.thinking_effort,
+            routing=payload.routing.model_dump(exclude_unset=True) if payload.routing is not None else None,
+            persistence_path=_model_config_path,
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,
@@ -487,8 +490,6 @@ async def patch_model_config(payload: ModelConfigPatchPayload):
             vision_thinking=payload.vision.thinking if payload.vision else None,
             vision_thinking_effort=payload.vision.thinking_effort if payload.vision else None,
         )
-        runtime = RuntimeModelConfig.from_brain_snapshot(snapshot)
-        write_runtime_model_config(_model_config_path, runtime)
         return _model_config_response()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

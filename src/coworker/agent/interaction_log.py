@@ -151,6 +151,9 @@ class InteractionLogger:
                     from loguru import logger
                     logger.warning(f"InteractionLogger listener raised, ignored: {e}")
 
+    def log_model_route(self, entry: dict[str, Any]) -> None:
+        self._write({"type": "model_route", **entry})
+
     def log_system_prompt(self, system_prompt: str) -> None:
         h = hashlib.md5(system_prompt.encode()).hexdigest()
         if h == self._last_system_prompt_hash:

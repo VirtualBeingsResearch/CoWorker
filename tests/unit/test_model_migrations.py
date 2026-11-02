@@ -239,6 +239,35 @@ def test_runtime_model_config_file_is_rewritten(tmp_path: Path) -> None:
     assert saved["vision"]["model"] == "deepseek-v4.1-flash"
 
 
+@pytest.mark.parametrize(
+    "provider_type,expected",
+    [("opencode-go", "deepseek-v4.1-flash"), ("deepseek", "deepseek-v4-flash")],
+)
+def test_saved_preference_model_id_migration_is_persistent_and_provider_scoped(
+    tmp_path: Path, provider_type: str, expected: str
+) -> None:
+    runtime_path = tmp_path / "runtime.json"
+    runtime_path.write_text(
+        json.dumps({"preferred": {"provider": "named-connection", "model": "deepseek-v4-flash"}}),
+        encoding="utf-8",
+    )
+    inherited, config, _ = _load_config(
+        tmp_path,
+        llm={
+            "runtime_config_file": str(runtime_path),
+            "managed_providers": [{"name": "named-connection", "type": provider_type, "api_key": "demo-key-not-valid"}],
+        },
+    )
+    apply_runtime_model_config_file(config.llm)
+    migrate_model_configuration(config, inherited)
+    assert config.llm.default_provider == "named-connection"
+    assert config.llm.default_model == expected
+    saved = runtime_path.read_bytes()
+    assert json.loads(saved)["preferred"] == {"provider": "named-connection", "model": expected}
+    migrate_model_configuration(config, inherited)
+    assert runtime_path.read_bytes() == saved
+
+
 def test_migration_is_idempotent(tmp_path: Path) -> None:
     inherited, config, admin_path = _load_config(
         tmp_path,

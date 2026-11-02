@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
@@ -18,6 +18,10 @@ from coworker.memory.base import (
     MemoryWriteResult,
     UsageListener,
 )
+
+if TYPE_CHECKING:
+    from coworker.brain.brain import Brain
+    from coworker.core.config import Config
 
 _AGENT_USER_ID = "agent"
 _DEFAULT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
@@ -90,6 +94,63 @@ class Mem0Backend:
         self._write_lock = asyncio.Lock()
         self._usage_listeners: list[UsageListener] = []
         self._usage_hook_installed = False
+        self._routing_brain: Brain | None = None
+        self._routing_config: Config | None = None
+
+    def bind_model_routing(self, brain: Brain, config: Config) -> None:
+        self._routing_brain = brain
+        self._routing_config = config
+        self._apply_model_routing()
+
+    def _apply_model_routing(self) -> None:
+        brain, config = getattr(self, "_routing_brain", None), getattr(self, "_routing_config", None)
+        if self._mem is None or brain is None or config is None:
+            return
+        from mem0.utils.factory import LlmFactory
+
+        from coworker.brain.factory import api_dialect
+        from coworker.brain.routing import ModelTarget
+        from coworker.memory.long_term import (
+            LongTermLLMConfig,
+            resolve_memory_provider_name,
+        )
+        from coworker.memory.mem0_adapters import RoutedMem0LLM
+
+        def targets() -> list[ModelTarget]:
+            if not config.memory.mem0_llm_provider and not config.memory.mem0_llm_model:
+                return brain.routing_targets(require_tools=False)
+            requested = config.memory.mem0_llm_provider or brain.current_provider_name
+            name = resolve_memory_provider_name(
+                requested,
+                {name: provider.provider_type for name, provider in brain.router.providers.items()},
+                config.llm.default_provider,
+            ) or requested
+            model = config.memory.mem0_llm_model
+            if not model:
+                if not config.memory.mem0_llm_provider:
+                    model = brain.current_model
+                else:
+                    provider = brain.router.providers.get(name)
+                    model = (provider.default_model if provider else "") or config.llm.default_model
+            return brain.routing_targets(name, model, allow_fallback=False, require_tools=False)
+
+        def factory(target: ModelTarget) -> Any:
+            connection = getattr(target.provider, "connection_config", {})
+            dialect = api_dialect(target.provider.provider_type)
+            selected = LongTermLLMConfig(
+                provider=target.provider.provider_type,
+                api_dialect=dialect,
+                api_key=str(connection.get("api_key") or ""),
+                base_url=str(connection.get("base_url") or ""),
+                model=target.model,
+                thinking=config.memory.mem0_llm_thinking,
+            )
+            provider, options = selected.as_mem0_config()
+            return LlmFactory.create(provider, options)
+
+        self._mem.llm = RoutedMem0LLM(self._mem.llm, brain.router, targets, lambda: brain.routing_config, factory, self._extract_response_usage, self._extract_response_reasoning)
+        self._usage_hook_installed = False
+        self._install_usage_hook()
 
     @property
     def embedder(self) -> Any | None:
@@ -135,6 +196,7 @@ class Mem0Backend:
         }
         self._mem = AsyncMemory.from_config(config)
         self._usage_hook_installed = False
+        self._apply_model_routing()
         self._install_usage_hook()
         encoder = getattr(self.embedder, "model", self.embedder)
         device = getattr(encoder, "device", "unknown")
@@ -164,6 +226,7 @@ class Mem0Backend:
             self._mem.config.llm.config = config_dict
             self._llm = config
             self._usage_hook_installed = False
+            self._apply_model_routing()
             self._install_usage_hook()
         logger.info(
             f"Long-term memory LLM reconfigured: provider={config.provider} model={config.model}"
@@ -249,6 +312,13 @@ class Mem0Backend:
                 if isinstance(value, str) and value:
                     return value
         parts: list[str] = []
+        for item in getattr(response, "output", None) or []:
+            if getattr(item, "type", "") != "reasoning":
+                continue
+            for part in getattr(item, "summary", None) or []:
+                text = getattr(part, "text", None)
+                if isinstance(text, str) and text:
+                    parts.append(text)
         for block in getattr(response, "content", None) or []:
             if getattr(block, "type", "") != "thinking":
                 continue
@@ -326,8 +396,8 @@ class Mem0Backend:
                 usage_source = "estimated"
             self._notify_usage_listeners(
                 {
-                    "provider": getattr(self._llm, "provider", "unknown"),
-                    "model": getattr(getattr(llm, "config", None), "model", None)
+                    "provider": getattr(llm, "_coworker_last_provider", None) or getattr(self._llm, "provider", "unknown"),
+                    "model": getattr(llm, "_coworker_last_model", None) or getattr(getattr(llm, "config", None), "model", None)
                     or getattr(self._llm, "model", "unknown"),
                     "usage": usage,
                     "usage_source": usage_source,

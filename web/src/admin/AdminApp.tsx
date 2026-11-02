@@ -969,15 +969,16 @@ function Models() {
       setRefreshingCatalog(false);
     }
   };
-  const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, routing: draft.routing, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, routing: data.routing, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const routingError = draft?.routing && draft.routing.max_cooldown_seconds < draft.routing.cooldown_seconds ? t('最大冷却不得小于初始冷却。') : '';
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
-    if (!draft) return;
+    if (!draft || routingError) return;
     setSwitchError('');
     setActionMessage('');
     setSaving(true);
     try {
-      const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
+      const next = await api<Json>('/api/admin/model', { method: 'PATCH', body: JSON.stringify({ thinking_effort: draft.thinking_effort, routing: draft.routing, summary: draft.summary, fallbacks: draft.fallbacks, vision: draft.vision, mem0: draft.mem0 }) });
       setData(next); setDraft(next); setFallbackText((next.fallbacks || []).join('\n'));
       setActionMessage(t('模型编排已保存并热更新。'));
     } catch (saveError) {
@@ -994,7 +995,7 @@ function Models() {
       const next = await api<Json>('/api/admin/model/switch', { method: 'POST', body: JSON.stringify(switchTo) });
       setData(next); setDraft(next);
       setSwitchTo({ provider: next.active.provider || '', model_id: next.active.model || '' });
-      setActionMessage(t(next.active_changed ? '主线模型已切换至 {{provider}}/{{model}}。' : '主线模型未变化，当前仍为 {{provider}}/{{model}}。', { provider: next.active.provider, model: next.active.model }));
+      setActionMessage(next.restart_required ? t('首选已保存，正在重启恢复模型服务。') : t(next.active_changed ? '主线模型已切换至 {{provider}}/{{model}}。' : '主线模型未变化，当前仍为 {{provider}}/{{model}}。', { provider: next.active.provider, model: next.active.model }));
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : t('切换模型失败'));
     } finally {
@@ -1011,13 +1012,31 @@ function Models() {
   const visionModelOptions = modelOptionsFor(draft.vision.provider);
   const mem0ModelOptions = modelOptionsFor(draft.mem0.provider || draft.active.provider);
   return <div className="page-stack">
-    <Panel title="主线模型" note="切换立即生效，并会中断正在执行的主线调用（可用来解卡）。">
-      <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
+    <Panel title="主线模型" note="切换会中断在途主线调用；临时降级不会改动首选，冷却结束后按需验证恢复。">
+      {draft.preference?.status === 'pending' && <div className="notice warning" role="status"><b>{t('请确认主线首选模型')}</b><p>{t('旧配置缺少可确认的首选，模型调用已暂停。请选择 Provider 和模型并点击切换模型；保存后服务将自动重启。')}</p>{draft.preference.candidate && <p>{t('历史候选（尚未启用）：{{provider}}/{{model}}', { provider: draft.preference.candidate.provider, model: draft.preference.candidate.model })}</p>}</div>}
+      <div className="active-model"><Bot size={28} /><div><span>{t('首选模型')}</span><strong>{draft.preference?.status === 'pending' ? t('尚未确认') : `${draft.active.provider}/${draft.active.model}`}</strong><small>{draft.last_used ? t('最近实际调用：{{provider}}/{{model}}', { provider: draft.last_used.provider, model: draft.last_used.model }) : t('暂未完成模型调用')}</small></div></div>
       <div className="inline-form"><select aria-label={t('选择 Provider')} value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
       {actionMessage && <div className="notice success" role="status"><Check size={16} /><span>{actionMessage}</span></div>}
     </Panel>
+    {draft.routing && <Panel title="自动恢复策略" note="重试次数包含首次请求；恢复验证使用真实业务请求，不另发付费探测。" action={<button className="ghost mini" disabled={modelsDirty} onClick={() => void reload()}>{t('刷新路由状态')}</button>}>
+      <div className="field-grid">
+        {([
+          ['failure_threshold', '熔断所需失败请求数', 1],
+          ['failure_window_seconds', '失败统计窗口（秒）', 1],
+          ['cooldown_seconds', '初始冷却（秒）', 1],
+          ['max_cooldown_seconds', '最大冷却（秒）', 1],
+          ['recovery_successes', '恢复成功次数', 1],
+          ['attempts_per_target', '单模型最大尝试次数', 1],
+          ['max_attempts', '单请求最大尝试次数', 1],
+          ['attempt_timeout_seconds', '单次尝试超时（秒）', 1],
+          ['request_timeout_seconds', '请求总超时（秒）', 1],
+        ] as const).map(([key, label, min]) => <Field key={key} label={label} hot><input aria-label={t(label)} type="number" min={key === 'max_cooldown_seconds' ? Math.max(min, draft.routing.cooldown_seconds) : min} max={key === 'cooldown_seconds' ? draft.routing.max_cooldown_seconds : undefined} value={draft.routing[key]} onChange={event => set(`routing.${key}`, Number(event.target.value))} /></Field>)}
+      </div>
+      {routingError && <div className="notice error" role="alert">{routingError}</div>}
+      {draft.health?.length > 0 ? <div className="table-scroll"><table><thead><tr><th>Provider / {t('模型')}</th><th>{t('状态')}</th><th>{t('错误类别 / 错误码')}</th><th>{t('下次允许验证')}</th></tr></thead><tbody>{draft.health.map((entry: Json, index: number) => <tr key={`${entry.provider}/${entry.model}/${index}`}><td>{entry.provider}/{entry.model || t('整条连接')}</td><td>{t(entry.state === 'blocked' ? '等待人工处理' : entry.probing ? '正在恢复验证' : entry.state === 'half_open' ? '恢复验证中' : '冷却中')}</td><td>{entry.error?.category} / {entry.error?.vendor_code || entry.error?.status_code || '—'}</td><td>{entry.retry_at == null ? t('更新配置或重新选择该模型') : formatDateTime(new Date(entry.retry_at * 1000).toISOString())}</td></tr>)}</tbody></table></div> : <p>{t('暂无冷却或禁用的模型连接')}</p>}
+    </Panel>}
     <div className="two-col">
       <Panel title="摘要与压缩" note="控制上下文压缩时使用的模型。">
         <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.summary.provider} onChange={e => set('summary.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="summary-model-input" label="模型" hint="留空时跟随主线模型"><EditableCombobox id="summary-model-input" value={draft.summary.model} options={summaryModelOptions} onChange={next => set('summary.model', next)} placeholder={draft.active.model} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.summary.thinking} onChange={e => set('summary.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label><Field label="思考强度"><select value={draft.summary.thinking_effort || ''} onChange={e => set('summary.thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field></div>
@@ -1031,7 +1050,7 @@ function Models() {
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
       <LineNumberTextarea className="code-area short" aria-label={t('失败降级链')} value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
-      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
+      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty || Boolean(routingError)} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
@@ -4293,6 +4312,13 @@ export default function AdminApp() {
     api<Json>('/api/admin/bootstrap').then(result => {
       setServerTimezone(result.server_timezone);
       setBootstrap(result);
+      if (result.preference_pending && !new URLSearchParams(window.location.search).has('section')) {
+        const href = sectionHref('models');
+        window.history.replaceState({}, '', href);
+        sectionRef.current = 'models';
+        acceptedLocation.current = href;
+        setSection('models');
+      }
     }).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {

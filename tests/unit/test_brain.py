@@ -7,6 +7,7 @@ import pytest
 
 from coworker.brain.brain import Brain, ModelCallSuspended, set_model_call_owner
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
+from coworker.core.llm_errors import FailureCategory, ModelRoutingUnavailable, ProviderCallError
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from tests.conftest import MockProvider
 
@@ -140,8 +141,8 @@ class TestBrain:
             async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
                 nonlocal call_count
                 call_count += 1
-                if call_count < 3:
-                    raise RuntimeError("transient error")
+                if call_count < 2:
+                    raise ProviderCallError(FailureCategory.TRANSIENT)
                 return await super().complete(messages, system_prompt, tools, max_tokens)
 
         brain = Brain("mock", "mock-model")
@@ -153,7 +154,7 @@ class TestBrain:
         try:
             response = await brain.think(messages=[], system_prompt="", tools=[])
             assert response.content == "mock response"
-            assert call_count == 3
+            assert call_count == 2
         finally:
             asyncio.sleep = original_sleep
 
@@ -572,7 +573,7 @@ class _FailingProvider(MockProvider):
     provider_name = "primary"
 
     async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
-        raise RuntimeError("primary down")
+        raise ProviderCallError(FailureCategory.TRANSIENT)
 
 
 class _BackupProvider(MockProvider):
@@ -591,7 +592,7 @@ class _BackupProvider(MockProvider):
 
 class TestBrainFallback:
     @pytest.mark.asyncio
-    async def test_fallback_switches_to_backup(self):
+    async def test_fallback_does_not_rewrite_preference(self):
         import asyncio
         brain = Brain("primary", "primary-model", fallbacks=["backup"])
         brain.register_provider(_FailingProvider())
@@ -607,12 +608,11 @@ class TestBrainFallback:
             asyncio.sleep = original_sleep
 
         assert resp.content == "backup response"
-        # 降级后停在备用模型，并标记为失败降级
-        assert brain.current_provider_name == "backup"
-        assert brain.current_model == "backup-model"
-        listener.assert_awaited_once_with("backup", "backup-model")
-        assert brain.consume_fallback_switch() is True
-        # consume 后复位
+        assert resp.provider == "backup"
+        assert brain.current_provider_name == "primary"
+        assert brain.current_model == "primary-model"
+        assert brain.model_config_snapshot()["last_used"]["provider"] == "backup"
+        listener.assert_not_awaited()
         assert brain.consume_fallback_switch() is False
 
     @pytest.mark.asyncio
@@ -630,7 +630,8 @@ class TestBrainFallback:
             asyncio.sleep = original_sleep
 
         assert resp.content == "backup response"
-        assert brain.current_model == "custom-model"  # 用 entry 里显式指定的 model
+        assert brain.current_model == "primary-model"
+        assert brain.model_config_snapshot()["last_used"]["model"] == "custom-model"
 
     @pytest.mark.asyncio
     async def test_config_error_falls_through_to_fallback(self):
@@ -639,7 +640,8 @@ class TestBrainFallback:
         brain.register_provider(_BackupProvider())
         resp = await brain.think(messages=[], system_prompt="", tools=[])
         assert resp.content == "backup response"
-        assert brain.current_provider_name == "backup"
+        assert brain.current_provider_name == "ghost"
+        assert resp.provider == "backup"
 
     @pytest.mark.asyncio
     async def test_summarize_fallback_does_not_persist(self):
@@ -673,7 +675,7 @@ class TestBrainFallback:
 
         class _AlsoFail(_BackupProvider):
             async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
-                raise RuntimeError("backup down")
+                raise ProviderCallError(FailureCategory.TRANSIENT)
 
         brain = Brain("primary", "primary-model", fallbacks=["backup"])
         brain.register_provider(_FailingProvider())
@@ -682,8 +684,9 @@ class TestBrainFallback:
         original_sleep = asyncio.sleep
         asyncio.sleep = AsyncMock()
         try:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(ModelRoutingUnavailable) as raised:
                 await brain.think(messages=[], system_prompt="", tools=[])
+            assert [entry["provider"] for entry in raised.value.failures] == ["primary", "primary", "backup", "backup"]
         finally:
             asyncio.sleep = original_sleep
 
@@ -773,7 +776,8 @@ class TestBrainModelConfig:
             asyncio.sleep = original_sleep
 
         assert resp.content == "backup response"
-        assert brain.current_provider_name == "backup"
+        assert brain.current_provider_name == "primary"
+        assert resp.provider == "backup"
 
     @pytest.mark.asyncio
     async def test_update_vision_config_sets_default_query_model(self):
@@ -789,7 +793,8 @@ class TestBrainModelConfig:
         result = await brain.query_with_vision([Message(role="user", content="look")])
 
         assert result == "mock response"
-        assert provider._current_model == "vision-model"
+        # Per-call model selection must not leak into another concurrent role.
+        assert provider._current_model == "mock-model"
         assert brain.vision_thinking is False
         assert snapshot["vision"]["thinking"] is False
 

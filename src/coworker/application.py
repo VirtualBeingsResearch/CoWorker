@@ -56,14 +56,24 @@ from coworker.core.config import (
     write_admin_overrides,
 )
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
-from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.logging import intercept_standard_logging
-from coworker.core.model_config import apply_runtime_model_config_file
+from coworker.core.model_config import (
+    RuntimeModelConfig,
+    RuntimePreferenceState,
+    RuntimePreferredModel,
+    apply_runtime_model_config_file,
+    load_runtime_model_config,
+    runtime_preference_revision,
+)
 from coworker.core.model_migrations import (
     migrate_model_configuration,
     migrate_provider_model_reference,
 )
-from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
+from coworker.core.startup_intent import (
+    StartupIntent,
+    clear_startup_intent,
+    load_bootstrap_startup_intent,
+)
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
@@ -316,7 +326,14 @@ def _load_config_layers() -> tuple[Config, Config]:
     normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
-    apply_runtime_model_config_file(config.llm)
+    startup_provider, startup_model = config.llm.default_provider, config.llm.default_model
+    runtime = apply_runtime_model_config_file(config.llm)
+    intent = _authorized_bootstrap_intent(
+        config, runtime, provider=startup_provider, model=startup_model,
+        available_providers={spec.name for spec in config.llm.resolved_providers() if spec.api_key.strip()},
+    )
+    if intent is not None:
+        config.llm.default_provider, config.llm.default_model = intent.provider, intent.model
     migrations = migrate_model_configuration(config, inherited)
     for migration in migrations:
         logger.info(
@@ -331,19 +348,173 @@ def _load_config() -> Config:
     return _load_config_layers()[1]
 
 
-async def _validate_model_runtime_config(brain: Brain, config: Config) -> None:
-    await brain.update_model_config(
-        thinking_effort=config.llm.thinking_effort,
-        summary_provider=config.llm.summary_provider,
-        summary_model=config.llm.summary_model,
-        summary_thinking=config.llm.summary_thinking,
-        summary_thinking_effort=config.llm.summary_thinking_effort,
-        fallbacks=config.llm.fallbacks,
-        vision_provider=config.llm.vision_provider,
-        vision_model=config.llm.vision_model,
-        vision_thinking=config.llm.vision_thinking,
-        vision_thinking_effort=config.llm.vision_thinking_effort,
+async def _validate_model_runtime_config(
+    brain: Brain, config: Config, *, resolve_preference: bool = True
+) -> None:
+    """Resolve policy and legacy main selection before any model-backed work."""
+    async def apply_policy(*, defer_references: bool = False) -> None:
+        await brain.update_model_config(
+            _defer_reference_validation=defer_references,
+            thinking_effort=config.llm.thinking_effort,
+            routing=config.llm.routing,
+            summary_provider=config.llm.summary_provider,
+            summary_model=config.llm.summary_model,
+            summary_thinking=config.llm.summary_thinking,
+            summary_thinking_effort=config.llm.summary_thinking_effort,
+            fallbacks=config.llm.fallbacks,
+            vision_provider=config.llm.vision_provider,
+            vision_model=config.llm.vision_model,
+            vision_thinking=config.llm.vision_thinking,
+            vision_thinking_effort=config.llm.vision_thinking_effort,
+        )
+
+    # Load policy before migration so pending files retain the full configuration.
+    # Stale references remain editable in admin while generation is gated.
+    await apply_policy(defer_references=resolve_preference)
+    if resolve_preference:
+        await _migrate_legacy_model_preference(brain, config)
+        if not brain.preference_pending:
+            await apply_policy()
+
+
+def _authorized_bootstrap_intent(
+    config: Config, runtime: RuntimeModelConfig | None, *, provider: str, model: str,
+    available_providers: set[str],
+) -> StartupIntent | None:
+    intent = load_bootstrap_startup_intent(
+        config.memory.db_path, provider=provider, model=model,
+        available_providers=available_providers,
+        model_resolver=lambda name, value: migrate_provider_model_reference(config.llm, name, value),
     )
+    if intent is None:
+        return None
+    preferred = runtime.preferred if runtime is not None else None
+    already_applied = (
+        runtime is not None
+        and preferred is not None
+        and (
+            preferred.provider,
+            migrate_provider_model_reference(config.llm, preferred.provider, preferred.model),
+        ) == (intent.provider, intent.model)
+        and runtime.preference.source == "explicit"
+        and bool(intent.selected_at)
+        and runtime.preference.selected_at == intent.selected_at
+    )
+    if (
+        intent.preference_revision == runtime_preference_revision(runtime, config.llm)
+        or already_applied
+        or (intent.preference_revision is None and preferred is None)
+    ):
+        return intent
+    # A later explicit selection invalidates a leftover bootstrap receipt. Policy
+    # edits and model-ID aliases do not invalidate the original selection.
+    clear_startup_intent(config.memory.db_path)
+    logger.warning(tr("brain.routing.stale_startup_intent"))
+    return None
+
+
+async def _migrate_legacy_model_preference(
+    brain: Brain, config: Config
+) -> None:
+    """Honor saved intent; legacy execution state is only a confirmation hint."""
+    if not config.llm.runtime_config_file.strip():
+        raise ValueError(tr("brain.routing.legacy_preference_storage_required"))
+    runtime = load_runtime_model_config(config.llm.runtime_config_file)
+    intent = _authorized_bootstrap_intent(
+        config, runtime, provider=config.llm.default_provider, model=config.llm.default_model,
+        available_providers=set(brain.list_providers()),
+    )
+    if intent is not None:
+        await brain.switch_model(
+            intent.provider, intent.model, persistence_path=Path(config.llm.runtime_config_file),
+            _selected_at=intent.selected_at,
+        )
+        return
+    if runtime is not None and runtime.preferred is not None:
+        preferred = runtime.preferred
+        provider = brain.router.providers.get(preferred.provider)
+        if provider is None or not provider.can_use_tools(preferred.model):
+            brain.require_preference_confirmation(
+                RuntimePreferenceState(
+                    status="pending", source="unresolved", candidate=preferred,
+                    candidate_source="saved_preference",
+                ),
+                persistence_path=Path(config.llm.runtime_config_file),
+            )
+            logger.warning(tr("brain.routing.preference_pending"))
+            return
+        state = (
+            runtime.preference if "preference" in runtime.model_fields_set
+            else RuntimePreferenceState(source="legacy_config")
+        )
+        brain.restore_preference_state(state, preferred=preferred)
+        config.llm.default_provider, config.llm.default_model = preferred.provider, preferred.model
+        return
+    snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"
+    legacy_paths = (
+        snapshot_path,
+        Path(config.agent.logs_dir) / "admin_audit.jsonl",
+        Path(config.memory.db_path) / "instance_status.json",
+        Path(config.memory.db_path) / "model_routing_state.json",
+    )
+    if runtime is None and not any(path.exists() for path in legacy_paths):
+        # A genuinely new installation may use its configured startup default.
+        if brain.active_provider is not None:
+            await brain.switch_model(
+                brain.current_provider_name,
+                brain.current_model,
+                persistence_path=Path(config.llm.runtime_config_file),
+                preference_source="startup",
+            )
+        return
+    if runtime is not None and runtime.preference.status == "pending":
+        brain.restore_preference_state(runtime.preference)
+        logger.warning(tr("brain.routing.preference_pending"))
+        return
+
+    state = _legacy_preference_candidate(config, snapshot_path)
+    brain.require_preference_confirmation(
+        state, persistence_path=Path(config.llm.runtime_config_file)
+    )
+    logger.warning(tr("brain.routing.preference_pending"))
+
+
+def _legacy_preference_candidate(config: Config, snapshot_path: Path) -> RuntimePreferenceState:
+    state = RuntimePreferenceState(status="pending", source="unresolved")
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("primary"), list):
+            provider, model = snapshot.get("active_provider"), snapshot.get("active_model")
+            if isinstance(provider, str) and provider.strip() and isinstance(model, str) and model.strip():
+                state.candidate = RuntimePreferredModel(
+                    provider=provider,
+                    model=migrate_provider_model_reference(config.llm, provider, model),
+                )
+                state.candidate_source = "snapshot"
+    except (OSError, ValueError):
+        pass
+    # Old audit targets are useful suggestions, but do not prove the absence of
+    # a later tool-driven selection. Neither audit nor active can grant consent.
+    try:
+        with (Path(config.agent.logs_dir) / "admin_audit.jsonl").open(encoding="utf-8") as records:
+            for line in records:
+                try:
+                    event = json.loads(line)
+                    if not isinstance(event, dict) or event.get("action") != "model.switch" or event.get("result") != "ok":
+                        continue
+                    datetime.fromisoformat(event["ts"])
+                    provider, separator, model = event["target"].partition("/")
+                    if separator and provider.strip() and model.strip():
+                        state.candidate = RuntimePreferredModel(
+                            provider=provider,
+                            model=migrate_provider_model_reference(config.llm, provider, model),
+                        )
+                        state.candidate_source = "admin_audit"
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+    except (OSError, ValueError):
+        pass
+    return state
 
 
 def _migrate_short_term_active_model(
@@ -374,6 +545,10 @@ def _bind_memory_model_following(
     config: Config,
 ) -> None:
     """Keep mem0 on the active model while its provider remains implicit."""
+    if isinstance(long_term, LongTermMemory):
+        long_term.bind_model_routing(brain, config)
+    if brain.preference_pending:
+        return
 
     async def reconfigure_for_active_model(provider: str, model: str) -> None:
         if config.memory.mem0_llm_provider:
@@ -431,7 +606,9 @@ async def _run_check() -> int:
             vision_thinking_effort=config.llm.vision_thinking_effort,
         )
         _register_providers(brain, config)
-        await _validate_model_runtime_config(brain, config)
+        # Preflight validates durable config/dependencies, never an old snapshot.
+        # restart_self saves the live context only after this check succeeds.
+        await _validate_model_runtime_config(brain, config, resolve_preference=False)
         identity = Identity(config.agent.identity_dir)
         identity.load()
         identity.detect_location()
@@ -489,10 +666,12 @@ async def _run_backfill() -> int:
         )
         _register_providers(brain, config)
         await _validate_model_runtime_config(brain, config)
+        brain.router.ensure_preference_ready()
         interaction_log = InteractionLogger(
             f"{config.agent.logs_dir}/interactions.jsonl",
             rotation_bytes=config.agent.interaction_log_rotation_bytes,
         )
+        brain.router.add_listener(interaction_log.log_model_route)
         brain.add_summary_usage_listener(
             lambda response, meta: interaction_log.log_summary_llm_response(
                 provider=response.provider,
@@ -508,11 +687,14 @@ async def _run_backfill() -> int:
                 thinking_effort=str(meta.get("thinking_effort") or "") or None,
             )
         )
-        if short_term.active_provider and short_term.active_model:
-            try:
-                await brain.switch_model(short_term.active_provider, short_term.active_model)
-            except (ProviderNotFoundError, ModelNotSupportedError) as e:
-                logger.warning(f"[backfill] Could not restore previous model: {e}")
+        if (
+            short_term.active_provider
+            and short_term.active_model
+            and (short_term.active_provider, short_term.active_model)
+            != (brain.current_provider_name, brain.current_model)
+        ):
+            logger.info(tr("brain.routing.legacy_snapshot"))
+        brain.router.configure_persistence(Path(config.memory.db_path) / "model_routing_state.json")
 
         logger.info(tr("log.backfill_start"))
         n = await short_term.backfill_tree_from_log(
@@ -581,7 +763,13 @@ async def _main() -> bool:
     )
     _register_providers(brain, config)
     await _validate_model_runtime_config(brain, config)
-    setup_required = brain.active_provider is None
+    brain.configure_persistence(
+        Path(config.llm.runtime_config_file),
+        Path(config.memory.db_path) / "model_routing_state.json",
+    )
+    preference_pending = brain.preference_pending
+    setup_required = brain.active_provider is None and not preference_pending
+    models_blocked = setup_required or preference_pending
     api_app.set_setup_required(setup_required)
     if setup_required:
         _print_setup_admin_token(config)
@@ -592,6 +780,7 @@ async def _main() -> bool:
         f"{config.agent.logs_dir}/interactions.jsonl",
         rotation_bytes=config.agent.interaction_log_rotation_bytes,
     )
+    brain.router.add_listener(interaction_log.log_model_route)
     # 原始日志的只读寻址层，供记忆块树按时间区间重摘要 / 下钻；抗后续分片轮转。
     log_store = LogStore(config.agent.logs_dir)
 
@@ -600,11 +789,15 @@ async def _main() -> bool:
             config,
             active_provider=brain.current_provider_name,
             active_model=brain.current_model,
+            defer_llm=preference_pending,
         ),
     )
-    if setup_required:
+    if models_blocked:
         Path(config.memory.db_path).mkdir(parents=True, exist_ok=True)
-        logger.warning("Long-term memory initialization deferred until first-run setup completes")
+        logger.warning(
+            tr("brain.routing.memory_deferred") if preference_pending
+            else "Long-term memory initialization deferred until first-run setup completes"
+        )
     else:
         await long_term.initialize()
     _bind_memory_model_following(brain, long_term, config)
@@ -633,6 +826,7 @@ async def _main() -> bool:
         provider=config.llm.default_provider,
         model=config.llm.default_model,
         available_providers=set(brain.list_providers()),
+        model_resolver=lambda name, value: migrate_provider_model_reference(config.llm, name, value),
     )
     api_app.setup_bootstrap_reconnect_proof(
         startup_intent.reconnect_proof if startup_intent is not None else ""
@@ -706,24 +900,17 @@ async def _main() -> bool:
     _migrate_short_term_active_model(short_term, config)
 
     if (
-        short_term.active_provider
+        not brain.preference_pending
+        and short_term.active_provider
         and short_term.active_model
         and (
             short_term.active_provider != brain.current_provider_name
             or short_term.active_model != brain.current_model
         )
     ):
-        try:
-            await brain.switch_model(short_term.active_provider, short_term.active_model)
-            logger.info(
-                f"Restored model from snapshot: {short_term.active_provider}/{short_term.active_model}"
-            )
-        except (ProviderNotFoundError, ModelNotSupportedError) as e:
-            logger.warning(
-                f"Could not restore previous model ({short_term.active_provider}/{short_term.active_model}): {e}"
-            )
+        logger.info(tr("brain.routing.legacy_snapshot"))
 
-    if is_restart:
+    if is_restart and not models_blocked:
         short_term.schedule_tree_rebalance_if_needed(brain, snapshot_path=snapshot_path)
 
     identity = Identity(config.agent.identity_dir)
@@ -741,7 +928,7 @@ async def _main() -> bool:
         current_provider=brain.current_provider_name,
         current_model=brain.current_model,
         tick=config.agent.tick,
-        setup_mode=setup_required,
+        setup_mode=models_blocked,
     )
 
     # 运行日志采集器：作为 InteractionLogger 的唯一 tap，把每条日志条目实时扇出给
@@ -842,7 +1029,7 @@ async def _main() -> bool:
     channel_system.registry.set_inbound_handler(inbox_watcher.push)
     weixin_module: WeixinModule | None = None
     openai_module: OpenAIModule | None = None
-    if not setup_required:
+    if not models_blocked:
         weixin_module = create_weixin_module(
             config.weixin,
             Path(config.memory.db_path),
@@ -1075,7 +1262,7 @@ async def _main() -> bool:
 
         openai_module.attach_persist(persist_openai_extras)
 
-    if not setup_required and is_restart:
+    if not models_blocked and is_restart:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         restart_msg = tr("startup.system_restarted", time=now_str)
         if restored_alarms:
@@ -1093,7 +1280,7 @@ async def _main() -> bool:
             ),
             passive_mode=config.agent.passive_mode,
         )
-    elif not setup_required and (env_diff or locale_diff):
+    elif not models_blocked and (env_diff or locale_diff):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         await _enqueue_startup_event(
             inbox_watcher,
@@ -1129,6 +1316,13 @@ async def _main() -> bool:
         persona=persona_context,
         progress=progress,
     )
+    if preference_pending:
+        async def restart_after_confirmation(provider: str, model: str) -> None:
+            # No model-backed services were started in pending mode. Rebuild them
+            # from the newly persisted explicit preference, preserving context.
+            agent_loop.request_restart(reason="preference")
+
+        brain.add_model_switch_listener(restart_after_confirmation)
     progress.set_setup_predicate(lambda: agent_loop.state.setup_mode)
 
     desktop_release_store = DesktopReleaseStore(config.desktop_updates.dir)
@@ -1148,7 +1342,7 @@ async def _main() -> bool:
     relay_client = RelayClient(api_app.app, config)
     tunnel_manager = TunnelManager(config)
 
-    if not setup_required:
+    if not models_blocked:
         channel_system.install(
             create_wecom_module(
                 config.wecom,
@@ -1160,7 +1354,7 @@ async def _main() -> bool:
             )
         )
     setup_routes(
-        None if setup_required else inbox_watcher,
+        None if models_blocked else inbox_watcher,
         agent_loop,
         brain,
         config.agent.inbox_dir,
@@ -1199,10 +1393,10 @@ async def _main() -> bool:
     # After the channel system is wired (setup_channels below), auto-published
     # releases notify online desktops just like a manual publish would.
     desktop_update_sync.on_release_published = api_app.notify_desktop_update_published
-    api_app.setup_channels(None if setup_required else channel_system)
+    api_app.setup_channels(None if models_blocked else channel_system)
     api_app.set_collector(event_collector)
 
-    if not setup_required:
+    if not models_blocked:
         channel_system.register_stream_profile(
             DesktopProfile(
                 desktop_registry,
@@ -1219,8 +1413,8 @@ async def _main() -> bool:
                 "started_at": datetime.now().isoformat(),
                 "is_restart": is_restart,
                 "startup_reason": "bootstrap" if bootstrap_clean_start else "restart" if is_restart else "start",
-                "setup_mode": setup_required,
-                "agent_loop_started": not setup_required,
+                "setup_mode": models_blocked,
+                "agent_loop_started": not models_blocked,
                 "messages_restored": len(short_term.primary),
                 "alarms_restored": restored_alarms,
             },
@@ -1260,7 +1454,7 @@ async def _main() -> bool:
     await tunnel_manager.start_if_configured()
     inbox_task: asyncio.Task | None = None
     loop_task: asyncio.Task | None = None
-    if setup_required:
+    if models_blocked:
         lifecycle_task = asyncio.create_task(
             agent_loop.wait_until_stopped(), name="setup-waiter"
         )
@@ -1340,7 +1534,7 @@ async def _main() -> bool:
         await browser_store.stop()
         logger.info("Browser store stopped")
 
-        if not agent_state.restart_requested and not setup_required:
+        if not agent_state.restart_requested and not models_blocked:
             short_term.active_provider = brain.current_provider_name
             short_term.active_model = brain.current_model
             short_term.save_to_file(snapshot_path)

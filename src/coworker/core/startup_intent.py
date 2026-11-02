@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +21,8 @@ class StartupIntent:
     provider: str
     model: str
     reconnect_proof: str = ""
+    preference_revision: str | None = None
+    selected_at: str = ""
 
 
 def _intent_path(db_path: str | Path) -> Path:
@@ -31,6 +35,7 @@ def write_bootstrap_startup_intent(
     provider: str,
     model: str,
     reconnect_proof: str = "",
+    preference_revision: str | None = None,
 ) -> Path:
     """Atomically record that the next process should perform a clean bootstrap start."""
 
@@ -41,9 +46,12 @@ def write_bootstrap_startup_intent(
         "reason": "bootstrap",
         "provider": provider,
         "model": model,
+        "selected_at": datetime.now(UTC).isoformat(),
     }
     if reconnect_proof:
         payload["reconnect_proof"] = reconnect_proof
+    if preference_revision is not None:
+        payload["preference_revision"] = preference_revision
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -71,6 +79,7 @@ def load_bootstrap_startup_intent(
     provider: str,
     model: str,
     available_providers: set[str],
+    model_resolver: Callable[[str, str], str] | None = None,
 ) -> StartupIntent | None:
     """Load a matching bootstrap intent, clearing malformed or stale markers."""
 
@@ -88,15 +97,30 @@ def load_bootstrap_startup_intent(
         intent_provider = payload.get("provider")
         intent_model = payload.get("model")
         reconnect_proof = payload.get("reconnect_proof", "")
+        preference_revision = payload.get("preference_revision")
+        selected_at = payload.get("selected_at", "")
         if not isinstance(intent_provider, str) or not isinstance(intent_model, str):
             raise ValueError("startup intent provider/model must be strings")
         if not isinstance(reconnect_proof, str):
             raise ValueError("startup intent reconnect proof must be a string")
+        if preference_revision is not None and (
+            not isinstance(preference_revision, str)
+            or len(preference_revision) != 64
+            or any(character not in "0123456789abcdef" for character in preference_revision)
+        ):
+            raise ValueError("startup intent preference revision must be 64 lowercase hex characters")
+        if not isinstance(selected_at, str) or (
+            selected_at and datetime.fromisoformat(selected_at).utcoffset() is None
+        ) or (preference_revision is not None and not selected_at):
+            raise ValueError("startup intent selection time must have a timezone")
         if reconnect_proof and (
             len(reconnect_proof) != 64
             or any(character not in "0123456789abcdef" for character in reconnect_proof)
         ):
             raise ValueError("startup intent reconnect proof must be 64 lowercase hex characters")
+        if model_resolver is not None:
+            intent_model = model_resolver(intent_provider, intent_model)
+            model = model_resolver(provider, model)
         if (
             intent_provider != provider
             or intent_model != model
@@ -110,6 +134,8 @@ def load_bootstrap_startup_intent(
             provider=intent_provider,
             model=intent_model,
             reconnect_proof=reconnect_proof,
+            preference_revision=preference_revision,
+            selected_at=selected_at,
         )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         logger.warning(f"Discarding invalid startup intent: {error}")

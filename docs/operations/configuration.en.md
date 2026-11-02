@@ -12,8 +12,10 @@ double underscores to separate groups; start with the repository's `.env.example
 configuration.
 
 Configuration precedence is `data/admin_config.json`, then `.env`, then operating-system
-environment variables. `data/model_runtime_config.json` overrides only the summary, fallbacks, and
-vision settings changed at runtime. When a container or service manager injects environment
+environment variables. `data/model_runtime_config.json` then overrides the saved main preference,
+recovery policy, thinking, summary, fallbacks, and vision settings. A confirmed preference takes
+precedence over legacy startup defaults; temporary fallbacks and short-term snapshots never
+rewrite it. When a container or service manager injects environment
 variables, a same-named `.env` in the working directory takes the higher precedence and overrides
 the injected values. The administration page writes only fields that differ from inherited
 configuration to
@@ -61,8 +63,8 @@ detection because it runs in the administrator's browser, not on the proxy or se
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM__DEFAULT_PROVIDER` | `deepseek` | Default LLM provider |
-| `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | Default model |
+| `LLM__DEFAULT_PROVIDER` | `deepseek` | Initial startup Provider; an existing persisted preference takes precedence |
+| `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | Initial startup model; an existing persisted preference takes precedence |
 | `LLM__MAX_TOKENS` | `8192` | Maximum output tokens for one LLM response |
 | `LLM__THINKING_EFFORT` | Empty (provider default) | Main thinking effort: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`, mapped by each provider to its native levels |
 | `LLM__SUMMARY_PROVIDER` | Empty | Provider dedicated to summarization/compression; when empty, use the current main provider |
@@ -70,6 +72,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
 | `LLM__SUMMARY_THINKING_EFFORT` | Empty (provider default) | Summary thinking effort, same levels as `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | Ordered fallback chain used after a main-model failure; a JSON array of `providerName` or `providerName/modelId` entries |
+| `LLM__ROUTING` | Built-in limits | JSON object for attempts, timeouts, cooldown, and recovery; see [Model Routing](../architecture/model-routing.en.md) for fields and defaults. Admin changes persist and apply immediately |
 | `LLM__MODEL_PRICES` | `[]` | Model-price JSON array, exact-matched by Provider registry name and model ID; hot-applied and used to reprice historical estimates at current prices |
 | `LLM__ANTHROPIC_API_KEY` | Empty | Anthropic API key |
 | `LLM__ANTHROPIC_BASE_URL` | Empty | Custom Anthropic base URL |
@@ -86,7 +89,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__OPENCODE_GO_API_KEY` | Empty (falls back to official `OPENCODE_API_KEY`) | OpenCode Go subscription API key |
 | `LLM__OPENCODE_GO_BASE_URL` | Empty (uses `https://opencode.ai/zen/go/v1` when unset) | Custom OpenCode Go base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | Named provider list file (see “Multiple provider instances” below); ignored if the file does not exist |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Runtime overrides written after online changes to thinking / summary / fallbacks / vision; these override matching model settings from `.env` at startup |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | Saves the main preference, confirmation state, recovery policy, and thinking / summary / fallbacks / vision. Overrides matching model settings at startup; see [Model Routing](../architecture/model-routing.en.md) for legacy confirmation |
 | `LLM__VISION_PROVIDER` | Empty | Provider used by the visual analysis tool; when empty, `visual_analyze` asks you to configure one first |
 | `LLM__VISION_MODEL` | Empty | Model used by the visual analysis tool; video analysis also requires the provider to declare native video support |
 | `LLM__VISION_THINKING` | `true` | Whether visual analysis calls enable thinking; set it to `false` to use a supported provider's non-thinking mode and reduce latency and cost |

@@ -607,6 +607,7 @@ def _tool_use_response() -> SimpleNamespace:
         reasoning_content=None,
         tool_calls=[SimpleNamespace(id="t1", name="list_connections", arguments={})],
         stop_reason="tool_use",
+        provider="stub",
         model="stub-model",
         usage={"input_tokens": 1, "output_tokens": 1},
     )

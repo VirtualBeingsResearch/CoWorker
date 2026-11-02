@@ -103,7 +103,7 @@ are not in this catalog and are configured with `type: anthropic` and
 
 OpenCode Go previously exposed `deepseek-flash`, `deepseek-v4-flash`, and
 `deepseek-v4-flash-vision-exp`. At startup Coworker migrates these legacy IDs to
-`deepseek-v4.1-flash` for the startup model, summary, vision, fallbacks, and named
+`deepseek-v4.1-flash` for the startup model, saved preference, summary, vision, fallbacks, and named
 Providers' `default_model`. Matching fields in the admin and runtime model config files
 are rewritten; legacy values in `.env` or `providers.json` apply in memory only and are
 not rewritten. The official `deepseek` Provider keeps its `deepseek-flash` ID. The active
@@ -173,6 +173,37 @@ usage; it neither changes `usage_stats.json` nor preserves the price that applie
 
 The usual practice is to validate each specialist before adding it to fallback; a dead Provider
 first in the chain adds latency to every takeover.
+
+## Preferred model and automatic recovery
+
+Clicking **Switch model** under Model Orchestration → Main model first saves the preferred
+Provider, model, and selection provenance, then updates runtime state and interrupts this Brain's
+in-flight main-model calls. Changing a dropdown alone does not save. Ordinary switches need no
+restart. Reselecting the same model also records an explicit choice and permits fresh availability
+verification. Selection validates registration and declared tool support without an online probe.
+
+The main route tries the saved preference first, followed by configured fallbacks in order. A
+temporary fallback handles only that request: it never rewrites the preference, notifies persistent
+switch listeners, or makes the next startup prefer the backup. The UI separates preference from
+last execution; usage records name the actual response Provider/model. The fallback list is not a
+connection allowlist: removing an entry does not remove its connection or change the preference.
+
+Transient failures, rate limits, and exhausted quota have classified retries or cooldowns. After
+cooldown, the next real request verifies the preference. The first successful request already uses
+it; two consecutive successes by default restore normal concurrency. Idle instances send no
+billable probes. Authentication, permission, or unavailable-model errors require a connection
+update or reselection. Policy rejections, context limits, and invalid requests are not forwarded
+unchanged to backups.
+
+On the first upgrade, if the legacy runtime file has no saved `preferred`, snapshot execution
+models and admin audit records are only candidate hints: they may identify a temporary backup.
+The instance waits for confirmation, with administration available and model calls and business
+channels deferred. An explicit main-model selection saves the preference and automatically
+restarts once to restore services. The saved preference then wins over `.env`, environment
+variables, admin startup defaults, and memory snapshots.
+
+See [Preferred Models, Temporary Fallbacks, and Recovery](../architecture/model-routing.en.md)
+for error categories, default limits, background behavior, and rollback compatibility.
 
 ## Common failures
 

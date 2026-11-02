@@ -11,8 +11,9 @@
 仓库根目录的 `.env.example` 开始。
 
 配置优先级为：管理端保存的 `data/admin_config.json` 高于 `.env`，`.env` 高于
-操作系统环境变量。`data/model_runtime_config.json` 只覆盖在线修改的 summary、
-fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，工作目录中的同名 `.env`
+操作系统环境变量。`data/model_runtime_config.json` 在此基础上覆盖已保存的主线首选、
+恢复策略、thinking、summary、fallbacks 和 vision 设置。已确认的首选优先于遗留启动默认，
+临时降级和短期记忆快照不会改写首选。容器或服务管理器注入环境变量时，工作目录中的同名 `.env`
 优先级更高，会覆盖注入值。管理端只向 `admin_config.json` 写入相对继承配置实际改变的
 字段；保存时会移除已经恢复为 `.env` 或产品默认值的覆盖项。显式空列表若不同于继承值，
 仍作为有效覆盖保留。因此未修改的默认字段会随版本演进，不会因打开或保存整个设置分组而
@@ -47,8 +48,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `LLM__DEFAULT_PROVIDER` | `deepseek` | 默认 LLM Provider |
-| `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | 默认模型 |
+| `LLM__DEFAULT_PROVIDER` | `deepseek` | 首次使用的启动 Provider；已有持久化首选时以首选为准 |
+| `LLM__DEFAULT_MODEL` | `deepseek-v4-pro` | 首次使用的启动模型；已有持久化首选时以首选为准 |
 | `LLM__MAX_TOKENS` | `8192` | 单次 LLM 响应的最大输出 token 数 |
 | `LLM__THINKING_EFFORT` | 空（Provider 默认） | 主线思考强度，取值 `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`；由各 Provider 映射到原生档位 |
 | `LLM__SUMMARY_PROVIDER` | 空 | 摘要/压缩专用 provider；留空则沿用当前主线 provider |
@@ -56,6 +57,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
 | `LLM__SUMMARY_THINKING_EFFORT` | 空（Provider 默认） | 摘要/压缩思考强度，档位同 `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
+| `LLM__ROUTING` | 内置限额 | 重试、超时、冷却与恢复策略的 JSON 对象；字段及默认值见[模型路由](../architecture/model-routing.md)；管理端修改后持久化并热生效 |
 | `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
 | `LLM__ANTHROPIC_BASE_URL` | 空 | Anthropic 自定义 Base URL |
@@ -72,7 +74,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__OPENCODE_GO_API_KEY` | 空（未设置时兜底读取官方 `OPENCODE_API_KEY`） | OpenCode Go 订阅 API Key |
 | `LLM__OPENCODE_GO_BASE_URL` | 空（未配置时使用 `https://opencode.ai/zen/go/v1`） | OpenCode Go 自定义 Base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | 命名 Provider 列表文件（见下方「多实例 Provider」）；文件不存在则忽略 |
-| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改 thinking / summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
+| `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 保存主线首选、确认状态、恢复策略及 thinking / summary / fallbacks / vision；启动时覆盖同名模型配置，旧配置的待确认行为见[模型路由](../architecture/model-routing.md) |
 | `LLM__VISION_PROVIDER` | 空 | 视觉分析工具使用的 provider；留空时 `visual_analyze` 会提示先配置 |
 | `LLM__VISION_MODEL` | 空 | 视觉分析工具使用的模型；分析视频时还需 Provider 声明原生视频能力 |
 | `LLM__VISION_THINKING` | `true` | 视觉分析调用是否启用 thinking；设为 `false` 可使用支持的 Provider 的非思考模式，降低延迟和成本 |

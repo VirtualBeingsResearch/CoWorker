@@ -140,7 +140,7 @@ class SwitchModelTool(Tool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="switch_model",
-            description="热切换 LLM 模型，立即生效无需重启, 注意切换前自己检查模型是否生效",
+            description=tr("tool_schema.description.switch_model"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -163,7 +163,7 @@ class SwitchModelTool(Tool):
             await self._brain.switch_model(provider, model_id)
             return ToolResult(
                 tool_call_id="",
-                content=f"Switched to {provider}/{self._brain.current_model}",
+                content=tr("brain.routing.preferred_saved", provider=provider, model=self._brain.current_model),
             )
         except Exception as e:
             return ToolResult(tool_call_id="", content=str(e), is_error=True)
@@ -184,20 +184,27 @@ class GetContextTool(Tool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="get_context",
-            description="获取当前运行上下文：当前时间、运行周期数、使用的模型、当前消息数",
+            description=tr("tool_schema.description.get_context"),
             parameters={"type": "object", "properties": {}, "required": []},
         )
 
     async def execute(self, **_) -> ToolResult:
         now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-        model = f"{self._brain.current_provider_name}/{self._brain.current_model}"
+        provider, model = self._brain.current_provider_name, self._brain.current_model
+        preferred = f"{provider}/{model}" if provider and model else tr("tool_result.system.preference_unconfirmed")
+        last_used = self._brain.last_used
+        last_model = (
+            f"{last_used['provider']}/{last_used['model']}"
+            if isinstance(last_used, dict) else tr("tool_result.system.no_model_execution")
+        )
         return ToolResult(
             tool_call_id="",
             content=tr(
                 "tool_result.system.context",
                 time=now,
                 cycles=self._state.cycle_count,
-                model=model,
+                preferred_model=preferred,
+                last_model=last_model,
                 messages=len(self._short_term.primary),
             ),
         )

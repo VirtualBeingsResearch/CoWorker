@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, cast
 
 # 仅为触发各 provider 子类的 __init_subclass__，把 provider_type 登记进
@@ -73,6 +75,11 @@ def build_provider(
         )
     provider_factory = cast(Any, cls)
     provider = provider_factory(api_key, base_url=resolve_base_url(type_, base_url), name=name)
+    # Only the digest is persisted; key/endpoint changes invalidate old failures.
+    provider.connection_revision = hashlib.sha256(
+        json.dumps([type_, api_key, str(resolve_base_url(type_, base_url))]).encode()
+    ).hexdigest()
+    provider.connection_config = {"api_key": api_key, "base_url": resolve_base_url(type_, base_url)}
     if default_model:
         provider.default_model = default_model
     for model_id in tool_use_models or []:

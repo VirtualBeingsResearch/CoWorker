@@ -17,6 +17,12 @@ from coworker.brain.thinking import ThinkingEffort, resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
+from coworker.core.llm_errors import (
+    FailureCategory,
+    ProviderCallError,
+    capture_response_usage,
+    check_response_finish,
+)
 from coworker.core.types import LLMResponse, Message, ToolCall
 from coworker.i18n import tr
 
@@ -46,6 +52,7 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
+            max_retries=0,
             base_url=self.resolve_base_url(base_url),
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
         )
@@ -219,8 +226,14 @@ class OpenAIChatCompletionsProvider(BaseLLMProvider):
         except openai.APIError as e:
             raise ProviderError(str(e)) from e
 
-        choice = response.choices[0]
-        message = choice.message
+        with capture_response_usage(response):
+            if not response.choices:
+                raise ProviderCallError(FailureCategory.INVALID_RESPONSE)
+            choice = response.choices[0]
+            check_response_finish(getattr(choice, "finish_reason", None))
+            message = choice.message
+            if isinstance(getattr(message, "refusal", None), str) and message.refusal:
+                check_response_finish("refusal")
         tool_calls = self._extract_tool_calls(message)
         return self._build_response(response, message, tool_calls)
 

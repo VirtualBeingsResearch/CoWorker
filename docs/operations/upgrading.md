@@ -23,11 +23,21 @@
 
 如果升级前的配置在 OpenCode Go 下使用 `deepseek-flash`、`deepseek-v4-flash` 或
 `deepseek-v4-flash-vision-exp`，启动时会自动迁移为 `deepseek-v4.1-flash`。迁移覆盖启动
-模型、summary、vision、fallback 和命名 Provider 的 `default_model`，并写回管理配置与
+模型、已保存的首选、summary、vision、fallback 和命名 Provider 的 `default_model`，并写回管理配置与
 运行态模型配置中已有的对应字段；`.env` 和 `providers.json` 中的旧值只在内存中生效。
 官方 `deepseek` Provider 的 `deepseek-flash` 不受影响。短期记忆快照中的活动模型会在加载
 时迁移，下一次正常保存时写回。迁移前仍建议按[备份与恢复](backup-and-restore.md)保留
 `data/` 和配置。
+
+## 主线首选迁移
+
+模型编排的显式主线选择会保存在运行态模型配置中，重启后优先于启动默认。旧版本只保存
+执行模型时，无法区分人工选择和故障备用；升级后会进入待确认状态，管理后台仍可访问，
+模型调用和业务通道暂缓启动。打开“模型编排”，明确选择 Provider/模型并点击“切换模型”，
+首选保存后服务会自动重启一次。历史候选仅作提示，后续临时降级不会覆盖首选。
+
+旧版本严格校验运行配置，回滚代码时还需恢复兼容的旧配置备份，不能直接复用新增首选和
+恢复策略的配置格式。迁移分支与恢复行为见[模型路由](../architecture/model-routing.md)。
 
 ## 将工作区关联到自己的仓库
 
