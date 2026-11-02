@@ -1470,7 +1470,7 @@ class TestSwitchModel:
 
         resp = client.post("/switch_model", json={"provider": "qwen"})
         assert resp.status_code == 200
-        mock_brain.switch_model.assert_awaited_once_with("qwen", "")
+        mock_brain.switch_model.assert_awaited_once_with("qwen", "", persistence_path=routes_mod._model_config_path)
         assert resp.json()["model_id"] == "qwen-plus"
 
     @pytest.mark.asyncio

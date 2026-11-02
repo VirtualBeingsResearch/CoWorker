@@ -26,12 +26,27 @@ checking for data-format or protocol changes are part of the procedure.
 
 If the pre-upgrade configuration uses `deepseek-flash`, `deepseek-v4-flash`, or
 `deepseek-v4-flash-vision-exp` under OpenCode Go, startup migrates those IDs to
-`deepseek-v4.1-flash`. The migration covers the startup model, summary, vision, fallbacks, and
+`deepseek-v4.1-flash`. The migration covers the startup model, saved preference, summary, vision, fallbacks, and
 named Providers' `default_model`, and rewrites matching fields in the admin and runtime model
 config files; legacy values in `.env` or `providers.json` apply in memory only. The official
 `deepseek` Provider keeps its `deepseek-flash` ID. The active model in the short-term snapshot is
 migrated on load and written back on the next normal save. Keep a
 [backup](backup-and-restore.en.md) of `data/` and the configuration before upgrading.
+
+## Main preference migration
+
+An explicit main-model selection in Model Orchestration persists in runtime model configuration
+and wins over startup defaults after restart. Old versions saved execution targets without enough
+information to distinguish deliberate selection from temporary fallback. Such installations wait
+for confirmation after upgrading, with administration available and model calls and business
+channels deferred. Open Model Orchestration, select a Provider/model, and click Switch model.
+Once the preference is saved, the service restarts once. Historical candidates are hints only;
+later temporary fallback never overwrites preference.
+
+Older versions strictly validate runtime configuration. Rolling back code also requires restoring
+a compatible configuration backup; the new preference and recovery format cannot be reused
+unchanged. See [Model Routing](../architecture/model-routing.en.md) for migration branches and
+recovery behavior.
 
 ## Connect the workspace to your repository
 

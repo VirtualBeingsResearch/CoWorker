@@ -1185,6 +1185,26 @@ class UsageStatsCollector:
                 scope,
                 str(entry.get("usage_source") or ""),
             )
+        elif (
+            t == "model_route"
+            and entry.get("outcome") == "failed"
+            and entry.get("usage_source") in {"provider", "unavailable"}
+        ):
+            # Successful attempts use their existing response events. Missing
+            # failure counters stay untracked, never measured zeroes.
+            usage = entry.get("usage")
+            scope = str(entry.get("usage_scope") or entry.get("role") or _UNKNOWN_SCOPE)
+            if scope not in _DEFAULT_SCOPES:
+                scope = _UNKNOWN_SCOPE
+            self._record_usage_with_scope(
+                self._entry_date(entry),
+                self._entry_hour(entry),
+                usage if isinstance(usage, dict) else {},
+                _norm_part(entry.get("provider"), _UNKNOWN_PROVIDER),
+                _norm_part(entry.get("usage_model") or entry.get("model"), _UNKNOWN_MODEL),
+                scope,
+                str(entry.get("usage_source") or ""),
+            )
         elif t == "memory_compression":
             self._record_memory_compression(entry, stream_id)
         elif t == "tool_call":

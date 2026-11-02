@@ -13,7 +13,8 @@ from coworker.agent.concurrency_hint import ConcurrencyHintTracker
 from coworker.agent.incoming_content import build_content_blocks
 from coworker.brain.brain import ModelCallSuspended, set_model_call_owner
 from coworker.core.constants import TICK_TAG
-from coworker.core.exceptions import RestartRequestedException
+from coworker.core.exceptions import ProviderError, RestartRequestedException
+from coworker.core.llm_errors import ModelRoutingUnavailable, ProviderCallError
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import bind_locale, tr
 from coworker.persona import PersonaContext
@@ -146,6 +147,9 @@ class AgentLoop:
 
         while not self._stop_event.is_set():
             try:
+                preference_event = getattr(getattr(self, "_brain", None), "preference_changed", None)
+                if isinstance(preference_event, asyncio.Event):
+                    preference_event.clear()
                 await self._cycle()
                 self._consecutive_errors = 0  # 成功周期，重置错误计数
                 if self._snapshot_path and not self.state.restart_requested:
@@ -155,6 +159,18 @@ class AgentLoop:
             except RestartRequestedException:
                 self.state.restart_requested = True
                 break
+            except ProviderError as error:
+                # External dependency failures must never enter destructive context
+                # recovery. Keep the exact tool-call/result history for resumption.
+                self._consecutive_errors = 0
+                request_rejected = isinstance(error, ProviderCallError) and not error.allow_fallback
+                logger.warning(tr("brain.routing.request_wait" if request_rejected else "brain.routing.dependency_wait"))
+                if self._snapshot_path:
+                    try:
+                        self._short_term.save_to_file(self._snapshot_path)
+                    except OSError:
+                        logger.warning(tr("brain.routing.state_save_failed"))
+                await self._wait_for_model_recovery(error, request_rejected)
             except ModelCallSuspended:
                 # 管理端暂停打断了本回合的在途模型调用：不算错误，下一轮停靠等恢复。
                 logger.info(tr("loop.pause_cycle_stopped"))
@@ -467,7 +483,7 @@ class AgentLoop:
         self.state.last_main_response_usage = (
             {
                 "input_tokens": input_tokens,
-                "provider": self._brain.current_provider_name,
+                "provider": response.provider or self._brain.current_provider_name,
                 "model": response.model or self._brain.current_model,
                 "measured_at": datetime.now().isoformat(),
             }
@@ -482,7 +498,7 @@ class AgentLoop:
                 response.stop_reason,
                 response.model,
                 response.usage,
-                provider=self._brain.current_provider_name,
+                provider=response.provider or self._brain.current_provider_name,
                 thinking=bool(self._brain.thinking),
                 thinking_effort=self._brain.thinking_effort or None,
                 duration_ms=duration_ms,
@@ -492,7 +508,7 @@ class AgentLoop:
             role="assistant",
             content=response.content,
             source=(
-                f"{self._brain.current_provider_name}/{response.model or self._brain.current_model}"
+                f"{response.provider or self._brain.current_provider_name}/{response.model or self._brain.current_model}"
             ),
             reasoning_content=response.reasoning_content,
             tool_calls=[
@@ -954,6 +970,24 @@ class AgentLoop:
                     source="sleep_interrupt",
                 )
             logger.debug(f"Task watcher interrupted sleep: {len(active)} active tasks")
+
+    async def _wait_for_model_recovery(self, error: ProviderError, request_rejected: bool) -> None:
+        waits = [asyncio.create_task(self._stop_event.wait())]
+        inbox = getattr(self, "_inbox", None)
+        if inbox is not None:
+            waits.append(asyncio.create_task(inbox.message_event.wait()))
+        changed = getattr(getattr(self, "_brain", None), "preference_changed", None)
+        if isinstance(changed, asyncio.Event):
+            waits.append(asyncio.create_task(changed.wait()))
+        delay = None if request_rejected else min(60, error.retry_after) if isinstance(error, ModelRoutingUnavailable) else 30
+        self.state.is_sleeping = True
+        try:
+            await asyncio.wait(waits, timeout=delay, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            self.state.is_sleeping = False
+            for task in waits:
+                task.cancel()
+            await asyncio.gather(*waits, return_exceptions=True)
 
     async def _pause_rest(self) -> None:
         """管理端暂停时的停靠等待：只等 resume_event，不消费 inbox 队列。

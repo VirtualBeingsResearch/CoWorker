@@ -178,6 +178,7 @@ class LLMResponse:
     usage: dict[str, int]
     reasoning_content: str | None = None
     provider: str = ""
+    routing: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -4,14 +4,19 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
 
 from coworker.brain.base import BaseLLMProvider
+from coworker.brain.routing import ModelRouter, ModelTarget, RoutedResult, RoutingBudget
 from coworker.brain.thinking import normalize_thinking_effort
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
+from coworker.core.llm_errors import ModelRoutingUnavailable
+from coworker.core.model_config import RuntimePreferenceState
+from coworker.core.model_routing import ModelRoutingConfig
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from coworker.i18n import tr
 
@@ -71,7 +76,7 @@ class ModelCallSuspended(Exception):
 class _InflightCall:
     """One main-model provider call that a switch or a pause may abort."""
 
-    task: asyncio.Task[Any]
+    task: asyncio.Task[RoutedResult[LLMResponse]]
     owner: ModelCallOwner
     abort: str | None = None  # "switch" | "suspend"
 
@@ -115,8 +120,22 @@ class Brain:
         vision_model: str = "",
         vision_thinking: bool = True,
         vision_thinking_effort: str = "",
+        routing: ModelRoutingConfig | None = None,
+        router: ModelRouter | None = None,
+        policy_parent: Brain | None = None,
+        routing_parent: Brain | None = None,
+        routing_role: str = "main",
     ) -> None:
-        self._providers: dict[str, BaseLLMProvider] = {}
+        self.router = router or ModelRouter()
+        self._providers = self.router.providers
+        self._policy_parent = policy_parent
+        self._routing_parent = routing_parent or policy_parent
+        self._routing_config = routing or ModelRoutingConfig()
+        self._routing_role = routing_role
+        self._preference_revision = 0
+        self._runtime_config_path: Path | None = None
+        self._last_used: dict[str, Any] | None = None
+        self._preference_state = RuntimePreferenceState()
         self._active_provider_name = default_provider
         self._active_model = default_model
         self._summary_provider_name = summary_provider
@@ -132,6 +151,7 @@ class Brain:
         self._thinking = thinking
         self._thinking_effort = normalize_thinking_effort(thinking_effort) or ""
         self._lock = asyncio.Lock()
+        self.preference_changed = asyncio.Event()
         self._model_switch_listener_lock = asyncio.Lock()
         # 降级链原始配置（"name" 或 "name/model"）；运行时按当前注册表解析，构造时不解析。
         self._fallbacks = list(fallbacks or [])
@@ -163,7 +183,7 @@ class Brain:
         return self._thinking_effort
 
     def register_provider(self, provider: BaseLLMProvider) -> None:
-        self._providers[provider.provider_name] = provider
+        self.router.register(provider)
         logger.info(f"Registered LLM provider: {provider.provider_name}")
 
     async def upsert_provider(self, provider: BaseLLMProvider) -> None:
@@ -184,7 +204,8 @@ class Brain:
                         model=self._active_model,
                     )
                 )
-            self._providers[provider.provider_name] = provider
+            self.router.register(provider)
+            self.preference_changed.set()
             logger.info(f"Hot-updated LLM provider: {provider.provider_name}")
 
     def set_max_tokens(self, value: int) -> None:
@@ -252,11 +273,52 @@ class Brain:
 
     @property
     def current_provider_name(self) -> str:
-        return self._active_provider_name
+        return self._policy_parent.current_provider_name if self._policy_parent else self._active_provider_name
 
     @property
     def current_model(self) -> str:
-        return self._active_model
+        return self._policy_parent.current_model if self._policy_parent else self._active_model
+
+    @property
+    def routing_config(self) -> ModelRoutingConfig:
+        return self._routing_parent.routing_config if self._routing_parent else self._routing_config
+
+    @property
+    def preference_revision(self) -> tuple[int, ...]:
+        parent = self._policy_parent.preference_revision if self._policy_parent else ()
+        return (*parent, self._preference_revision)
+
+    def configure_persistence(self, runtime_path: Path, health_path: Path) -> None:
+        self._runtime_config_path = runtime_path
+        self.router.configure_persistence(health_path)
+
+    @property
+    def preference_pending(self) -> bool:
+        return self.router.preference_pending
+
+    def restore_preference_state(self, state: RuntimePreferenceState) -> None:
+        self._preference_state = state.model_copy(deep=True)
+        if self._routing_parent is None and self._routing_role == "main":
+            self.router.preference_pending = state.status == "pending"
+        if state.status == "pending":
+            self._active_provider_name = ""
+            self._active_model = ""
+
+    def require_preference_confirmation(
+        self, state: RuntimePreferenceState, *, persistence_path: Path
+    ) -> None:
+        snapshot = self.model_config_snapshot()
+        snapshot["preferred"] = None
+        snapshot["preference"] = state.model_dump()
+        self._persist_config(snapshot, persistence_path)
+        self.restore_preference_state(state)
+
+    def _persist_config(self, snapshot: dict[str, Any], path: Path | None = None) -> None:
+        path = path or self._runtime_config_path
+        if path is not None:
+            from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
+
+            write_runtime_model_config(path, RuntimeModelConfig.from_brain_snapshot(snapshot))
 
     @property
     def summary_provider_name(self) -> str:
@@ -276,7 +338,7 @@ class Brain:
 
     @property
     def fallbacks(self) -> list[str]:
-        return list(self._fallbacks)
+        return self._policy_parent.fallbacks if self._policy_parent else list(self._fallbacks)
 
     @property
     def vision_provider_name(self) -> str:
@@ -296,7 +358,7 @@ class Brain:
 
     @property
     def active_provider(self) -> BaseLLMProvider | None:
-        return self._providers.get(self._active_provider_name)
+        return self._providers.get(self.current_provider_name)
 
     def consume_fallback_switch(self) -> bool:
         """读并复位「上次切换是否为失败降级」标志。主循环用它决定切换通知的措辞。"""
@@ -307,7 +369,7 @@ class Brain:
     @property
     def current_model_has_vision(self) -> bool:
         provider = self.active_provider
-        return bool(provider and provider.can_use_vision(self._active_model))
+        return bool(provider and provider.can_use_vision(self.current_model))
 
     def _fallback_model_for(self, entry: str) -> tuple[str, str]:
         entry = entry.strip()
@@ -374,11 +436,16 @@ class Brain:
         return {
             "providers": self.list_providers(),
             "active": {
-                "provider": self._active_provider_name,
-                "model": self._active_model,
+                "provider": self.current_provider_name,
+                "model": self.current_model,
                 "thinking": self._thinking,
                 "thinking_effort": self._thinking_effort,
             },
+            "preferred": None if self.preference_pending else {"provider": self.current_provider_name, "model": self.current_model},
+            "preference": self._preference_state.model_dump(),
+            "last_used": self._last_used,
+            "routing": self.routing_config.model_dump(),
+            "health": self.router.snapshot(),
             "thinking_effort": self._thinking_effort,
             "summary": {
                 "provider": self._summary_provider_name,
@@ -386,7 +453,7 @@ class Brain:
                 "thinking": self._summary_thinking,
                 "thinking_effort": self._summary_thinking_effort,
             },
-            "fallbacks": list(self._fallbacks),
+            "fallbacks": self.fallbacks,
             "vision": {
                 "provider": self._vision_provider_name,
                 "model": self._vision_model,
@@ -433,6 +500,8 @@ class Brain:
         self,
         *,
         thinking_effort: str | None = None,
+        routing: ModelRoutingConfig | dict[str, Any] | None = None,
+        persistence_path: Path | None = None,
         summary_provider: str | None = None,
         summary_model: str | None = None,
         summary_thinking: bool | None = None,
@@ -447,6 +516,9 @@ class Brain:
             self._thinking_effort
             if thinking_effort is None
             else normalize_thinking_effort(thinking_effort) or ""
+        )
+        next_routing = self.routing_config if routing is None else ModelRoutingConfig.model_validate(
+            {**self.routing_config.model_dump(), **routing} if isinstance(routing, dict) else routing
         )
         next_summary_provider = (
             self._summary_provider_name if summary_provider is None else summary_provider.strip()
@@ -480,6 +552,17 @@ class Brain:
         self._validate_vision_config(next_vision_provider, next_vision_model)
 
         async with self._lock:
+            snapshot = self.model_config_snapshot()
+            snapshot.update(
+                thinking_effort=next_thinking_effort,
+                routing=next_routing.model_dump(),
+                summary={"provider": next_summary_provider, "model": next_summary_model, "thinking": next_summary_thinking, "thinking_effort": next_summary_thinking_effort},
+                fallbacks=list(next_fallbacks),
+                vision={"provider": next_vision_provider, "model": next_vision_model, "thinking": next_vision_thinking, "thinking_effort": next_vision_thinking_effort},
+            )
+            self._persist_config(snapshot, persistence_path)
+            self._routing_config = next_routing
+            self._preference_revision += 1
             self._thinking_effort = next_thinking_effort
             self._summary_provider_name = next_summary_provider
             self._summary_model = next_summary_model
@@ -490,6 +573,7 @@ class Brain:
             self._vision_model = next_vision_model
             self._vision_thinking = next_vision_thinking
             self._vision_thinking_effort = next_vision_thinking_effort
+            self.preference_changed.set()
         return self.model_config_snapshot()
 
     async def count_tokens(self, messages: list[Message]) -> int:
@@ -499,67 +583,14 @@ class Brain:
             from coworker.core.token_utils import estimate_content_tokens
 
             return sum(estimate_content_tokens(m.content) for m in messages)
-        return await provider.count_tokens(messages, self._active_model)
-
-    def _resolve_candidates(self) -> list[tuple[str, str, int]]:
-        """构造降级候选链 [(provider_name, model, tries), ...]，首选为当前 active。
-
-        按运行时 active（可能已被 switch_model 或上次降级改过）去重；fallback 项按当前
-        注册表解析：未注册 / 无可用模型 / 模型不支持 tool use / 与 active 重复者跳过。
-        """
-        active = (self._active_provider_name, self._active_model)
-        candidates: list[tuple[str, str, int]] = [(active[0], active[1], 3)]
-        seen = {active}
-        for entry in self._fallbacks:
-            name, _, model = entry.partition("/")
-            provider = self._providers.get(name)
-            if provider is None:
-                continue
-            model = model or provider.default_model
-            if not model or not provider.can_use_tools(model):
-                continue
-            if (name, model) in seen:
-                continue
-            seen.add((name, model))
-            candidates.append((name, model, 2))
-        return candidates
-
-    async def _complete_interruptible(
-        self,
-        provider: BaseLLMProvider,
-        provider_name: str,
-        model: str,
-        owner: ModelCallOwner,
-        **kwargs: Any,
-    ) -> LLMResponse:
-        """Run one provider call in its own task so a switch or pause can abort it.
-
-        The provider call must not run inside the caller's task: cancelling that
-        task would cancel the whole agent turn instead of just this request.
-        """
-        call = _InflightCall(asyncio.ensure_future(provider.complete(**kwargs)), owner)
-        self._inflight_calls.add(call)
-        try:
-            return await call.task
-        except asyncio.CancelledError:
-            if call.abort == "switch":
-                raise ModelCallInterrupted(provider_name, model) from None
-            if call.abort == "suspend":
-                raise ModelCallSuspended(provider_name, model) from None
-            raise
-        finally:
-            self._inflight_calls.discard(call)
+        return await provider.count_tokens(messages, self.current_model)
 
     def _interrupt_inflight_calls(self) -> int:
-        """Abort main-model calls still waiting on the previous model.
-
-        Bumping the generation also makes ``_attempt`` abandon retry loops and
-        stale candidate lists, so the interrupted turn retries on the new model.
-        """
+        """Invalidate old selections and cancel their routes, including retry sleeps."""
         self._switch_generation += 1
         interrupted = 0
         for call in list(self._inflight_calls):
-            if call.task.done():
+            if call.task.done() or call.abort is not None:
                 continue
             call.abort = "switch"
             call.task.cancel()
@@ -567,94 +598,133 @@ class Brain:
         return interrupted
 
     def suspend_main_calls(self) -> int:
-        """Abort in-flight main-loop calls and refuse new ones until resume.
-
-        An admin pause uses this: unlike a switch, the aborted turn must not
-        retry, because the loop is about to park and wait for a resume signal.
-        Background owners (Bubble, backfill) keep their calls.
-        """
+        """Park main-owned calls without affecting Bubble or background owners."""
         self._main_calls_suspended = True
         cancelled = 0
         for call in list(self._inflight_calls):
             if call.owner != "main" or call.task.done():
                 continue
+            # Suspension takes precedence over a switch; do not cancel cleanup twice.
+            was_cancelled = call.abort is not None
             call.abort = "suspend"
-            call.task.cancel()
-            cancelled += 1
+            if not was_cancelled:
+                call.task.cancel()
+                cancelled += 1
         return cancelled
 
     def resume_main_calls(self) -> None:
-        """Allow main-loop model calls again after an admin pause."""
         self._main_calls_suspended = False
 
-    async def _attempt(
+    def _check_call_control(self, owner: ModelCallOwner, generation: int) -> None:
+        if owner == "main" and self._main_calls_suspended:
+            raise ModelCallSuspended(self.current_provider_name, self.current_model)
+        if generation != self._switch_generation:
+            raise ModelCallInterrupted(self.current_provider_name, self.current_model)
+
+    async def _run_interruptible_route(
         self,
-        provider_name: str,
-        model: str,
+        execute: Callable[[], Awaitable[RoutedResult[LLMResponse]]],
+        generation: int,
+    ) -> RoutedResult[LLMResponse]:
+        owner = _MODEL_CALL_OWNER.get()
+        self._check_call_control(owner, generation)
+        call = _InflightCall(asyncio.ensure_future(execute()), owner)
+        self._inflight_calls.add(call)
+        try:
+            result = await call.task
+            # A response may win the cancellation race; never commit stale work.
+            self._check_call_control(owner, generation)
+            return result
+        except asyncio.CancelledError:
+            caller = asyncio.current_task()
+            if caller is not None and caller.cancelling():
+                raise  # External shutdown/restart must not turn into another request.
+            if call.abort == "suspend" or owner == "main" and self._main_calls_suspended:
+                raise ModelCallSuspended(self.current_provider_name, self.current_model) from None
+            if call.abort == "switch":
+                raise ModelCallInterrupted(self.current_provider_name, self.current_model) from None
+            raise
+        except Exception:
+            # Selection/pause may race with an already completed failing request.
+            self._check_call_control(owner, generation)
+            raise
+        finally:
+            self._inflight_calls.discard(call)
+
+    def routing_targets(
+        self,
+        provider_name: str = "",
+        model: str = "",
+        *,
+        allow_fallback: bool = True,
+        require_tools: bool = True,
+    ) -> list[ModelTarget]:
+        """Resolve an immutable priority list; health filtering happens at execution."""
+        self.router.ensure_preference_ready()
+        name = provider_name or self.current_provider_name
+        provider = self._providers.get(name)
+        selected_model = model or (self.current_model if not provider_name else provider.default_model if provider else "")
+        pairs = [(name, selected_model)]
+        if allow_fallback:
+            for entry in self.fallbacks:
+                fallback_name, _, fallback_model = entry.partition("/")
+                fallback_provider = self._providers.get(fallback_name)
+                if fallback_provider is not None:
+                    pairs.append((fallback_name, fallback_model or fallback_provider.default_model))
+        seen: set[tuple[str, str]] = set()
+        targets: list[ModelTarget] = []
+        for candidate_name, candidate_model in pairs:
+            target = self.router.target(candidate_name, candidate_model)
+            if target is None or not candidate_model or (candidate_name, candidate_model) in seen:
+                continue
+            if require_tools and not target.provider.can_use_tools(candidate_model):
+                continue
+            seen.add((candidate_name, candidate_model))
+            targets.append(target)
+        if not targets:
+            raise ProviderNotFoundError(name)
+        return targets
+
+    async def _execute(
+        self,
+        targets: list[ModelTarget],
         messages: list[Message],
         system_prompt: str,
         tools: list[dict],
         max_tokens: int,
-        tries: int,
-        thinking: bool = True,
-        thinking_effort: str | None = None,
-        interruptible: bool = True,
-        expected_generation: int | None = None,
+        *,
+        thinking: bool,
+        thinking_effort: str,
+        role: str,
+        record_execution: bool = False,
+        generation: int | None = None,
+        budget: RoutingBudget | None = None,
     ) -> LLMResponse:
-        """对单个候选重试 tries 次（指数退避）。配置类错误确定性失败，不重试直接抛出。"""
-        owner = _MODEL_CALL_OWNER.get()
-        last_err: Exception | None = None
-        for attempt in range(tries):
-            if (
-                expected_generation is not None
-                and self._switch_generation != expected_generation
-            ):
-                raise ModelCallInterrupted(provider_name, model)
-            if interruptible and owner == "main" and self._main_calls_suspended:
-                raise ModelCallSuspended(provider_name, model)
-            try:
-                provider = self._providers.get(provider_name)
-                if not provider:
-                    raise ProviderNotFoundError(provider_name)
-                provider.set_model(model)
-                if interruptible:
-                    return await self._complete_interruptible(
-                        provider,
-                        provider_name,
-                        model,
-                        owner,
-                        messages=messages,
-                        system_prompt=system_prompt,
-                        tools=tools,
-                        max_tokens=max_tokens,
-                        thinking=thinking,
-                        thinking_effort=thinking_effort,
-                    )
-                return await provider.complete(
-                    messages,
-                    system_prompt,
-                    tools,
-                    max_tokens,
-                    thinking=thinking,
-                    thinking_effort=thinking_effort,
-                )
-            except (
-                ProviderNotFoundError,
-                ModelNotSupportedError,
-                ModelCallInterrupted,
-                ModelCallSuspended,
-            ):
-                raise
-            except Exception as e:
-                last_err = e
-                if attempt < tries - 1:
-                    wait = 2**attempt
-                    logger.warning(
-                        f"LLM call {provider_name}/{model} failed (attempt {attempt + 1}/{tries}), retrying in {wait}s: {e}"
-                    )
-                    await asyncio.sleep(wait)
-        assert last_err is not None
-        raise last_err
+        revision = self.preference_revision
+        preferred = (self.current_provider_name, self.current_model)
+        config = self.routing_config
+
+        async def call(target: ModelTarget, timeout: float) -> LLMResponse:
+            return await target.provider.complete_for_model(
+                target.model, messages, system_prompt, tools, max_tokens,
+                thinking=thinking, thinking_effort=thinking_effort,
+            )
+
+        async def execute() -> RoutedResult[LLMResponse]:
+            return await self.router.execute_async(
+                targets, config, call, role=role, budget=budget,
+                usage_scope=self._routing_role if self._routing_role in {"bubble", "subconscious"} else role,
+            )
+
+        result = await execute() if generation is None else await self._run_interruptible_route(execute, generation)
+        response = result.value
+        response.provider = result.target.name
+        response.routing = {"preferred_provider": preferred[0], "preferred_model": preferred[1], "role": role, "attempts": result.attempts}
+        if record_execution and self.preference_revision == revision:
+            self._last_used = {"provider": result.target.name, "model": result.target.model, "fallback": (result.target.name, result.target.model) != preferred, "attempts": result.attempts}
+        if (result.target.name, result.target.model) != preferred and record_execution:
+            logger.info(tr("brain.routing.fallback_used", provider=result.target.name, model=result.target.model, preferred_provider=preferred[0], preferred_model=preferred[1]))
+        return response
 
     async def think(
         self,
@@ -672,76 +742,37 @@ class Brain:
             messages = _prepend_timestamps(messages)
         tokens = max_tokens if max_tokens is not None else self._max_tokens
 
-        last_err: Exception | None = None
+        blocks = [block for message in messages if isinstance(message.content, list) for block in message.content if isinstance(block, dict)]
+        requires_vision = self.current_model_has_vision and any(block.get("type") == "image" for block in blocks)
+        budget = self.router.new_budget(self.routing_config)
         interruptions = 0
         while True:
-            # 与候选列表一起记录代数：切换发生在解析与调用之间时，用新 active 重新解析。
-            generation = self._switch_generation
-            candidates = self._resolve_candidates()
-            interrupted: ModelCallInterrupted | None = None
-            for idx, (name, model, tries) in enumerate(candidates):
-                try:
-                    response = await self._attempt(
-                        name,
-                        model,
-                        messages,
-                        system_prompt,
-                        tools,
-                        tokens,
-                        tries,
-                        thinking=(
-                            self._thinking if _thinking_override is None else _thinking_override
-                        ),
-                        thinking_effort=(
-                            self._thinking_effort
-                            if _thinking_effort_override is None
-                            else _thinking_effort_override
-                        ),
-                        interruptible=_interruptible,
-                        expected_generation=generation if _interruptible else None,
-                    )
-                except ModelCallSuspended:
-                    # 暂停打断不重试：主循环会停靠，恢复后从同一上下文继续。
-                    raise
-                except ModelCallInterrupted as e:
-                    interrupted = e
-                    break
-                except Exception as e:
-                    last_err = e
-                    logger.warning(f"Provider {name}/{model} exhausted ({tries} tries): {e}")
-                    continue
-                response.provider = name
-                # 非首选候选成功 = 主模型已降级。_persist_switch 时把 active 切到它（停在备用，
-                # 等手动切回）；summarize 等后台调用传 False，仅本次借用 fallback，不劫持主模型。
-                if idx > 0 and _persist_switch:
-                    async with self._lock:
-                        old = (self._active_provider_name, self._active_model)
-                        self._active_provider_name = name
-                        self._active_model = model
-                        self._last_switch_was_fallback = True
-                    logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
-                    await self._notify_model_switch_listeners(name, model)
-                return response
-
-            if interrupted is None:
-                assert last_err is not None
-                raise last_err
-            interruptions += 1
-            if interruptions > _MAX_MODEL_SWITCH_INTERRUPTS:
-                raise interrupted
-            logger.info(
-                tr(
-                    "brain.switch.retry_with_active",
-                    provider=interrupted.provider,
-                    model=interrupted.model,
+            generation = self._switch_generation if _interruptible else None
+            targets = self.routing_targets(require_tools=bool(tools))
+            if requires_vision:
+                targets = [target for target in targets if target.provider.can_use_vision(target.model)]
+            try:
+                return await self._execute(
+                    targets, messages, system_prompt, tools, tokens,
+                    thinking=self._thinking if _thinking_override is None else _thinking_override,
+                    thinking_effort=self._thinking_effort if _thinking_effort_override is None else _thinking_effort_override,
+                    role=self._routing_role if _persist_switch else "summary",
+                    record_execution=_persist_switch,
+                    generation=generation,
+                    budget=budget,
                 )
-            )
+            except ModelCallInterrupted:
+                interruptions += 1
+                if interruptions > _MAX_MODEL_SWITCH_INTERRUPTS:
+                    # Repeated operator actions must not enter destructive cycle recovery.
+                    raise ModelRoutingUnavailable(budget.attempts) from None
+                logger.info(tr("brain.switch.retry_with_active", provider=self.current_provider_name, model=self.current_model))
 
     def _resolve_summary_model(self) -> tuple[str, str] | None:
         if not self._summary_provider_name and not self._summary_model:
             return None
 
-        provider_name = self._summary_provider_name or self._active_provider_name
+        provider_name = self._summary_provider_name or self.current_provider_name
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ProviderNotFoundError(provider_name)
@@ -777,18 +808,15 @@ class Brain:
         provider_name, model = summary_target
         if self._message_time_prefix:
             messages = _prepend_timestamps(messages)
-        response = await self._attempt(
-            provider_name,
-            model,
+        response = await self._execute(
+            self.routing_targets(provider_name, model, allow_fallback=False, require_tools=False),
             messages,
             system_prompt,
             [],
             max_tokens if max_tokens is not None else self._max_tokens,
-            tries=3,
             thinking=self._summary_thinking,
             thinking_effort=self._summary_thinking_effort,
-            # 独立摘要模型不随主线切换中断：切换针对的是旧的主线模型。
-            interruptible=False,
+            role="summary",
         )
         response.provider = provider_name
         return response
@@ -828,14 +856,15 @@ class Brain:
                     provider=vision_provider,
                 )
             )
-        provider.set_model(vision_model)
-        resp = await provider.complete(
+        resp = await self._execute(
+            self.routing_targets(vision_provider, vision_model, allow_fallback=False, require_tools=False),
             messages,
             system_prompt,
             [],
             max_tokens if max_tokens is not None else self._max_tokens,
             thinking=self._vision_thinking,
             thinking_effort=self._vision_thinking_effort,
+            role="vision",
         )
         resp.provider = vision_provider
         self._notify_usage_listeners(
@@ -849,7 +878,11 @@ class Brain:
         )
         return resp.content
 
-    async def switch_model(self, provider_name: str, model_id: str = "") -> None:
+    async def switch_model(
+        self, provider_name: str, model_id: str = "", *,
+        persistence_path: Path | None = None,
+        preference_source: Literal["explicit", "startup"] = "explicit",
+    ) -> None:
         async with self._lock:
             if provider_name not in self._providers:
                 raise ProviderNotFoundError(provider_name)
@@ -869,10 +902,24 @@ class Brain:
                     )
                 )
             old = (self._active_provider_name, self._active_model)
+            snapshot = self.model_config_snapshot()
+            snapshot["preferred"] = {"provider": provider_name, "model": model_id}
+            selection = RuntimePreferenceState.explicit()
+            selection.source = preference_source
+            snapshot["preference"] = selection.model_dump()
+            self._persist_config(snapshot, persistence_path)
+            if self._policy_parent is not None:
+                self._fallbacks = self.fallbacks
+                self._policy_parent = None
             self._active_provider_name = provider_name
             self._active_model = model_id
+            self.restore_preference_state(selection)
+            self._preference_revision += 1
+            self._last_used = None
+            self.router.reset(provider_name, model_id)
+            self.preference_changed.set()
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
-        # 显式切换必须打断在途调用：旧 Provider 的请求可能永远不返回，否则主循环会一直卡着。
+        # Explicit selection cancels a route without rewriting fallback health.
         interrupted = self._interrupt_inflight_calls()
         if interrupted:
             logger.info(

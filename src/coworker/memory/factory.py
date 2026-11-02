@@ -91,11 +91,14 @@ def build_long_term_backend(
     active_provider: str = "",
     active_model: str = "",
     embedder_model: str | None = None,
+    defer_llm: bool = False,
 ) -> LongTermMemoryBackend:
     """Create the configured long-term memory backend.
 
     Only backends that perform LLM extraction (mem0 today) need the resolved
     memory LLM config, so it is built here instead of at the call site.
+    ``defer_llm`` leaves extraction unconfigured while the main preference awaits
+    confirmation; callers must defer initialization and restart after selection.
 
     If the configured backend is unavailable because its dependencies are not
     installed, a localized error with installation guidance is raised instead of
@@ -122,7 +125,7 @@ def build_long_term_backend(
         mem0_cls = cast("type[Mem0Backend]", cls)
         return mem0_cls(
             db_path=config.memory.db_path,
-            llm=build_memory_llm_config(
+            llm=None if defer_llm else build_memory_llm_config(
                 config,
                 active_provider=active_provider,
                 active_model=active_model,

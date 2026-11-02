@@ -49,6 +49,7 @@ Runtime model, memory mechanisms, storage locations, and trust boundaries.
 - [Virtual-Life Philosophy and Life Architecture](architecture/lifeform-philosophy.en.md)
 - [Core concepts and capabilities](architecture/concepts.en.md)
 - [Runtime Architecture and Message Flow](architecture/runtime-flow.en.md)
+- [Preferred Models, Temporary Fallbacks, and Recovery](architecture/model-routing.en.md)
 - [Data and trust boundaries](architecture/data-boundaries.en.md)
 
 ### [Channels and clients](channels/README.en.md)

@@ -44,8 +44,8 @@ WebSocket 和 SSE 连接才启用通信 Bearer 校验；未显式设置时这些
 | `POST /messages` | 把消息和可选附件加入 Agent 入站队列 |
 | `GET /status` | 返回运行、模型和用量快照 |
 | `GET /profile` | 返回身份、自述和最早日志时间 |
-| `POST /switch_model` | 切换主线 Provider/模型 |
-| `GET/PATCH /model_config` | 读取或修改 summary、fallback、vision 配置 |
+| `POST /switch_model` | 保存并切换主线首选 Provider/模型 |
+| `GET/PATCH /model_config` | 查看首选、执行和健康状态；修改 thinking、routing、summary、fallback、vision 配置 |
 | `GET/POST /backfill_tree` | 查询或启动历史记忆树回溯 |
 | `GET /backups` | 列出应急短期上下文备份 |
 | `POST /backups/restore` | 以 `full` 或 `summarize` 模式恢复应急备份 |
@@ -105,9 +105,16 @@ curl -X POST http://127.0.0.1:8000/switch_model \
   -d '{"provider":"deepseek","model_id":"deepseek-chat"}'
 ```
 
-`/switch_model` 立即写入新的主线 Provider/模型，并中断正在执行的主线调用：被打断的回合会用新模型重试，
+`/switch_model` 先保存新的主线首选 Provider/模型，成功后应用切换并中断正在执行的主线调用：被打断的回合会用新模型重试，
 跟随主线的摘要调用也会改在新模型上重试；独立配置的摘要与视觉调用不受影响。因此旧 Provider 卡住的请求
 不会继续拖住 Agent。重复提交同一个目标也算一次显式切换，可作为解卡手段。
+
+保存失败返回 `400` 并保留原首选和在途调用。临时降级不会调用此切换接口或修改首选。
+`GET /model_config` 保留 `active` 作为首选视图，另有 `preferred`、`preference`、
+`last_used`、`routing` 和 `health`；实际执行目标从响应或 `last_used` 读取。
+`PATCH /model_config` 的 `routing` 接受部分字段，如 `{"routing":{"cooldown_seconds":120}}`，
+未提交字段保持原值。主线首选通过显式切换修改，不能由 fallback 列表或执行快照推导。
+旧配置确认和兼容性见[模型路由](../architecture/model-routing.md)。
 
 管理员配置了通信令牌时，未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、
 `setup_mode`、`communication_token_configured` 和 `authenticated`；不包含 Provider、模型

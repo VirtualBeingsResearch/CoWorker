@@ -16,6 +16,7 @@ from coworker.brain.thinking import resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
+from coworker.core.llm_errors import capture_response_usage, check_response_finish, response_failure
 from coworker.core.types import LLMResponse, Message, ToolCall
 from coworker.i18n import tr
 
@@ -161,6 +162,7 @@ class OpenAIProvider(BaseLLMProvider):
     def __init__(self, api_key: str, base_url: str | None = None, name: str | None = None) -> None:
         super().__init__(name)
         self._client = openai.AsyncOpenAI(
+            max_retries=0,
             api_key=api_key,
             base_url=base_url,
             http_client=openai.DefaultAsyncHttpxClient(verify=shared_ssl_context()),
@@ -355,6 +357,13 @@ class OpenAIProvider(BaseLLMProvider):
         except openai.APIError as e:
             raise ProviderError(str(e)) from e
 
+        with capture_response_usage(response):
+            check_response_finish(getattr(response, "stop_reason", None))
+            check_response_finish(getattr(getattr(response, "incomplete_details", None), "reason", None))
+            if getattr(response, "status", None) == "failed":
+                raise response_failure(getattr(response, "error", None), self.provider_type)
+            if any(getattr(item, "type", None) == "message" and any(getattr(part, "type", None) == "refusal" for part in getattr(item, "content", [])) for item in getattr(response, "output", None) or []):
+                check_response_finish("refusal")
         tool_calls = self._parse_responses_tool_calls(response)
         usage = self._extract_usage(response)
         reasoning_content = self._extract_reasoning_content(response)

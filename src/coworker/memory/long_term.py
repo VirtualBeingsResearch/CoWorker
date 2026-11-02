@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from coworker.brain.factory import api_dialect, resolve_base_url
 from coworker.core.config import Config, ProviderSpec
@@ -15,12 +16,16 @@ from coworker.memory.base import (
     UsageListener,
 )
 
+if TYPE_CHECKING:
+    from coworker.brain.brain import Brain
+
 __all__ = [
     "LongTermLLMConfig",
     "LongTermMemory",
     "MemoryRecord",
     "MemoryWriteResult",
     "build_memory_llm_config",
+    "resolve_memory_provider_name",
 ]
 
 
@@ -53,18 +58,24 @@ class LongTermLLMConfig:
         return self.api_dialect, config
 
 
-def _resolve_memory_provider(llm_config: Any, provider: str) -> ProviderSpec | None:
-    providers = llm_config.resolved_providers()
-    by_name = {spec.name: spec for spec in providers}
-    if provider in by_name:
-        return by_name[provider]
-
-    default_provider = by_name.get(llm_config.default_provider)
-    if default_provider is not None and default_provider.type == provider:
+def resolve_memory_provider_name(
+    provider: str, provider_types: Mapping[str, str], default_provider: str
+) -> str | None:
+    """Use one name/type-alias contract for configuration and live routing."""
+    if provider in provider_types:
+        return provider
+    if provider_types.get(default_provider) == provider:
         return default_provider
-
-    matches = [spec for spec in providers if spec.type == provider]
+    matches = [name for name, kind in provider_types.items() if kind == provider]
     return matches[0] if len(matches) == 1 else None
+
+
+def _resolve_memory_provider(llm_config: Any, provider: str) -> ProviderSpec | None:
+    by_name = {spec.name: spec for spec in llm_config.resolved_providers()}
+    name = resolve_memory_provider_name(
+        provider, {name: spec.type for name, spec in by_name.items()}, llm_config.default_provider
+    )
+    return by_name.get(name) if name is not None else None
 
 
 def build_memory_llm_config(
@@ -135,6 +146,11 @@ class LongTermMemory:
 
     async def reconfigure(self, llm: MemoryBackendConfig) -> None:
         await self._backend.reconfigure(llm)
+
+    def bind_model_routing(self, brain: Brain, config: Config) -> None:
+        bind = getattr(self._backend, "bind_model_routing", None)
+        if callable(bind):
+            bind(brain, config)
 
     def add_usage_listener(self, fn: UsageListener) -> None:
         self._backend.add_usage_listener(fn)

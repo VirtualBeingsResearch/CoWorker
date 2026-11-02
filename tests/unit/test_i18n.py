@@ -11,6 +11,7 @@ import pytest
 from coworker.agent.bubble import Bubble, BubbleStore
 from coworker.agent.incoming_content import format_event_text
 from coworker.agent.subconscious_mode import SubconsciousModeLoader
+from coworker.brain.brain import Brain
 from coworker.channels.wecom import adapter as wecom_adapter
 from coworker.core.config import I18NConfig
 from coworker.core.types import IncomingEvent
@@ -362,6 +363,17 @@ def test_switch_model_parameter_descriptions_are_fully_localized() -> None:
     assert "Named LLM provider instance" in english["provider"]["description"]
     assert "omit it to use" in english["model_id"]["description"]
     assert english["provider"]["enum"] == ["primary"]
+
+
+@pytest.mark.parametrize(
+    "locale,expected",
+    [("en", "interrupts this Brain's in-flight calls"), ("zh-CN", "中断当前 Brain 的在途调用")],
+)
+def test_switch_model_description_explains_persistence_and_interruption(locale, expected) -> None:
+    with locale_context(locale):
+        description = SwitchModelTool(Brain("mock", "mock-model")).definition.description
+    assert expected in description
+    assert ("persists" if locale == "en" else "持久化") in description
 
 
 def test_browser_schema_default_follows_runtime_locale() -> None:

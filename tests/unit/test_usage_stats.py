@@ -16,6 +16,83 @@ def _collector() -> UsageStatsCollector:
     return UsageStatsCollector(now_fn=lambda: datetime(2026, 6, 29, 12, 0, 0))
 
 
+@pytest.mark.parametrize("scope", ["main", "bubble", "subconscious", "summary", "vision", "long_term"])
+def test_failed_route_usage_is_counted_once_in_its_actual_scope(scope):
+    collector = _collector()
+    failure = {
+        "seq": 0, "type": "model_route", "outcome": "failed", "role": "summary",
+        "usage_scope": scope, "routing_id": "demo-route", "attempt": 1,
+        "provider": "demo-primary", "model": "model-alias", "usage_model": "actual-model",
+        "usage": {"input_tokens": 17, "output_tokens": 3, "cached_tokens": 9},
+        "usage_source": "provider",
+    }
+    collector.on_entry(failure)
+    collector.on_entry(failure)  # A replayed log sequence is not a second call.
+    collector.on_entry({
+        "seq": 1, "type": "model_route", "outcome": "success", "role": scope,
+        "provider": "demo-backup", "model": "backup-model",
+    })
+    # Only the existing success-response event accounts for the successful call.
+    collector.on_entry({
+        "seq": 2, "type": "llm_response", "provider": "demo-backup", "model": "backup-model",
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    })
+    stats = collector.snapshot()["today"]
+    assert stats["llm_calls"] == stats["exact_calls"] == 2
+    assert stats["total_tokens"] == 32
+    assert stats["cached_tokens"] == 9
+    assert stats["by_scope"][scope]["by_provider_model"]["demo-primary/actual-model"]["total_tokens"] == 20
+    assert stats["by_provider_model"]["demo-backup/backup-model"]["llm_calls"] == 1
+
+
+def test_failed_route_without_usage_is_untracked_not_measured_zero():
+    collector = _collector()
+    collector.on_entry({
+        "type": "model_route", "outcome": "failed", "role": "long_term",
+        "provider": "demo-primary", "model": "demo-model", "usage_source": "unavailable",
+    })
+    stats = collector.snapshot()["today"]
+    assert stats["llm_calls"] == stats["untracked_calls"] == 1
+    assert stats["tracked_calls"] == stats["exact_calls"] == 0
+    assert stats["by_scope"]["long_term"]["untracked_calls"] == 1
+    assert stats["tracking_coverage"] == 0
+
+
+def test_legacy_route_diagnostics_do_not_change_historical_usage_totals():
+    collector = _collector()
+    collector.on_entry({"type": "model_route", "outcome": "failed", "role": "main"})
+    assert collector.snapshot()["lifetime"]["llm_calls"] == 0
+
+
+def test_failed_route_usage_survives_incremental_reload_without_double_counting(tmp_path):
+    entries = [
+        {
+            "seq": 0, "ts": "2026-06-29T08:00:00", "type": "model_route", "outcome": "failed",
+            "role": "long_term", "usage_scope": "long_term", "usage_source": "provider",
+            "provider": "demo-primary", "model": "demo-model",
+            "usage": {"input_tokens": 17, "output_tokens": 3},
+        },
+        {
+            "seq": 1, "ts": "2026-06-29T08:00:01", "type": "model_route", "outcome": "success",
+            "role": "long_term", "provider": "demo-backup", "model": "backup-model",
+        },
+        {
+            "seq": 2, "ts": "2026-06-29T08:00:01", "type": "long_term_llm_response",
+            "provider": "demo-backup", "model": "backup-model", "usage_source": "provider",
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        },
+    ]
+    log = tmp_path / "interactions.jsonl"
+    state = tmp_path / "usage_stats.json"
+    _write_jsonl(log, entries)
+    first = UsageStatsCollector(LogStore(tmp_path), state_path=state)
+    reloaded = UsageStatsCollector(LogStore(tmp_path), state_path=state)
+    assert first.snapshot()["lifetime"]["total_tokens"] == 27
+    assert reloaded.snapshot()["lifetime"]["total_tokens"] == 27
+    assert reloaded.snapshot()["lifetime"]["llm_calls"] == 2
+    assert reloaded.snapshot()["lifetime"]["by_scope"]["long_term"]["llm_calls"] == 2
+
+
 def _write_jsonl(path, entries: list[dict]) -> None:
     path.write_text(
         "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + "\n",

@@ -314,7 +314,7 @@ class BubbleMiniLoop:
                     stop_reason=response.stop_reason,
                     model=response.model,
                     usage=response.usage,
-                    provider=self._brain.current_provider_name,
+                    provider=response.provider or self._brain.current_provider_name,
                     thinking=bool(self._brain.thinking),
                     thinking_effort=self._brain.thinking_effort or None,
                     duration_ms=duration_ms,
@@ -338,7 +338,7 @@ class BubbleMiniLoop:
                     ],
                     stop_reason=response.stop_reason,
                     source=(
-                        f"{self._brain.current_provider_name}/"
+                        f"{response.provider or self._brain.current_provider_name}/"
                         f"{response.model or self._brain.current_model}"
                     ),
                     usage=response.usage,

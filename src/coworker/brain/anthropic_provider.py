@@ -11,6 +11,7 @@ from coworker.brain.thinking import resolve_effort
 from coworker.brain.tls import shared_ssl_context
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ProviderError
+from coworker.core.llm_errors import capture_response_usage, check_response_finish
 from coworker.core.types import LLMResponse, Message, ToolCall
 
 _TOOL_USE_MODELS = {
@@ -69,6 +70,7 @@ class AnthropicProvider(BaseLLMProvider):
         super().__init__(name)
         kwargs: dict = {
             "api_key": api_key,
+            "max_retries": 0,
             "http_client": anthropic.DefaultAsyncHttpxClient(
                 verify=shared_ssl_context(),
             ),
@@ -170,6 +172,8 @@ class AnthropicProvider(BaseLLMProvider):
         except anthropic.APIError as e:
             raise ProviderError(str(e)) from e
 
+        with capture_response_usage(response):
+            check_response_finish(response.stop_reason)
         tool_calls: list[ToolCall] = []
         text_parts: list[str] = []
 

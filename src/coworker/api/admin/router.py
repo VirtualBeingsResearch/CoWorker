@@ -53,6 +53,7 @@ from coworker.core.config import (
     load_admin_overrides,
     write_admin_overrides,
 )
+from coworker.core.model_routing import ModelRoutingConfig
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
 )
@@ -214,6 +215,7 @@ class Mem0ModelPatch(BaseModel):
 
 class ModelPatch(BaseModel):
     thinking_effort: str | None = None
+    routing: ModelRoutingConfig | None = None
     summary: SummaryModelPatch | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelPatch | None = None
@@ -1896,6 +1898,8 @@ async def patch_model(
     try:
         snapshot = await brain.update_model_config(
             thinking_effort=payload.thinking_effort,
+            routing=payload.routing.model_dump(exclude_unset=True) if payload.routing is not None else None,
+            persistence_path=Path(config.llm.runtime_config_file),
             summary_provider=payload.summary.provider if payload.summary else None,
             summary_model=payload.summary.model if payload.summary else None,
             summary_thinking=payload.summary.thinking if payload.summary else None,
@@ -1905,12 +1909,6 @@ async def patch_model(
             vision_model=payload.vision.model if payload.vision else None,
             vision_thinking=payload.vision.thinking if payload.vision else None,
             vision_thinking_effort=payload.vision.thinking_effort if payload.vision else None,
-        )
-        from coworker.core.model_config import RuntimeModelConfig, write_runtime_model_config
-
-        write_runtime_model_config(
-            Path(config.llm.runtime_config_file),
-            RuntimeModelConfig.from_brain_snapshot(snapshot),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1992,12 +1990,14 @@ async def switch_model(
 ) -> ApiResponse:
     brain = _require_brain()
     previous = (brain.current_provider_name, brain.current_model)
+    was_pending = getattr(brain, "preference_pending", False) is True
     try:
-        await brain.switch_model(payload.provider, payload.model_id)
+        await brain.switch_model(payload.provider, payload.model_id, persistence_path=Path(_require_config().llm.runtime_config_file))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     _audit(request, "model.switch", f"{brain.current_provider_name}/{brain.current_model}")
     snapshot = brain.model_config_snapshot()
+    snapshot["restart_required"] = was_pending
     snapshot["active_changed"] = previous != (
         brain.current_provider_name,
         brain.current_model,

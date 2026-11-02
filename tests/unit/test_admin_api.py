@@ -1868,6 +1868,23 @@ def test_model_orchestration_reads_and_updates_mem0(tmp_path):
     assert config.memory.mem0_llm_provider == "qwen"
 
 
+def test_model_routing_partial_patch_only_forwards_explicit_limits(tmp_path):
+    client, _ = _client(tmp_path)
+    response = client.patch(
+        "/api/admin/model",
+        headers={"Authorization": "Bearer secret"},
+        json={"routing": {"cooldown_seconds": 120}},
+    )
+    assert response.status_code == 200
+    assert admin._brain.update_model_config.await_args.kwargs["routing"] == {"cooldown_seconds": 120}
+    rejected = client.patch(
+        "/api/admin/model",
+        headers={"Authorization": "Bearer secret"},
+        json={"routing": {"max_attempts": 0}},
+    )
+    assert rejected.status_code == 422
+
+
 def test_model_switch_response_preserves_mem0_view(tmp_path):
     client, _ = _client(tmp_path)
     headers = {"Authorization": "Bearer secret"}
@@ -1894,7 +1911,7 @@ def test_admin_model_switch_leaves_runtime_notice_pending_for_agent_loop(tmp_pat
     admin._agent.state.current_model = "gpt-5.2"
     original_snapshot = admin._brain.model_config_snapshot()
 
-    async def switch(provider: str, model: str) -> None:
+    async def switch(provider: str, model: str, *, persistence_path: Path) -> None:
         admin._brain.current_provider_name = provider
         admin._brain.current_model = model
 
