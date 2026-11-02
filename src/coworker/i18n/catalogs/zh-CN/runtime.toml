@@ -50,6 +50,8 @@ objective_hint = '''
 model_switch_failed = "主模型切换监听失败（{{provider}}/{{model}}）：{{error}}"
 
 [brain.routing]
+stale_startup_intent = "忽略已过期的初始化选择；已保存的主线首选已经变化。"
+cooldown_order_invalid = "最大冷却不得小于初始冷却。"
 preference_pending = "旧配置缺少可确认的主线首选；模型调用已暂停，请在模型编排中确认主线模型。"
 preference_inconsistent = "运行配置中的首选模型与确认状态不一致；请修复配置，避免错误恢复模型。"
 memory_deferred = "长期记忆初始化暂缓，等待确认主线首选。"

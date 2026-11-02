@@ -8,6 +8,8 @@
  */
 
 export const ENGLISH_PHRASES: Record<string, string> = {
+  '最大冷却（秒）': 'Maximum cooldown (seconds)',
+  '最大冷却不得小于初始冷却。': 'Maximum cooldown must be greater than or equal to initial cooldown.',
   '请确认主线首选模型': 'Confirm the preferred main model',
   '尚未确认': 'Not confirmed',
   '旧配置缺少可确认的首选，模型调用已暂停。请选择 Provider 和模型并点击切换模型；保存后服务将自动重启。': 'The legacy configuration has no confirmed preference, so model calls are paused. Select a Provider and model, then click Switch model. The service restarts automatically after saving.',

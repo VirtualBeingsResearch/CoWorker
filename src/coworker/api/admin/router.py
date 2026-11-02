@@ -53,7 +53,8 @@ from coworker.core.config import (
     load_admin_overrides,
     write_admin_overrides,
 )
-from coworker.core.model_routing import ModelRoutingConfig
+from coworker.core.model_config import load_runtime_model_config, runtime_preference_revision
+from coworker.core.model_routing import ModelRoutingPatch
 from coworker.core.startup_intent import (
     write_bootstrap_startup_intent,
 )
@@ -215,7 +216,7 @@ class Mem0ModelPatch(BaseModel):
 
 class ModelPatch(BaseModel):
     thinking_effort: str | None = None
-    routing: ModelRoutingConfig | None = None
+    routing: ModelRoutingPatch | None = None
     summary: SummaryModelPatch | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelPatch | None = None
@@ -1127,8 +1128,10 @@ async def bootstrap_status(_: None = Depends(require_admin)) -> ApiResponse:
     providers: list[dict[str, object]] = []
     for provider_type in available_types():
         providers.append({"type": provider_type, "models": available_models(provider_type)})
+    preference_pending = getattr(brain, "preference_pending", False) is True
     return {
-        "required": brain.active_provider is None,
+        "required": brain.active_provider is None and not preference_pending,
+        "preference_pending": preference_pending,
         "active_provider": brain.current_provider_name,
         "active_model": brain.current_model,
         "server_timezone": _server_timezone(),
@@ -1152,6 +1155,8 @@ async def complete_bootstrap(
     async with config_service.lock:
         config = _require_config()
         brain = _require_brain()
+        if getattr(brain, "preference_pending", False) is True:
+            raise HTTPException(status_code=409, detail=tr("api.admin.preference_confirmation_required"))
         if brain.active_provider is not None or config_service.pending_restart:
             raise HTTPException(status_code=409, detail=tr("api.admin.already_initialized"))
 
@@ -1283,6 +1288,9 @@ async def complete_bootstrap(
                 provider=provider_type,
                 model=model,
                 reconnect_proof=payload.reconnect_proof,
+                preference_revision=runtime_preference_revision(
+                    load_runtime_model_config(desired.llm.runtime_config_file), desired.llm
+                ),
             )
             config_service.write_sparse_overrides(path, next_overrides)
             config_service.mark_restart_pending("bootstrap")

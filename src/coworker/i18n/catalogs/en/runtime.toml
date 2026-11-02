@@ -50,6 +50,8 @@ Context hint: {{hint}}'''
 model_switch_failed = "Active-model listener failed for {{provider}}/{{model}}: {{error}}"
 
 [brain.routing]
+stale_startup_intent = "Ignoring an obsolete initialization choice; the saved main preference has changed."
+cooldown_order_invalid = "Maximum cooldown must be greater than or equal to initial cooldown."
 preference_pending = "The legacy configuration has no confirmed main preference; model calls are paused. Confirm the main model in Model Orchestration."
 preference_inconsistent = "The saved preference conflicts with its confirmation state; repair the configuration to avoid restoring the wrong model."
 memory_deferred = "Long-term memory initialization is deferred until the main preference is confirmed."

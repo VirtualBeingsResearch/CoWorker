@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from datetime import UTC, datetime
@@ -30,7 +31,7 @@ class RuntimePreferenceState(BaseModel):
     source: Literal["explicit", "startup", "legacy_config", "unresolved"] = "startup"
     selected_at: str = ""
     candidate: RuntimePreferredModel | None = None
-    candidate_source: Literal["snapshot", "admin_audit"] | None = None
+    candidate_source: Literal["snapshot", "admin_audit", "saved_preference"] | None = None
 
     @classmethod
     def explicit(cls) -> RuntimePreferenceState:
@@ -181,6 +182,22 @@ def apply_runtime_model_config_file(llm: LLMConfig) -> RuntimeModelConfig | None
     if runtime is not None:
         runtime.apply_to_llm_config(llm)
     return runtime
+
+
+def runtime_preference_revision(config: RuntimeModelConfig | None, llm: LLMConfig) -> str:
+    """Identify selection intent without tying bootstrap to unrelated policy edits."""
+    from coworker.core.model_migrations import migrate_provider_model_reference
+
+    selection = None
+    if config is not None and config.preferred is not None:
+        preferred = config.preferred
+        selection = {
+            "provider": preferred.provider,
+            "model": migrate_provider_model_reference(llm, preferred.provider, preferred.model),
+            "source": config.preference.source,
+            "selected_at": config.preference.selected_at,
+        }
+    return hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
 
 
 def write_runtime_model_config(path: str | Path, config: RuntimeModelConfig) -> None:

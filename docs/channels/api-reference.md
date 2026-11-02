@@ -114,6 +114,8 @@ curl -X POST http://127.0.0.1:8000/switch_model \
 `last_used`、`routing` 和 `health`；实际执行目标从响应或 `last_used` 读取。
 `PATCH /model_config` 的 `routing` 接受部分字段，如 `{"routing":{"cooldown_seconds":120}}`，
 未提交字段保持原值。主线首选通过显式切换修改，不能由 fallback 列表或执行快照推导。
+冷却策略要求 `max_cooldown_seconds >= cooldown_seconds`。部分更新与当前策略合并后
+发现无效组合时返回 `400`；请求同时提交无效组合或字段自身不合法时返回 `422`，均不保存配置。
 旧配置确认和兼容性见[模型路由](../architecture/model-routing.md)。
 
 管理员配置了通信令牌时，未认证的 `/status` 返回 `status`、`is_running`、`is_sleeping`、
@@ -161,5 +163,11 @@ FastAPI 错误通常为：
 `/api/admin/*` 和 `/api/desktop-updates/*` 会修改配置、恢复状态或发布制品，并按同版本官方
 管理端的契约设计。常规操作的入口是 Web 界面；相关背景见
 [Web 管理后台](../guides/README.md) 和[数据与信任边界](../architecture/data-boundaries.md)。
+
+旧配置首选待确认时，`GET /api/admin/bootstrap` 返回 `required=false` 和
+`preference_pending=true`；后台默认进入模型编排，保留运行设置入口。
+此时 `POST /api/admin/bootstrap` 返回 `409`，不能用首次设置覆盖已有数据。
+通过 `POST /api/admin/model/switch` 确认有效首选后，响应带 `restart_required=true`。
+`PATCH /api/admin/model` 的部分 `routing` 更新遵循与 `/model_config` 相同的合并校验。
 
 [← 返回项目首页](../../README.md)

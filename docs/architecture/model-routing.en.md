@@ -34,21 +34,42 @@ Once saved, the preference survives later upgrades and restarts. A short-term sn
 `active_provider`/`active_model` represents historical execution only. Editing startup defaults in
 Runtime Settings does not replace a saved preference; use Model Orchestration → Switch model.
 
+`get_context` reports preference and the caller's last actual execution separately. Main,
+Bubble, and subconscious tools read their own Brain's record. Before a completed call it shows
+“No completed model call” rather than claiming that the preference executed. Temporary fallback
+reports the backup, and successful recovery updates the execution record to the preference.
+
 ## Legacy configuration and first startup
 
-1. Saved `preferred`: restore that choice. A saved preference without provenance becomes
-   `legacy_config`; execution snapshots never choose a replacement.
-2. An explicit first-run wizard choice requesting a clean start: persist that choice without
-   using the old execution snapshot as preference.
+1. A valid first-run wizard record explicitly requests a model and a clean start: save that
+   selection first, without letting an older `preferred` or execution snapshot override it.
+   `preference_revision` links the record to the prior preference; `selected_at` identifies this
+   selection. Startup interrupted after saving may safely resume. A later explicit selection,
+   including reselection of the same model, invalidates the old record. Policy edits and known
+   model-ID migrations do not. A legacy wizard record without the link is accepted only when
+   no saved preference exists.
+2. Saved `preferred`: restore that choice. A saved preference without provenance becomes
+   `legacy_config`. A removed connection or a model without declared tool support enters pending
+   confirmation, retaining the old choice as a `candidate_source=saved_preference` hint rather
+   than substituting a legacy startup default.
 3. A genuinely fresh installation with no runtime file, snapshot, audit, or instance state:
    persist a valid startup default. With no available connection, keep the first-run setup flow.
 4. An existing installation with no confirmed preference: save `status=pending`,
    `source=unresolved`, and a null `preferred`. Snapshot and successful admin-switch audit records
    supply hints only, including when a candidate connection has been removed.
 
-While confirmation is pending, administration remains accessible. Main, Bubble, summary, vision,
-and long-term model calls are rejected before the SDK; business channels and model-backed
+While confirmation is pending, administration remains accessible. The default `/admin` entry
+opens Model Orchestration; explicit Runtime Settings links still allow connection repair.
+`GET /api/admin/bootstrap` returns `required=false` and `preference_pending=true`, so the console
+does not enter the first-run wizard. `POST /api/admin/bootstrap` returns `409` in this state,
+preventing recovery from being treated as a clean initialization. Existing snapshots and identity
+remain intact.
+
+Main, Bubble, summary, vision, and long-term model calls are rejected before the SDK; business channels and model-backed
 services are deferred. Editing fallbacks, thinking effort, or routing policy does not unlock them.
+Stale fallback, summary, or vision references left by removed connections can be repaired in the
+console. Confirmation validates these references first: invalid ones return an error and keep
+confirmation pending instead of saving a choice that cannot load on the next restart.
 An explicit valid main selection saves the preference before requesting one controlled restart
 to initialize these services. Subsequent ordinary switches do not need a restart. Corrupt runtime
 files or inconsistent confirmation state produce an explicit error and preserve the original
@@ -111,6 +132,13 @@ accept partial `routing` updates; omitted fields keep their values. A saved runt
 over environment configuration. The admin Automatic recovery policy panel hot-updates common
 limits and shows cooldown/block details.
 
+`max_cooldown_seconds` must be greater than or equal to `cooldown_seconds`. Web exposes both
+initial and maximum cooldowns and prevents saving invalid combinations. Partial API patches merge
+with the current policy before validation; failure preserves in-memory and saved configuration.
+A 1200-second initial cooldown is therefore not silently capped at a hidden 900-second maximum:
+set the maximum to at least 1200 seconds as well. This bound applies to exponential transient
+cooldown; it does not shorten quota/rate-limit cooldowns or explicit server wait times.
+
 | Field | Default |
 |---|---:|
 | `attempts_per_target` | 2, including the first attempt |
@@ -154,8 +182,11 @@ fields; rolling back code requires restoring a compatible configuration backup. 
 cannot represent the new preference or policy. A previously incorrect saved `preferred` cannot
 be reliably inferred from execution history; an administrator must reselect it.
 
-Regression coverage includes startup precedence, legacy confirmation, failed writes, restart
-recovery, error classification, concurrent cooldown, real-request recovery, Bubble/subconscious/
-mem0 routing, usage attribution, switch/pause races, and background compression. Tests use fake
+Regression coverage includes startup precedence, legacy confirmation, unavailable-connection
+repair, repeated and stale wizard recovery, failed writes, restart recovery, error classification,
+concurrent cooldown, merged-policy validation, actual-model reporting, real-request recovery,
+Bubble/subconscious/mem0 routing, usage attribution, switch/pause races, and background compression.
+Browser tests cover pending confirmation, policy repair, and explicit selection in both console
+languages. Tests use fake
 Provider/SDK responses rather than real billable models. See the
 [Development Guide](../development/development.en.md) for validation entry points.

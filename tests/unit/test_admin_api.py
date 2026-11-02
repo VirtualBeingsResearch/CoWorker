@@ -23,6 +23,7 @@ from coworker.core.config import (
     ensure_admin_token,
     normalize_admin_overrides_file,
 )
+from coworker.core.model_config import runtime_preference_revision
 from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
@@ -2588,7 +2589,10 @@ def test_bootstrap_persists_first_provider_and_runtime_defaults(tmp_path, monkey
         "provider": "openai",
         "model": "gpt-5.2",
         "reconnect_proof": "ab" * 32,
+        "preference_revision": runtime_preference_revision(None, config.llm),
+        "selected_at": intent["selected_at"],
     }
+    assert datetime.fromisoformat(intent["selected_at"]).utcoffset() is not None
     assert "sk-first-run" not in json.dumps(intent)
     assert config.admin.token == "secret"
 

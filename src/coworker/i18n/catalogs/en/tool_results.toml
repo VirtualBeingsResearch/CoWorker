@@ -63,8 +63,11 @@ sleep_no_channel = "Passive waiting ended immediately because no external channe
 slept = "Slept for {{seconds}} seconds; resuming. Current time: {{time}}."
 context = '''Current time: {{time}}
 Runtime cycles: {{cycles}}
-Current model: {{model}}
+Preferred model: {{preferred_model}}
+Last execution: {{last_model}}
 Short-term memory: {{messages}} messages'''
+preference_unconfirmed = "Not confirmed"
+no_model_execution = "No completed model call"
 restart_check_timeout = "Code-environment validation timed out; restart cancelled."
 restart_check_failed = '''Code-environment validation failed; restart cancelled.
 {{error}}'''

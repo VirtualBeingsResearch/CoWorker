@@ -342,8 +342,9 @@ async def test_missing_config_and_snapshot_do_not_hide_an_existing_installation(
     assert load_runtime_model_config(installation / "runtime.json").preferred is None
 
 
-async def test_bootstrap_explicit_choice_wins_over_old_state(installation: Path) -> None:
+async def test_bootstrap_explicit_choice_wins_over_old_state(installation: Path, monkeypatch) -> None:
     await _start()
+    monkeypatch.setenv("LLM__DEEPSEEK_API_KEY", "demo-key-not-valid")
     write_bootstrap_startup_intent(
         installation / "memory", provider="deepseek", model="deepseek-v4-pro"
     )
@@ -621,6 +622,16 @@ async def test_real_startup_keeps_admin_available_and_restarts_after_confirmatio
                 response = await client.get("/api/admin/model", headers=headers)
                 assert response.status_code == 200
                 assert response.json()["preference"]["status"] == "pending"
+                bootstrap = await client.get("/api/admin/bootstrap", headers=headers)
+                assert bootstrap.status_code == 200
+                assert bootstrap.json()["required"] is False
+                assert bootstrap.json()["preference_pending"] is True
+                rejected = await client.post(
+                    "/api/admin/bootstrap", headers=headers,
+                    json={"provider_type": "deepseek", "model": "deepseek-v4-pro", "api_key": "demo-key-not-valid"},
+                )
+                assert rejected.status_code == 409
+                assert not (installation / "memory" / "startup_intent.json").exists()
                 assert not admin._agent.state.is_running
                 assert all(p.calls == 0 for p in providers)
                 selected = await client.post(
@@ -638,6 +649,7 @@ async def test_real_startup_keeps_admin_available_and_restarts_after_confirmatio
     assert await asyncio.wait_for(application._main(), timeout=15) is True
     saved = load_runtime_model_config(installation / "runtime.json")
     assert saved.preferred.provider == "zhipu" and saved.preference.source == "explicit"
+    assert (installation / "memory" / "short_term_snapshot.json").exists()
     assert all(p.calls == 0 for p in providers)
 
 

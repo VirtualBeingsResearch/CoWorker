@@ -970,9 +970,10 @@ function Models() {
     }
   };
   const modelsDirty = Boolean(data && draft && JSON.stringify({ thinking_effort: draft.thinking_effort, routing: draft.routing, summary: draft.summary, vision: draft.vision, fallbacks: draft.fallbacks, mem0: draft.mem0 }) !== JSON.stringify({ thinking_effort: data.thinking_effort, routing: data.routing, summary: data.summary, vision: data.vision, fallbacks: data.fallbacks, mem0: data.mem0 }));
+  const routingError = draft?.routing && draft.routing.max_cooldown_seconds < draft.routing.cooldown_seconds ? t('最大冷却不得小于初始冷却。') : '';
   useNavigationGuard('models', modelsDirty);
   const save = async () => {
-    if (!draft) return;
+    if (!draft || routingError) return;
     setSwitchError('');
     setActionMessage('');
     setSaving(true);
@@ -1025,13 +1026,15 @@ function Models() {
           ['failure_threshold', '熔断所需失败请求数', 1],
           ['failure_window_seconds', '失败统计窗口（秒）', 1],
           ['cooldown_seconds', '初始冷却（秒）', 1],
+          ['max_cooldown_seconds', '最大冷却（秒）', 1],
           ['recovery_successes', '恢复成功次数', 1],
           ['attempts_per_target', '单模型最大尝试次数', 1],
           ['max_attempts', '单请求最大尝试次数', 1],
           ['attempt_timeout_seconds', '单次尝试超时（秒）', 1],
           ['request_timeout_seconds', '请求总超时（秒）', 1],
-        ] as const).map(([key, label, min]) => <Field key={key} label={label} hot><input type="number" min={min} value={draft.routing[key]} onChange={event => set(`routing.${key}`, Number(event.target.value))} /></Field>)}
+        ] as const).map(([key, label, min]) => <Field key={key} label={label} hot><input aria-label={t(label)} type="number" min={key === 'max_cooldown_seconds' ? Math.max(min, draft.routing.cooldown_seconds) : min} max={key === 'cooldown_seconds' ? draft.routing.max_cooldown_seconds : undefined} value={draft.routing[key]} onChange={event => set(`routing.${key}`, Number(event.target.value))} /></Field>)}
       </div>
+      {routingError && <div className="notice error" role="alert">{routingError}</div>}
       {draft.health?.length > 0 ? <div className="table-scroll"><table><thead><tr><th>Provider / {t('模型')}</th><th>{t('状态')}</th><th>{t('错误类别 / 错误码')}</th><th>{t('下次允许验证')}</th></tr></thead><tbody>{draft.health.map((entry: Json, index: number) => <tr key={`${entry.provider}/${entry.model}/${index}`}><td>{entry.provider}/{entry.model || t('整条连接')}</td><td>{t(entry.state === 'blocked' ? '等待人工处理' : entry.probing ? '正在恢复验证' : entry.state === 'half_open' ? '恢复验证中' : '冷却中')}</td><td>{entry.error?.category} / {entry.error?.vendor_code || entry.error?.status_code || '—'}</td><td>{entry.retry_at == null ? t('更新配置或重新选择该模型') : formatDateTime(new Date(entry.retry_at * 1000).toISOString())}</td></tr>)}</tbody></table></div> : <p>{t('暂无冷却或禁用的模型连接')}</p>}
     </Panel>}
     <div className="two-col">
@@ -1047,7 +1050,7 @@ function Models() {
     </Panel>
     <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
       <LineNumberTextarea className="code-area short" aria-label={t('失败降级链')} value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
-      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
+      <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty || Boolean(routingError)} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
   </div>;
 }
@@ -4309,6 +4312,13 @@ export default function AdminApp() {
     api<Json>('/api/admin/bootstrap').then(result => {
       setServerTimezone(result.server_timezone);
       setBootstrap(result);
+      if (result.preference_pending && !new URLSearchParams(window.location.search).has('section')) {
+        const href = sectionHref('models');
+        window.history.replaceState({}, '', href);
+        sectionRef.current = 'models';
+        acceptedLocation.current = href;
+        setSection('models');
+      }
     }).catch(() => setBootstrap({ required: false }));
   }, [ready]);
   useEffect(() => {

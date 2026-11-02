@@ -15,7 +15,7 @@ from coworker.brain.thinking import normalize_thinking_effort
 from coworker.core.constants import DEFAULT_LLM_MAX_TOKENS
 from coworker.core.exceptions import ModelNotSupportedError, ProviderNotFoundError
 from coworker.core.llm_errors import ModelRoutingUnavailable
-from coworker.core.model_config import RuntimePreferenceState
+from coworker.core.model_config import RuntimePreferenceState, RuntimePreferredModel
 from coworker.core.model_routing import ModelRoutingConfig
 from coworker.core.types import LLMResponse, Message, SummaryResult
 from coworker.i18n import tr
@@ -296,13 +296,23 @@ class Brain:
     def preference_pending(self) -> bool:
         return self.router.preference_pending
 
-    def restore_preference_state(self, state: RuntimePreferenceState) -> None:
+    @property
+    def last_used(self) -> dict[str, Any] | None:
+        """Last completed execution in this Brain, separate from selection intent."""
+        return dict(self._last_used) if self._last_used is not None else None
+
+    def restore_preference_state(
+        self, state: RuntimePreferenceState, *, preferred: RuntimePreferredModel | None = None
+    ) -> None:
         self._preference_state = state.model_copy(deep=True)
         if self._routing_parent is None and self._routing_role == "main":
             self.router.preference_pending = state.status == "pending"
         if state.status == "pending":
             self._active_provider_name = ""
             self._active_model = ""
+        elif preferred is not None:
+            self._active_provider_name = preferred.provider
+            self._active_model = preferred.model
 
     def require_preference_confirmation(
         self, state: RuntimePreferenceState, *, persistence_path: Path
@@ -443,7 +453,7 @@ class Brain:
             },
             "preferred": None if self.preference_pending else {"provider": self.current_provider_name, "model": self.current_model},
             "preference": self._preference_state.model_dump(),
-            "last_used": self._last_used,
+            "last_used": self.last_used,
             "routing": self.routing_config.model_dump(),
             "health": self.router.snapshot(),
             "thinking_effort": self._thinking_effort,
@@ -502,6 +512,7 @@ class Brain:
         thinking_effort: str | None = None,
         routing: ModelRoutingConfig | dict[str, Any] | None = None,
         persistence_path: Path | None = None,
+        _defer_reference_validation: bool = False,
         summary_provider: str | None = None,
         summary_model: str | None = None,
         summary_thinking: bool | None = None,
@@ -533,7 +544,7 @@ class Brain:
             else normalize_thinking_effort(summary_thinking_effort) or ""
         )
         next_fallbacks = (
-            self._fallbacks if fallbacks is None else self._validate_fallbacks(fallbacks)
+            self._fallbacks if fallbacks is None else list(fallbacks) if _defer_reference_validation else self._validate_fallbacks(fallbacks)
         )
         next_vision_provider = (
             self._vision_provider_name if vision_provider is None else vision_provider.strip()
@@ -548,8 +559,9 @@ class Brain:
             else normalize_thinking_effort(vision_thinking_effort) or ""
         )
 
-        self._validate_summary_config(next_summary_provider, next_summary_model)
-        self._validate_vision_config(next_vision_provider, next_vision_model)
+        if not _defer_reference_validation:
+            self._validate_summary_config(next_summary_provider, next_summary_model)
+            self._validate_vision_config(next_vision_provider, next_vision_model)
 
         async with self._lock:
             snapshot = self.model_config_snapshot()
@@ -882,6 +894,7 @@ class Brain:
         self, provider_name: str, model_id: str = "", *,
         persistence_path: Path | None = None,
         preference_source: Literal["explicit", "startup"] = "explicit",
+        _selected_at: str = "",
     ) -> None:
         async with self._lock:
             if provider_name not in self._providers:
@@ -902,10 +915,16 @@ class Brain:
                     )
                 )
             old = (self._active_provider_name, self._active_model)
+            if self.preference_pending:
+                self._validate_fallbacks(self._fallbacks)
+                self._validate_summary_config(self._summary_provider_name, self._summary_model)
+                self._validate_vision_config(self._vision_provider_name, self._vision_model)
             snapshot = self.model_config_snapshot()
             snapshot["preferred"] = {"provider": provider_name, "model": model_id}
             selection = RuntimePreferenceState.explicit()
             selection.source = preference_source
+            if _selected_at:
+                selection.selected_at = _selected_at
             snapshot["preference"] = selection.model_dump()
             self._persist_config(snapshot, persistence_path)
             if self._policy_parent is not None:

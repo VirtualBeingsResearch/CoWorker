@@ -63,8 +63,11 @@ sleep_no_channel = "结束被动等待（无外部信道，立即返回）。当
 slept = "Slept for {{seconds}}s, resuming. 当前时间 {{time}}。"
 context = '''当前时间：{{time}}
 运行周期：{{cycles}}
-当前模型：{{model}}
+首选模型：{{preferred_model}}
+最近实际调用：{{last_model}}
 短期记忆：{{messages}} 条消息'''
+preference_unconfirmed = "尚未确认"
+no_model_execution = "尚无已完成的模型调用"
 restart_check_timeout = "代码环境校验超时，取消重启。"
 restart_check_failed = '''代码环境校验失败，取消重启。
 {{error}}'''

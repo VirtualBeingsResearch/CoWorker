@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from coworker.i18n import tr
 
 
 class ModelRoutingConfig(BaseModel):
@@ -20,3 +24,22 @@ class ModelRoutingConfig(BaseModel):
     rate_limit_cooldown_seconds: float = Field(default=30, gt=0, le=86400)
     quota_cooldown_seconds: float = Field(default=1800, gt=0, le=2592000)
     recovery_successes: int = Field(default=2, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def _validate_cooldown_bounds(self) -> Self:
+        self._ensure_cooldown_bounds()
+        return self
+
+    def _ensure_cooldown_bounds(self) -> None:
+        if self.max_cooldown_seconds < self.cooldown_seconds:
+            raise ValueError(tr("brain.routing.cooldown_order_invalid"))
+
+
+class ModelRoutingPatch(ModelRoutingConfig):
+    """Validate individual limits now, and merged bounds against live policy later."""
+
+    @model_validator(mode="after")
+    def _validate_cooldown_bounds(self) -> Self:
+        if {"cooldown_seconds", "max_cooldown_seconds"} <= self.model_fields_set:
+            self._ensure_cooldown_bounds()
+        return self

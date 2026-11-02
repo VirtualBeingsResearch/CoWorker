@@ -20,7 +20,7 @@ from coworker.core.communication_tokens import (
     participant_id_for_token_name,
     validate_token_name,
 )
-from coworker.core.model_routing import ModelRoutingConfig
+from coworker.core.model_routing import ModelRoutingPatch
 from coworker.core.types import IncomingEvent, SummaryResult
 from coworker.i18n import capture_locale, locale_context, tr
 from coworker.memory.short_term import ShortTermMemory
@@ -260,7 +260,7 @@ class VisionModelConfigPayload(BaseModel):
 
 class ModelConfigPatchPayload(BaseModel):
     thinking_effort: str | None = None
-    routing: ModelRoutingConfig | None = None
+    routing: ModelRoutingPatch | None = None
     summary: SummaryModelConfigPayload | None = None
     fallbacks: list[str] | None = None
     vision: VisionModelConfigPayload | None = None

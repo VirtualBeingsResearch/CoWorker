@@ -58,16 +58,22 @@ from coworker.core.config import (
 from coworker.core.diagnostics import format_task_stacks, task_snapshot
 from coworker.core.logging import intercept_standard_logging
 from coworker.core.model_config import (
+    RuntimeModelConfig,
     RuntimePreferenceState,
     RuntimePreferredModel,
     apply_runtime_model_config_file,
     load_runtime_model_config,
+    runtime_preference_revision,
 )
 from coworker.core.model_migrations import (
     migrate_model_configuration,
     migrate_provider_model_reference,
 )
-from coworker.core.startup_intent import clear_startup_intent, load_bootstrap_startup_intent
+from coworker.core.startup_intent import (
+    StartupIntent,
+    clear_startup_intent,
+    load_bootstrap_startup_intent,
+)
 from coworker.core.types import AgentState, IncomingEvent, Message
 from coworker.desktop_updates import DesktopReleaseStore, SyncService, build_runtime_spec
 from coworker.i18n import configure_locale, tr
@@ -320,7 +326,14 @@ def _load_config_layers() -> tuple[Config, Config]:
     normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
-    apply_runtime_model_config_file(config.llm)
+    startup_provider, startup_model = config.llm.default_provider, config.llm.default_model
+    runtime = apply_runtime_model_config_file(config.llm)
+    intent = _authorized_bootstrap_intent(
+        config, runtime, provider=startup_provider, model=startup_model,
+        available_providers={spec.name for spec in config.llm.resolved_providers() if spec.api_key.strip()},
+    )
+    if intent is not None:
+        config.llm.default_provider, config.llm.default_model = intent.provider, intent.model
     migrations = migrate_model_configuration(config, inherited)
     for migration in migrations:
         logger.info(
@@ -339,21 +352,65 @@ async def _validate_model_runtime_config(
     brain: Brain, config: Config, *, resolve_preference: bool = True
 ) -> None:
     """Resolve policy and legacy main selection before any model-backed work."""
-    await brain.update_model_config(
-        thinking_effort=config.llm.thinking_effort,
-        routing=config.llm.routing,
-        summary_provider=config.llm.summary_provider,
-        summary_model=config.llm.summary_model,
-        summary_thinking=config.llm.summary_thinking,
-        summary_thinking_effort=config.llm.summary_thinking_effort,
-        fallbacks=config.llm.fallbacks,
-        vision_provider=config.llm.vision_provider,
-        vision_model=config.llm.vision_model,
-        vision_thinking=config.llm.vision_thinking,
-        vision_thinking_effort=config.llm.vision_thinking_effort,
-    )
+    async def apply_policy(*, defer_references: bool = False) -> None:
+        await brain.update_model_config(
+            _defer_reference_validation=defer_references,
+            thinking_effort=config.llm.thinking_effort,
+            routing=config.llm.routing,
+            summary_provider=config.llm.summary_provider,
+            summary_model=config.llm.summary_model,
+            summary_thinking=config.llm.summary_thinking,
+            summary_thinking_effort=config.llm.summary_thinking_effort,
+            fallbacks=config.llm.fallbacks,
+            vision_provider=config.llm.vision_provider,
+            vision_model=config.llm.vision_model,
+            vision_thinking=config.llm.vision_thinking,
+            vision_thinking_effort=config.llm.vision_thinking_effort,
+        )
+
+    # Load policy before migration so pending files retain the full configuration.
+    # Stale references remain editable in admin while generation is gated.
+    await apply_policy(defer_references=resolve_preference)
     if resolve_preference:
         await _migrate_legacy_model_preference(brain, config)
+        if not brain.preference_pending:
+            await apply_policy()
+
+
+def _authorized_bootstrap_intent(
+    config: Config, runtime: RuntimeModelConfig | None, *, provider: str, model: str,
+    available_providers: set[str],
+) -> StartupIntent | None:
+    intent = load_bootstrap_startup_intent(
+        config.memory.db_path, provider=provider, model=model,
+        available_providers=available_providers,
+        model_resolver=lambda name, value: migrate_provider_model_reference(config.llm, name, value),
+    )
+    if intent is None:
+        return None
+    preferred = runtime.preferred if runtime is not None else None
+    already_applied = (
+        runtime is not None
+        and preferred is not None
+        and (
+            preferred.provider,
+            migrate_provider_model_reference(config.llm, preferred.provider, preferred.model),
+        ) == (intent.provider, intent.model)
+        and runtime.preference.source == "explicit"
+        and bool(intent.selected_at)
+        and runtime.preference.selected_at == intent.selected_at
+    )
+    if (
+        intent.preference_revision == runtime_preference_revision(runtime, config.llm)
+        or already_applied
+        or (intent.preference_revision is None and preferred is None)
+    ):
+        return intent
+    # A later explicit selection invalidates a leftover bootstrap receipt. Policy
+    # edits and model-ID aliases do not invalidate the original selection.
+    clear_startup_intent(config.memory.db_path)
+    logger.warning(tr("brain.routing.stale_startup_intent"))
+    return None
 
 
 async def _migrate_legacy_model_preference(
@@ -363,26 +420,35 @@ async def _migrate_legacy_model_preference(
     if not config.llm.runtime_config_file.strip():
         raise ValueError(tr("brain.routing.legacy_preference_storage_required"))
     runtime = load_runtime_model_config(config.llm.runtime_config_file)
+    intent = _authorized_bootstrap_intent(
+        config, runtime, provider=config.llm.default_provider, model=config.llm.default_model,
+        available_providers=set(brain.list_providers()),
+    )
+    if intent is not None:
+        await brain.switch_model(
+            intent.provider, intent.model, persistence_path=Path(config.llm.runtime_config_file),
+            _selected_at=intent.selected_at,
+        )
+        return
     if runtime is not None and runtime.preferred is not None:
+        preferred = runtime.preferred
+        provider = brain.router.providers.get(preferred.provider)
+        if provider is None or not provider.can_use_tools(preferred.model):
+            brain.require_preference_confirmation(
+                RuntimePreferenceState(
+                    status="pending", source="unresolved", candidate=preferred,
+                    candidate_source="saved_preference",
+                ),
+                persistence_path=Path(config.llm.runtime_config_file),
+            )
+            logger.warning(tr("brain.routing.preference_pending"))
+            return
         state = (
             runtime.preference if "preference" in runtime.model_fields_set
             else RuntimePreferenceState(source="legacy_config")
         )
-        brain.restore_preference_state(state)
-        return
-    # First-run setup explicitly requests a clean start with its newly chosen
-    # model. A pre-setup snapshot must not replace it or invalidate its marker.
-    if load_bootstrap_startup_intent(
-        config.memory.db_path,
-        provider=config.llm.default_provider,
-        model=config.llm.default_model,
-        available_providers=set(brain.list_providers()),
-    ) is not None:
-        await brain.switch_model(
-            config.llm.default_provider,
-            config.llm.default_model,
-            persistence_path=Path(config.llm.runtime_config_file),
-        )
+        brain.restore_preference_state(state, preferred=preferred)
+        config.llm.default_provider, config.llm.default_model = preferred.provider, preferred.model
         return
     snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"
     legacy_paths = (
@@ -760,6 +826,7 @@ async def _main() -> bool:
         provider=config.llm.default_provider,
         model=config.llm.default_model,
         available_providers=set(brain.list_providers()),
+        model_resolver=lambda name, value: migrate_provider_model_reference(config.llm, name, value),
     )
     api_app.setup_bootstrap_reconnect_proof(
         startup_intent.reconnect_proof if startup_intent is not None else ""
