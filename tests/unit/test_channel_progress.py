@@ -630,6 +630,7 @@ def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
     loop._prompt_builder = MagicMock()
     loop._prompt_builder.build.return_value = "system"
     loop._prompt_builder.consume_skill_load_warnings.return_value = []
+    loop._prompt_builder.thinking_tokens = MagicMock(return_value=0)
     loop._brain = _StubBrain([_tool_use_response()])
     loop._progress = progress
     loop._ilog = None
@@ -639,6 +640,8 @@ def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
     loop._subconscious = None
     loop._persona = None
     loop._last_compress_generation = loop._short_term.compress_generation
+    loop._context_budget = MagicMock()
+    loop._context_budget.on_cycle = AsyncMock()
     loop.state = AgentState(current_provider="stub", current_model="stub-model")
     # 与 application.py 一致：通知以入站事件投递给这个循环自己的 inbox。
     progress.set_inbound_sink(loop._inbox.push)

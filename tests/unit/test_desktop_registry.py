@@ -59,6 +59,8 @@ def test_snapshot_creates_actor_scoped_pin(tmp_path):
     assert consumed is True
     assert registry.actors["desk-a:claude"].participant_id == participant
     pin = next(item for item in memory.list_pinned() if item.pin_id == "coworker_desktop_registry")
+    # 系统维护的状态，不计入模型的 pin 额度，也不允许模型 unpin。
+    assert pin.system_managed is True
     assert "coworker-desktop` Skill" in pin.content
     assert participant in pin.content
     assert "- Alice Desktop" in pin.content

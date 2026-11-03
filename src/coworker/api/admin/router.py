@@ -2363,6 +2363,10 @@ async def get_short_term_memory(_: None = Depends(require_admin)) -> ApiResponse
         "messages": messages,
         "tree": {"nodes": [node.to_dict() for node in stm.tree.nodes]},
         "pinned_items": [item.to_dict() for item in stm.pinned_items],
+        # 最近一次上下文预算采样：脊柱 + pin + 提示词等不可压缩部分的占比。
+        "context_budget": (
+            stm.context_budget.to_dict() if stm.context_budget is not None else None
+        ),
         "backfill": dict(stm.backfill_progress),
         "active_model": {"provider": brain.current_provider_name, "model": brain.current_model},
     }

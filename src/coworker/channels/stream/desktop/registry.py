@@ -121,10 +121,13 @@ class DesktopRegistry:
         if not self._actors:
             self._short_term.unpin(_PIN_ID)
         else:
+            # 在线桌面端是系统状态，不是模型写的内容：标成系统管理，既不占模型的 pin 额度，
+            # 模型也不能手动 unpin 它（否则下一次 actor 更新才会补回来）。
             self._short_term.pin(
                 _PIN_ID,
                 tr("channel.desktop.pin_label"),
                 self.render_pinned_context(),
+                system_managed=True,
             )
 
     # --------------------------------------------------- detail store delegates

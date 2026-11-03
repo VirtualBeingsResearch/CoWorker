@@ -83,6 +83,7 @@ async def openai_compat_harness(
     prompt_builder.build = MagicMock(return_value="system")
     prompt_builder.refresh = MagicMock()
     prompt_builder.consume_skill_load_warnings = MagicMock(return_value=[])
+    prompt_builder.thinking_tokens = MagicMock(return_value=0)
     long_term = MagicMock()
     long_term.is_ready = MagicMock(return_value=False)
 

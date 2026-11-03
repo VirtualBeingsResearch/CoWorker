@@ -33,6 +33,7 @@ def _make_loop(brain, mem, events=None):
     prompt_builder.build = MagicMock(return_value="system prompt")
     prompt_builder.refresh = MagicMock()
     prompt_builder.consume_skill_load_warnings = MagicMock(return_value=[])
+    prompt_builder.thinking_tokens = MagicMock(return_value=0)
 
     config = MagicMock()
     config.agent.idle_sleep_seconds = 0
@@ -75,6 +76,9 @@ def _make_loop(brain, mem, events=None):
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     loop._compress_task = None
     loop._compress_retry_at = 0.0
+    # 这些用例只关心压缩路径，把预算采样换成一个不产生告警的空壳。
+    loop._context_budget = MagicMock()
+    loop._context_budget.on_cycle = AsyncMock()
     return loop
 
 

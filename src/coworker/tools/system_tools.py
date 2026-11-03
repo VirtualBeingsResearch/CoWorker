@@ -191,16 +191,24 @@ class GetContextTool(Tool):
     async def execute(self, **_) -> ToolResult:
         now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
         model = f"{self._brain.current_provider_name}/{self._brain.current_model}"
-        return ToolResult(
-            tool_call_id="",
-            content=tr(
-                "tool_result.system.context",
-                time=now,
-                cycles=self._state.cycle_count,
-                model=model,
-                messages=len(self._short_term.primary),
-            ),
+        content = tr(
+            "tool_result.system.context",
+            time=now,
+            cycles=self._state.cycle_count,
+            model=model,
+            messages=len(self._short_term.primary),
         )
+        budget = self._short_term.context_budget
+        if budget is not None:
+            content += "\n\n" + tr(
+                "tool_result.system.context_budget",
+                authored=budget.model_authored_tokens,
+                window=budget.window_tokens,
+                percent=f"{budget.ratio * 100:.1f}",
+                model_pins=budget.model_pin_tokens,
+                thinking=budget.thinking_tokens,
+            )
+        return ToolResult(tool_call_id="", content=content)
 
 
 class RestartSelfTool(Tool):

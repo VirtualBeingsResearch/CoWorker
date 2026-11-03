@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from coworker.core.constants import TICK_TAG
+from coworker.core.token_utils import estimate_text_tokens
 from coworker.i18n import get_locale, locale_context, tr
 from coworker.prompts.template import (
     SYSTEM_PROMPT_VARIABLES,
@@ -177,6 +178,16 @@ class SystemPromptBuilder:
         if not self._thinking_path.is_file():
             return ""
         return self._thinking_path.read_text(encoding="utf-8").strip()
+
+    def thinking_tokens(self) -> int:
+        """当前 ``[THINKING]`` 段落的 token 估算，供上下文预算账本展示。
+
+        复用已缓存的 build 结果，不额外读盘：账本要的是"最近一次刷新后真正进了提示词"
+        的体积，而不是文件此刻的大小。
+        """
+        self.build()
+        sections = self._cached_sections or {}
+        return estimate_text_tokens(sections.get("THINKING", ""))
 
     def set_channel_progress_enabled(self, enabled: bool) -> None:
         if self._channel_progress_enabled == enabled:

@@ -382,6 +382,11 @@ class MemoryConfig(_EnvSettings):
     tree_backfill_max_leaves: int = 64  # `--backfill-tree` 一次性回溯生成叶子数上限
     tree_backfill_concurrency: int = 5  # 回溯时叶子摘要/归约合并的并发上限
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
+    # 上下文预算提醒的上限（模型自写部分 / short_term_max_tokens）。
+    # 分子只有模型 pin + thinking.md：脊柱、系统 pin、工具定义都不是模型能改的，不计入。
+    # 0.19 在 120k 窗口下约 22.8k：pin 满仓（15k）后仍给 thinking.md 留约 7.8k，
+    # 两者都写满就会越线；pin 单靠自己越不过去。
+    context_budget_warn_threshold: float = Field(default=0.19, gt=0, lt=1)
     # 压缩摘要首次超出节点预算后的重试上限（不含首次）；仍不达标才按达标上限截断。
     summary_budget_retries: int = Field(default=3, ge=0)
     # 摘要预算容差：摘要 token ≤ 节点预算 × (1 + 容差) 即视为达标，不重试、不截断。

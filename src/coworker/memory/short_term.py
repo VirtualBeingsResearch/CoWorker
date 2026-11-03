@@ -21,6 +21,7 @@ from coworker.core.types import (
     estimate_content_tokens,
 )
 from coworker.i18n import bind_locale, tr
+from coworker.memory.context_budget import ContextBudgetSnapshot
 from coworker.memory.memory_tree import (
     SUMMARY_BUDGET_RETRIES,
     SUMMARY_BUDGET_TOLERANCE,
@@ -107,6 +108,9 @@ class ShortTermMemory:
         # 每发生一次实际压缩自增，作为进程内「上下文已被压缩」的信号，
         # 供主循环检测并在压缩时刷新系统提示词快照。
         self.compress_generation: int = 0
+        # 最近一次上下文预算采样（由 AgentLoop 写入）：脊柱/pin/提示词等不可压缩部分的
+        # 估算占比，供 get_context 与管理端读取。None 表示还没采样过。
+        self.context_budget: ContextBudgetSnapshot | None = None
 
         # 多分辨率记忆块树。tree_enabled 时取代「单锚点压缩」：被压缩的尾部切片
         # 提升为树叶并按时间尺度级联合并；脊柱活在 primary 之外，由 build_context 渲染。
@@ -129,6 +133,11 @@ class ShortTermMemory:
     @property
     def log_store(self) -> LogStore | None:
         return self._log_store
+
+    @property
+    def max_tokens(self) -> int:
+        """压缩预算（窗口口径）：上下文预算的比例分母。"""
+        return self._max_tokens
 
     def add_compression_listener(self, fn: Callable[[dict[str, Any]], None]) -> None:
         """Observe completed compression passes without exposing message content."""
