@@ -37,18 +37,18 @@ class TestSnapshot:
         assert payload["threshold"] == BUDGET_THRESHOLD
         assert payload["over_budget"] is True
 
-    def test_budget_covers_pins_and_thinking(self) -> None:
-        """预算按 pin 15k + thinking 10k 定：两者都写满仍在预算内，再多才提示。"""
+    def test_budget_leaves_room_for_thinking(self) -> None:
+        """上限 0.19 ≈ 22.8k：pin 满仓后仍留约 7.8k 给 thinking，两者都写满才越线。"""
         pins_only = ContextBudgetSnapshot(120_000, 15_000, 0)
         assert pins_only.over_budget is False
-        both_full = ContextBudgetSnapshot(120_000, 15_000, 10_000)
-        assert both_full.over_budget is False
-        over = ContextBudgetSnapshot(120_000, 15_000, 11_000)
+        some_thinking = ContextBudgetSnapshot(120_000, 15_000, 7_000)
+        assert some_thinking.over_budget is False
+        over = ContextBudgetSnapshot(120_000, 15_000, 8_000)
         assert over.over_budget is True
 
     def test_boundary_is_inclusive(self) -> None:
-        assert ContextBudgetSnapshot(1000, 210, 0, threshold=0.21).over_budget is True
-        assert ContextBudgetSnapshot(1000, 209, 0, threshold=0.21).over_budget is False
+        assert ContextBudgetSnapshot(1000, 190, 0, threshold=0.19).over_budget is True
+        assert ContextBudgetSnapshot(1000, 189, 0, threshold=0.19).over_budget is False
 
     def test_zero_window_is_safe(self) -> None:
         snapshot = ContextBudgetSnapshot(window_tokens=0, model_pin_tokens=5, thinking_tokens=0)
@@ -81,7 +81,7 @@ def _monitor(
 class TestMonitor:
     @pytest.mark.asyncio
     async def test_reminds_once_per_context_after_compression(self) -> None:
-        mem = _mem(window=1000, model_pins=250)  # 0.25 > 0.21
+        mem = _mem(window=1000, model_pins=250)  # 0.25 > 0.19
         monitor, inbox = _monitor(mem)
 
         await monitor.on_cycle("system prompt")
@@ -91,7 +91,7 @@ class TestMonitor:
         event = inbox.push.await_args.args[0]
         assert event.participant_id == "system"
         assert event.source == "context_budget"
-        assert "250" in event.content and "1000" in event.content and "21.0" in event.content
+        assert "250" in event.content and "1000" in event.content and "19.0" in event.content
         assert inbox.push.await_args.kwargs["wake"] is False
 
         # 同一段上下文不再重复提示。
@@ -112,7 +112,7 @@ class TestMonitor:
 
     @pytest.mark.asyncio
     async def test_silent_under_the_limit(self) -> None:
-        mem = _mem(window=1000, model_pins=200)  # 0.20 < 0.21
+        mem = _mem(window=1000, model_pins=180)  # 0.18 < 0.19
         monitor, inbox = _monitor(mem)
 
         await monitor.on_cycle("system prompt")
@@ -143,7 +143,7 @@ class TestMonitor:
 
 class TestThresholdConfig:
     def test_default(self) -> None:
-        assert MemoryConfig().context_budget_warn_threshold == 0.21
+        assert MemoryConfig().context_budget_warn_threshold == 0.19
 
     @pytest.mark.parametrize("value", [0, 1, -0.1, 1.5])
     def test_rejects_out_of_range(self, value) -> None:
