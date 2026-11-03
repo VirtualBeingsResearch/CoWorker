@@ -35,6 +35,7 @@ from coworker.core.types import (
 )
 from coworker.i18n import locale_context, tr
 from coworker.identity.identity import Identity
+from coworker.memory.context_budget import ContextBudgetWatcher
 from coworker.memory.short_term import ShortTermMemory
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.skills.loader import SkillLoader
@@ -630,6 +631,7 @@ def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
     loop._prompt_builder = MagicMock()
     loop._prompt_builder.build.return_value = "system"
     loop._prompt_builder.consume_skill_load_warnings.return_value = []
+    loop._prompt_builder.thinking_tokens = MagicMock(return_value=0)
     loop._brain = _StubBrain([_tool_use_response()])
     loop._progress = progress
     loop._ilog = None
@@ -639,6 +641,10 @@ def _main_loop_for_reminder(tmp_path: Path, progress) -> AgentLoop:
     loop._subconscious = None
     loop._persona = None
     loop._last_compress_generation = loop._short_term.compress_generation
+    loop._budget_watcher = ContextBudgetWatcher()
+    loop._budget_sampled_generation = None
+    loop._budget_last_sample_cycle = None
+    loop._budget_warning_event_id = None
     loop.state = AgentState(current_provider="stub", current_model="stub-model")
     # 与 application.py 一致：通知以入站事件投递给这个循环自己的 inbox。
     progress.set_inbound_sink(loop._inbox.push)

@@ -73,6 +73,9 @@ compress_empty = "There are no short-term memory messages to compress."
 compressed = "Compressed {{count}} short-term memory messages."
 compress_started = "Started background full compression; it takes effect from the next cycle."
 compress_busy = "A compression pass is already running; try again later."
+context_budget = '''Context budget: irreducible part about {{irreducible}}/{{window}} tokens ({{percent}}%).
+Breakdown: spine {{spine}} | model pins {{model_pins}} | system pins {{system_pins}} | prompt and tools {{prefix}} (thinking.md {{thinking}}) | message tail {{tail}}
+Coworker internal estimates, not exact provider counts.'''
 
 [tool_result.task]
 unknown_time = "unknown"

@@ -27,6 +27,7 @@ from coworker.core.types import Message
 from coworker.desktop_updates import SyncStatus
 from coworker.i18n import locale_context
 from coworker.identity.identity import Identity
+from coworker.memory.context_budget import ContextBudgetSnapshot
 from coworker.memory.short_term import ShortTermMemory
 from coworker.persona import PersonaCard, PersonStore
 from coworker.prompts.template import (
@@ -3109,6 +3110,15 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
     client, config = _client(tmp_path)
     short_term = ShortTermMemory(max_tokens=1_000)
     short_term.primary.append(Message(role="user", content="estimate me"))
+    short_term.context_budget = ContextBudgetSnapshot(
+        window_tokens=1_000,
+        spine_tokens=300,
+        model_pin_tokens=40,
+        system_pin_tokens=10,
+        prefix_tokens=50,
+        thinking_tokens=5,
+        tail_tokens=500,
+    )
     agent = SimpleNamespace(
         _identity=_Identity(),
         _short_term=short_term,
@@ -3139,6 +3149,9 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
     assert (
         body["token_watermark"]["tokens"] == body["token_watermark"]["estimated_short_term_tokens"]
     )
+    # 最近一次预算采样要能直接从管理端读到，便于人观察模型在吃多少预算。
+    assert body["context_budget"]["irreducible_tokens"] == 400
+    assert body["context_budget"]["ratio"] == 0.4
 
 
 def test_short_term_memory_returns_wecom_structured_text_without_attachment_bytes(tmp_path):

@@ -18,6 +18,7 @@ from coworker.core.types import (
     ToolResult,
 )
 from coworker.i18n import locale_context
+from coworker.memory.context_budget import ContextBudgetSnapshot
 from coworker.memory.short_term import ShortTermMemory
 from coworker.tools.base import Tool, ToolDefinition
 from coworker.tools.communicate_tool import CommunicateTool
@@ -606,6 +607,33 @@ class TestGetContextTool:
         state.cycle_count = 99
         result = await tool.execute()
         assert "99" in result.content
+
+    @pytest.mark.asyncio
+    async def test_reports_context_budget_after_sampling(self):
+        brain = MagicMock()
+        brain.current_provider_name = "anthropic"
+        brain.current_model = "claude-sonnet-4-6"
+        short_term = ShortTermMemory(max_tokens=120_000)
+        short_term.context_budget = ContextBudgetSnapshot(
+            window_tokens=120_000,
+            spine_tokens=36_000,
+            model_pin_tokens=8_000,
+            system_pin_tokens=1_000,
+            prefix_tokens=5_000,
+            thinking_tokens=1_200,
+            tail_tokens=20_000,
+        )
+        result = await GetContextTool(brain, short_term, AgentState()).execute()
+        assert "上下文预算" in result.content
+        assert "50000" in result.content  # 不可压缩部分 = 36k + 8k + 1k + 5k
+        assert "120000" in result.content
+        assert "thinking.md 1200" in result.content  # thinking 单列展示
+
+    @pytest.mark.asyncio
+    async def test_omits_context_budget_before_first_sample(self):
+        tool, _ = self._make_tool()
+        result = await tool.execute()
+        assert "上下文预算" not in result.content
 
 
 class TestTaskStore:

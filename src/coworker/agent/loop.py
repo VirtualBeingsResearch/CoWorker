@@ -14,8 +14,15 @@ from coworker.agent.incoming_content import build_content_blocks
 from coworker.brain.brain import ModelCallSuspended, set_model_call_owner
 from coworker.core.constants import TICK_TAG
 from coworker.core.exceptions import RestartRequestedException
+from coworker.core.token_utils import estimate_text_tokens
 from coworker.core.types import AgentState, IncomingEvent, Message, ToolResult
 from coworker.i18n import bind_locale, tr
+from coworker.memory.context_budget import (
+    MIN_BUDGET_WARNING_GAP_CYCLES,
+    ContextBudgetSnapshot,
+    ContextBudgetWatcher,
+    measure_pin_tokens,
+)
 from coworker.persona import PersonaContext
 
 if TYPE_CHECKING:
@@ -109,6 +116,13 @@ class AgentLoop:
         # 预算达标后的压缩在 cycle 之外的后台任务里跑，主循环不等摘要返回。
         self._compress_task = None
         self._compress_retry_at = 0.0
+        # 上下文预算：只提醒不拦截，两次压缩之间限次（见 memory.context_budget）。
+        self._budget_watcher = ContextBudgetWatcher(
+            bands=tuple(config.memory.context_budget_warn_thresholds)
+        )
+        self._budget_sampled_generation: int | None = None
+        self._budget_last_sample_cycle: int | None = None
+        self._budget_warning_event_id: str | None = None
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
             current_model=brain.current_model,
@@ -386,6 +400,9 @@ class AgentLoop:
             self._last_compress_generation = self._short_term.compress_generation
             self._prompt_builder.refresh()
         system_prompt = self._prompt_builder.build()
+        # 压缩在后台跑，``compress_generation`` 何时推进不由本 cycle 决定；所以在每轮开头、
+        # 提示词刷新之后采样，才能保证用的是压缩后的稳定上下文。
+        await self._maybe_warn_context_budget(system_prompt)
         skill_load_warnings = self._prompt_builder.consume_skill_load_warnings()
         if skill_load_warnings:
             lines = [tr("loop.skill_warning_title")]
@@ -674,6 +691,85 @@ class AgentLoop:
         error = task.exception()
         if error is not None:
             logger.opt(exception=error).error("Background context compression failed")
+
+    def _budget_sample_due(self, generation: int) -> bool:
+        """采样时机：压缩刚发生（压缩后的首轮），或距上次采样满一个最小间隔。"""
+        if self._budget_sampled_generation != generation:
+            return True
+        last = self._budget_last_sample_cycle
+        return last is None or self.state.cycle_count - last >= MIN_BUDGET_WARNING_GAP_CYCLES
+
+    def _context_budget_snapshot(self, system_prompt: str) -> ContextBudgetSnapshot:
+        """采样"压缩砍不掉的部分"：脊柱 + pin + 系统提示词与工具定义。
+
+        用内部估算而不是 provider usage：这里要的是各桶的拆分趋势，而不是整请求的精确值；
+        整请求口径在压缩后会随尾部涨落，反而没有区分度（见 memory.context_budget）。
+        """
+        model_pins, system_pins = measure_pin_tokens(self._short_term)
+        tool_tokens = estimate_text_tokens(
+            json.dumps(self._tools.get_schemas(), ensure_ascii=False)
+        )
+        return ContextBudgetSnapshot(
+            window_tokens=self._short_term.max_tokens,
+            spine_tokens=self._short_term.tree.spine_tokens(),
+            model_pin_tokens=model_pins,
+            system_pin_tokens=system_pins,
+            prefix_tokens=estimate_text_tokens(system_prompt) + tool_tokens,
+            thinking_tokens=self._prompt_builder.thinking_tokens(),
+            tail_tokens=self._short_term.estimate_tokens(),
+            bands=self._budget_watcher.bands,
+        )
+
+    def _cancel_pending_budget_warning(self) -> None:
+        """撤回尚未投递的旧提醒：压缩之后它描述的数字已经过期。"""
+        event_id = self._budget_warning_event_id
+        self._budget_warning_event_id = None
+        if event_id is not None:
+            self._inbox.cancel(event_id)
+
+    async def _maybe_warn_context_budget(self, system_prompt: str) -> None:
+        """按档位节流地通过 inbound 提醒模型精简不可压缩部分（只提醒，不拦截）。"""
+        generation = self._short_term.compress_generation
+        if not self._budget_sample_due(generation):
+            return
+        if (
+            self._budget_sampled_generation is not None
+            and self._budget_sampled_generation != generation
+        ):
+            self._cancel_pending_budget_warning()
+        snapshot = self._context_budget_snapshot(system_prompt)
+        self._short_term.context_budget = snapshot
+        self._budget_sampled_generation = generation
+        self._budget_last_sample_cycle = self.state.cycle_count
+        remaining = self._budget_watcher.observe(
+            snapshot, cycle=self.state.cycle_count, generation=generation
+        )
+        if remaining is None:
+            return
+        self._budget_warning_event_id = await self._inbox.push(
+            IncomingEvent(
+                participant_id="system",
+                content=tr(
+                    "memory.budget.notice",
+                    irreducible=snapshot.irreducible_tokens,
+                    window=snapshot.window_tokens,
+                    percent=f"{snapshot.ratio * 100:.1f}",
+                    spine=snapshot.spine_tokens,
+                    model_pins=snapshot.model_pin_tokens,
+                    system_pins=snapshot.system_pin_tokens,
+                    prefix=snapshot.prefix_tokens,
+                    thinking=snapshot.thinking_tokens,
+                ),
+                source="context_budget",
+                timestamp=datetime.now(),
+            ),
+            wake=False,
+        )
+        logger.info(
+            f"Context budget warning: irreducible ~{snapshot.irreducible_tokens} tokens "
+            f"({snapshot.ratio:.0%} of {snapshot.window_tokens}), "
+            f"{remaining} reminder(s) left before the next compression"
+        )
 
     async def _act(self, tool_calls) -> None:
         results: list[ToolResult] = []

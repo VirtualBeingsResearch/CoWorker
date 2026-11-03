@@ -121,6 +121,8 @@ coworker/
 
 **Pin 消息**：通过 `manage_pinned_context` 工具，模型可以将重要文本或文件内容"pin"住。Pin 的消息以真实消息形式存在于对话流中；当短期记忆压缩将其压掉后，下一个 cycle 会自动检测到缺失，把它重新 append 到 primary 末尾作为最新输入，起到保留缓存命中和定期强调的作用。文件 pin 在每次重注入时重新读取文件，始终保持最新内容。Pin 状态随快照持久化，重启后自动恢复。
 
+**上下文预算提醒**：记忆脊柱有结构性上限（`MEMORY__TREE_SPINE_CAP_FRACTION`），但模型自己维护的 `data/thinking.md`、pin 和系统提示词共享不到任何账本。Coworker 在每次压缩后采样一次「压缩砍不掉的部分」——脊柱 + 模型/系统 pin + 系统提示词与工具定义的 token 估算——占 `MEMORY__SHORT_TERM_MAX_TOKENS` 的比例，按 `MEMORY__CONTEXT_BUDGET_WARN_THRESHOLDS` 分档（默认 `0.40/0.45/0.48`，贴着该比例在默认配置下的实际上限 ≈0.50）。越过最低档时，它通过 inbound 系统消息把具体数字、可执行动作（优化 pin、精简 thinking.md）以及内部 token 估算函数的位置发给模型；两次压缩之间最多提醒 3 次、相邻两次至少相隔 8 个 cycle，比例回落或下一次压缩后重新计数。它**只提醒不拦截**：硬约束仍是脊柱的 K 进位和 pin 的 5k/15k 上限。最近一次采样可从 `get_context` 和管理端 `/memory/short-term` 的 `context_budget` 字段读出。
+
 长期记忆默认由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。长期记忆后端可通过 `MEMORY__BACKEND` 选择；`mem0` 为默认后端，`file` 为最简文件存储后端（每个记忆一个可读 JSON 文件，位于 `data/memory/long_term/`；查询用词项倒排索引，按重叠词排序，不做向量语义检索）。`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接保存；显式写入会先检索并跳过正文完全相同的已有记忆。语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
 
 **自动回忆**：每次收到用户消息，系统会用消息文本语义检索长期记忆，将相关度高于阈值的结果以 `[自动回忆]` 消息注入上下文。已回忆或已通过 `manage_memory(action="write")` 写入的记忆 ID 存储在 `Message.recalled_memory_ids` 中，随快照持久化，同一会话（包括重启后）不会重复注入。

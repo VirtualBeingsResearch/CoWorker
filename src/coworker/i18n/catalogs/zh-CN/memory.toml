@@ -102,6 +102,12 @@ associated = "已关联标签 {{tags}}（id: {{id}}）"
 delete_needs_id = "delete 操作需要提供 memory_id"
 deleted = "已删除记忆（id: {{id}}）"
 
+[memory.budget]
+notice = '''[上下文预算] 上下文里压缩不掉的部分约 {{irreducible}} tokens，占 {{window}} tokens 窗口的 {{percent}}%。
+明细：记忆脊柱 {{spine}}；模型 pin {{model_pins}}；系统 pin {{system_pins}}；系统提示词与工具 {{prefix}}（其中 thinking.md {{thinking}}）。
+可以做的：优化 pin；合并精简 thinking.md（改动在下次提示词刷新后生效）。
+以上均为 Coworker 内部估算；需要估算改动后的值时，用 coworker.core.token_utils.estimate_text_tokens（src/coworker/core/token_utils.py）。'''
+
 [persona]
 card_header = "[人物画像：{{name}} ({{person_id}})]"
 card_notes_title = "个性化："

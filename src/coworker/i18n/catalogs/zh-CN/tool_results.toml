@@ -73,6 +73,9 @@ compress_empty = "当前没有可压缩的短期记忆消息。"
 compressed = "已压缩 {{count}} 条短期记忆消息。"
 compress_started = "已开始后台全量压缩，完成后下一轮生效。"
 compress_busy = "已有压缩任务在进行中，请稍后再试。"
+context_budget = '''上下文预算：压缩不掉的部分约 {{irreducible}}/{{window}} tokens（{{percent}}%）。
+明细：脊柱 {{spine}}｜模型 pin {{model_pins}}｜系统 pin {{system_pins}}｜提示词与工具 {{prefix}}（其中 thinking.md {{thinking}}）｜尾部消息 {{tail}}
+以上为 Coworker 内部估算值，不是 provider 的精确计数。'''
 
 [tool_result.task]
 unknown_time = "未知"
