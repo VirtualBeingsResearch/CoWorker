@@ -616,10 +616,7 @@ class TestGetContextTool:
         short_term = ShortTermMemory(max_tokens=120_000)
         short_term.context_budget = ContextBudgetSnapshot(
             window_tokens=120_000,
-            spine_tokens=36_000,
             model_pin_tokens=8_000,
-            system_pin_tokens=1_000,
-            prefix_tokens=5_000,
             thinking_tokens=1_200,
         )
         result = await GetContextTool(brain, short_term, AgentState()).execute()
@@ -627,7 +624,6 @@ class TestGetContextTool:
         assert "9200" in result.content  # 自写部分 = 8k pin + 1.2k thinking
         assert "120000" in result.content
         assert "thinking.md 1200" in result.content  # thinking 单列展示
-        assert "40800" in result.content  # 其余不可压缩 = 61k - 9.2k
 
     @pytest.mark.asyncio
     async def test_omits_context_budget_before_first_sample(self):

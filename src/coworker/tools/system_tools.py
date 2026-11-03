@@ -207,7 +207,6 @@ class GetContextTool(Tool):
                 percent=f"{budget.ratio * 100:.1f}",
                 model_pins=budget.model_pin_tokens,
                 thinking=budget.thinking_tokens,
-                other=budget.irreducible_tokens - budget.model_authored_tokens,
             )
         return ToolResult(tool_call_id="", content=content)
 

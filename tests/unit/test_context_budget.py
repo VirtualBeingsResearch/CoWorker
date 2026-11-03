@@ -18,37 +18,31 @@ from coworker.memory.short_term import ShortTermMemory
 class TestSnapshot:
     def test_ratio_counts_only_model_authored_parts(self) -> None:
         snapshot = ContextBudgetSnapshot(
-            window_tokens=120_000,
-            model_pin_tokens=20_000,
-            thinking_tokens=6_000,
-            spine_tokens=36_000,
-            system_pin_tokens=10_000,
-            prefix_tokens=8_000,
+            window_tokens=120_000, model_pin_tokens=20_000, thinking_tokens=6_000
         )
         assert snapshot.model_authored_tokens == 26_000
         assert snapshot.ratio == pytest.approx(26_000 / 120_000)
         assert snapshot.over_budget is True
-        # 脊柱/系统 pin/提示词模型改不了，只作观测，不参与上限判断。
-        assert snapshot.irreducible_tokens == 74_000
         payload = snapshot.to_dict()
-        assert payload["model_authored_tokens"] == 26_000
-        assert payload["irreducible_tokens"] == 74_000
-        assert payload["ratio"] == pytest.approx(0.2167)
-        assert payload["threshold"] == BUDGET_THRESHOLD
-        assert payload["over_budget"] is True
+        assert payload == {
+            "window_tokens": 120_000,
+            "model_pin_tokens": 20_000,
+            "thinking_tokens": 6_000,
+            "model_authored_tokens": 26_000,
+            "ratio": pytest.approx(0.2167),
+            "threshold": BUDGET_THRESHOLD,
+            "over_budget": True,
+        }
 
     def test_budget_leaves_room_for_thinking(self) -> None:
         """上限 0.19 ≈ 22.8k：pin 满仓后仍留约 7.8k 给 thinking，两者都写满才越线。"""
-        pins_only = ContextBudgetSnapshot(120_000, 15_000, 0)
-        assert pins_only.over_budget is False
-        some_thinking = ContextBudgetSnapshot(120_000, 15_000, 7_000)
-        assert some_thinking.over_budget is False
-        over = ContextBudgetSnapshot(120_000, 15_000, 8_000)
-        assert over.over_budget is True
+        assert ContextBudgetSnapshot(120_000, 15_000, 0).over_budget is False
+        assert ContextBudgetSnapshot(120_000, 15_000, 7_000).over_budget is False
+        assert ContextBudgetSnapshot(120_000, 15_000, 8_000).over_budget is True
 
     def test_boundary_is_inclusive(self) -> None:
-        assert ContextBudgetSnapshot(1000, 190, 0, threshold=0.19).over_budget is True
-        assert ContextBudgetSnapshot(1000, 189, 0, threshold=0.19).over_budget is False
+        assert ContextBudgetSnapshot(1000, 190, 0).over_budget is True
+        assert ContextBudgetSnapshot(1000, 189, 0).over_budget is False
 
     def test_zero_window_is_safe(self) -> None:
         snapshot = ContextBudgetSnapshot(window_tokens=0, model_pin_tokens=5, thinking_tokens=0)
@@ -72,19 +66,16 @@ def _monitor(
     inbox.cancel = MagicMock()
     builder = MagicMock()
     builder.thinking_tokens = MagicMock(return_value=thinking)
-    tools = MagicMock()
-    tools.get_schemas = MagicMock(return_value=[])
-    monitor = ContextBudgetMonitor(mem, builder, tools, inbox, threshold=threshold)
-    return monitor, inbox
+    return ContextBudgetMonitor(mem, builder, inbox, threshold=threshold), inbox
 
 
 class TestMonitor:
     @pytest.mark.asyncio
-    async def test_reminds_once_per_context_after_compression(self) -> None:
+    async def test_reminds_once_per_context(self) -> None:
         mem = _mem(window=1000, model_pins=250)  # 0.25 > 0.19
         monitor, inbox = _monitor(mem)
 
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
         assert mem.context_budget is not None
         assert mem.context_budget.model_authored_tokens == 250
         inbox.push.assert_awaited_once()
@@ -95,7 +86,7 @@ class TestMonitor:
         assert inbox.push.await_args.kwargs["wake"] is False
 
         # 同一段上下文不再重复提示。
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
         assert inbox.push.await_count == 1
 
     @pytest.mark.asyncio
@@ -103,9 +94,9 @@ class TestMonitor:
         mem = _mem(window=1000, model_pins=250)
         monitor, inbox = _monitor(mem)
 
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
         mem.compress_generation += 1
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
 
         inbox.cancel.assert_called_once_with("event-1")
         assert inbox.push.await_count == 2
@@ -115,7 +106,7 @@ class TestMonitor:
         mem = _mem(window=1000, model_pins=180)  # 0.18 < 0.19
         monitor, inbox = _monitor(mem)
 
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
 
         inbox.push.assert_not_awaited()
         assert mem.context_budget is not None  # 采样照做
@@ -124,11 +115,11 @@ class TestMonitor:
     async def test_recompression_rechecks_after_shrinking(self) -> None:
         mem = _mem(window=1000, model_pins=250)
         monitor, inbox = _monitor(mem)
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
 
         mem.pinned_items[0].content = "记" * 10
         mem.compress_generation += 1
-        await monitor.on_cycle("system prompt")
+        await monitor.on_cycle()
 
         assert inbox.push.await_count == 1  # 已回落到上限内
         assert mem.context_budget.model_authored_tokens == 10

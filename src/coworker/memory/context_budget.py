@@ -2,16 +2,14 @@
 
 模型能自己写、又没有硬上限的只有两处：pin 与 ``data/thinking.md``。脊柱有结构性 cap，
 pin 有 5k/15k 写入闸门，但都没有"你正在吃掉多少窗口"的反馈。这里把这两项算成占
-``MEMORY__SHORT_TERM_MAX_TOKENS`` 的比例，**每次上下文重建后**（启动首轮、以及每次压缩
-后的首轮）检查一次，超过上限就通过 inbound 提醒。
+``MEMORY__SHORT_TERM_MAX_TOKENS`` 的比例，每次上下文重建后比较一次上限。
 
-两项共用同一份预算：pin 多占，thinking.md 的余量就少。所以上限设在 pin 上限之上，
-越过上限意味着"两者都占了不少"，pin 单靠自己到不了。
+两项共用同一份预算：pin 多占，thinking.md 的余量就少。上限因此高于 pin 上限（15k），
+越过它意味着两者都写了不少，pin 单靠自己越不过去。
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -26,7 +24,6 @@ if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
     from coworker.memory.short_term import ShortTermMemory
     from coworker.prompts.system_prompt import SystemPromptBuilder
-    from coworker.tools.registry import ToolRegistry
 
 # 模型自写部分占窗口的上限。120k 窗口下 0.19 ≈ 22.8k：pin 满仓（15k）后仍给
 # thinking.md 留约 7.8k，两者都写满就会越线。
@@ -35,29 +32,16 @@ BUDGET_THRESHOLD = 0.19
 
 @dataclass(frozen=True)
 class ContextBudgetSnapshot:
-    """一次采样：``model_authored_tokens`` 与上限比较，其余字段只用于展示。"""
+    """一次采样：模型自写部分与窗口上限的比较结果。"""
 
     window_tokens: int
     model_pin_tokens: int
     thinking_tokens: int
-    spine_tokens: int = 0
-    system_pin_tokens: int = 0
-    prefix_tokens: int = 0
     threshold: float = BUDGET_THRESHOLD
 
     @property
     def model_authored_tokens(self) -> int:
         return self.model_pin_tokens + self.thinking_tokens
-
-    @property
-    def irreducible_tokens(self) -> int:
-        """整段压缩砍不掉的量，仅用于观测。"""
-        return (
-            self.spine_tokens
-            + self.model_pin_tokens
-            + self.system_pin_tokens
-            + self.prefix_tokens
-        )
 
     @property
     def ratio(self) -> float:
@@ -75,10 +59,6 @@ class ContextBudgetSnapshot:
             "model_pin_tokens": self.model_pin_tokens,
             "thinking_tokens": self.thinking_tokens,
             "model_authored_tokens": self.model_authored_tokens,
-            "spine_tokens": self.spine_tokens,
-            "system_pin_tokens": self.system_pin_tokens,
-            "prefix_tokens": self.prefix_tokens,
-            "irreducible_tokens": self.irreducible_tokens,
             "ratio": round(self.ratio, 4),
             "threshold": self.threshold,
             "over_budget": self.over_budget,
@@ -92,7 +72,6 @@ class ContextBudgetMonitor:
         self,
         short_term: ShortTermMemory,
         prompt_builder: SystemPromptBuilder,
-        tools: ToolRegistry,
         inbox: InboxWatcher,
         *,
         threshold: float = BUDGET_THRESHOLD,
@@ -102,13 +81,12 @@ class ContextBudgetMonitor:
         self.snapshot: ContextBudgetSnapshot | None = None
         self._short_term = short_term
         self._prompt_builder = prompt_builder
-        self._tools = tools
         self._inbox = inbox
         self._threshold = threshold
         self._generation: int | None = None
         self._pending_event: str | None = None
 
-    async def on_cycle(self, system_prompt: str) -> None:
+    async def on_cycle(self) -> None:
         generation = self._short_term.compress_generation
         if generation == self._generation:
             return
@@ -117,7 +95,7 @@ class ContextBudgetMonitor:
             self._cancel_pending()
         self._generation = generation
 
-        snapshot = self._measure(system_prompt)
+        snapshot = self._measure()
         self.snapshot = snapshot
         self._short_term.context_budget = snapshot
         if not snapshot.over_budget:
@@ -144,25 +122,16 @@ class ContextBudgetMonitor:
             f"({snapshot.ratio:.1%} > {snapshot.threshold:.0%} of {snapshot.window_tokens})"
         )
 
-    def _measure(self, system_prompt: str) -> ContextBudgetSnapshot:
-        model_pins = 0
-        system_pins = 0
-        for item in self._short_term.pinned_items:
-            tokens = estimate_text_tokens(item.content)
-            if item.system_managed:
-                system_pins += tokens
-            else:
-                model_pins += tokens
-        tool_tokens = estimate_text_tokens(
-            json.dumps(self._tools.get_schemas(), ensure_ascii=False)
+    def _measure(self) -> ContextBudgetSnapshot:
+        model_pins = sum(
+            estimate_text_tokens(item.content)
+            for item in self._short_term.pinned_items
+            if not item.system_managed
         )
         return ContextBudgetSnapshot(
             window_tokens=self._short_term.max_tokens,
             model_pin_tokens=model_pins,
             thinking_tokens=self._prompt_builder.thinking_tokens(),
-            spine_tokens=self._short_term.tree.spine_tokens(),
-            system_pin_tokens=system_pins,
-            prefix_tokens=estimate_text_tokens(system_prompt) + tool_tokens,
             threshold=self._threshold,
         )
 

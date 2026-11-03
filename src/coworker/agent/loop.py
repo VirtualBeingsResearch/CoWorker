@@ -114,7 +114,6 @@ class AgentLoop:
         self._context_budget = ContextBudgetMonitor(
             short_term,
             prompt_builder,
-            tool_registry,
             inbox_watcher,
             threshold=config.memory.context_budget_warn_threshold,
         )
@@ -397,7 +396,7 @@ class AgentLoop:
         system_prompt = self._prompt_builder.build()
         # 压缩在后台跑，``compress_generation`` 何时推进不由本 cycle 决定；所以在每轮开头、
         # 提示词刷新之后检查，才能保证用的是压缩后的稳定上下文。
-        await self._context_budget.on_cycle(system_prompt)
+        await self._context_budget.on_cycle()
         skill_load_warnings = self._prompt_builder.consume_skill_load_warnings()
         if skill_load_warnings:
             lines = [tr("loop.skill_warning_title")]
