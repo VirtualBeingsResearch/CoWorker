@@ -384,9 +384,11 @@ class MemoryConfig(_EnvSettings):
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
     # 上下文预算提醒的分档阈值（模型自写部分 / short_term_max_tokens），从低到高。
     # 分子只有模型 pin + thinking.md：脊柱、系统 pin、工具定义都不是模型能改的，不计入。
-    # 120k 窗口下 0.05 ≈ 6k、0.09 ≈ 10.8k、0.12 ≈ 14.4k（pin 上限 15k 附近）。
+    # pin 与 thinking 共用这份预算，所以顶档必须高于 pin 上限（15k = 0.125）：
+    # 120k 窗口下 0.05 ≈ 6k、0.10 ≈ 12k、0.15 ≈ 18k，顶档要求 pin 满仓后仍有 ~3k 留给
+    # thinking.md——pin 单靠自己到不了顶档，不会把 thinking 挤掉。
     context_budget_warn_thresholds: Annotated[list[float], NoDecode] = Field(
-        default_factory=lambda: [0.05, 0.09, 0.12]
+        default_factory=lambda: [0.05, 0.10, 0.15]
     )
     # 压缩摘要首次超出节点预算后的重试上限（不含首次）；仍不达标才按达标上限截断。
     summary_budget_retries: int = Field(default=3, ge=0)

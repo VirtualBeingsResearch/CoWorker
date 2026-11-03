@@ -139,9 +139,9 @@ class TestMonitor:
         monitor, inbox = _monitor(mem)
 
         await monitor.on_cycle("system prompt", cycle=0)
-        mem.pinned_items[0].content = "记" * 90  # 0.09 → band 2
+        mem.pinned_items[0].content = "记" * 100  # 0.10 → band 2
         await monitor.on_cycle("system prompt", cycle=100)
-        mem.pinned_items[0].content = "记" * 120  # 0.12 → band 3
+        mem.pinned_items[0].content = "记" * 150  # 0.15 → band 3
         await monitor.on_cycle("system prompt", cycle=200)
         mem.pinned_items[0].content = "记" * 500
         await monitor.on_cycle("system prompt", cycle=300)
@@ -182,11 +182,11 @@ class TestMonitor:
 
 class TestThresholdConfig:
     def test_defaults_are_the_documented_bands(self) -> None:
-        assert MemoryConfig().context_budget_warn_thresholds == [0.05, 0.09, 0.12]
+        assert MemoryConfig().context_budget_warn_thresholds == [0.05, 0.10, 0.15]
 
     def test_accepts_comma_separated_env_style_string(self) -> None:
-        config = MemoryConfig(context_budget_warn_thresholds="0.05, 0.09,0.12")
-        assert config.context_budget_warn_thresholds == [0.05, 0.09, 0.12]
+        config = MemoryConfig(context_budget_warn_thresholds="0.05, 0.10,0.15")
+        assert config.context_budget_warn_thresholds == [0.05, 0.10, 0.15]
 
     @pytest.mark.parametrize(
         "value",

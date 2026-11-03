@@ -4,6 +4,9 @@
 pin 有 5k/15k 写入闸门，但都没有"你正在吃掉多少窗口"的反馈。这里把这两项算成占
 ``MEMORY__SHORT_TERM_MAX_TOKENS`` 的比例，按档位通过 inbound 提醒。
 
+两项共用同一份预算：pin 多占，thinking.md 的余量就少。所以顶档设在 pin 上限之上，
+顶档意味着"两者都占了不少"，pin 单靠自己到不了顶档。
+
 只提醒不拦截；两次压缩之间最多提醒 3 次，档位越高允许得越多，比例回落到安全区或
 下一次压缩（``compress_generation`` 变化）时清零。
 """
@@ -27,8 +30,10 @@ if TYPE_CHECKING:
     from coworker.prompts.system_prompt import SystemPromptBuilder
     from coworker.tools.registry import ToolRegistry
 
-# 模型自写部分占窗口的比例。0.05 ≈ 6k（pin 用了四成），0.12 ≈ 14.4k（已到 pin 上限附近）。
-BUDGET_BANDS: tuple[float, ...] = (0.05, 0.09, 0.12)
+# 模型自写部分占窗口的比例。pin 与 thinking 共用这份预算，顶档要高于 pin 上限
+# （15k = 0.125）：0.05 ≈ 6k（pin 用了四成）、0.10 ≈ 12k、0.15 ≈ 18k（pin 满仓后仍有
+# 约 3k 留给 thinking.md，pin 单靠自己够不到顶档）。
+BUDGET_BANDS: tuple[float, ...] = (0.05, 0.10, 0.15)
 MAX_WARNINGS = 3
 MIN_GAP_CYCLES = 8
 

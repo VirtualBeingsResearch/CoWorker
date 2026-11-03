@@ -104,7 +104,7 @@ deleted = "已删除记忆（id: {{id}}）"
 
 [memory.budget]
 notice = '''[上下文预算] 你自己写进上下文的部分约 {{authored}} tokens，占 {{window}} tokens 窗口的 {{percent}}%。
-明细：模型 pin {{model_pins}}；thinking.md {{thinking}}。
+明细：模型 pin {{model_pins}}；thinking.md {{thinking}}（两者共用同一份预算，pin 多占 thinking 的余量就少）。
 可以做的：优化 pin；合并精简 thinking.md（改动在下次提示词刷新后生效）。
 以上均为 Coworker 内部估算；需要估算改动后的值时，用 coworker.core.token_utils.estimate_text_tokens（src/coworker/core/token_utils.py）。'''
 
