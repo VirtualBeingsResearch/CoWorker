@@ -110,13 +110,13 @@ class AgentLoop:
         # 预算达标后的压缩在 cycle 之外的后台任务里跑，主循环不等摘要返回。
         self._compress_task = None
         self._compress_retry_at = 0.0
-        # 上下文预算：只提醒不拦截，两次压缩之间限次（见 memory.context_budget）。
+        # 上下文预算：只提醒不拦截，每次压缩后检查一次（见 memory.context_budget）。
         self._context_budget = ContextBudgetMonitor(
             short_term,
             prompt_builder,
             tool_registry,
             inbox_watcher,
-            bands=tuple(config.memory.context_budget_warn_thresholds),
+            threshold=config.memory.context_budget_warn_threshold,
         )
         self.state = state or AgentState(
             current_provider=brain.current_provider_name,
@@ -396,8 +396,8 @@ class AgentLoop:
             self._prompt_builder.refresh()
         system_prompt = self._prompt_builder.build()
         # 压缩在后台跑，``compress_generation`` 何时推进不由本 cycle 决定；所以在每轮开头、
-        # 提示词刷新之后采样，才能保证用的是压缩后的稳定上下文。
-        await self._context_budget.on_cycle(system_prompt, self.state.cycle_count)
+        # 提示词刷新之后检查，才能保证用的是压缩后的稳定上下文。
+        await self._context_budget.on_cycle(system_prompt)
         skill_load_warnings = self._prompt_builder.consume_skill_load_warnings()
         if skill_load_warnings:
             lines = [tr("loop.skill_warning_title")]

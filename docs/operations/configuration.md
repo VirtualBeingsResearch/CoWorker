@@ -112,7 +112,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |
 | `MEMORY__TREE_SPINE_CAP_FRACTION` | `0.30` | 记忆树脊柱 token 上限占比 |
-| `MEMORY__CONTEXT_BUDGET_WARN_THRESHOLDS` | `[0.05, 0.1, 0.15]` | 上下文预算提醒的分档阈值：**模型自写部分**（模型 pin + `thinking.md`）占 `SHORT_TERM_MAX_TOKENS` 的比例，须严格递增；配置时写 `0.05,0.10,0.15` 或 JSON 列表均可。脊柱、系统 pin、工具定义不由模型控制，不计入。pin 与 thinking 共用这份预算，所以顶档高于 pin 上限（15k = 0.125）：120k 窗口下三档约为 6k / 12k / 18k，顶档要求 pin 满仓后仍留有约 3k 给 thinking.md；越过越高档位，两次压缩之间允许的提醒次数越多（合计最多 3 次） |
+| `MEMORY__CONTEXT_BUDGET_WARN_THRESHOLD` | `0.15` | 上下文预算提醒的上限：**模型自写部分**（模型 pin + `thinking.md`）占 `SHORT_TERM_MAX_TOKENS` 的比例。脊柱、系统 pin、工具定义不由模型控制，不计入。pin 与 thinking 共用这份预算，所以上限高于 pin 上限（15k = 0.125）：0.15 在 120k 窗口下约 18k，越过它意味着 pin 满仓后仍写了约 3k 的 thinking.md。每次压缩后检查一次，同一段上下文只提示一次 |
 | `MEMORY__TREE_BACKFILL_MAX_LEAVES` | `64` | `--backfill-tree` 一次性回溯历史生成的叶子数上限 |
 | `MEMORY__TREE_BACKFILL_CONCURRENCY` | `5` | 回溯时叶子摘要/归约合并的并发上限 |
 | `MEMORY__TREE_MERGE_REACH_DEPTH` | `2` | 高层合并向下读取的细节层数；`2` 表示低两层 |

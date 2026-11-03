@@ -382,14 +382,11 @@ class MemoryConfig(_EnvSettings):
     tree_backfill_max_leaves: int = 64  # `--backfill-tree` 一次性回溯生成叶子数上限
     tree_backfill_concurrency: int = 5  # 回溯时叶子摘要/归约合并的并发上限
     tree_merge_reach_depth: int = 2  # 高层合并向下够细层数：2=低两层、1=仅直接子摘要
-    # 上下文预算提醒的分档阈值（模型自写部分 / short_term_max_tokens），从低到高。
+    # 上下文预算提醒的上限（模型自写部分 / short_term_max_tokens）。
     # 分子只有模型 pin + thinking.md：脊柱、系统 pin、工具定义都不是模型能改的，不计入。
-    # pin 与 thinking 共用这份预算，所以顶档必须高于 pin 上限（15k = 0.125）：
-    # 120k 窗口下 0.05 ≈ 6k、0.10 ≈ 12k、0.15 ≈ 18k，顶档要求 pin 满仓后仍有 ~3k 留给
-    # thinking.md——pin 单靠自己到不了顶档，不会把 thinking 挤掉。
-    context_budget_warn_thresholds: Annotated[list[float], NoDecode] = Field(
-        default_factory=lambda: [0.05, 0.10, 0.15]
-    )
+    # pin 与 thinking 共用这份预算，所以上限高于 pin 上限（15k = 0.125）：0.15 ≈ 18k，
+    # 越过它意味着 pin 满仓后仍写了约 3k thinking.md——两者都有内容才算越线。
+    context_budget_warn_threshold: float = Field(default=0.15, gt=0, lt=1)
     # 压缩摘要首次超出节点预算后的重试上限（不含首次）；仍不达标才按达标上限截断。
     summary_budget_retries: int = Field(default=3, ge=0)
     # 摘要预算容差：摘要 token ≤ 节点预算 × (1 + 容差) 即视为达标，不重试、不截断。
@@ -411,31 +408,6 @@ class MemoryConfig(_EnvSettings):
     # 可选的 Person 子机制：关闭时与现状完全一致。状态与其他记忆状态同放 data/memory。
     persona_enabled: bool = True
     persona_store_path: str = "data/memory/persons.json"
-
-    @field_validator("context_budget_warn_thresholds", mode="before")
-    @classmethod
-    def _normalize_context_budget_warn_thresholds(cls, value: object) -> list[float]:
-        """接受 `0.4,0.45,0.48` 字符串或列表，要求严格递增且落在 (0, 1)。"""
-        if isinstance(value, str):
-            value = [part for part in re.split(r"[,\s]+", value.strip()) if part]
-        if not isinstance(value, (list, tuple)):
-            raise ValueError("context_budget_warn_thresholds must be a list of floats")
-        thresholds: list[float] = []
-        for item in value:
-            try:
-                number = float(item)
-            except (TypeError, ValueError) as e:
-                raise ValueError(f"invalid context budget threshold: {item!r}") from e
-            if not 0 < number < 1:
-                raise ValueError(
-                    f"context budget threshold must be between 0 and 1: {number}"
-                )
-            thresholds.append(number)
-        if not thresholds:
-            raise ValueError("context budget thresholds must not be empty")
-        if any(low >= high for low, high in zip(thresholds, thresholds[1:], strict=False)):
-            raise ValueError("context budget thresholds must be strictly ascending")
-        return thresholds
 
 
 class APIConfig(_EnvSettings):

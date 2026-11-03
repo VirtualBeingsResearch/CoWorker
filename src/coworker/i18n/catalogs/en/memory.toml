@@ -103,7 +103,7 @@ delete_needs_id = "The delete action requires memory_id"
 deleted = "Memory deleted (id: {{id}})"
 
 [memory.budget]
-notice = '''[context budget] Your own written context is about {{authored}} tokens, {{percent}}% of the {{window}}-token window.
+notice = '''[context budget] Your own written context is about {{authored}} tokens, {{percent}}% of the {{window}}-token window (limit {{threshold}}%).
 Breakdown: model pins {{model_pins}}; thinking.md {{thinking}} (they share one budget: more pins leave less room for thinking).
 What you can do: trim pins; merge and trim thinking.md (changes apply after the next prompt refresh).
 All numbers are Coworker internal estimates; to estimate a value after your edits, use coworker.core.token_utils.estimate_text_tokens (src/coworker/core/token_utils.py).'''

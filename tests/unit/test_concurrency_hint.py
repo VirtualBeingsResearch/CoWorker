@@ -224,8 +224,8 @@ def test_agent_loop_wires_concurrency_hint_config() -> None:
             concurrency_hint_threshold=3,
             concurrency_hint_cooldown_seconds=120.0,
         ),
-        # AgentLoop 构造上下文预算节流器时也会读这一段。
-        memory=SimpleNamespace(context_budget_warn_thresholds=[0.4, 0.45, 0.48]),
+        # AgentLoop 构造上下文预算监视器时也会读这一段。
+        memory=SimpleNamespace(context_budget_warn_threshold=0.15),
     )
 
     loop = AgentLoop(
