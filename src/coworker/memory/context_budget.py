@@ -28,9 +28,9 @@ if TYPE_CHECKING:
     from coworker.prompts.system_prompt import SystemPromptBuilder
     from coworker.tools.registry import ToolRegistry
 
-# 模型自写部分占窗口的上限。pin 上限是 15k（120k 窗口的 0.125），上限取 0.15 ≈ 18k，
-# 越过它意味着 pin 满仓后仍写了约 3k 的 thinking.md——两者都有内容才算越线。
-BUDGET_THRESHOLD = 0.15
+# 模型自写部分占窗口的上限。预算按「pin 15k + thinking 10k = 25k」定，120k 窗口下约 0.21：
+# pin 满仓也只占一半多，仍给 thinking.md 留出 10k；两者同时写满才刚够到上限。
+BUDGET_THRESHOLD = 0.21
 
 
 @dataclass(frozen=True)
