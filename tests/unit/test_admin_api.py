@@ -3117,7 +3117,6 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
         system_pin_tokens=10,
         prefix_tokens=50,
         thinking_tokens=5,
-        tail_tokens=500,
     )
     agent = SimpleNamespace(
         _identity=_Identity(),
@@ -3150,8 +3149,9 @@ def test_short_term_memory_falls_back_to_estimate_without_latest_usage(tmp_path)
         body["token_watermark"]["tokens"] == body["token_watermark"]["estimated_short_term_tokens"]
     )
     # 最近一次预算采样要能直接从管理端读到，便于人观察模型在吃多少预算。
+    assert body["context_budget"]["model_authored_tokens"] == 45
     assert body["context_budget"]["irreducible_tokens"] == 400
-    assert body["context_budget"]["ratio"] == 0.4
+    assert body["context_budget"]["ratio"] == 0.045
 
 
 def test_short_term_memory_returns_wecom_structured_text_without_attachment_bytes(tmp_path):

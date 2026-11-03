@@ -5,262 +5,188 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from coworker.agent.loop import AgentLoop
 from coworker.core.config import MemoryConfig
-from coworker.core.types import AgentState, PinnedItem
+from coworker.core.types import PinnedItem
 from coworker.memory.context_budget import (
     BUDGET_BANDS,
-    MAX_BUDGET_WARNINGS,
+    MAX_WARNINGS,
+    ContextBudgetMonitor,
     ContextBudgetSnapshot,
-    ContextBudgetWatcher,
-    band_for,
-    measure_pin_tokens,
 )
 from coworker.memory.short_term import ShortTermMemory
 
 
 def _snapshot(ratio: float, window: int = 1000) -> ContextBudgetSnapshot:
-    """构造一个恰好落在给定比例上的快照（其余桶留空）。"""
+    """构造一个模型自写部分恰好落在给定比例上的快照。"""
     return ContextBudgetSnapshot(
         window_tokens=window,
-        spine_tokens=round(ratio * window),
-        model_pin_tokens=0,
-        system_pin_tokens=0,
-        prefix_tokens=0,
+        model_pin_tokens=round(ratio * window),
         thinking_tokens=0,
-        tail_tokens=0,
     )
 
 
-class TestBands:
+class TestSnapshot:
+    def test_ratio_counts_only_model_authored_parts(self) -> None:
+        snapshot = ContextBudgetSnapshot(
+            window_tokens=120_000,
+            model_pin_tokens=6_000,
+            thinking_tokens=1_000,
+            spine_tokens=36_000,
+            system_pin_tokens=10_000,
+            prefix_tokens=8_000,
+        )
+        assert snapshot.model_authored_tokens == 7_000
+        assert snapshot.ratio == pytest.approx(7_000 / 120_000)
+        # 脊柱/系统 pin/提示词模型改不了，只作观测，不进档位。
+        assert snapshot.irreducible_tokens == 60_000
+        payload = snapshot.to_dict()
+        assert payload["model_authored_tokens"] == 7_000
+        assert payload["irreducible_tokens"] == 60_000
+        assert payload["ratio"] == pytest.approx(0.0583)
+        assert payload["band"] == 1
+
     def test_band_boundaries(self) -> None:
         low, mid, high = BUDGET_BANDS
-        assert band_for(low - 0.001) == 0
-        assert band_for(low) == 1
-        assert band_for(mid - 0.001) == 1
-        assert band_for(mid) == 2
-        assert band_for(high) == 3
-        assert band_for(0.99) == 3
-
-    def test_snapshot_ratio_and_dict(self) -> None:
-        snapshot = ContextBudgetSnapshot(
-            window_tokens=1000,
-            spine_tokens=300,
-            model_pin_tokens=80,
-            system_pin_tokens=20,
-            prefix_tokens=50,
-            thinking_tokens=10,
-            tail_tokens=400,
-        )
-        assert snapshot.pin_tokens == 100
-        assert snapshot.irreducible_tokens == 450
-        assert snapshot.ratio == pytest.approx(0.45)
-        assert snapshot.band() == 2
-        payload = snapshot.to_dict()
-        assert payload["irreducible_tokens"] == 450
-        assert payload["tail_tokens"] == 400  # 尾部不进分子
-        assert payload["ratio"] == pytest.approx(0.45)
-
-    def test_snapshot_classifies_with_its_own_bands(self) -> None:
-        snapshot = _snapshot(0.49)
-        assert snapshot.band() == 3
-        custom = ContextBudgetSnapshot(
-            window_tokens=1000,
-            spine_tokens=490,
-            model_pin_tokens=0,
-            system_pin_tokens=0,
-            prefix_tokens=0,
-            thinking_tokens=0,
-            tail_tokens=0,
-            bands=(0.20, 0.40, 0.60),
-        )
-        assert custom.band() == 2
+        assert _snapshot(low - 0.001).band() == 0
+        assert _snapshot(low).band() == 1
+        assert _snapshot(mid - 0.001).band() == 1
+        assert _snapshot(mid).band() == 2
+        assert _snapshot(high).band() == 3
+        assert _snapshot(0.99).band() == 3
 
     def test_zero_window_is_safe(self) -> None:
         snapshot = _snapshot(0.5, window=0)
         assert snapshot.ratio == 0.0
         assert snapshot.band() == 0
 
-
-class TestMeasurePins:
-    def test_splits_model_and_system_pins(self) -> None:
-        mem = ShortTermMemory()
-        mem.pinned_items.append(PinnedItem(pin_id="mine", label="a", content="一二三四五"))
-        mem.pinned_items.append(
-            PinnedItem(pin_id="sys", label="b", content="一二三", system_managed=True)
+    def test_snapshot_uses_its_own_bands(self) -> None:
+        custom = ContextBudgetSnapshot(
+            window_tokens=1000, model_pin_tokens=450, thinking_tokens=0, bands=(0.2, 0.4, 0.6)
         )
-        model_tokens, system_tokens = measure_pin_tokens(mem)
-        assert model_tokens == 5
-        assert system_tokens == 3
-
-    def test_empty(self) -> None:
-        assert measure_pin_tokens(ShortTermMemory()) == (0, 0)
+        assert custom.band() == 2
 
 
-class TestWatcher:
-    def test_first_warning_and_remaining(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.warned == 0
-        remaining = watcher.observe(_snapshot(0.42), cycle=10, generation=0)
-        assert remaining == MAX_BUDGET_WARNINGS - 1
-        assert watcher.warned == 1
-
-    def test_below_lowest_band_never_warns(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.observe(_snapshot(0.10), cycle=10, generation=0) is None
-        assert watcher.warned == 0
-
-    def test_low_band_allows_only_one_warning(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.observe(_snapshot(0.42), cycle=10, generation=0) is not None
-        # 同一档位、间隔已够，也不该再提醒。
-        assert watcher.observe(_snapshot(0.42), cycle=100, generation=0) is None
-
-    def test_higher_band_unlocks_more_warnings(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.observe(_snapshot(0.42), cycle=0, generation=0) is not None
-        assert watcher.observe(_snapshot(0.46), cycle=100, generation=0) is not None
-        assert watcher.observe(_snapshot(0.49), cycle=200, generation=0) is not None
-        # 已经到上限 3 次，再高也不提醒。
-        assert watcher.observe(_snapshot(0.99), cycle=300, generation=0) is None
-        assert watcher.warned == MAX_BUDGET_WARNINGS
-
-    def test_min_gap_between_warnings(self) -> None:
-        watcher = ContextBudgetWatcher(min_gap_cycles=8)
-        assert watcher.observe(_snapshot(0.80), cycle=0, generation=0) is not None
-        assert watcher.observe(_snapshot(0.80), cycle=7, generation=0) is None
-        assert watcher.observe(_snapshot(0.80), cycle=8, generation=0) is not None
-
-    def test_next_compression_resets_counter(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.observe(_snapshot(0.80), cycle=0, generation=0) is not None
-        assert watcher.observe(_snapshot(0.80), cycle=10, generation=0) is not None
-        assert watcher.observe(_snapshot(0.80), cycle=20, generation=0) is not None
-        assert watcher.observe(_snapshot(0.80), cycle=30, generation=0) is None
-        # 压缩发生（generation 变化）后重新计数。
-        assert watcher.observe(_snapshot(0.80), cycle=31, generation=1) is not None
-        assert watcher.warned == 1
-
-    def test_falling_back_to_safe_zone_resets_counter(self) -> None:
-        watcher = ContextBudgetWatcher()
-        assert watcher.observe(_snapshot(0.80), cycle=0, generation=0) is not None
-        assert watcher.observe(_snapshot(0.80), cycle=10, generation=0) is not None
-        assert watcher.observe(_snapshot(0.20), cycle=20, generation=0) is None
-        assert watcher.warned == 0
-        # 模型精简后又涨回来：同一次压缩之后仍应重新提醒。
-        assert watcher.observe(_snapshot(0.80), cycle=30, generation=0) is not None
-
-    def test_rejects_invalid_configuration(self) -> None:
-        with pytest.raises(ValueError):
-            ContextBudgetWatcher(bands=())
-        with pytest.raises(ValueError):
-            ContextBudgetWatcher(max_warnings=0)
-
-
-def _make_loop(mem: ShortTermMemory) -> AgentLoop:
-    loop = AgentLoop.__new__(AgentLoop)
-    loop._short_term = mem
-    loop._tools = MagicMock()
-    loop._tools.get_schemas = MagicMock(return_value=[])
-    loop._prompt_builder = MagicMock()
-    loop._prompt_builder.build = MagicMock(return_value="system prompt")
-    loop._prompt_builder.thinking_tokens = MagicMock(return_value=0)
-    loop._inbox = MagicMock()
-    loop._inbox.push = AsyncMock(return_value="event-1")
-    loop._inbox.cancel = MagicMock()
-    loop.state = AgentState(cycle_count=0)
-    loop._budget_watcher = ContextBudgetWatcher()
-    loop._budget_sampled_generation = None
-    loop._budget_last_sample_cycle = None
-    loop._budget_warning_event_id = None
-    return loop
-
-
-def _mem_with_pin(tokens: int, window: int = 100) -> ShortTermMemory:
+def _mem(window: int = 1000, model_pins: int = 0) -> ShortTermMemory:
     mem = ShortTermMemory(max_tokens=window)
-    # CJK 按 1 字 1 token 计，便于精确构造占比。
-    mem.pinned_items.append(PinnedItem(pin_id="big", label="big", content="记" * tokens))
+    if model_pins:
+        # CJK 一字符一 token，便于精确构造比例。
+        mem.pinned_items.append(PinnedItem(pin_id="p", label="p", content="记" * model_pins))
     return mem
 
 
-class TestLoopSampling:
+def _monitor(mem: ShortTermMemory, thinking: int = 0) -> tuple[ContextBudgetMonitor, MagicMock]:
+    inbox = MagicMock()
+    inbox.push = AsyncMock(return_value="event-1")
+    inbox.cancel = MagicMock()
+    builder = MagicMock()
+    builder.thinking_tokens = MagicMock(return_value=thinking)
+    tools = MagicMock()
+    tools.get_schemas = MagicMock(return_value=[])
+    return ContextBudgetMonitor(mem, builder, tools, inbox), inbox
+
+
+class TestMonitor:
     @pytest.mark.asyncio
-    async def test_snapshot_is_stored_on_short_term(self) -> None:
-        mem = _mem_with_pin(60, window=100)
-        loop = _make_loop(mem)
+    async def test_warns_once_and_records_snapshot(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, inbox = _monitor(mem)
 
-        await loop._maybe_warn_context_budget("system prompt")
+        await monitor.on_cycle("system prompt", cycle=0)
 
-        snapshot = mem.context_budget
-        assert snapshot is not None
-        assert snapshot.window_tokens == 100
-        assert snapshot.model_pin_tokens == 60
-        assert snapshot.irreducible_tokens == 60 + snapshot.prefix_tokens
-        assert snapshot.ratio >= BUDGET_BANDS[0]
-
-    @pytest.mark.asyncio
-    async def test_warning_goes_out_as_inbound_event(self) -> None:
-        mem = _mem_with_pin(60, window=100)
-        loop = _make_loop(mem)
-
-        await loop._maybe_warn_context_budget("system prompt")
-
-        loop._inbox.push.assert_awaited_once()
-        event = loop._inbox.push.await_args.args[0]
+        assert mem.context_budget is not None
+        assert mem.context_budget.model_authored_tokens == 60
+        inbox.push.assert_awaited_once()
+        event = inbox.push.await_args.args[0]
         assert event.participant_id == "system"
         assert event.source == "context_budget"
-        # 正文必须给出可核对的具体数字，而不是泛泛要求"优化"。
-        assert "100" in event.content
-        assert "60" in event.content
-        assert loop._inbox.push.await_args.kwargs["wake"] is False
+        assert "60" in event.content and "1000" in event.content
+        assert inbox.push.await_args.kwargs["wake"] is False
 
     @pytest.mark.asyncio
-    async def test_no_warning_below_threshold(self) -> None:
-        mem = _mem_with_pin(5, window=1000)
-        loop = _make_loop(mem)
+    async def test_silent_below_lowest_band(self) -> None:
+        mem = _mem(window=1000, model_pins=10)
+        monitor, inbox = _monitor(mem)
 
-        await loop._maybe_warn_context_budget("system prompt")
+        await monitor.on_cycle("system prompt", cycle=0)
 
-        loop._inbox.push.assert_not_awaited()
-        assert mem.context_budget is not None  # 采样照做，只是不提醒
+        inbox.push.assert_not_awaited()
+        assert mem.context_budget is not None  # 采样照做
 
     @pytest.mark.asyncio
-    async def test_sampling_is_throttled_between_cycles(self) -> None:
-        mem = _mem_with_pin(60, window=100)
-        loop = _make_loop(mem)
+    async def test_sampling_is_throttled(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, _ = _monitor(mem)
 
-        await loop._maybe_warn_context_budget("system prompt")
+        await monitor.on_cycle("system prompt", cycle=0)
         first = mem.context_budget
-        loop.state.cycle_count = 1
-        await loop._maybe_warn_context_budget("system prompt")
+        await monitor.on_cycle("system prompt", cycle=1)
 
         assert mem.context_budget is first  # 间隔不足，未重新采样
 
     @pytest.mark.asyncio
-    async def test_compression_triggers_fresh_sample_and_cancels_pending(self) -> None:
-        mem = _mem_with_pin(60, window=100)
-        loop = _make_loop(mem)
+    async def test_lowest_band_allows_only_one_warning(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, inbox = _monitor(mem)
 
-        await loop._maybe_warn_context_budget("system prompt")
-        assert loop._budget_warning_event_id == "event-1"
+        await monitor.on_cycle("system prompt", cycle=0)
+        await monitor.on_cycle("system prompt", cycle=100)
+
+        assert inbox.push.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_higher_bands_unlock_more_warnings_up_to_cap(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, inbox = _monitor(mem)
+
+        await monitor.on_cycle("system prompt", cycle=0)
+        mem.pinned_items[0].content = "记" * 90  # 0.09 → band 2
+        await monitor.on_cycle("system prompt", cycle=100)
+        mem.pinned_items[0].content = "记" * 120  # 0.12 → band 3
+        await monitor.on_cycle("system prompt", cycle=200)
+        mem.pinned_items[0].content = "记" * 500
+        await monitor.on_cycle("system prompt", cycle=300)
+
+        assert inbox.push.await_count == MAX_WARNINGS
+
+    @pytest.mark.asyncio
+    async def test_new_compression_resets_and_cancels_pending(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, inbox = _monitor(mem)
+
+        await monitor.on_cycle("system prompt", cycle=0)
+        assert monitor._pending_event == "event-1"
 
         mem.compress_generation += 1
-        loop.state.cycle_count = 1
-        await loop._maybe_warn_context_budget("system prompt")
+        await monitor.on_cycle("system prompt", cycle=50)
 
-        # 上一次压缩留下的提醒作废并撤回，压缩后重新采样。
-        loop._inbox.cancel.assert_called_once_with("event-1")
-        assert loop._budget_sampled_generation == mem.compress_generation
-        loop._inbox.push.assert_awaited()
+        inbox.cancel.assert_called_once_with("event-1")
+        # 新纪元重新计数，并且重新采样。
+        assert monitor._warned == 1
+        assert inbox.push.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_falling_back_to_safe_zone_resets_counter(self) -> None:
+        mem = _mem(window=1000, model_pins=60)
+        monitor, inbox = _monitor(mem)
+
+        await monitor.on_cycle("system prompt", cycle=0)
+        await monitor.on_cycle("system prompt", cycle=100)  # band 1 已用满
+        mem.pinned_items[0].content = "记" * 10  # 回落到安全区
+        await monitor.on_cycle("system prompt", cycle=200)
+        mem.pinned_items[0].content = "记" * 60  # 再次进入 band 1
+        await monitor.on_cycle("system prompt", cycle=300)
+
+        assert inbox.push.await_count == 2
+        assert monitor._warned == 1
 
 
 class TestThresholdConfig:
     def test_defaults_are_the_documented_bands(self) -> None:
-        assert MemoryConfig().context_budget_warn_thresholds == [0.40, 0.45, 0.48]
+        assert MemoryConfig().context_budget_warn_thresholds == [0.05, 0.09, 0.12]
 
     def test_accepts_comma_separated_env_style_string(self) -> None:
-        config = MemoryConfig(context_budget_warn_thresholds="0.4, 0.45,0.48")
-        assert config.context_budget_warn_thresholds == [0.40, 0.45, 0.48]
+        config = MemoryConfig(context_budget_warn_thresholds="0.05, 0.09,0.12")
+        assert config.context_budget_warn_thresholds == [0.05, 0.09, 0.12]
 
     @pytest.mark.parametrize(
         "value",

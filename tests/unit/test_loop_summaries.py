@@ -15,7 +15,6 @@ from coworker.core.constants import TICK_TAG
 from coworker.core.types import IncomingEvent, LLMResponse, Message, ToolCall
 from coworker.i18n import locale_context
 from coworker.memory.base import MemoryRecord
-from coworker.memory.context_budget import ContextBudgetWatcher
 from coworker.memory.short_term import ShortTermMemory
 
 
@@ -77,11 +76,9 @@ def _make_loop(brain, mem, events=None):
     loop._last_compress_generation = getattr(mem, "compress_generation", 0)
     loop._compress_task = None
     loop._compress_retry_at = 0.0
-    # 上下文预算采样：这些用例只关心压缩路径，用量保持在安全区即可。
-    loop._budget_watcher = ContextBudgetWatcher()
-    loop._budget_sampled_generation = None
-    loop._budget_last_sample_cycle = None
-    loop._budget_warning_event_id = None
+    # 这些用例只关心压缩路径，把预算采样换成一个不产生告警的空壳。
+    loop._context_budget = MagicMock()
+    loop._context_budget.on_cycle = AsyncMock()
     return loop
 
 

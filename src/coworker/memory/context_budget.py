@@ -1,185 +1,210 @@
-"""上下文预算账本：把模型能自己写进上下文的内容纳入统一计量，超限时提醒。
+"""上下文预算：计量模型自己写进上下文的部分，超限时提醒。
 
-记忆脊柱有结构性预算（``MemoryBlockTree`` 的 ``spine_cap_tokens``，由斐波那契 K 进位
-保证），但模型自己维护的 ``data/thinking.md``、pin、以及系统提示词与工具定义没有共同的
-账本：它们没有上限，也没有任何反馈告诉模型"你写得太多了"。这里把**压缩砍不掉的那部分**
-（脊柱 + pin + 提示词与工具定义）算成一个比例，按档位通过 inbound 给模型一次带数字的提醒。
+模型能自己写、又没有硬上限的只有两处：pin 与 ``data/thinking.md``。脊柱有结构性 cap，
+pin 有 5k/15k 写入闸门，但都没有"你正在吃掉多少窗口"的反馈。这里把这两项算成占
+``MEMORY__SHORT_TERM_MAX_TOKENS`` 的比例，按档位通过 inbound 提醒。
 
-设计边界：
-
-- **只提醒，不拦截**。硬约束仍是脊柱的 K 进位和 ``manage_pinned_context`` 的
-  5k/15k 上限；这里只负责让模型看见成本，不新增写入闸门。
-- 分母固定为 ``ShortTermMemory.max_tokens``（压缩预算），与脊柱 cap 同源；阈值由
-  ``MEMORY__CONTEXT_BUDGET_WARN_THRESHOLDS`` 配置，默认 ``0.40/0.45/0.48``。
-  默认窗口下"不可压缩部分"的可用区间很窄：脊柱上限 0.30 + 固定提示词与工具约
-  0.07–0.09（中英差异）≈ 0.37–0.39 起步，再加满 pin（上限 0.125）≈ 0.50 封顶。
-  档位贴着这个区间排才有区分度；高到 0.75 之类的阈值在默认配置下永远打不到。
-- 两次压缩之间（``compress_generation`` 不变）最多提醒 3 次；档位越高允许的次数越多，
-  相邻提醒至少间隔若干 cycle；比例回落到安全区或发生下一次压缩时计数清零。
-- 所有数字都来自 Coworker 内部估算（``estimate_text_tokens``），提醒正文会写明这一点。
-
-另一个容易踩的点：自动压缩每次只切走 primary 最老的 ``compress_ratio``（默认 30%），
-并非清空。所以压缩后的**整请求**在稳态下仍占窗口的 70–85%，用 total input tokens 做
-阈值没有区分度——这也是这里改用"不可压缩部分"作分子的原因。
+只提醒不拦截；两次压缩之间最多提醒 3 次，档位越高允许得越多，比例回落到安全区或
+下一次压缩（``compress_generation`` 变化）时清零。
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from coworker.core.token_utils import estimate_text_tokens
+from coworker.core.types import IncomingEvent
+from coworker.i18n import tr
 
 if TYPE_CHECKING:
+    from coworker.agent.inbox_watcher import InboxWatcher
     from coworker.memory.short_term import ShortTermMemory
+    from coworker.prompts.system_prompt import SystemPromptBuilder
+    from coworker.tools.registry import ToolRegistry
 
-# 档位阈值默认值：不可压缩部分 / 压缩预算。实际取值来自
-# ``MEMORY__CONTEXT_BUDGET_WARN_THRESHOLDS``；这里只是配置缺省与测试基准。
-# 0.40 是"模型自写内容开始有分量"，0.48 已接近默认配置的天花板（≈0.50）。
-BUDGET_BANDS: tuple[float, ...] = (0.40, 0.45, 0.48)
-
-# 两次压缩之间的提醒次数上限。
-MAX_BUDGET_WARNINGS = 3
-
-# 相邻两次采样/提醒的最小 cycle 间隔，避免短时间内连续刷屏。
-MIN_BUDGET_WARNING_GAP_CYCLES = 8
-
-
-def band_for(ratio: float, bands: tuple[float, ...] = BUDGET_BANDS) -> int:
-    """把比例映射到档位：0=安全区，1..len(bands)=逐级超限。"""
-    band = 0
-    for index, threshold in enumerate(bands, start=1):
-        if ratio >= threshold:
-            band = index
-    return band
-
-
-def measure_pin_tokens(short_term: ShortTermMemory) -> tuple[int, int]:
-    """按 token 估算拆分 (模型 pin, 系统 pin)。
-
-    只读 ``PinnedItem.content``：file_path pin 的最新内容要等重注入时才刷新，这里刻意
-    不做文件 I/O——账本用于趋势判断，缓存值足够，而且避免每次采样都扫盘。
-    """
-    model_tokens = 0
-    system_tokens = 0
-    for item in short_term.pinned_items:
-        tokens = estimate_text_tokens(item.content)
-        if item.system_managed:
-            system_tokens += tokens
-        else:
-            model_tokens += tokens
-    return model_tokens, system_tokens
+# 模型自写部分占窗口的比例。0.05 ≈ 6k（pin 用了四成），0.12 ≈ 14.4k（已到 pin 上限附近）。
+BUDGET_BANDS: tuple[float, ...] = (0.05, 0.09, 0.12)
+MAX_WARNINGS = 3
+MIN_GAP_CYCLES = 8
 
 
 @dataclass(frozen=True)
 class ContextBudgetSnapshot:
-    """一次采样得到的上下文预算快照（全部为 token 估算值）。
-
-    ``bands`` 记录采样时生效的阈值，使存档/管理端读到的档位与当时的策略一致。
-    """
+    """一次采样：``model_authored_tokens`` 参与档位，其余字段只用于展示。"""
 
     window_tokens: int
-    spine_tokens: int
     model_pin_tokens: int
-    system_pin_tokens: int
-    prefix_tokens: int
     thinking_tokens: int
-    tail_tokens: int
+    spine_tokens: int = 0
+    system_pin_tokens: int = 0
+    prefix_tokens: int = 0
     bands: tuple[float, ...] = BUDGET_BANDS
 
     @property
-    def pin_tokens(self) -> int:
-        return self.model_pin_tokens + self.system_pin_tokens
+    def model_authored_tokens(self) -> int:
+        return self.model_pin_tokens + self.thinking_tokens
 
     @property
     def irreducible_tokens(self) -> int:
-        """压缩砍不掉的部分：脊柱 + 全部 pin + 提示词与工具定义。"""
-        return self.spine_tokens + self.pin_tokens + self.prefix_tokens
+        """整段压缩砍不掉的量，仅用于观测。"""
+        return (
+            self.spine_tokens
+            + self.model_pin_tokens
+            + self.system_pin_tokens
+            + self.prefix_tokens
+        )
 
     @property
     def ratio(self) -> float:
         if self.window_tokens <= 0:
             return 0.0
-        return self.irreducible_tokens / self.window_tokens
+        return self.model_authored_tokens / self.window_tokens
 
     def band(self) -> int:
-        return band_for(self.ratio, self.bands)
+        """0=安全区，1..len(bands)=逐级超限。"""
+        band = 0
+        for index, threshold in enumerate(self.bands, start=1):
+            if self.ratio >= threshold:
+                band = index
+        return band
 
     def to_dict(self) -> dict[str, int | float]:
         return {
             "window_tokens": self.window_tokens,
-            "spine_tokens": self.spine_tokens,
             "model_pin_tokens": self.model_pin_tokens,
+            "thinking_tokens": self.thinking_tokens,
+            "model_authored_tokens": self.model_authored_tokens,
+            "spine_tokens": self.spine_tokens,
             "system_pin_tokens": self.system_pin_tokens,
             "prefix_tokens": self.prefix_tokens,
-            "thinking_tokens": self.thinking_tokens,
-            "tail_tokens": self.tail_tokens,
-            "pin_tokens": self.pin_tokens,
             "irreducible_tokens": self.irreducible_tokens,
             "ratio": round(self.ratio, 4),
             "band": self.band(),
         }
 
 
-class ContextBudgetWatcher:
-    """按压缩推进计数的提醒节流器：决定"此刻该不该提醒"。
-
-    规则：``band`` 越高允许的次数越多（1/2/3），总数不超过 ``max_warnings``，相邻两次
-    至少间隔 ``min_gap_cycles``；下一次压缩（``compress_generation`` 变化）或比例回落到
-    安全区时清零，这样模型一旦精简下来，之后再涨回去仍会被提醒。
-    """
+class ContextBudgetMonitor:
+    """每个 cycle 调一次 ``on_cycle``：采样、节流、必要时投递一条 inbound 提醒。"""
 
     def __init__(
         self,
+        short_term: ShortTermMemory,
+        prompt_builder: SystemPromptBuilder,
+        tools: ToolRegistry,
+        inbox: InboxWatcher,
         *,
         bands: tuple[float, ...] = BUDGET_BANDS,
-        max_warnings: int = MAX_BUDGET_WARNINGS,
-        min_gap_cycles: int = MIN_BUDGET_WARNING_GAP_CYCLES,
     ) -> None:
         if not bands:
             raise ValueError("bands must not be empty")
-        if max_warnings < 1:
-            raise ValueError("max_warnings must be positive")
+        self.snapshot: ContextBudgetSnapshot | None = None
+        self._short_term = short_term
+        self._prompt_builder = prompt_builder
+        self._tools = tools
+        self._inbox = inbox
         self._bands = tuple(bands)
-        self._max_warnings = int(max_warnings)
-        self._min_gap = max(0, int(min_gap_cycles))
         self._generation: int | None = None
+        self._last_sample_cycle: int | None = None
         self._warned = 0
-        self._last_cycle: int | None = None
+        self._last_warning_cycle: int | None = None
+        self._pending_event: str | None = None
 
-    @property
-    def warned(self) -> int:
-        """自上次压缩以来已经提醒过的次数。"""
-        return self._warned
-
-    @property
-    def bands(self) -> tuple[float, ...]:
-        """当前生效的档位阈值（供采样快照记录同一套策略）。"""
-        return self._bands
-
-    def observe(
-        self, snapshot: ContextBudgetSnapshot, *, cycle: int, generation: int
-    ) -> int | None:
-        """记录一次采样；返回提醒后到下次压缩前剩余的次数，``None`` 表示这次不提醒。"""
+    async def on_cycle(self, system_prompt: str, cycle: int) -> None:
+        generation = self._short_term.compress_generation
+        if not self._sample_due(generation, cycle):
+            return
         if generation != self._generation:
+            if self._generation is not None:
+                self._cancel_pending()
             self._generation = generation
             self._warned = 0
-            self._last_cycle = None
+            self._last_warning_cycle = None
+        self._last_sample_cycle = cycle
 
-        band = band_for(snapshot.ratio, self._bands)
+        snapshot = self._measure(system_prompt)
+        self.snapshot = snapshot
+        self._short_term.context_budget = snapshot
+
+        remaining = self._throttle(snapshot, cycle)
+        if remaining is None:
+            return
+        self._pending_event = await self._inbox.push(
+            IncomingEvent(
+                participant_id="system",
+                content=tr(
+                    "memory.budget.notice",
+                    authored=snapshot.model_authored_tokens,
+                    window=snapshot.window_tokens,
+                    percent=f"{snapshot.ratio * 100:.1f}",
+                    model_pins=snapshot.model_pin_tokens,
+                    thinking=snapshot.thinking_tokens,
+                ),
+                source="context_budget",
+                timestamp=datetime.now(),
+            ),
+            wake=False,
+        )
+        logger.info(
+            f"Context budget warning: model-authored ~{snapshot.model_authored_tokens} tokens "
+            f"({snapshot.ratio:.1%} of {snapshot.window_tokens}), "
+            f"{remaining} reminder(s) left before the next compression"
+        )
+
+    def _sample_due(self, generation: int, cycle: int) -> bool:
+        """压缩后的首轮必采；其余每 ``MIN_GAP_CYCLES`` 轮补采一次。"""
+        if generation != self._generation:
+            return True
+        last = self._last_sample_cycle
+        return last is None or cycle - last >= MIN_GAP_CYCLES
+
+    def _measure(self, system_prompt: str) -> ContextBudgetSnapshot:
+        model_pins = 0
+        system_pins = 0
+        for item in self._short_term.pinned_items:
+            tokens = estimate_text_tokens(item.content)
+            if item.system_managed:
+                system_pins += tokens
+            else:
+                model_pins += tokens
+        tool_tokens = estimate_text_tokens(
+            json.dumps(self._tools.get_schemas(), ensure_ascii=False)
+        )
+        return ContextBudgetSnapshot(
+            window_tokens=self._short_term.max_tokens,
+            model_pin_tokens=model_pins,
+            thinking_tokens=self._prompt_builder.thinking_tokens(),
+            spine_tokens=self._short_term.tree.spine_tokens(),
+            system_pin_tokens=system_pins,
+            prefix_tokens=estimate_text_tokens(system_prompt) + tool_tokens,
+            bands=self._bands,
+        )
+
+    def _throttle(self, snapshot: ContextBudgetSnapshot, cycle: int) -> int | None:
+        """返回本次提醒后剩余的额度；``None`` 表示这次不提醒。"""
+        band = snapshot.band()
         if band == 0:
-            # 回落到安全区：清零，让下次逼近重新计数。
             self._warned = 0
-            self._last_cycle = None
+            self._last_warning_cycle = None
             return None
-
-        if self._warned >= self._max_warnings:
+        if self._warned >= min(band, MAX_WARNINGS):
             return None
-        if self._warned >= min(band, self._max_warnings):
+        if (
+            self._last_warning_cycle is not None
+            and cycle - self._last_warning_cycle < MIN_GAP_CYCLES
+        ):
             return None
-        if self._last_cycle is not None and cycle - self._last_cycle < self._min_gap:
-            return None
-
         self._warned += 1
-        self._last_cycle = cycle
-        return self._max_warnings - self._warned
+        self._last_warning_cycle = cycle
+        return MAX_WARNINGS - self._warned
+
+    def _cancel_pending(self) -> None:
+        """压缩后旧提醒的数字已过期，撤回尚未投递的那条。"""
+        event_id = self._pending_event
+        self._pending_event = None
+        if event_id is not None:
+            self._inbox.cancel(event_id)

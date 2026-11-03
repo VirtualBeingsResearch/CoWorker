@@ -202,15 +202,12 @@ class GetContextTool(Tool):
         if budget is not None:
             content += "\n\n" + tr(
                 "tool_result.system.context_budget",
-                irreducible=budget.irreducible_tokens,
+                authored=budget.model_authored_tokens,
                 window=budget.window_tokens,
                 percent=f"{budget.ratio * 100:.1f}",
-                spine=budget.spine_tokens,
                 model_pins=budget.model_pin_tokens,
-                system_pins=budget.system_pin_tokens,
-                prefix=budget.prefix_tokens,
                 thinking=budget.thinking_tokens,
-                tail=budget.tail_tokens,
+                other=budget.irreducible_tokens - budget.model_authored_tokens,
             )
         return ToolResult(tool_call_id="", content=content)
 
