@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 # 超时则说明通道 API 不健康，不能让上一条消息一直等它。
 _OPEN_TIMEOUT_SECONDS = 10.0
 
+# 占位表达的是「对方发来了一条消息，回复会覆盖这一条」。出站附件上传完成后，
+# 信道会把结果回投成入站事件（source=channel_upload）：它带着同一个
+# participant_id，却不是对话伙伴发来的，模型也不会专门去回复它。为这种回执开
+# 占位，文件送达之后就会多出一条没人覆盖的「正在思考中…」，一直挂到超时。
+_NO_PLACEHOLDER_SOURCES = frozenset({"channel_upload"})
+
 
 @dataclass
 class ProgressTransport:
@@ -151,6 +157,8 @@ class ChannelProgressCoordinator:
         占位是尽力而为的装饰：解析对象、开占位、结束旧占位的任何失败都只写日志，
         调用方的入站处理链必须照常拿到这条消息。
         """
+        if event.source in _NO_PLACEHOLDER_SOURCES:
+            return
         if not self._progress_allowed():
             return
         try:

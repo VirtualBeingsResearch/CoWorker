@@ -442,6 +442,60 @@ async def test_telegram_group_inbound_opens_no_placeholder(tmp_path):
     assert client.messages == [(-1001, "to the group", None)]
 
 
+def _upload_status_event(
+    participant_id: str = "tg:main:123",
+    filename: str = "report.txt",
+) -> IncomingEvent:
+    """附件上传完成后，信道回投的那条入站事件。"""
+    return IncomingEvent(
+        participant_id=participant_id,
+        content=tr(
+            "channel.upload.status",
+            label=tr("channel.upload.label_telegram"),
+            notice=tr("channel.upload.succeeded_notice", filename=filename),
+        ),
+        source="channel_upload",
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_upload_status_notice_opens_no_placeholder(tmp_path):
+    # 文件发完后，上传回执会带着同一个 participant 回到入站链路。它不是对方发来的
+    # 消息，模型也不会专门回复它：为它开占位，就等于在文件送达之后又留下一条没人
+    # 覆盖的「正在思考中…」，一直挂到超时才变成一句说明。
+    _runner, bot, client, registry, progress, inbox = _telegram_stack(tmp_path)
+    await bot._consume_update(client, _private_update(1))
+    result = await registry.send(
+        CommunicateRequest(participant_id="tg:main:123", message="done")
+    )
+    assert result.is_error is False
+    assert progress.live_placeholders() == []
+
+    await registry._channels[0].publish_inbound(_upload_status_event())
+
+    # 回执照常进入入站链路，只是不再开占位。
+    assert inbox.await_count == 2
+    assert progress.live_placeholders() == []
+    assert client.messages == [(123, tr("channel.progress.thinking"), None)]
+
+
+@pytest.mark.asyncio
+async def test_telegram_upload_status_notice_keeps_the_waiting_placeholder(tmp_path):
+    # 回执不能顶掉正在等回复的那条占位：换一条新的会让正式回复改写错位置，
+    # 原来那条「正在思考中…」则永远留在对方那里。
+    _runner, bot, client, registry, progress, _inbox = _telegram_stack(tmp_path)
+    await bot._consume_update(client, _private_update(1))
+    assert len(progress.live_placeholders()) == 1
+
+    await registry._channels[0].publish_inbound(_upload_status_event())
+
+    assert client.messages == [(123, tr("channel.progress.thinking"), None)]
+    assert client.edits == []
+    assert [
+        item.transport.telegram_message_id for item in progress.live_placeholders()
+    ] == [1]
+
+
 @pytest.mark.asyncio
 async def test_reply_reminder_injects_until_communicate(tmp_path):
     _runner, bot, registry, progress, _inbox = _wecom_stack(tmp_path, enabled=True)
