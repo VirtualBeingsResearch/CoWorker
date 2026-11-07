@@ -384,8 +384,7 @@ class BubbleMiniLoop:
         progress = self._progress_coordinator()
         if progress is None:
             return
-        await progress.expire_unanswered()
-        await progress.emit_reply_reminders()
+        await progress.maintain()
 
     async def _drain_inbox(self) -> None:
         bubble = self._bubble

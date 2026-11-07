@@ -24,6 +24,16 @@ if TYPE_CHECKING:
 # 超时则说明通道 API 不健康，不能让上一条消息一直等它。
 _OPEN_TIMEOUT_SECONDS = 10.0
 
+# 占位表达的是「对方发来了一条消息，回复会覆盖这一条」。出站附件上传完成后，
+# 信道会把结果回投成入站事件（source=channel_upload）：它带着同一个
+# participant_id，却不是对话伙伴发来的，模型也不会专门去回复它。为这种回执开
+# 占位，文件送达之后就会多出一条没人覆盖的「正在思考中…」，一直挂到超时。
+_NO_PLACEHOLDER_SOURCES = frozenset({"channel_upload"})
+
+# 催促与超时的维护节奏。它们原来只在每轮请求前驱动一次：模型调用 sleep 或在
+# passive 模式下待机时没有下一轮，占位就一直没人催、也不会超时结束。
+_MAINTENANCE_INTERVAL_SECONDS = 5.0
+
 
 @dataclass
 class ProgressTransport:
@@ -141,9 +151,47 @@ class ChannelProgressCoordinator:
         self._placeholders: dict[str, ProgressPlaceholder] = {}
         # 同一对象的开占位必须串行（通道可能并发分发入站），键与占位同量级。
         self._locks: dict[str, asyncio.Lock] = {}
+        self._maintenance_task: asyncio.Task[None] | None = None
 
     def set_setup_predicate(self, predicate: Callable[[], bool]) -> None:
         self._is_setup = predicate
+
+    async def start(self) -> None:
+        """Maintain placeholders on a timer instead of on model cycles.
+
+        催促与超时结束后都靠入站事件通知模型，而模型休眠时不会开启新的一轮：
+        只按轮次驱动的话，那条「正在思考中…」会一直挂着，直到下一次有人说句话
+        才被想起。这里让维护与循环解耦，该催的到了点就催。
+        """
+        if self._maintenance_task is not None:
+            return
+        self._maintenance_task = asyncio.create_task(
+            self._maintain_forever(),
+            name="channel-progress-maintenance",
+        )
+
+    async def stop(self) -> None:
+        task = self._maintenance_task
+        self._maintenance_task = None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def maintain(self) -> None:
+        """End timed-out placeholders, then remind about the ones still waiting."""
+        await self.expire_unanswered()
+        await self.emit_reply_reminders()
+
+    async def _maintain_forever(self) -> None:
+        while True:
+            await asyncio.sleep(_MAINTENANCE_INTERVAL_SECONDS)
+            try:
+                await self.maintain()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                # 维护失败不该让后台任务静默消失：通道临时故障时下一轮还要继续。
+                logger.warning(f"channel progress maintenance failed: {error}")
 
     async def on_inbound(self, event: IncomingEvent) -> None:
         """Give one inbound message a placeholder; never fail the message itself.
@@ -151,6 +199,8 @@ class ChannelProgressCoordinator:
         占位是尽力而为的装饰：解析对象、开占位、结束旧占位的任何失败都只写日志，
         调用方的入站处理链必须照常拿到这条消息。
         """
+        if event.source in _NO_PLACEHOLDER_SOURCES:
+            return
         if not self._progress_allowed():
             return
         try:
