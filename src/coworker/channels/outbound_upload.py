@@ -35,8 +35,16 @@ class UploadTracker:
         task.add_done_callback(self._tasks.discard)
 
     async def drain(self) -> None:
+        """Wait until no upload is left, including uploads scheduled meanwhile.
+
+        不能只写 ``while self._tasks: await gather(...)``：已经跑完、但收尾回调
+        还没轮到执行的任务仍留在集合里，gather 对它们立即返回、不再交还事件
+        循环，整个进程就卡在这一行空转。每轮显式摘掉本轮等到的任务。
+        """
         while self._tasks:
-            await asyncio.gather(*tuple(self._tasks))
+            pending = tuple(self._tasks)
+            await asyncio.gather(*pending)
+            self._tasks.difference_update(pending)
 
     async def cancel(self) -> None:
         tasks = tuple(self._tasks)
