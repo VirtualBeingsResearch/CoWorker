@@ -1255,6 +1255,9 @@ async def _main() -> bool:
 
     await desktop_update_sync.start(run_immediately=config.desktop_updates.sync_on_start)
     await channel_system.registry.start()
+    # 催促与超时由协调器自己的后台任务驱动：模型调用 sleep 时没有下一轮请求，
+    # 只按轮次维护的话占位会一直挂着。
+    await progress.start()
     await relay_client.start()
     server_task = asyncio.create_task(server.serve(), name="server")
     await tunnel_manager.start_if_configured()
@@ -1303,6 +1306,8 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        # 先停掉占位维护，避免收尾期间又开出一条催促/超时通知。
+        await progress.stop()
         # 信道还活着时替对方结束未回复的占位：重启后内存里的占位就没了，
         # 不在这里收尾的话那条「正在思考中…」会永久留在对方那里。
         await progress.close_all_placeholders()

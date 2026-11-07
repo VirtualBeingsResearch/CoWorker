@@ -597,6 +597,56 @@ async def test_loop_reply_reminder_is_emitted_as_an_inbound_event():
     assert sink.events[0].content == emitted[0]
 
 
+# ── 后台维护：不依赖模型循环 ────────────────────────────────────────────────
+#
+# 模型调用 sleep、或在 passive 模式下待机时不会开启下一轮请求。催促与超时若只在
+# 每轮请求前驱动，占位就一直挂着：对方看着「正在思考中…」，模型却永远收不到那句
+# 「该回复了」。
+
+
+@pytest.mark.asyncio
+async def test_background_maintenance_reminds_without_a_model_cycle(monkeypatch):
+    monkeypatch.setattr(progress_module, "_MAINTENANCE_INTERVAL_SECONDS", 0.01)
+    progress = ChannelProgressCoordinator(ChannelRegistry(), _agent_config(reminder=1))
+    sink = _SinkRecorder()
+    progress.set_inbound_sink(sink)
+    progress._placeholders["tg:main:123"] = _due_placeholder("tg:main:123")
+
+    await progress.start()
+    try:
+        for _ in range(200):
+            if sink.events:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        await progress.stop()
+
+    assert [event.source for event in sink.events] == ["progress_reminder"]
+    assert sink.events[0].participant_id == "tg:main:123"
+
+
+@pytest.mark.asyncio
+async def test_background_maintenance_closes_an_expired_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setattr(progress_module, "_MAINTENANCE_INTERVAL_SECONDS", 0.01)
+    _runner, bot, client, registry, progress, inbox = _telegram_stack(tmp_path)
+    progress.set_inbound_sink(inbox)
+    await bot._consume_update(client, _private_update(1))
+    progress.live_placeholders()[0].opened_at = time.monotonic() - 700
+
+    await progress.start()
+    try:
+        for _ in range(200):
+            if not progress.live_placeholders():
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        await progress.stop()
+
+    assert client.edits == [(123, 1, tr("channel.progress.expired"))]
+    assert progress.live_placeholders() == []
+    assert inbox.await_args.args[0].source == "progress_expired"
+
+
 # ── 催促注入的位置 ──────────────────────────────────────────────────────────
 #
 # 催促是 role="user" 的消息，只能在「上一条 assistant[tool_use] 的 tool_result 已

@@ -917,13 +917,13 @@ class AgentLoop:
         """End timed-out placeholders, then remind about the ones still waiting.
 
         两者都以入站事件投递（见 ChannelProgressCoordinator._announce），由泡泡
-        路由决定落到主线还是某个泡泡；这里只负责在每轮请求前驱动一次。
+        路由决定落到主线还是某个泡泡；这里只负责在每轮请求前驱动一次，真正的
+        定时维护在 ChannelProgressCoordinator 自己的后台任务里。
         """
         progress = getattr(self, "_progress", None)
         if progress is None:
             return
-        await progress.expire_unanswered()
-        await progress.emit_reply_reminders()
+        await progress.maintain()
 
     async def _task_watcher(self) -> None:
         task_store = self._task_store
