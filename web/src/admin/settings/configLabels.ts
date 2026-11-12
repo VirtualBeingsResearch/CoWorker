@@ -15,6 +15,7 @@ export const CONFIG_LABELS: Record<string, string> = {
   'llm.summary_thinking': '摘要 Thinking',
   'llm.summary_thinking_effort': '摘要思考强度',
   'llm.fallbacks': '主模型降级链',
+  'llm.fallback_recovery_seconds': '主模型恢复探测间隔（秒）',
   'llm.vision_provider': '视觉 Provider',
   'llm.vision_model': '视觉模型',
   'llm.vision_thinking': '视觉 Thinking',

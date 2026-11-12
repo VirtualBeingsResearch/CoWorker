@@ -249,8 +249,12 @@ class LLMConfig(_EnvSettings):
 
     # 主模型调用失败后的降级链（有序）。每项为 "providerName" 或 "providerName/modelId"；
     # 省略 modelId 时用该 provider 实例的 default_model。环境变量 LLM__FALLBACKS 传 JSON 数组，
-    # 如 LLM__FALLBACKS='["zhipu-userB","deepseek/deepseek-chat"]'。降级后停在备用模型，等手动切回。
+    # 如 LLM__FALLBACKS='["zhipu-userB","deepseek/deepseek-chat"]'。降级后用下一次主循环调用
+    # 探测主模型，成功即自动切回；手动 switch_model 仍是立即切回的方式。
     fallbacks: list[str] = Field(default_factory=list)
+    # 降级后首次探测主模型的等待秒数：0 表示下一次主循环调用立即探测，负值关闭自动恢复。
+    # 探测失败按指数退避，单次间隔最长 30 分钟。
+    fallback_recovery_seconds: float = 300.0
 
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""

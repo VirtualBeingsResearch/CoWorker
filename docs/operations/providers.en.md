@@ -169,10 +169,13 @@ usage; it neither changes `usage_stats.json` nor preserves the price that applie
 - summary: compression and summarization, usually without thinking to reduce cost; when a Provider splits thinking tokens (for example Anthropic's `output_tokens_details.thinking_tokens`), summary content and thinking tokens are counted separately and memory-tree nodes are sized by content only;
 - vision: image/video analysis, requiring declared Provider capability;
 - long_term: long-term-memory extraction (run by the mem0 backend by default);
-- fallback: ordered takeover after main-model failure.
+- fallback: ordered takeover after main-model failure. After a takeover, upcoming main-loop calls
+  probe the primary model and switch back automatically once it recovers; the probe cadence is
+  `LLM__FALLBACK_RECOVERY_SECONDS`.
 
 The usual practice is to validate each specialist before adding it to fallback; a dead Provider
-first in the chain adds latency to every takeover.
+first in the chain adds latency to every takeover. While degraded, `switch_model` switches back
+immediately, and a manual switch clears the automatic-recovery target.
 
 ## Common failures
 

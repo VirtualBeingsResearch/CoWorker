@@ -1375,6 +1375,7 @@ const LLM_CONFIG_FIELD_ORDER = [
   'summary_thinking',
   'summary_thinking_effort',
   'fallbacks',
+  'fallback_recovery_seconds',
   'vision_provider',
   'vision_model',
   'vision_thinking',

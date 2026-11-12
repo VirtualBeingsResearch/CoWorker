@@ -56,6 +56,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
 | `LLM__SUMMARY_THINKING_EFFORT` | 空（Provider 默认） | 摘要/压缩思考强度，档位同 `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
+| `LLM__FALLBACK_RECOVERY_SECONDS` | `300` | 降级后首次探测主模型的等待秒数；`0` 表示下一次主循环调用立即探测，负数关闭自动恢复。探测失败按指数退避，单次间隔最长 30 分钟 |
 | `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
 | `LLM__ANTHROPIC_BASE_URL` | 空 | Anthropic 自定义 Base URL |

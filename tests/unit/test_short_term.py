@@ -66,6 +66,33 @@ class TestShortTermMemory:
         loaded = ShortTermMemory.load_from_file(state_file)
         assert loaded.primary[0].content == "persisted"
 
+    def test_serialize_deserialize_preserves_fallback_recovery_target(self):
+        mem = ShortTermMemory()
+        mem.active_provider = "backup"
+        mem.active_model = "backup-model"
+        mem.preferred_provider = "primary"
+        mem.preferred_model = "primary-model"
+
+        restored = ShortTermMemory.deserialize(mem.serialize())
+
+        assert restored.active_provider == "backup"
+        assert restored.active_model == "backup-model"
+        assert restored.preferred_provider == "primary"
+        assert restored.preferred_model == "primary-model"
+
+    def test_deserialize_defaults_missing_fallback_recovery_target(self):
+        mem = ShortTermMemory()
+        mem.active_provider = "primary"
+        mem.active_model = "primary-model"
+        data = mem.serialize()
+        data.pop("preferred_provider", None)
+        data.pop("preferred_model", None)
+
+        restored = ShortTermMemory.deserialize(data)
+
+        assert restored.preferred_provider == ""
+        assert restored.preferred_model == ""
+
     def test_compression_budget_uses_observed_provider_tokens(self):
         mem = ShortTermMemory(max_tokens=10_000)
 
