@@ -3,9 +3,9 @@ tool = "使用 {{name}} 工具。"
 parameter = "调用 {{tool}} 时使用的 {{parameter}} 参数。"
 
 [tool_schema.description]
-set_alarm = "设置在指定时间触发的闹钟，可选择重复。"
-list_alarms = "列出所有尚未触发或仍会重复的闹钟。"
-cancel_alarm = "按 ID 取消闹钟。"
+set_alarm = "设置定时闹钟或条件闹钟（文件、网页内容或任务状态）。"
+list_alarms = "列出待触发的定时闹钟与条件闹钟。"
+cancel_alarm = "按 ID 取消定时或条件闹钟。"
 breathe = "结束当前轮次并等待下一条输入，不设置定时唤醒。"
 browser_open = "启动浏览器并导航到指定 URL，返回 session_id。"
 browser_screenshot = "截取当前浏览器页面并返回 PNG 文件路径。"
@@ -51,10 +51,16 @@ search_web = "搜索互联网并返回结果摘要。可使用 DDGS、博查、�
 fetch_url = "获取 URL 的正文内容。超过 1 秒仍未返回时转入后台，结果随后作为异步消息送达，不要重复抓取同一 URL。"
 
 [tool_schema.parameter.set_alarm]
-trigger_at = "首次触发时间，格式 YYYY-MM-DD HH:MM:SS。"
+trigger_at = "定时模式：首次触发时间，格式 YYYY-MM-DD HH:MM:SS。"
+condition = "条件模式：file_changed、http_changed 或 task_state。"
+target = "条件目标：文件路径、URL 或任务 ID；task_state 可留空表示任意任务。"
+every_seconds = "条件检查间隔秒数；最小 60，默认 300。"
+pattern = "http_changed 可选正则；只比较匹配到的文本。"
+status = "task_state 可选目标状态，如 completed。"
+stale_seconds = "task_state 可选：任务超过该秒数未更新也算变化。"
 message = "提醒内容。"
 alarm_id = "闹钟 ID；可选，用于后续取消，省略时自动生成。"
-repeat_seconds = "循环间隔秒数；省略或为 0 表示一次性闹钟，正整数表示重复触发直到手动取消。"
+repeat_seconds = "定时模式的循环间隔秒数；省略或为 0 表示一次性闹钟。"
 
 [tool_schema.parameter.cancel_alarm]
 alarm_id = "要取消的闹钟 ID。"

@@ -3,9 +3,9 @@ tool = "Use the {{name}} tool."
 parameter = "The {{parameter}} parameter for {{tool}}."
 
 [tool_schema.description]
-set_alarm = "Set an alarm for a specific time, optionally repeating."
-list_alarms = "List alarms that have not fired yet or will repeat."
-cancel_alarm = "Cancel an alarm by ID."
+set_alarm = "Set a time alarm or a condition alarm (file, web page, or task state)."
+list_alarms = "List pending time and condition alarms."
+cancel_alarm = "Cancel a time or condition alarm by ID."
 breathe = "End the current turn and wait for new input without scheduling a wake-up."
 browser_open = "Launch a browser, navigate to a URL, and return a session_id."
 browser_screenshot = "Capture the current browser page and return the PNG file path."
@@ -51,10 +51,16 @@ persona = "Manage people: bind a communication address and notes to a known or n
 call_client_tool = "Dispatch a function supplied by the current OpenAI-compatible HTTP caller without waiting. name must be in that request's catalog; copy participant_id and conversation_id from the inbound OpenAI message. The client result arrives later as an inbound message."
 
 [tool_schema.parameter.set_alarm]
-trigger_at = "First trigger time in YYYY-MM-DD HH:MM:SS format."
+trigger_at = "Time mode: first trigger time in YYYY-MM-DD HH:MM:SS format."
+condition = "Condition mode: one of file_changed, http_changed, task_state."
+target = "Condition target: file path, URL, or task ID; task_state may omit it for any task."
+every_seconds = "Condition check interval in seconds; minimum 60, default 300."
+pattern = "Optional http_changed regex; only the matched text is compared."
+status = "Optional task_state target status, such as completed."
+stale_seconds = "Optional task_state age in seconds after which an unchanged task counts as changed."
 message = "Reminder content."
 alarm_id = "Optional alarm ID for later cancellation; generated automatically when omitted."
-repeat_seconds = "Repeat interval in seconds; omit or use 0 for a one-time alarm, or use a positive integer to repeat until cancelled."
+repeat_seconds = "Time mode repeat interval in seconds; omit or use 0 for a one-time alarm."
 
 [tool_schema.parameter.cancel_alarm]
 alarm_id = "ID of the alarm to cancel."

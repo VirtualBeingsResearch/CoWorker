@@ -175,6 +175,12 @@ as codes.
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | Whether to enable background subconscious thinking |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | Whether to trigger subconscious summarization before compression |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | Maximum cycles for one subconscious task |
+| `AGENT__ALARM_ALLOWED_ROOTS` | `[]` | Extra directories allowed by `file_changed` condition alarms (JSON array); empty means the current working directory only. |
+| `AGENT__ALARM_MAX_CONDITIONS` | `32` | Maximum number of condition alarms kept at once. |
+| `AGENT__ALARM_MIN_INTERVAL_SECONDS` | `60` | Minimum condition check interval in seconds; must be at least 60. |
+| `AGENT__ALARM_HTTP_MAX_BYTES` | `262144` | Maximum bytes read from one `http_changed` response; larger responses fail the check. |
+| `AGENT__ALARM_CHECK_TIMEOUT_SECONDS` | `20.0` | Timeout in seconds for one condition check; timeouts back off like other failures. |
+| `AGENT__ALARM_FILE_MAX_BYTES` | `8388608` | Files larger than this compare only mtime and size instead of hashing the full content. |
 
 `AGENT__SYSTEM_PROMPT_TEMPLATE` may reference `{{IDENTITY}}`, `{{ENVIRONMENT}}`,
 `{{INSTINCTS}}`, `{{GUIDELINES}}`, `{{LANGUAGE_POLICY}}`, `{{THINKING}}`,

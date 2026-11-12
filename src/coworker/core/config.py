@@ -819,6 +819,15 @@ class AgentConfig(_EnvSettings):
     subconscious_summarize_before_compress: bool = True
     subconscious_max_cycles: int = 5
 
+    # 条件闹钟（set_alarm 的 condition 模式）。allowed_roots 为空时只允许当前工作目录；
+    # http 检查只访问公网地址，并有响应大小与超时上限。
+    alarm_allowed_roots: list[str] = Field(default_factory=list)
+    alarm_max_conditions: int = Field(default=32, gt=0)
+    alarm_min_interval_seconds: int = Field(default=60, ge=60)
+    alarm_http_max_bytes: int = Field(default=256 * 1024, gt=0)
+    alarm_check_timeout_seconds: float = Field(default=20.0, gt=0)
+    alarm_file_max_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
+
 
 class ChannelAccessRuleConfig(BaseModel):
     """Inbound and outbound participant matching rules for one Channel."""

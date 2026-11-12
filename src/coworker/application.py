@@ -935,7 +935,17 @@ async def _main() -> bool:
             SwitchModelTool(brain),
         ]
     )
-    alarm_manager = AlarmManager(inbox_watcher, persist_path=alarm_persist_path)
+    alarm_manager = AlarmManager(
+        inbox_watcher,
+        persist_path=alarm_persist_path,
+        task_store=task_store,
+        allowed_roots=[Path(root) for root in config.agent.alarm_allowed_roots],
+        max_conditions=config.agent.alarm_max_conditions,
+        min_interval_seconds=config.agent.alarm_min_interval_seconds,
+        http_max_bytes=config.agent.alarm_http_max_bytes,
+        check_timeout_seconds=config.agent.alarm_check_timeout_seconds,
+        file_max_bytes=config.agent.alarm_file_max_bytes,
+    )
     restored_alarms = await alarm_manager.restore()
     person_store: PersonStore | None = None
     persona_cards: PersonaCard | None = None
