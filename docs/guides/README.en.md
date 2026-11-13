@@ -251,7 +251,7 @@ turn (and summary calls that follow the main model) retries on the new model. Su
 calls with their own Provider are unaffected. The fallback chain is evaluated from
 first to last; the usual practice is to keep that order
 and remove Providers that are no longer valid. After a fallback, a background probe replays the real
-request input with a tiny output budget and switches back automatically once the primary recovers;
+request input with a tiny output budget and switches back automatically once the main model recovers;
 `LLM__FALLBACK_RECOVERY_SECONDS` sets the probe cadence, and `switch_model` still switches back
 immediately.
 

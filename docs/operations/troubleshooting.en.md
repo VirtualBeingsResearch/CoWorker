@@ -100,7 +100,7 @@ Check in order:
 A manually entered model is not probed online. Successful plain-text generation
 does not prove tool-calling support.
 
-Fallback takes over when the primary model fails; after a backup model serves a
+Fallback takes over when the main model fails; after a backup model serves a
 call, a background probe replays the real request input and switches back
 automatically. If the Agent stays on a backup model for a long time, check
 item 6 and `LLM__FALLBACK_RECOVERY_SECONDS` (a negative value disables automatic

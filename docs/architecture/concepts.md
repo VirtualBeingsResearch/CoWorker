@@ -13,7 +13,7 @@
 - **工具系统**：文件读写、代码执行、网页搜索、浏览器自动化、记忆读写、技能读取、任务板、模型切换等。
 - **视觉分析**：配置 `LLM__VISION_PROVIDER/MODEL` 后，纯文本模型（如 DeepSeek）可调用 `visual_analyze`，委托视觉模型理解图片或视频；视频以 Base64 原生输入发送，仅支持声明了视频能力的视觉模型，编码后达到 10 MiB 时会先尝试用 FFmpeg 压缩。
 - **泡泡思考**（可选）：设置 `AGENT__BUBBLE_THINKING=true` 后，模型可主动从当前上下文分叉出独立子任务并发执行，完成后自动合并结论；支持主线与泡泡之间双向通信。创建时绑定 `participant_id`（可同时绑定 `conversation_id`）后，匹配且无歧义的后续通信会直接交给该活跃泡泡处理；泡泡只能直接回复其绑定对象。可用 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` 通过整串 glob 为指定通信 ID 启用外显提示；在线 WebSocket/SSE 会话默认也会按传输层启用，可通过 `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` 调整或关闭。默认 participant glob 匹配企微、微信 Claw、Telegram 与 Desktop `local` actor，不匹配 Claude 或 Codex actor。接管提示延迟到首次真实收发，直接回复会标明来自泡泡，且只有已公告接管的会话才发送结束提示。当滑动窗口内未被泡泡接管的活跃会话数上穿阈值时，系统还会向模型注入一条并行提示，提示用泡泡并发处理这些会话；窗口时长、阈值与两次提示的冷却间隔分别由 `AGENT__CONCURRENCY_HINT_WINDOW_SECONDS`、`AGENT__CONCURRENCY_HINT_THRESHOLD`、`AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` 控制（默认 180 秒 / 2 / 600 秒），已被活跃泡泡接管的会话不计入，因此会话被分派后提示会自行停止。达到轮次上限后，可在配置的宽限期内通过 `bubble_spawn(bubble_id=...)` 保留原上下文继续执行。
-- **潜意识思考**（可选）：设置 `AGENT__SUBCONSCIOUS_THINKING=true` 后，系统自动在后台触发多类反省——**自我审计**、**经验总结**（仅在短期记忆压缩前提炼经验写入长期记忆）、自由发散、技能库审视、宫殿园丁等。各模式的周期触发和压缩前触发节奏都写在 `.coworker/subconscious/*/MODE.md`；内置模式让 `summarize` 在每次压缩前处理即将离开的切片，让 `audit` 在每次压缩前审视完整主线，让 `introspect` 每 3 次压缩运行一次；`explore` 每 6 小时最多向主线发送一份三点摘要。`meta` 和 `garden` 的时机不变。环境变量只保留总开关、压缩前总结开关和通用 `max_cycles` 兜底。整个过程默认静默运行。
+- **潜意识思考**（可选）：设置 `AGENT__SUBCONSCIOUS_THINKING=true` 后，系统自动在后台触发多类反省——**自我审计**、**经验总结**（仅在短期记忆压缩前提炼经验写入长期记忆）、自由发散、技能库审视、宫殿园丁等。各模式的周期触发和压缩前触发节奏都写在 `.coworker/subconscious/*/MODE.md`；内置模式让 `summarize` 在每次压缩前处理即将离开的切片，让 `audit` 在每次压缩前审视完整主线，让 `introspect` 每 3 次压缩运行一次；`explore` 每 6 小时最多向主线发送一份三点摘要。`meta` 和 `garden` 的时机不变。环境变量只保留总开关、压缩前总结开关和通用 `max_cycles` 上限。整个过程默认静默运行。
 - **技能系统**：从 `.coworker/skills` 加载 `SKILL.md` 风格的自然语言操作指南。
 - **记忆宫殿（Memory Block Tree）**：从 `.coworker/palaces` 加载 `PALACE.md` 领域包。每个宫殿是一个领域的「组合层」——一张薄薄的领域速记卡，加上指向 skill（程序）和长期记忆（事实）的指针。系统提示中只常驻薄注册表（名字 + 何时挂载），完整宫殿在执行任务的「泡泡」里按需注入：关键 skill 强加载、相关 skill 列名待按需加载、按 `memory_tags` 召回相关长期记忆。泡泡成功收尾时，其结论会按宫殿标签自动写回长期记忆，使宫殿随任务执行持续「生长」。
 - **身份系统**：从 `data/identity` 加载名字和人格；首次启动时可以处于未命名的新生状态。
@@ -121,7 +121,7 @@ coworker/
 
 **Pin 消息**：通过 `manage_pinned_context` 工具，模型可以将重要文本或文件内容"pin"住。Pin 的消息以真实消息形式存在于对话流中；当短期记忆压缩将其压掉后，下一个 cycle 会自动检测到缺失，把它重新 append 到 primary 末尾作为最新输入，起到保留缓存命中和定期强调的作用。文件 pin 在每次重注入时重新读取文件，始终保持最新内容。Pin 状态随快照持久化，重启后自动恢复。
 
-**上下文预算提醒**：记忆脊柱有结构性上限（`MEMORY__TREE_SPINE_CAP_FRACTION`），pin 有 5k/15k 写入闸门，但模型自己维护的 `data/thinking.md` 没有任何上限，也没有反馈告诉它"你正在吃掉多少窗口"。Coworker 在**每次上下文重建后**（启动首轮、以及每次压缩后的首轮）把**模型自己能改的那部分**——模型 pin + `thinking.md`——算成占 `MEMORY__SHORT_TERM_MAX_TOKENS` 的比例，与 `MEMORY__CONTEXT_BUDGET_WARN_THRESHOLD`（默认 `0.19`，120k 窗口下约 22.8k）比较。这个上限给 pin 留 15k、给 `thinking.md` 留约 7.8k，pin 单靠自己越不过去。脊柱、系统 pin、工具定义不是模型能改的，完全不参与计量。越过上限时，它通过 inbound 系统消息把自写部分的具体数字、可执行动作（优化 pin、精简 thinking.md）以及内部 token 估算函数的位置发给模型；同一段上下文只提示一次。它**只提醒不拦截**：硬约束仍是脊柱的 K 进位和 pin 的 5k/15k 上限。最近一次采样可从 `get_context` 和管理端 `/memory/short-term` 的 `context_budget` 字段读出。
+**上下文预算提醒**：记忆脊柱有结构性上限（`MEMORY__TREE_SPINE_CAP_FRACTION`），pin 有 5k/15k 写入闸门，但模型自己维护的 `data/thinking.md` 没有任何上限，也没有反馈告诉它"你正在占用多少窗口"。Coworker 在**每次上下文重建后**（启动首轮、以及每次压缩后的首轮）把**模型自己能改的那部分**——模型 pin + `thinking.md`——算成占 `MEMORY__SHORT_TERM_MAX_TOKENS` 的比例，与 `MEMORY__CONTEXT_BUDGET_WARN_THRESHOLD`（默认 `0.19`，120k 窗口下约 22.8k）比较。这个上限给 pin 留 15k、给 `thinking.md` 留约 7.8k，pin 单靠自己越不过去。脊柱、系统 pin、工具定义不是模型能改的，完全不参与计量。越过上限时，它通过 inbound 系统消息把自写部分的具体数字、可执行动作（优化 pin、精简 thinking.md）以及内部 token 估算函数的位置发给模型；同一段上下文只提示一次。它**只提醒不拦截**：硬约束仍是脊柱的 K 进位和 pin 的 5k/15k 上限。最近一次采样可从 `get_context` 和管理端 `/memory/short-term` 的 `context_budget` 字段读出。
 
 长期记忆默认由 **mem0** 管理，底层持久化到 `MEMORY__DB_PATH`（ChromaDB），嵌入默认使用本地 `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（首次使用自动加载）。长期记忆后端可通过 `MEMORY__BACKEND` 选择；`mem0` 为默认后端，`file` 为最简文件存储后端（每个记忆一个可读 JSON 文件，位于 `data/memory/long_term/`；查询用词项倒排索引，按重叠词排序，不做向量语义检索）。`manage_memory(write)` 等显式写入接收的是模型已经提炼好的最终记忆，因此跳过第二次 LLM 抽取，直接保存；显式写入会先检索并跳过正文完全相同的已有记忆。语义近似但正文不同的内容会保留为独立记忆，直到后续记忆整理显式合并。
 
@@ -135,7 +135,7 @@ rm -rf data/memory/
 
 ### 重启状态继承
 
-短期记忆每个 cycle 结束后自动快照到 `data/memory/short_term_snapshot.json`，关闭时再做一次兜底保存。下次启动时若快照存在，会自动恢复对话历史，并清理末尾未完成的工具调用残缺链。同时向 Agent 注入一条系统重启通知，告知当前时间及恢复的闹钟数量。
+短期记忆每个 cycle 结束后自动快照到 `data/memory/short_term_snapshot.json`，关闭时再做一次补充保存。下次启动时若快照存在，会自动恢复对话历史，并清理末尾未完成的工具调用残缺链。同时向 Agent 注入一条系统重启通知，告知当前时间及恢复的闹钟数量。
 
 Agent 可通过 `restart_self` 工具主动触发安全重启（例如在更新自身代码后）。重启流程：先用 `--check` 模式校验代码环境，通过后保存快照并原地重启进程，新进程启动后短期记忆完整恢复，`restart_self` 的工具调用结果会被替换为真实的重启成功消息（含恢复消息数和闹钟数）。
 

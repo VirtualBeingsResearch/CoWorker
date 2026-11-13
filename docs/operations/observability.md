@@ -19,7 +19,7 @@
 | `GET /api/debug/tasks` | 事件循环任务是否卡在同一 await；仅可信诊断环境 |
 | Docker healthcheck / `docker compose ps` | 容器和 HTTP 服务是否可达 |
 
-`pending` 常表示等待消息或定时器，不等于故障。是否真的卡死取决于等待位置、最近成功活动
+`pending` 常表示等待消息或定时器，不等于故障。是否真的无响应取决于等待位置、最近成功活动
 和错误是否重复。
 
 ## 建议健康检查

@@ -60,7 +60,7 @@ have no tokens available for pricing.
 Signals worth watching:
 
 - sudden call or token growth;
-- fallback handling most traffic, indicating primary Provider instability;
+- fallback handling most traffic, indicating main Provider instability;
 - unexpected Bubble or subconscious share;
 - steadily rising thinking time;
 - `unknown/<model>`, usually from older logs without Provider data.

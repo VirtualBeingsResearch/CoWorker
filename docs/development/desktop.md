@@ -402,7 +402,7 @@ tool: list_coworkers
 ---
 ```
 
-Bridge 不解析自然语言兜底；未知 `coworker_id` 会失败且不会发送。新建的 Coworker thread 优先使用动态工具，避免重复发送。
+Bridge 没有自然语言回退解析；未知 `coworker_id` 会失败且不会发送。新建的 Coworker thread 优先使用动态工具，避免重复发送。
 
 5. Codex app-server 请求 Coworker 输入：
 
