@@ -80,7 +80,7 @@ from coworker.persona import PersonaCard, PersonaContext, PersonStore
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
-from coworker.tools.alarm_tools import (
+from coworker.tools.alarm import (
     AlarmManager,
     AlarmOptions,
     CancelAlarmTool,

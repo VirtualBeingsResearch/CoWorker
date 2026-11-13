@@ -2071,6 +2071,7 @@ html:has(.admin-login),
 .task-modal .field textarea { min-height: 150px; }
 .alarm-compose { display: grid; grid-template-columns: 1.15fr .75fr 1.6fr auto; gap: 10px; align-items: end; }
 .alarm-compose .primary { min-height: 42px; }
+.alarm-compose.condition { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .alarm-summary { display: flex; align-items: center; gap: 8px; min-height: 46px; margin: 14px 0 9px; padding: 0 3px 0 11px; border-left: 2px solid var(--admin-vital); color: var(--admin-muted); background: linear-gradient(90deg, var(--admin-soft), transparent 55%); font-size: 11px; }
 .alarm-summary svg { color: var(--admin-vital); }
 .alarm-summary span { flex: 1; }

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.tools.alarm_tools import AlarmCondition, AlarmManager, AlarmOptions
+from coworker.tools.alarm import AlarmCondition, AlarmManager, AlarmOptions
 
 
 @pytest.fixture

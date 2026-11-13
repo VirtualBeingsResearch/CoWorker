@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from coworker.tools.alarm_conditions import validate_public_url
-from coworker.tools.alarm_tools import (
+from coworker.tools.alarm import (
     AlarmCondition,
     AlarmManager,
     AlarmOptions,
     ListAlarmsTool,
     SetAlarmTool,
+    validate_public_url,
 )
 from coworker.tools.reasoning_tools import TaskStore
 

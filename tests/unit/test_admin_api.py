@@ -252,6 +252,46 @@ def test_admin_alarm_lists_separate_condition_entries(tmp_path):
     assert [item["id"] for item in conditions.json()["conditions"]] == ["cond1"]
 
 
+def test_admin_creates_condition_alarm(tmp_path):
+    alarm_manager = SimpleNamespace(
+        validate_condition=MagicMock(),
+        set_condition=AsyncMock(),
+    )
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "condition": "file_changed",
+            "target": "/tmp/watched.txt",
+            "message": "watch it",
+            "every_seconds": 300,
+        },
+    )
+
+    assert response.status_code == 200
+    alarm_manager.validate_condition.assert_called_once()
+    alarm_manager.set_condition.assert_awaited_once()
+
+
+def test_admin_condition_alarm_reports_invalid_target(tmp_path):
+    alarm_manager = SimpleNamespace(
+        validate_condition=MagicMock(side_effect=ValueError("outside roots")),
+        set_condition=AsyncMock(),
+    )
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions",
+        headers={"Authorization": "Bearer secret"},
+        json={"condition": "file_changed", "target": "/etc/passwd", "message": "x"},
+    )
+
+    assert response.status_code == 400
+    assert "outside roots" in response.json()["detail"]
+
+
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
     first_service = admin._require_admin_config_service()

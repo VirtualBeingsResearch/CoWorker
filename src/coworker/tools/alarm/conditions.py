@@ -148,12 +148,29 @@ class ConditionChecker:
 
     def validate_target(self, condition: AlarmCondition) -> None:
         if condition.kind == "file_changed":
+            if condition.pattern or condition.status or condition.stale_seconds:
+                raise ValueError(
+                    "file conditions do not accept pattern, status, or stale_seconds"
+                )
             self._resolve_file_target(condition.target)
         elif condition.kind == "http_changed":
+            if condition.status or condition.stale_seconds:
+                raise ValueError(
+                    "http conditions do not accept status or stale_seconds"
+                )
             _validate_http_shape(condition.target)
+            if condition.pattern:
+                try:
+                    re.compile(condition.pattern)
+                except re.error as error:
+                    raise ValueError("invalid pattern") from error
         elif condition.kind == "task_state":
+            if condition.pattern:
+                raise ValueError("task conditions do not accept pattern")
             if self._task_store is None:
                 raise ValueError("task state condition requires a task store")
+            if not condition.status and condition.stale_seconds <= 0:
+                raise ValueError("task condition requires status or stale_seconds")
         else:
             raise ValueError(f"unknown condition kind: {condition.kind}")
 
