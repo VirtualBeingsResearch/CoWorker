@@ -360,7 +360,7 @@ export const ENGLISH_PHRASES: Record<string, string> = {
   '摘要 Thinking': 'Summary thinking',
   '主模型降级链': 'Primary model fallback chain',
   '主模型恢复探测间隔（秒）': 'Primary-model recovery probe interval (seconds)',
-  '降级后等待该秒数再探测主模型；0 表示下一轮立即探测，负数关闭自动恢复。探测失败按指数退避，最长 30 分钟。': 'Wait this many seconds after a fallback before probing the primary model again. Use 0 to probe on the next cycle, or a negative value to disable automatic recovery. Failed probes back off exponentially, up to 30 minutes.',
+  '降级后等待该秒数再在后台探测主模型；0 表示下一轮请求后立即探测，负数关闭自动恢复。探测失败按指数退避，最长 30 分钟。': 'Wait this many seconds after a fallback before probing the primary model in the background. Use 0 to probe right after the next cycle, or a negative value to disable automatic recovery. Failed probes back off exponentially, up to 30 minutes.',
   '视觉 Provider': 'Vision Provider',
   '视觉模型': 'Vision model',
   '视觉 Thinking': 'Vision thinking',

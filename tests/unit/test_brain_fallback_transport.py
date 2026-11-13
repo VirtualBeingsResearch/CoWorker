@@ -131,12 +131,12 @@ async def _primary(
         await provider._client.close()  # type: ignore[attr-defined]
 
 
-def _brain(primary: OpenAIProvider) -> Brain:
+def _brain(primary: OpenAIProvider, *, recovery_seconds: float = 300.0) -> Brain:
     brain = Brain(
         "primary",
         PRIMARY_MODEL,
         fallbacks=["backup"],
-        fallback_recovery_seconds=0,
+        fallback_recovery_seconds=recovery_seconds,
         message_time_prefix=False,
     )
     brain.register_provider(primary)
@@ -357,21 +357,26 @@ async def test_probe_failure_keeps_fallback_and_backs_off(
     server.mode = fault
     async with _primary(server.port) as primary:
         calls = _count_calls(primary)
-        brain = _brain(primary)
+        brain = _brain(primary, recovery_seconds=0)
 
         with _no_backoff():
             await _think(brain)
         assert brain.consume_switch_cause() == "fallback"
+        assert brain._probe_task is not None
+        assert server.requests == 3
 
-        served = server.requests
+        # The background probe is one attempt, not another three-try candidate.
+        await asyncio.wait_for(brain._probe_task, timeout=5)
+        assert server.requests == 4
+
         started = time.monotonic()
         with _no_backoff():
             response = await _think(brain)
         elapsed = time.monotonic() - started
 
     assert response.content == BACKUP_TEXT
-    # The probe is one attempt, not another three-try candidate.
-    assert server.requests - served == 1
+    # The failed result is applied on the next turn; it must not hit the primary again.
+    assert server.requests == 4
     assert len(calls) == 4
     assert brain.degraded is True
     assert brain.recovery_target == ("primary", PRIMARY_MODEL)
@@ -389,23 +394,26 @@ async def test_recovery_probes_once_and_switches_back(
     server.mode = "status:503"
     async with _primary(server.port) as primary:
         calls = _count_calls(primary)
-        brain = _brain(primary)
+        brain = _brain(primary, recovery_seconds=0)
         listener = AsyncMock()
         brain.add_model_switch_listener(listener)
 
         with _no_backoff():
             await _think(brain)
         assert brain.consume_switch_cause() == "fallback"
-        listener.reset_mock()
+        assert server.requests == 3
 
         server.mode = "ok"
-        served = server.requests
+        await asyncio.wait_for(brain._probe_task, timeout=5)
+        assert server.requests == 4  # one background probe attempt
+
+        listener.reset_mock()
         with _no_backoff():
             response = await _think(brain)
 
     assert response.content == "primary response"
-    assert server.requests - served == 1
-    assert len(calls) == 4
+    assert server.requests == 5  # probe + the real call after switching back
+    assert len(calls) == 5
     assert brain.current_provider_name == "primary"
     assert brain.current_model == PRIMARY_MODEL
     assert brain.degraded is False
@@ -418,7 +426,7 @@ async def test_recovery_probes_once_and_switches_back(
 async def test_recovery_works_after_read_timeouts(server: FaultyHttpServer) -> None:
     server.mode = "stall"
     async with _primary(server.port, timeout=0.25) as primary:
-        brain = _brain(primary)
+        brain = _brain(primary, recovery_seconds=0)
 
         with _no_backoff():
             await _think(brain)
@@ -426,6 +434,7 @@ async def test_recovery_works_after_read_timeouts(server: FaultyHttpServer) -> N
         assert brain.consume_switch_cause() == "fallback"
 
         server.mode = "ok"
+        await asyncio.wait_for(brain._probe_task, timeout=5)
         with _no_backoff():
             response = await _think(brain)
 

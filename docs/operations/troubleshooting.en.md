@@ -101,10 +101,10 @@ A manually entered model is not probed online. Successful plain-text generation
 does not prove tool-calling support.
 
 Fallback takes over when the primary model fails; after a backup model serves a
-call, upcoming main-loop calls probe the primary and switch back automatically.
-If the Agent stays on a backup model for a long time, check item 6 and
-`LLM__FALLBACK_RECOVERY_SECONDS` (a negative value disables automatic recovery),
-or switch back manually.
+call, a background probe replays the real request input and switches back
+automatically. If the Agent stays on a backup model for a long time, check
+item 6 and `LLM__FALLBACK_RECOVERY_SECONDS` (a negative value disables automatic
+recovery), or switch back manually.
 
 After a change of the long-term-memory embedding model, new writes use the new
 model immediately; existing Chroma data cannot be assumed compatible with the

@@ -89,7 +89,7 @@ export function configFieldPresentation(
     return {
       editor: 'default',
       step: 'any',
-      hint: '降级后等待该秒数再探测主模型；0 表示下一轮立即探测，负数关闭自动恢复。探测失败按指数退避，最长 30 分钟。',
+      hint: '降级后等待该秒数再在后台探测主模型；0 表示下一轮请求后立即探测，负数关闭自动恢复。探测失败按指数退避，最长 30 分钟。',
     };
   }
   if (path === 'api.cors_origins') {

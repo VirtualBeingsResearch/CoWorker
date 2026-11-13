@@ -70,7 +70,7 @@ detection because it runs in the administrator's browser, not on the proxy or se
 | `LLM__SUMMARY_THINKING` | `false` | Whether summarization/compression calls enable thinking; disabled by default to reduce latency and cost |
 | `LLM__SUMMARY_THINKING_EFFORT` | Empty (provider default) | Summary thinking effort, same levels as `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | Ordered fallback chain used after a main-model failure; a JSON array of `providerName` or `providerName/modelId` entries |
-| `LLM__FALLBACK_RECOVERY_SECONDS` | `300` | Seconds to wait before probing the primary model after a fallback; `0` probes on the next main-loop call, and a negative value disables automatic recovery. Failed probes back off exponentially, at most 30 minutes apart |
+| `LLM__FALLBACK_RECOVERY_SECONDS` | `300` | Seconds to wait before the first background probe of the primary model after a fallback; `0` probes right after the next main-loop request, and a negative value disables automatic recovery. The probe reuses the real request input with a tiny output budget; failed probes back off exponentially, at most 30 minutes apart |
 | `LLM__MODEL_PRICES` | `[]` | Model-price JSON array, exact-matched by Provider registry name and model ID; hot-applied and used to reprice historical estimates at current prices |
 | `LLM__ANTHROPIC_API_KEY` | Empty | Anthropic API key |
 | `LLM__ANTHROPIC_BASE_URL` | Empty | Custom Anthropic base URL |
