@@ -153,10 +153,10 @@ OpenCode Go 曾提供 `deepseek-flash`、`deepseek-v4-flash` 和
 - summary：短期压缩与摘要，通常关闭 thinking 以降低成本；Provider 单列思考 token（如 Anthropic 的 `output_tokens_details.thinking_tokens`）时，摘要正文与思考 Token 分别统计，记忆树节点只按正文计体量；
 - vision：图片/视频分析，必须由 Provider 声明相应能力；
 - long_term：长期记忆提取（默认由 mem0 后端执行）；
-- fallback：主模型失败后的有序接棒链。接棒后会在后台用真实请求输入（只保留很小的输出预算）探测主模型，
+- fallback：主模型失败后的有序降级链。备用模型接管后，会在后台用真实请求输入（只保留很小的输出预算）探测主模型，
   恢复即自动切回，探测节奏由 `LLM__FALLBACK_RECOVERY_SECONDS` 控制。
 
-常见做法是先验证每个专用模型，再将其加入 fallback；失效的 Provider 留在链首会为每次接棒制造额外延迟。
+常见做法是先验证每个专用模型，再将其加入 fallback；失效的 Provider 留在链首会为每次接管制造额外延迟。
 降级期间可以随时用 `switch_model` 立即切回，手动切换会清空自动恢复目标。
 
 ## 常见问题

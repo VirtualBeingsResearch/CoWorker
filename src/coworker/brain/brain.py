@@ -98,7 +98,7 @@ class _Candidate:
     provider: str
     model: str
     tries: int
-    # active: 当前主模型；fallback: 配置的接棒链。
+    # active: 当前主模型；fallback: 配置的降级链。
     kind: _CandidateKind
 
 
@@ -581,7 +581,7 @@ class Brain:
         self._recovery_not_before = time.monotonic() + delay
 
     async def _adopt_fallback(self, provider_name: str, model: str) -> None:
-        """主模型候选全部失败后，把 active 持久切到成功接棒的备用模型。
+        """主模型候选全部失败后，把 active 持久切到成功接管的备用模型。
 
         状态修改都是同步赋值，事件循环不会在中间切走，因此不需要加锁；
         需要通知观察者时才 await。

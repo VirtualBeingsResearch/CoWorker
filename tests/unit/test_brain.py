@@ -961,7 +961,7 @@ class TestBrainFallbackRecovery:
         assert response.content == "third response"
         assert brain.current_provider_name == "third"
         assert brain.degraded is True
-        # 再次接棒不改变恢复目标：仍是最初的主模型。
+        # 再次由更靠后的备用模型接管，不改变恢复目标：仍是最初的主模型。
         assert brain.recovery_target == ("primary", "primary-model")
         assert brain.consume_switch_cause() == "fallback"
 

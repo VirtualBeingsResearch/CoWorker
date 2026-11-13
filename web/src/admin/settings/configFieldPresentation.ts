@@ -81,7 +81,7 @@ export function configFieldPresentation(
   if (path === 'llm.fallbacks') {
     return {
       editor: 'fallback-list',
-      hint: '按接棒顺序填写 provider 或 provider/model；留空表示不配置降级链。',
+      hint: '按降级顺序填写 provider 或 provider/model；留空表示不配置降级链。',
       placeholder: 'provider/model',
     };
   }
