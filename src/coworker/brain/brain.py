@@ -561,24 +561,70 @@ class Brain:
             return sum(estimate_content_tokens(m.content) for m in messages)
         return await provider.count_tokens(messages, self._active_model)
 
-    def _recovery_due(self) -> bool:
-        """降级中、自动恢复未关闭、冷却结束且原主模型仍可注册时返回 True。"""
-        if self._recovery_target is None or self._fallback_recovery_seconds < 0:
-            return False
-        if time.monotonic() < self._recovery_not_before:
-            return False
-        provider_name, model = self._recovery_target
-        provider = self._providers.get(provider_name)
-        return provider is not None and provider.can_use_tools(model)
+    def _maybe_schedule_probe(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+    ) -> None:
+        """降级且冷却结束时，用一个后台任务拿真实请求探测原主模型。
 
-    def _schedule_next_recovery(self) -> None:
-        """探测失败后按指数退避安排下一次探测，避免主模型长期不可用时每轮都撞一次。"""
-        base = max(self._fallback_recovery_seconds, _FALLBACK_RECOVERY_MIN_DELAY)
-        delay = min(
-            base * (2 ** max(self._recovery_attempts - 1, 0)),
-            _FALLBACK_RECOVERY_MAX_DELAY,
+        探针不进入本轮请求路径；结果留到下一轮 ``think`` 统一应用。``_probe_task``
+        非空即表示结果还没被消费，同一时间只允许一个探针。
+        """
+        target = self._recovery_target
+        if target is None or self._fallback_recovery_seconds < 0:
+            return
+        if self._probe_task is not None or time.monotonic() < self._recovery_not_before:
+            return
+        provider = self._providers.get(target[0])
+        if provider is None or not provider.can_use_tools(target[1]):
+            return
+        self._probe_task = asyncio.create_task(
+            self._probe_recovery(target, messages, system_prompt, tools)
         )
-        self._recovery_not_before = time.monotonic() + delay
+
+    async def _probe_recovery(
+        self,
+        target: tuple[str, str],
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+    ) -> None:
+        """后台探针：真实 messages/tools，只把输出预算压到 _PROBE_MAX_TOKENS。
+
+        用 provider 的浅拷贝单独设置模型，避免改到前台调用正在使用的
+        ``_current_model``；底层 HTTP 客户端仍然是共享的。
+        """
+        provider_name, model = target
+        provider = self._providers.get(provider_name)
+        if provider is None:
+            self._probe_result = (target, False)
+            return
+        probe_provider = copy.copy(provider)
+        probe_provider.set_model(model)
+        try:
+            response = await probe_provider.complete(
+                messages,
+                system_prompt,
+                tools,
+                _PROBE_MAX_TOKENS,
+                thinking=self._thinking,
+                thinking_effort=self._thinking_effort,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._probe_result = (target, False)
+            logger.warning(f"Recovery probe {provider_name}/{model} failed: {e}")
+            return
+        self._probe_result = (target, True)
+        usage = response.usage or {}
+        logger.info(
+            f"Recovery probe {provider_name}/{model} succeeded "
+            f"(input_tokens={usage.get('input_tokens', 0)}, "
+            f"output_tokens={usage.get('output_tokens', 0)})"
+        )
 
     async def _adopt_fallback(self, provider_name: str, model: str) -> None:
         """主模型候选全部失败后，把 active 持久切到成功接管的备用模型。
@@ -618,6 +664,15 @@ class Brain:
         )
         await self._notify_model_switch_listeners(provider_name, model)
 
+    def _schedule_next_recovery(self) -> None:
+        """探测失败后按指数退避安排下一次探测，避免主模型长期不可用时每轮都撞一次。"""
+        base = max(self._fallback_recovery_seconds, _FALLBACK_RECOVERY_MIN_DELAY)
+        delay = min(
+            base * (2 ** max(self._recovery_attempts - 1, 0)),
+            _FALLBACK_RECOVERY_MAX_DELAY,
+        )
+        self._recovery_not_before = time.monotonic() + delay
+
     def _note_recovery_failure(self) -> None:
         """恢复探测失败：保持降级，推迟下一次探测。"""
         if self._recovery_target is None:
@@ -628,100 +683,21 @@ class Brain:
     async def _apply_probe_result(self) -> None:
         """把上一轮后台探针的结果应用到 active；只在主循环调用里执行。"""
         pending = self._probe_result
-        self._probe_result = None
         if pending is None:
             return
+        self._probe_result = None
+        self._probe_task = None
         target, ok = pending
         if self._recovery_target != target:
             return
-        if ok:
-            provider = self._providers.get(target[0])
-            if provider is None or not provider.can_use_tools(target[1]):
-                # Provider 已被移除或不再支持工具调用：保留降级状态，等它重新注册。
-                return
-            await self._restore_preferred(*target)
-        else:
+        if not ok:
             self._note_recovery_failure()
-
-    def _maybe_schedule_probe(
-        self,
-        messages: list[Message],
-        system_prompt: str,
-        tools: list[dict],
-    ) -> None:
-        """降级且冷却结束时，用一个后台任务拿真实请求探测原主模型。
-
-        探针不进入本轮请求路径；结果留到下一轮 ``think`` 统一应用。
-        """
-        if self._fallback_recovery_seconds < 0 or not self._recovery_due():
             return
-        if self._probe_task is not None and not self._probe_task.done():
+        provider = self._providers.get(target[0])
+        if provider is None or not provider.can_use_tools(target[1]):
+            # Provider 已被移除或不再支持工具调用：保留降级状态，等它重新注册。
             return
-        target = self._recovery_target
-        assert target is not None
-        self._probe_task = asyncio.create_task(
-            self._probe_recovery(target, messages, system_prompt, tools)
-        )
-
-    async def _probe_recovery(
-        self,
-        target: tuple[str, str],
-        messages: list[Message],
-        system_prompt: str,
-        tools: list[dict],
-    ) -> None:
-        """后台探针：真实 messages/tools，只把输出预算压到 _PROBE_MAX_TOKENS。"""
-        provider_name, model = target
-        try:
-            response = await self._complete_with_model(
-                provider_name,
-                model,
-                messages,
-                system_prompt,
-                tools,
-                _PROBE_MAX_TOKENS,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            self._probe_result = (target, False)
-            logger.warning(f"Recovery probe {provider_name}/{model} failed: {e}")
-            return
-        self._probe_result = (target, True)
-        usage = response.usage or {}
-        logger.info(
-            f"Recovery probe {provider_name}/{model} succeeded "
-            f"(input_tokens={usage.get('input_tokens', 0)}, "
-            f"output_tokens={usage.get('output_tokens', 0)})"
-        )
-
-    async def _complete_with_model(
-        self,
-        provider_name: str,
-        model: str,
-        messages: list[Message],
-        system_prompt: str,
-        tools: list[dict],
-        max_tokens: int,
-    ) -> LLMResponse:
-        """Call one provider for a specific model without touching its active model.
-
-        A shallow copy keeps the shared HTTP client but isolates ``_current_model``,
-        so a background probe cannot change the model a foreground call is using.
-        """
-        provider = self._providers.get(provider_name)
-        if provider is None:
-            raise ProviderNotFoundError(provider_name)
-        probe_provider = copy.copy(provider)
-        probe_provider.set_model(model)
-        return await probe_provider.complete(
-            messages,
-            system_prompt,
-            tools,
-            max_tokens,
-            thinking=self._thinking,
-            thinking_effort=self._thinking_effort,
-        )
+        await self._restore_preferred(*target)
 
     def _resolve_candidates(self) -> list[_Candidate]:
         """构造本次调用的候选链：当前 active -> 配置的 fallback。
@@ -1101,8 +1077,9 @@ class Brain:
             self._recovery_attempts = 0
             self._recovery_not_before = 0.0
             self._probe_result = None
-            if self._probe_task is not None and not self._probe_task.done():
+            if self._probe_task is not None:
                 self._probe_task.cancel()
+                self._probe_task = None
             self._last_switch_cause = None
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
         # 显式切换必须打断在途调用：旧 Provider 的请求可能永远不返回，否则主循环会一直卡着。

@@ -818,11 +818,10 @@ class TestBrainFallbackRecovery:
         listener.assert_awaited_once_with("primary", "primary-model")
 
         # 恢复后不再安排探针。
-        assert brain._probe_task is not None and brain._probe_task.done()
-        settled_probe = brain._probe_task
+        assert brain._probe_task is None
         with _NoRetrySleep():
             await brain.think(messages=[], system_prompt="", tools=[])
-        assert brain._probe_task is settled_probe
+        assert brain._probe_task is None
         listener.assert_awaited_once_with("primary", "primary-model")
 
     @pytest.mark.asyncio
