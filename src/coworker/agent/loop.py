@@ -313,9 +313,9 @@ class AgentLoop:
         """把当前主模型与降级恢复目标写进短期快照，重启后自动切回仍能继续。"""
         self._short_term.active_provider = self._brain.current_provider_name
         self._short_term.active_model = self._brain.current_model
-        recovery = self._brain.fallback_recovery_state()
-        self._short_term.preferred_provider = recovery[0] if recovery else ""
-        self._short_term.preferred_model = recovery[1] if recovery else ""
+        provider, model = self._brain.recovery_target or ("", "")
+        self._short_term.preferred_provider = provider
+        self._short_term.preferred_model = model
 
     def request_restart(self, reason: str = "normal") -> None:
         """由受信任的管理入口请求安全重启。

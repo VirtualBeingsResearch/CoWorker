@@ -1358,11 +1358,11 @@ async def _main() -> bool:
         logger.info("Browser store stopped")
 
         if not agent_state.restart_requested and not setup_required:
-            recovery = brain.fallback_recovery_state()
+            provider, model = brain.recovery_target or ("", "")
             short_term.active_provider = brain.current_provider_name
             short_term.active_model = brain.current_model
-            short_term.preferred_provider = recovery[0] if recovery else ""
-            short_term.preferred_model = recovery[1] if recovery else ""
+            short_term.preferred_provider = provider
+            short_term.preferred_model = model
             short_term.save_to_file(snapshot_path)
             logger.info(f"Short-term memory snapshot saved ({len(short_term.primary)} messages)")
 

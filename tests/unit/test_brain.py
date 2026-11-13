@@ -612,8 +612,7 @@ class TestBrainFallback:
         assert brain.current_provider_name == "backup"
         assert brain.current_model == "backup-model"
         assert brain.degraded is True
-        assert brain.preferred_provider_name == "primary"
-        assert brain.preferred_model == "primary-model"
+        assert brain.recovery_target == ("primary", "primary-model")
         listener.assert_awaited_once_with("backup", "backup-model")
         assert brain.consume_switch_cause() == "fallback"
         # consume 后复位
@@ -774,7 +773,7 @@ class TestBrainFallbackRecovery:
         assert brain.current_provider_name == "primary"
         assert brain.current_model == "primary-model"
         assert brain.degraded is False
-        assert brain.preferred_provider_name == "primary"
+        assert brain.recovery_target is None
         assert brain.consume_switch_cause() == "recovery"
         listener.assert_awaited_once_with("primary", "primary-model")
         # 恢复后不再探测：后续调用直接走主模型，不重复通知。
@@ -822,7 +821,7 @@ class TestBrainFallbackRecovery:
         assert primary.calls == 1  # 探测只尝试一次，不按 3 次重试
         assert brain.current_provider_name == "backup"
         assert brain.degraded is True
-        assert brain.preferred_provider_name == "primary"
+        assert brain.recovery_target == ("primary", "primary-model")
         assert brain._recovery_attempts == 1
         assert brain._recovery_not_before - started_at >= 59.0
         # 备用模型继续服务不算新的切换，不重复通知。
@@ -858,8 +857,7 @@ class TestBrainFallbackRecovery:
 
         assert brain.current_provider_name == "primary"
         assert brain.degraded is False
-        assert brain.preferred_provider_name == "primary"
-        assert brain.fallback_recovery_state() is None
+        assert brain.recovery_target is None
         # 主动切换不标记为失败降级或自动恢复。
         assert brain.consume_switch_cause() is None
 
@@ -899,8 +897,7 @@ class TestBrainFallbackRecovery:
         assert brain.current_provider_name == "third"
         assert brain.degraded is True
         # 再次接棒不改变恢复目标：仍是最初的主模型。
-        assert brain.preferred_provider_name == "primary"
-        assert brain.preferred_model == "primary-model"
+        assert brain.recovery_target == ("primary", "primary-model")
         assert brain.consume_switch_cause() == "fallback"
 
     @pytest.mark.asyncio
@@ -919,7 +916,7 @@ class TestBrainFallbackRecovery:
         brain.restore_fallback_state("primary", "primary-model")
 
         assert brain.degraded is True
-        assert brain.fallback_recovery_state() == ("primary", "primary-model")
+        assert brain.recovery_target == ("primary", "primary-model")
 
         with _NoRetrySleep():
             response = await brain.think(messages=[], system_prompt="", tools=[])

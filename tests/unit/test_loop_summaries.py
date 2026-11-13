@@ -221,7 +221,7 @@ def _make_brain(content="ok", tool_calls=None, stop_reason="end_turn", usage=Non
     brain.current_model = "mock-model"
     brain.summarize = AsyncMock(return_value="s")
     # 未降级的替身：快照同步不应写入恢复目标。
-    brain.fallback_recovery_state = MagicMock(return_value=None)
+    brain.recovery_target = None
     return brain
 
 
@@ -679,7 +679,7 @@ def test_snapshot_records_fallback_recovery_target(tmp_path):
     brain = _make_brain()
     brain.current_provider_name = "backup"
     brain.current_model = "backup-model"
-    brain.fallback_recovery_state = MagicMock(return_value=("primary", "primary-model"))
+    brain.recovery_target = ("primary", "primary-model")
     loop = _make_loop(brain, mem)
     loop._snapshot_path = tmp_path / "short_term_snapshot.json"
 
