@@ -80,7 +80,13 @@ from coworker.persona import PersonaCard, PersonaContext, PersonStore
 from coworker.prompts.system_prompt import SystemPromptBuilder
 from coworker.relay import RelayClient
 from coworker.skills.loader import SkillLoader
-from coworker.tools.alarm_tools import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
+from coworker.tools.alarm_tools import (
+    AlarmManager,
+    AlarmOptions,
+    CancelAlarmTool,
+    ListAlarmsTool,
+    SetAlarmTool,
+)
 from coworker.tools.breathe_tool import BreatheTool
 from coworker.tools.browser_tools import (
     BrowserActionTool,
@@ -938,13 +944,15 @@ async def _main() -> bool:
     alarm_manager = AlarmManager(
         inbox_watcher,
         persist_path=alarm_persist_path,
-        task_store=task_store,
-        allowed_roots=[Path(root) for root in config.agent.alarm_allowed_roots],
-        max_conditions=config.agent.alarm_max_conditions,
-        min_interval_seconds=config.agent.alarm_min_interval_seconds,
-        http_max_bytes=config.agent.alarm_http_max_bytes,
-        check_timeout_seconds=config.agent.alarm_check_timeout_seconds,
-        file_max_bytes=config.agent.alarm_file_max_bytes,
+        options=AlarmOptions(
+            task_store=task_store,
+            allowed_roots=[Path(root) for root in config.agent.alarm_allowed_roots],
+            max_conditions=config.agent.alarm_max_conditions,
+            min_interval_seconds=config.agent.alarm_min_interval_seconds,
+            http_max_bytes=config.agent.alarm_http_max_bytes,
+            check_timeout_seconds=config.agent.alarm_check_timeout_seconds,
+            file_max_bytes=config.agent.alarm_file_max_bytes,
+        ),
     )
     restored_alarms = await alarm_manager.restore()
     person_store: PersonStore | None = None
@@ -1328,6 +1336,8 @@ async def _main() -> bool:
         # lifespan.shutdown（force_exit 会跳过它，反而导致 lifespan 任务被取消、刷 CancelledError
         # 噪声）。timeout_graceful_shutdown=3 仅作兜底，正常路径用不到。
         api_app.signal_shutdown()
+        # 条件闹钟持有 HTTP client 与检查 task，先收口再停其他后台。
+        await alarm_manager.close()
         # 先停掉占位维护，避免收尾期间又开出一条催促/超时通知。
         await progress.stop()
         # 信道还活着时替对方结束未回复的占位：重启后内存里的占位就没了，

@@ -1,46 +1,41 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import ipaddress
 import json
 import re
-import socket
 import time
 import uuid
 from collections import deque
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, cast
-from urllib.parse import urljoin, urlsplit
+from typing import TYPE_CHECKING, Literal, cast
 
 import httpx
 from loguru import logger
 
 from coworker.core.types import IncomingEvent, ToolResult
 from coworker.i18n import bind_locale, tr
+from coworker.tools.alarm_conditions import (
+    AlarmCondition,
+    ConditionChecker,
+    ConditionKind,
+    TaskStoreLike,
+)
 from coworker.tools.base import Tool, ToolDefinition
 
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
 
-ConditionKind = Literal["file_changed", "http_changed", "task_state"]
-
-_CONDITION_KINDS: frozenset[str] = frozenset({"file_changed", "http_changed", "task_state"})
 _MAX_CHECKS_PER_HOUR = 60
 _MIN_CONDITION_INTERVAL_SECONDS = 60
-_MAX_REDIRECTS = 3
-_USER_AGENT = "CoworkerConditionAlarm/1.0"
-_DEFAULT_CHECK_TIMEOUT_SECONDS = 20.0
-_DEFAULT_HTTP_MAX_BYTES = 256 * 1024
-_DEFAULT_FILE_MAX_BYTES = 8 * 1024 * 1024
+_CONDITION_KINDS: frozenset[str] = frozenset({"file_changed", "http_changed", "task_state"})
+_DEFAULT_INTERVAL_SECONDS = 300
+_MAX_MESSAGE_CHARS = 2000
 
 
 def _local_datetime(value: datetime) -> datetime:
-    """Return an aware datetime in the runtime's local timezone."""
     return value.astimezone()
 
 
@@ -48,36 +43,17 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def _parse_iso(value: str) -> datetime | None:
-    text = (value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return _local_datetime(parsed)
-
-
-class _TaskLike(Protocol):
-    id: str
-    status: str
-    updated_at: str
-
-
-class _TaskStoreLike(Protocol):
-    def get(self, task_id: str) -> _TaskLike | None: ...
-
-    def list(self) -> Sequence[_TaskLike]: ...
-
-
-@dataclass(frozen=True)
-class AlarmCondition:
-    kind: ConditionKind
-    target: str = ""
-    pattern: str = ""
-    status: str = ""
-    stale_seconds: int = 0
+@dataclass
+class AlarmOptions:
+    task_store: TaskStoreLike | None = None
+    allowed_roots: list[Path] = field(default_factory=list)
+    max_conditions: int = 32
+    min_interval_seconds: int = 60
+    http_max_bytes: int = 256 * 1024
+    check_timeout_seconds: float = 20.0
+    file_max_bytes: int = 8 * 1024 * 1024
+    http_transport: httpx.AsyncBaseTransport | None = None
+    condition_persist_path: Path | None = None
 
 
 @dataclass
@@ -88,6 +64,9 @@ class ConditionAlarm:
     every_seconds: int
     task: asyncio.Task[None] | None = None
     last_state: str = ""
+    last_stat: str = ""
+    last_error: str = ""
+    last_checked_at: datetime | None = None
     next_check_at: datetime | None = None
     failures: int = 0
     paused: bool = False
@@ -100,47 +79,52 @@ class AlarmManager:
         inbox: InboxWatcher,
         persist_path: Path | None = None,
         *,
-        task_store: _TaskStoreLike | None = None,
-        allowed_roots: list[Path] | None = None,
-        max_conditions: int = 32,
-        min_interval_seconds: int = 60,
-        http_max_bytes: int = _DEFAULT_HTTP_MAX_BYTES,
-        check_timeout_seconds: float = _DEFAULT_CHECK_TIMEOUT_SECONDS,
-        file_max_bytes: int = _DEFAULT_FILE_MAX_BYTES,
-        http_transport: httpx.AsyncBaseTransport | None = None,
+        options: AlarmOptions | None = None,
     ) -> None:
         self._inbox = inbox
         self._persist_path = persist_path
+        self._options = options or AlarmOptions()
+        self._condition_path = self._options.condition_persist_path
+        if self._condition_path is None and persist_path is not None:
+            self._condition_path = persist_path.with_name("alarm_conditions.json")
         # alarm_id -> (task, next_trigger_at, message, repeat_seconds)
         self._alarms: dict[str, tuple[asyncio.Task, datetime, str, int | None]] = {}
         self._conditions: dict[str, ConditionAlarm] = {}
-        self._task_store = task_store
-        roots = allowed_roots or [Path.cwd()]
-        self._allowed_roots = [root.expanduser().resolve() for root in roots]
-        self._max_conditions = max(1, max_conditions)
-        self._min_interval_seconds = max(1, min_interval_seconds)
-        self._http_max_bytes = max(1024, http_max_bytes)
-        self._check_timeout_seconds = max(1.0, check_timeout_seconds)
-        self._file_max_bytes = max(1024, file_max_bytes)
-        self._http_transport = http_transport
+        self._checker = ConditionChecker(
+            task_store=self._options.task_store,
+            allowed_roots=self._options.allowed_roots,
+            http_max_bytes=self._options.http_max_bytes,
+            check_timeout_seconds=self._options.check_timeout_seconds,
+            file_max_bytes=self._options.file_max_bytes,
+            http_transport=self._options.http_transport,
+        )
+        self._max_conditions = max(1, self._options.max_conditions)
+        self._min_interval_seconds = max(1, self._options.min_interval_seconds)
 
     @property
     def max_conditions(self) -> int:
         return self._max_conditions
 
     @property
+    def min_interval_seconds(self) -> int:
+        return self._min_interval_seconds
+
+    @property
     def condition_count(self) -> int:
         return len(self._conditions)
 
     @property
-    def min_interval_seconds(self) -> int:
-        return self._min_interval_seconds
+    def condition_persist_path(self) -> Path | None:
+        return self._condition_path
 
     def has_condition(self, alarm_id: str) -> bool:
         return alarm_id in self._conditions
 
     def get_condition(self, alarm_id: str) -> ConditionAlarm | None:
         return self._conditions.get(alarm_id)
+
+    def validate_condition(self, condition: AlarmCondition) -> None:
+        self._checker.validate_target(condition)
 
     async def set(
         self,
@@ -149,14 +133,16 @@ class AlarmManager:
         message: str,
         repeat_seconds: int | None = None,
     ) -> None:
-        self._cancel(alarm_id)
+        removed = self._cancel(alarm_id)
         trigger_at = _local_datetime(trigger_at)
         delay = max(0.0, (trigger_at - _local_now()).total_seconds())
         task = asyncio.create_task(
             bind_locale(partial(self._fire, alarm_id, delay, message, repeat_seconds))
         )
         self._alarms[alarm_id] = (task, trigger_at, message, repeat_seconds)
-        self._save()
+        self._save_time()
+        if removed == "condition":
+            self._save_conditions()
 
     def add_condition(
         self,
@@ -167,7 +153,7 @@ class AlarmManager:
     ) -> ConditionAlarm:
         if alarm_id not in self._conditions and len(self._conditions) >= self._max_conditions:
             raise ValueError(tr("tool_result.alarm.condition_limit", limit=self._max_conditions))
-        self._cancel(alarm_id)
+        removed = self._cancel(alarm_id)
         entry = ConditionAlarm(
             alarm_id=alarm_id,
             message=message,
@@ -175,6 +161,8 @@ class AlarmManager:
             every_seconds=max(self._min_interval_seconds, every_seconds),
         )
         self._conditions[alarm_id] = entry
+        if removed == "time":
+            self._save_time()
         return entry
 
     async def set_condition(
@@ -189,7 +177,7 @@ class AlarmManager:
         entry = self.add_condition(alarm_id, message, condition, every_seconds)
         if start:
             self._start_condition(entry)
-        self._save()
+        self._save_conditions()
 
     def _start_condition(self, entry: ConditionAlarm) -> None:
         if entry.paused:
@@ -198,56 +186,65 @@ class AlarmManager:
             bind_locale(partial(self._condition_loop, entry.alarm_id))
         )
 
-    async def restore(self) -> int:
-        if not self._persist_path or not self._persist_path.exists():
-            return 0
-        try:
-            data = json.loads(self._persist_path.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(f"Failed to read alarm state from {self._persist_path}: {e}")
-            return 0
-        if not isinstance(data, list):
-            logger.warning(f"Alarm state is not a list: {self._persist_path}")
-            return 0
+    async def close(self) -> None:
+        tasks = [entry.task for entry in self._conditions.values() if entry.task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._checker.close()
 
+    async def restore(self) -> int:
         count = 0
-        now = _local_now()
-        for entry in data:
-            if not isinstance(entry, dict) or not entry.get("alarm_id"):
-                continue
+        migrated = False
+        for entry in _load_records(self._persist_path):
             if entry.get("kind") == "condition":
                 if self._restore_condition(entry):
                     count += 1
+                    migrated = True
                 continue
+            if self._restore_time(entry):
+                count += 1
+        for entry in _load_records(self._condition_path):
+            if self._restore_condition(entry):
+                count += 1
+        if migrated:
+            self._save_time()
+            self._save_conditions()
+        if count:
+            logger.info(f"Restored {count} trigger(s)")
+        return count
 
+    def _restore_time(self, entry: dict) -> bool:
+        try:
             alarm_id = str(entry["alarm_id"])
             next_trigger = _local_datetime(datetime.fromisoformat(entry["next_trigger_at"]))
             message = str(entry["message"])
             repeat_seconds = entry.get("repeat_seconds")
-            delay = max(0.0, (next_trigger - now).total_seconds())
-            overdue_note: str | None = None
-            if next_trigger < now:
-                late = int((now - next_trigger).total_seconds())
-                overdue_note = tr("tool_result.alarm.overdue", seconds=late)
-            self._cancel(alarm_id)
-            task = asyncio.create_task(
-                bind_locale(
-                    partial(
-                        self._fire,
-                        alarm_id,
-                        delay,
-                        message,
-                        repeat_seconds,
-                        overdue_note=overdue_note,
-                    )
+        except (KeyError, TypeError, ValueError) as error:
+            logger.warning(f"Skipping invalid alarm record {entry.get('alarm_id')}: {error}")
+            return False
+        now = _local_now()
+        delay = max(0.0, (next_trigger - now).total_seconds())
+        overdue_note: str | None = None
+        if next_trigger < now:
+            late = int((now - next_trigger).total_seconds())
+            overdue_note = tr("tool_result.alarm.overdue", seconds=late)
+        self._cancel(alarm_id)
+        task = asyncio.create_task(
+            bind_locale(
+                partial(
+                    self._fire,
+                    alarm_id,
+                    delay,
+                    message,
+                    repeat_seconds,
+                    overdue_note=overdue_note,
                 )
             )
-            self._alarms[alarm_id] = (task, next_trigger, message, repeat_seconds)
-            count += 1
-
-        if count > 0:
-            logger.info(f"Restored {count} trigger(s) from {self._persist_path}")
-        return count
+        )
+        self._alarms[alarm_id] = (task, next_trigger, message, repeat_seconds)
+        return True
 
     def _restore_condition(self, entry: dict) -> bool:
         raw = entry.get("condition")
@@ -266,19 +263,31 @@ class AlarmManager:
                 status=str(raw.get("status") or ""),
                 stale_seconds=max(0, int(raw.get("stale_seconds") or 0)),
             )
-            every_seconds = max(self._min_interval_seconds, int(entry.get("every_seconds") or 60))
+            every_seconds = max(
+                self._min_interval_seconds, int(entry.get("every_seconds") or 60)
+            )
             alarm_id = str(entry["alarm_id"])
         except (TypeError, ValueError) as error:
             logger.warning(f"Skipping invalid condition alarm {entry.get('alarm_id')}: {error}")
             return False
 
         self._cancel(alarm_id)
+        last_state = str(entry.get("last_state") or "")
+        if (
+            condition.kind in {"file_changed", "http_changed"}
+            and last_state
+            and not last_state.startswith(("sha256:", "stat:"))
+        ):
+            last_state = ""
         restored = ConditionAlarm(
             alarm_id=alarm_id,
             message=str(entry.get("message") or ""),
             condition=condition,
             every_seconds=every_seconds,
-            last_state=str(entry.get("last_state") or ""),
+            last_state=last_state,
+            last_stat=str(entry.get("last_stat") or ""),
+            last_error=str(entry.get("last_error") or ""),
+            last_checked_at=_parse_optional_time(entry.get("last_checked_at")),
             failures=max(0, int(entry.get("failures") or 0)),
             paused=bool(entry.get("paused")),
         )
@@ -302,35 +311,29 @@ class AlarmManager:
                 if overdue_note
                 else message
             )
-            event = IncomingEvent(
-                participant_id="alarm",
-                content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
-                timestamp=datetime.now(),
-                source="alarm",
+            await self._inbox.push(
+                IncomingEvent(
+                    participant_id="alarm",
+                    content=tr("tool_result.alarm.reminder", id=alarm_id, message=display),
+                    timestamp=datetime.now(),
+                    source="alarm",
+                )
             )
-            await self._inbox.push(event)
             logger.info(f"Alarm fired: [{alarm_id}] {message}")
-
             if repeat_seconds and repeat_seconds > 0:
                 next_trigger = _local_now() + timedelta(seconds=repeat_seconds)
                 new_task = asyncio.create_task(
                     bind_locale(
-                        partial(
-                            self._fire,
-                            alarm_id,
-                            float(repeat_seconds),
-                            message,
-                            repeat_seconds,
-                        )
+                        partial(self._fire, alarm_id, float(repeat_seconds), message, repeat_seconds)
                     )
                 )
                 self._alarms[alarm_id] = (new_task, next_trigger, message, repeat_seconds)
-                self._save()
+                self._save_time()
             else:
                 self._alarms.pop(alarm_id, None)
-                self._save()
+                self._save_time()
         except asyncio.CancelledError:
-            pass  # 状态由 _cancel()/_save() 在外部管理，event loop 关闭时不应抹掉持久化
+            pass
 
     async def _condition_loop(self, alarm_id: str) -> None:
         entry = self._conditions.get(alarm_id)
@@ -343,25 +346,26 @@ class AlarmManager:
                     await asyncio.sleep(delay)
                 if entry.paused:
                     break
-                entry.next_check_at = _local_now()
                 if not self._admit_check(entry):
                     delay = float(entry.every_seconds)
                     continue
                 try:
                     await asyncio.wait_for(
-                        self.check_once(alarm_id), timeout=self._check_timeout_seconds
+                        self.check_once(alarm_id), timeout=self._options.check_timeout_seconds
                     )
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
                     entry.failures += 1
+                    entry.last_error = str(error)[:200]
+                    entry.last_checked_at = _local_now()
                     logger.warning(f"Condition alarm {alarm_id} check failed: {error}")
                     if entry.failures >= 5:
                         entry.paused = True
-                        self._save()
+                        self._save_conditions()
                         await self._push_condition_failure(entry, error)
                         return
-                    self._save()
+                    self._save_conditions()
                     delay = min(
                         300.0,
                         float(entry.every_seconds) * (2 ** min(entry.failures, 8)),
@@ -384,129 +388,44 @@ class AlarmManager:
         return True
 
     async def check_once(self, alarm_id: str) -> bool:
-        """Run one condition check and fire when the state changed."""
         entry = self._conditions.get(alarm_id)
         if entry is None:
             raise KeyError(alarm_id)
-        state, degraded = await self._check_condition(entry.condition)
-        fired = False
-        if entry.last_state and state != entry.last_state:
-            await self._fire_condition(entry, degraded)
-            fired = True
-        entry.last_state = state
-        entry.next_check_at = _local_now() + timedelta(seconds=entry.every_seconds)
-        self._save()
-        return fired
-
-    async def _check_condition(self, condition: AlarmCondition) -> tuple[str, bool]:
-        if condition.kind == "file_changed":
-            return await asyncio.to_thread(self._check_file, condition)
-        if condition.kind == "http_changed":
-            return await self._check_http(condition)
-        if condition.kind == "task_state":
-            return await asyncio.to_thread(self._check_task, condition)
-        raise ValueError(f"unknown condition kind: {condition.kind}")
-
-    def _check_file(self, condition: AlarmCondition) -> tuple[str, bool]:
-        path = self._resolve_file_target(condition.target)
-        stat = path.stat()
-        if stat.st_size > self._file_max_bytes:
-            return f"{stat.st_mtime_ns}:{stat.st_size}", True
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return f"{stat.st_mtime_ns}:{stat.st_size}:{digest.hexdigest()}", False
-
-    async def _check_http(self, condition: AlarmCondition) -> tuple[str, bool]:
-        if not condition.target:
-            raise ValueError("http condition requires a target URL")
-        url = condition.target
-        async with httpx.AsyncClient(
-            follow_redirects=False,
-            timeout=self._check_timeout_seconds,
-            transport=self._http_transport,
-        ) as client:
-            for _ in range(_MAX_REDIRECTS + 1):
-                await asyncio.to_thread(_validate_public_http_url, url)
-                async with client.stream(
-                    "GET", url, headers={"User-Agent": _USER_AGENT}
-                ) as response:
-                    if response.is_redirect:
-                        location = response.headers.get("location")
-                        if not location:
-                            raise ValueError("redirect without a location")
-                        url = urljoin(url, location)
-                        continue
-                    response.raise_for_status()
-                    body = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        body.extend(chunk)
-                        if len(body) > self._http_max_bytes:
-                            raise ValueError("response exceeds the byte limit")
-                    text = bytes(body).decode("utf-8", errors="replace")
-                    if condition.pattern:
-                        match = re.search(condition.pattern, text, re.S)
-                        if match is None:
-                            raise ValueError("pattern was not found")
-                        text = match.group(1) if match.groups() else match.group(0)
-                    normalized = " ".join(text.split())
-                    return hashlib.sha256(normalized.encode("utf-8")).hexdigest(), False
-        raise ValueError("too many redirects")
-
-    def _check_task(self, condition: AlarmCondition) -> tuple[str, bool]:
-        if self._task_store is None:
-            raise ValueError("task state condition requires a task store")
-        tasks = list(self._task_store.list())
-        if condition.target:
-            task = self._task_store.get(condition.target)
-            if task is None:
-                return "missing", False
-            tasks = [task]
-
-        parts: list[str] = []
-        if condition.status:
-            matching = sorted(task.id for task in tasks if task.status == condition.status)
-            parts.append("status:" + ",".join(matching))
-        if condition.stale_seconds > 0:
-            now = _local_now()
-            stale = sorted(
-                task.id for task in tasks if _task_is_stale(task, condition.stale_seconds, now)
-            )
-            parts.append("stale:" + ",".join(stale))
-        if not parts:
-            raise ValueError("task condition requires status or stale_seconds")
-        return "|".join(parts), False
-
-    def _resolve_file_target(self, target: str) -> Path:
-        text = (target or "").strip()
-        if not text:
-            raise ValueError("file condition requires a target path")
-        path = Path(text).expanduser()
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        resolved = path.resolve()
-        if not any(
-            resolved == root or root in resolved.parents for root in self._allowed_roots
-        ):
-            raise ValueError("path is outside the allowed roots")
-        return resolved
+        result = await self._checker.check(
+            entry.condition,
+            previous_state=entry.last_state,
+            previous_stat=entry.last_stat,
+        )
+        baseline = not entry.last_state
+        changed = bool(entry.last_state) and result.state != entry.last_state
+        had_error = bool(entry.last_error)
+        if changed:
+            await self._fire_condition(entry, result.degraded)
+        entry.last_state = result.state
+        entry.last_stat = result.stat_key
+        entry.last_error = ""
+        entry.last_checked_at = _local_now()
+        entry.next_check_at = entry.last_checked_at + timedelta(seconds=entry.every_seconds)
+        if baseline or changed or had_error:
+            self._save_conditions()
+        return changed
 
     async def _fire_condition(self, entry: ConditionAlarm, degraded: bool) -> None:
-        event = IncomingEvent(
-            participant_id="alarm",
-            content=tr(
-                "tool_result.alarm.condition_fired",
-                id=entry.alarm_id,
-                message=entry.message,
-                kind=entry.condition.kind,
-                target=entry.condition.target,
-                degraded=tr("tool_result.alarm.degraded") if degraded else "",
-            ),
-            timestamp=datetime.now(),
-            source="alarm",
+        await self._inbox.push(
+            IncomingEvent(
+                participant_id="alarm",
+                content=tr(
+                    "tool_result.alarm.condition_fired",
+                    id=entry.alarm_id,
+                    message=entry.message,
+                    kind=entry.condition.kind,
+                    target=entry.condition.target,
+                    degraded=tr("tool_result.alarm.degraded") if degraded else "",
+                ),
+                timestamp=datetime.now(),
+                source="alarm",
+            )
         )
-        await self._inbox.push(event)
         logger.info(f"Condition alarm fired: [{entry.alarm_id}] {entry.condition.kind}")
 
     async def _push_condition_failure(self, entry: ConditionAlarm, error: Exception) -> None:
@@ -523,66 +442,69 @@ class AlarmManager:
             )
         )
 
-    def _cancel(self, alarm_id: str) -> bool:
+    def _cancel(self, alarm_id: str) -> Literal["time", "condition"] | None:
         entry = self._alarms.pop(alarm_id, None)
         if entry:
-            task, *_ = entry
-            task.cancel()
-            return True
+            entry[0].cancel()
+            return "time"
         condition = self._conditions.pop(alarm_id, None)
         if condition:
             if condition.task is not None:
                 condition.task.cancel()
-            return True
-        return False
+            return "condition"
+        return None
 
     def cancel(self, alarm_id: str) -> bool:
-        result = self._cancel(alarm_id)
-        if result:
-            self._save()
-        return result
+        removed = self._cancel(alarm_id)
+        if removed == "time":
+            self._save_time()
+        elif removed == "condition":
+            self._save_conditions()
+        return removed is not None
 
     def list(self) -> list[dict]:
-        result: list[dict] = []
-        for alarm_id, (task, trigger_at, message, repeat_seconds) in self._alarms.items():
-            result.append(
-                {
-                    "id": alarm_id,
-                    "kind": "time",
-                    "trigger_at": trigger_at.isoformat(timespec="seconds"),
-                    "message": message,
-                    "repeat_seconds": repeat_seconds,
-                    "done": task.done(),
-                }
-            )
-        for alarm_id, entry in self._conditions.items():
-            result.append(
-                {
-                    "id": alarm_id,
-                    "kind": "condition",
-                    "condition": entry.condition.kind,
-                    "target": entry.condition.target,
-                    "every_seconds": entry.every_seconds,
-                    "message": entry.message,
-                    "failures": entry.failures,
-                    "paused": entry.paused,
-                    "last_state": entry.last_state,
-                    "next_check_at": (
-                        entry.next_check_at.isoformat(timespec="seconds")
-                        if entry.next_check_at
-                        else None
-                    ),
-                    "done": entry.task.done() if entry.task is not None else True,
-                }
-            )
+        result: list[dict] = [
+            {
+                "id": alarm_id,
+                "kind": "time",
+                "trigger_at": trigger_at.isoformat(timespec="seconds"),
+                "message": message,
+                "repeat_seconds": repeat_seconds,
+                "done": task.done(),
+            }
+            for alarm_id, (task, trigger_at, message, repeat_seconds) in self._alarms.items()
+        ]
+        result.extend(
+            {
+                "id": entry.alarm_id,
+                "kind": "condition",
+                "condition": entry.condition.kind,
+                "target": entry.condition.target,
+                "every_seconds": entry.every_seconds,
+                "message": entry.message,
+                "failures": entry.failures,
+                "paused": entry.paused,
+                "last_error": entry.last_error,
+                "last_checked_at": (
+                    entry.last_checked_at.isoformat(timespec="seconds")
+                    if entry.last_checked_at
+                    else None
+                ),
+                "next_check_at": (
+                    entry.next_check_at.isoformat(timespec="seconds")
+                    if entry.next_check_at
+                    else None
+                ),
+                "done": entry.task.done() if entry.task is not None else True,
+            }
+            for entry in self._conditions.values()
+        )
         return result
 
-    def _save(self) -> None:
-        if not self._persist_path:
-            return
-        try:
-            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-            records: list[dict] = [
+    def _save_time(self) -> None:
+        _write_records(
+            self._persist_path,
+            [
                 {
                     "alarm_id": alarm_id,
                     "next_trigger_at": trigger_at.isoformat(timespec="seconds"),
@@ -590,53 +512,74 @@ class AlarmManager:
                     "repeat_seconds": repeat_seconds,
                 }
                 for alarm_id, (_, trigger_at, message, repeat_seconds) in self._alarms.items()
-            ]
-            records.extend(
+            ],
+        )
+
+    def _save_conditions(self) -> None:
+        _write_records(
+            self._condition_path,
+            [
                 {
                     "alarm_id": entry.alarm_id,
                     "kind": "condition",
                     "message": entry.message,
-                    "condition": asdict(entry.condition),
+                    "condition": {
+                        "kind": entry.condition.kind,
+                        "target": entry.condition.target,
+                        "pattern": entry.condition.pattern,
+                        "status": entry.condition.status,
+                        "stale_seconds": entry.condition.stale_seconds,
+                    },
                     "every_seconds": entry.every_seconds,
                     "last_state": entry.last_state,
+                    "last_stat": entry.last_stat,
+                    "last_error": entry.last_error,
+                    "last_checked_at": (
+                        entry.last_checked_at.isoformat(timespec="seconds")
+                        if entry.last_checked_at
+                        else None
+                    ),
                     "failures": entry.failures,
                     "paused": entry.paused,
                 }
                 for entry in self._conditions.values()
-            )
-            temp_path = self._persist_path.with_suffix(self._persist_path.suffix + ".tmp")
-            temp_path.write_text(
-                json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            temp_path.replace(self._persist_path)
-        except Exception as e:
-            logger.warning(f"Failed to save alarm state: {e}")
+            ],
+        )
 
 
-def _task_is_stale(task: _TaskLike, seconds: int, now: datetime) -> bool:
-    if task.status not in {"pending", "in_progress"}:
-        return False
-    updated = _parse_iso(task.updated_at)
-    if updated is None:
-        return False
-    return (now - updated).total_seconds() >= seconds
+def _load_records(path: Path | None) -> list[dict]:
+    if path is None or not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as error:
+        logger.warning(f"Failed to read alarm state from {path}: {error}")
+        return []
+    if not isinstance(data, list):
+        logger.warning(f"Alarm state is not a list: {path}")
+        return []
+    return [entry for entry in data if isinstance(entry, dict)]
 
 
-def _validate_public_http_url(url: str) -> None:
-    parsed = urlsplit((url or "").strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("only http/https URLs with a host are allowed")
-    if parsed.username or parsed.password:
-        raise ValueError("credentials in the URL are not allowed")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-    if not infos:
-        raise ValueError("the host did not resolve")
-    for info in infos:
-        address = info[4][0]
-        ip = ipaddress.ip_address(address)
-        if not ip.is_global:
-            raise ValueError("private or reserved addresses are not allowed")
+def _write_records(path: Path | None, records: list[dict]) -> None:
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        temp_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(path)
+    except Exception as error:
+        logger.warning(f"Failed to save alarm state to {path}: {error}")
+
+
+def _parse_optional_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return _local_datetime(datetime.fromisoformat(value))
+    except ValueError:
+        return None
 
 
 class SetAlarmTool(Tool):
@@ -671,6 +614,7 @@ class SetAlarmTool(Tool):
                     "every_seconds": {
                         "type": "integer",
                         "minimum": 60,
+                        "default": _DEFAULT_INTERVAL_SECONDS,
                         "description": "条件模式的检查间隔秒数，最小 60，默认 300。",
                     },
                     "pattern": {
@@ -723,6 +667,8 @@ class SetAlarmTool(Tool):
             return self._error("tool_result.alarm.invalid_mode")
         if not message.strip():
             return self._error("tool_result.alarm.message_required")
+        if len(message) > _MAX_MESSAGE_CHARS:
+            return self._error("tool_result.alarm.message_too_long", limit=_MAX_MESSAGE_CHARS)
 
         if has_time:
             if target or pattern or status or stale_seconds or every_seconds:
@@ -759,18 +705,14 @@ class SetAlarmTool(Tool):
             dt = datetime.fromisoformat(trigger_at)
         except ValueError:
             return self._error("tool_result.alarm.invalid_time")
-
         dt = _local_datetime(dt)
         delay = (dt - _local_now()).total_seconds()
         if delay < 0:
             return self._error("tool_result.alarm.past_time", time=trigger_at)
-
         if not alarm_id:
             alarm_id = uuid.uuid4().hex[:8]
-
         repeat = repeat_seconds if repeat_seconds and repeat_seconds > 0 else None
         await self._manager.set(alarm_id, dt, message, repeat)
-
         mode = (
             tr("tool_result.alarm.repeat_set", seconds=repeat)
             if repeat
@@ -816,16 +758,9 @@ class SetAlarmTool(Tool):
                 re.compile(pattern)
             except re.error:
                 return self._error("tool_result.alarm.invalid_condition_fields")
-        if every_seconds and every_seconds < max(
-            _MIN_CONDITION_INTERVAL_SECONDS, self._manager.min_interval_seconds
-        ):
-            return self._error(
-                "tool_result.alarm.interval_too_small",
-                seconds=max(
-                    _MIN_CONDITION_INTERVAL_SECONDS,
-                    self._manager.min_interval_seconds,
-                ),
-            )
+        minimum = max(_MIN_CONDITION_INTERVAL_SECONDS, self._manager.min_interval_seconds)
+        if every_seconds and every_seconds < minimum:
+            return self._error("tool_result.alarm.interval_too_small", seconds=minimum)
         if not alarm_id:
             alarm_id = uuid.uuid4().hex[:8]
         if (
@@ -833,8 +768,7 @@ class SetAlarmTool(Tool):
             and self._manager.condition_count >= self._manager.max_conditions
         ):
             return self._error(
-                "tool_result.alarm.condition_limit",
-                limit=self._manager.max_conditions,
+                "tool_result.alarm.condition_limit", limit=self._manager.max_conditions
             )
 
         alarm_condition = AlarmCondition(
@@ -844,7 +778,11 @@ class SetAlarmTool(Tool):
             status=status,
             stale_seconds=max(0, stale_seconds),
         )
-        interval = every_seconds if every_seconds > 0 else 300
+        try:
+            self._manager.validate_condition(alarm_condition)
+        except ValueError as error:
+            return self._error("tool_result.alarm.invalid_condition_target", error=str(error))
+        interval = every_seconds if every_seconds > 0 else _DEFAULT_INTERVAL_SECONDS
         await self._manager.set_condition(alarm_id, message, alarm_condition, interval)
         return ToolResult(
             tool_call_id="",
@@ -888,6 +826,16 @@ class ListAlarmsTool(Tool):
                     target=alarm["target"] or "*",
                     seconds=alarm["every_seconds"],
                 )
+                if alarm.get("paused"):
+                    mode += " " + tr(
+                        "tool_result.alarm.condition_paused_label",
+                        error=alarm.get("last_error") or "-",
+                    )
+                elif alarm.get("failures"):
+                    mode += " " + tr(
+                        "tool_result.alarm.condition_failures_label",
+                        count=alarm["failures"],
+                    )
             else:
                 mode = (
                     tr("tool_result.alarm.repeat_list", seconds=alarm["repeat_seconds"])

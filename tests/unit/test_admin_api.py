@@ -233,6 +233,25 @@ def test_admin_alarm_accepts_browser_utc_timestamp(tmp_path):
     assert scheduled_at.tzinfo is not None
 
 
+def test_admin_alarm_lists_separate_condition_entries(tmp_path):
+    items = [
+        {"id": "time1", "kind": "time", "trigger_at": "2026-01-01 00:00:00"},
+        {"id": "cond1", "kind": "condition", "condition": "file_changed"},
+    ]
+    alarm_manager = SimpleNamespace(list=MagicMock(return_value=items))
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    alarms = client.get(
+        "/api/admin/alarms", headers={"Authorization": "Bearer secret"}
+    )
+    conditions = client.get(
+        "/api/admin/alarm-conditions", headers={"Authorization": "Bearer secret"}
+    )
+
+    assert [item["id"] for item in alarms.json()["alarms"]] == ["time1"]
+    assert [item["id"] for item in conditions.json()["conditions"]] == ["cond1"]
+
+
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
     first_service = admin._require_admin_config_service()

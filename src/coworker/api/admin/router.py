@@ -1366,7 +1366,13 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "active_bubbles": len(bubbles),
             "long_term_memories": memory_count,
             "short_term_messages": len(stm.primary),
-            "alarms": len(_require_alarms().list()),
+            "alarms": len(
+                [
+                    item
+                    for item in _require_alarms().list()
+                    if item.get("kind") == "time"
+                ]
+            ),
         },
         "memory": {
             "max_tokens": stm._max_tokens,
@@ -2600,7 +2606,20 @@ async def delete_admin_backup(
 
 @router.get("/alarms")
 async def list_alarms(_: None = Depends(require_admin)) -> ApiResponse:
-    return {"alarms": _require_alarms().list()}
+    return {
+        "alarms": [
+            item for item in _require_alarms().list() if item.get("kind") == "time"
+        ]
+    }
+
+
+@router.get("/alarm-conditions")
+async def list_alarm_conditions(_: None = Depends(require_admin)) -> ApiResponse:
+    return {
+        "conditions": [
+            item for item in _require_alarms().list() if item.get("kind") == "condition"
+        ]
+    }
 
 
 @router.post("/alarms")

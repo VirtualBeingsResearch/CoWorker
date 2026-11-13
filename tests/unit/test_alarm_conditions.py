@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
+from coworker.tools.alarm_conditions import validate_public_url
 from coworker.tools.alarm_tools import (
     AlarmCondition,
     AlarmManager,
+    AlarmOptions,
     ListAlarmsTool,
     SetAlarmTool,
-    _validate_public_http_url,
 )
 from coworker.tools.reasoning_tools import TaskStore
 
@@ -44,10 +47,12 @@ def manager(inbox, tmp_path):
     return AlarmManager(
         inbox,
         persist_path=tmp_path / "alarms.json",
-        allowed_roots=[tmp_path],
-        min_interval_seconds=1,
-        http_max_bytes=1024,
-        check_timeout_seconds=1.0,
+        options=AlarmOptions(
+            allowed_roots=[tmp_path],
+            min_interval_seconds=1,
+            http_max_bytes=1024,
+            check_timeout_seconds=1.0,
+        ),
     )
 
 
@@ -69,6 +74,40 @@ async def test_file_condition_baseline_then_change(manager, inbox, tmp_path):
     assert event.source == "alarm"
     assert "file changed" in event.content
     assert "file_changed" in event.content
+
+
+async def test_file_touch_without_content_change_does_not_fire(manager, inbox, tmp_path):
+    target = tmp_path / "touched.txt"
+    target.write_text("same", encoding="utf-8")
+    manager.add_condition(
+        "touch1",
+        "content changed",
+        AlarmCondition(kind="file_changed", target=str(target)),
+        1,
+    )
+
+    assert await manager.check_once("touch1") is False
+    os.utime(target, (time.time() + 10, time.time() + 10))
+    assert await manager.check_once("touch1") is False
+    inbox.push.assert_not_awaited()
+
+
+async def test_unchanged_check_does_not_rewrite_state(manager, mocker, tmp_path):
+    target = tmp_path / "stable.txt"
+    target.write_text("stable", encoding="utf-8")
+    manager.add_condition(
+        "stable1",
+        "stable",
+        AlarmCondition(kind="file_changed", target=str(target)),
+        1,
+    )
+
+    assert await manager.check_once("stable1") is False
+    spy = mocker.spy(manager, "_save_conditions")
+    spy.reset_mock()
+
+    assert await manager.check_once("stable1") is False
+    assert spy.call_count == 0
 
 
 async def test_condition_loop_fires_after_change(manager, inbox, tmp_path):
@@ -106,9 +145,11 @@ async def test_http_condition_baseline_then_change(inbox, tmp_path):
     manager = AlarmManager(
         inbox,
         persist_path=tmp_path / "alarms.json",
-        http_transport=httpx.MockTransport(handler),
-        min_interval_seconds=1,
-        http_max_bytes=1024,
+        options=AlarmOptions(
+            http_transport=httpx.MockTransport(handler),
+            min_interval_seconds=1,
+            http_max_bytes=1024,
+        ),
     )
     manager.add_condition(
         "h1",
@@ -133,9 +174,11 @@ async def test_http_condition_regex_selects_content(inbox, tmp_path):
 
     manager = AlarmManager(
         inbox,
-        http_transport=httpx.MockTransport(handler),
-        min_interval_seconds=1,
-        http_max_bytes=1024,
+        options=AlarmOptions(
+            http_transport=httpx.MockTransport(handler),
+            min_interval_seconds=1,
+            http_max_bytes=1024,
+        ),
     )
     manager.add_condition(
         "h2",
@@ -162,8 +205,10 @@ async def test_http_condition_rejects_large_response(inbox):
 
     manager = AlarmManager(
         inbox,
-        http_transport=httpx.MockTransport(handler),
-        http_max_bytes=1024,
+        options=AlarmOptions(
+            http_transport=httpx.MockTransport(handler),
+            http_max_bytes=1024,
+        ),
     )
     manager.add_condition(
         "h3",
@@ -182,8 +227,10 @@ async def test_http_condition_rejects_redirect_loop(inbox):
 
     manager = AlarmManager(
         inbox,
-        http_transport=httpx.MockTransport(handler),
-        http_max_bytes=1024,
+        options=AlarmOptions(
+            http_transport=httpx.MockTransport(handler),
+            http_max_bytes=1024,
+        ),
     )
     manager.add_condition(
         "h4",
@@ -199,7 +246,11 @@ async def test_http_condition_rejects_redirect_loop(inbox):
 async def test_task_condition_status(inbox, tmp_path):
     store = TaskStore(tmp_path / "tasks.json")
     task = store.create("finish the report")
-    manager = AlarmManager(inbox, persist_path=tmp_path / "alarms.json", task_store=store)
+    manager = AlarmManager(
+        inbox,
+        persist_path=tmp_path / "alarms.json",
+        options=AlarmOptions(task_store=store),
+    )
     manager.add_condition(
         "t1",
         "task completed",
@@ -218,7 +269,11 @@ async def test_task_condition_status(inbox, tmp_path):
 async def test_task_condition_stale(inbox, tmp_path):
     store = TaskStore(tmp_path / "tasks.json")
     task = store.create("stuck task")
-    manager = AlarmManager(inbox, persist_path=tmp_path / "alarms.json", task_store=store)
+    manager = AlarmManager(
+        inbox,
+        persist_path=tmp_path / "alarms.json",
+        options=AlarmOptions(task_store=store),
+    )
     manager.add_condition(
         "t2",
         "task is stale",
@@ -245,12 +300,29 @@ async def test_condition_alarm_can_be_listed_and_cancelled(manager):
     assert listed[0]["kind"] == "condition"
     assert listed[0]["target"] == str(__file__)
 
+    entry = manager.get_condition("c1")
+    assert entry is not None
+    entry.paused = True
+    entry.last_error = "boom"
+
     result = await ListAlarmsTool(manager).execute()
     assert not result.is_error
     assert "condition" in result.content or "条件" in result.content
+    assert "paused" in result.content or "暂停" in result.content
 
     assert manager.cancel("c1") is True
     assert manager.list() == []
+
+
+async def test_condition_limit(inbox, tmp_path):
+    manager = AlarmManager(
+        inbox,
+        options=AlarmOptions(allowed_roots=[tmp_path], max_conditions=1),
+    )
+    condition = AlarmCondition(kind="file_changed", target=str(tmp_path / "a.txt"))
+    manager.add_condition("a", "first", condition, 60)
+    with pytest.raises(ValueError):
+        manager.add_condition("b", "second", condition, 60)
 
 
 class TestSetAlarmValidation:
@@ -292,12 +364,34 @@ class TestSetAlarmValidation:
         result = await tool.execute(message="x", condition="task_state")
         assert result.is_error
 
-    async def test_sets_condition_alarm(self, manager):
+    async def test_rejects_file_outside_allowed_roots(self, manager, tmp_path):
         tool = SetAlarmTool(manager)
+        result = await tool.execute(
+            message="x",
+            condition="file_changed",
+            target=str(tmp_path.parent / "outside.txt"),
+            every_seconds=60,
+        )
+        assert result.is_error
+
+    async def test_rejects_private_http_target(self, manager):
+        tool = SetAlarmTool(manager)
+        result = await tool.execute(
+            message="x",
+            condition="http_changed",
+            target="http://127.0.0.1/",
+            every_seconds=60,
+        )
+        assert result.is_error
+
+    async def test_sets_condition_alarm(self, manager, tmp_path):
+        tool = SetAlarmTool(manager)
+        target = tmp_path / "watched.txt"
+        target.write_text("initial", encoding="utf-8")
         result = await tool.execute(
             message="watch",
             condition="file_changed",
-            target=__file__,
+            target=str(target),
             every_seconds=60,
             alarm_id="cond1",
         )
@@ -309,10 +403,10 @@ class TestSetAlarmValidation:
 
 def test_validate_public_url_rejects_private_and_credentials():
     with pytest.raises(ValueError):
-        _validate_public_http_url("http://127.0.0.1/")
+        validate_public_url("http://127.0.0.1/")
     with pytest.raises(ValueError):
-        _validate_public_http_url("http://localhost/")
+        validate_public_url("http://localhost/")
     with pytest.raises(ValueError):
-        _validate_public_http_url("ftp://example.com/")
+        validate_public_url("ftp://example.com/")
     with pytest.raises(ValueError):
-        _validate_public_http_url("https://user:pass@93.184.216.34/")
+        validate_public_url("https://user:pass@93.184.216.34/")
