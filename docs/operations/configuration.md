@@ -20,7 +20,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 自定义值、密钥和显式覆盖保持不变。运行设置页会列出当前分组中的管理端覆盖，并允许将
 单个字段恢复为继承配置；每个分组独立保留未保存草稿和密钥，只会提交当前分组。
 
-未完成首次初始化时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息接收轮询或企业微信等外部通道。命令行每次启动都会显示当前有效的管理员令牌，浏览器访问 `/admin` 之外的页面或普通 API 会被引导到 `/admin`；管理页静态资源、登录校验和 bootstrap 接口仍正常放行。首次初始化向导会只读显示服务器当前时区，并检测浏览器时区来推荐相应的 `TZ` 环境变量，但快速体验不会自动修改服务器或容器时区；向导也可以设置运行时语言、单次输出 Token 上限，并从推荐目录选择或手动输入启动模型。保存后通过一次干净重启进入正常运行，不恢复首设阶段的短期快照，也不生成普通重启通知。
+未完成首次初始化时，Coworker 只启动管理 HTTP 服务，不启动 Agent 主循环、消息接收轮询或企业微信等外部信道。命令行每次启动都会显示当前有效的管理员令牌，浏览器访问 `/admin` 之外的页面或普通 API 会被引导到 `/admin`；管理页静态资源、登录校验和 bootstrap 接口仍正常放行。首次初始化向导会只读显示服务器当前时区，并检测浏览器时区来推荐相应的 `TZ` 环境变量，但快速体验不会自动修改服务器或容器时区；向导也可以设置运行时语言、单次输出 Token 上限，并从推荐目录选择或手动输入启动模型。保存后通过一次干净重启进入正常运行，不恢复首设阶段的短期快照，也不生成普通重启通知。
 
 ### 运行时语言与系统时区
 
@@ -56,6 +56,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__SUMMARY_THINKING` | `false` | 摘要/压缩调用是否启用 thinking，默认关闭以降低延迟和成本 |
 | `LLM__SUMMARY_THINKING_EFFORT` | 空（Provider 默认） | 摘要/压缩思考强度，档位同 `LLM__THINKING_EFFORT` |
 | `LLM__FALLBACKS` | `[]` | 主模型失败后的有序降级链，使用 JSON 数组，每项为 `providerName` 或 `providerName/modelId` |
+| `LLM__FALLBACK_RECOVERY_SECONDS` | `300` | 降级后首次后台探测主模型的等待秒数；`0` 表示下一轮主循环请求后立即探测，负数关闭自动恢复。探测使用真实请求输入、只保留很小的输出预算，失败按指数退避，单次间隔最长 30 分钟 |
 | `LLM__MODEL_PRICES` | `[]` | 模型定价 JSON 数组，按 Provider 注册名和模型 ID 精确匹配；修改后热生效并按当前价格重算历史消费估算 |
 | `LLM__ANTHROPIC_API_KEY` | 空 | Anthropic API Key |
 | `LLM__ANTHROPIC_BASE_URL` | 空 | Anthropic 自定义 Base URL |
@@ -69,7 +70,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `LLM__ZHIPU_BASE_URL` | 空（未配置时使用智谱 OpenAI 兼容地址） | 智谱自定义 Base URL |
 | `LLM__MINIMAX_API_KEY` | 空 | MiniMax API Key |
 | `LLM__MINIMAX_BASE_URL` | 空（未配置时使用 MiniMax OpenAI 兼容地址） | MiniMax 自定义 Base URL |
-| `LLM__OPENCODE_GO_API_KEY` | 空（未设置时兜底读取官方 `OPENCODE_API_KEY`） | OpenCode Go 订阅 API Key |
+| `LLM__OPENCODE_GO_API_KEY` | 空（未设置时回退读取官方 `OPENCODE_API_KEY`） | OpenCode Go 订阅 API Key |
 | `LLM__OPENCODE_GO_BASE_URL` | 空（未配置时使用 `https://opencode.ai/zen/go/v1`） | OpenCode Go 自定义 Base URL |
 | `LLM__PROVIDERS_FILE` | `providers.json` | 命名 Provider 列表文件（见下方「多实例 Provider」）；文件不存在则忽略 |
 | `LLM__RUNTIME_CONFIG_FILE` | `data/model_runtime_config.json` | 在线修改 thinking / summary / fallbacks / vision 后写入的运行态覆盖文件；启动时覆盖 `.env` 中同名模型配置 |
@@ -123,7 +124,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `MEMORY__AUTO_RECALL_LIMIT` | `5` | 每次自动回忆最多注入条数 |
 | `MEMORY__MEM0_LLM_PROVIDER` | `""`（跟随主线） | mem0 记忆提取的独立 provider；留空跟随运行态主线 provider（包括手动切换与失败降级），也可显式指定 Brain provider 名称或类型，复用匹配实例的凭据和有效 `base_url`。修改后热生效，无需重启 |
 | `MEMORY__MEM0_LLM_MODEL` | `""`（跟随主线） | mem0 记忆提取的独立模型 ID；provider 也留空时跟随运行态主线模型。显式指定 provider 但留空模型时，使用该 provider 的 `default_model`（无则 `LLM__DEFAULT_MODEL`）。模型 ID 原样传给对应 API 方言；修改后热生效，无需重启 |
-| `MEMORY__MEM0_LLM_THINKING` | `false` | mem0 抽取 LLM 的 thinking 开关；对已知思考模型注入对应参数（抽取是结构化 JSON 任务，默认关闭避免思考吞 token）。修改后热生效，无需重启 |
+| `MEMORY__MEM0_LLM_THINKING` | `false` | mem0 抽取 LLM 的 thinking 开关；对已知思考模型注入对应参数（抽取是结构化 JSON 任务，默认关闭避免思考占用 token）。修改后热生效，无需重启 |
 | `MEMORY__MEM0_EMBEDDER_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | mem0 使用的嵌入模型；已有数据时直接切换会让旧向量与新模型不匹配 |
 
 ### Agent
@@ -152,7 +153,7 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__CONCURRENCY_HINT_THRESHOLD` | `2` | 窗口内未被泡泡接管的会话数上穿该阈值时，向模型注入泡泡并行提示；最小为 2 |
 | `AGENT__CONCURRENCY_HINT_COOLDOWN_SECONDS` | `600.0` | 两次并发提示之间的最小间隔（秒） |
 | `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_PARTICIPANT_MATCHES` | `["wecom:*", "weixin:*", "tg:*", "coworker-desktop:*:local:*"]` | JSON glob 数组，按大小写敏感的整串 `participant_id` 匹配；不含通配符的条目表示精确匹配。命中对象在 Bubble 首次真实收发时收到带 ID 的接管或续跑提示，直接回复带来源；只有已公告的接管才发送结束提示。默认匹配企微、微信 Claw、Telegram 和 Desktop `local` actor；设为 `[]` 可关闭全部默认 participant 匹配。 |
-| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则兜底命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
+| `AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS` | `["websocket", "sse"]` | JSON 传输层数组，可填 `websocket`、`sse`；两者默认开启，因此在线通用长连接默认使用透明转交。任何未命中 participant glob 的 Desktop actor 都不会被此通用规则命中，因此仍排除 `claude` 与 `codex`。设为 `[]` 可关闭传输层匹配。 |
 | `AGENT__BUBBLE_TIMEOUT_RESUME_SECONDS` | `300` | 泡泡达到最大轮次后允许通过 `bubble_spawn(bubble_id=...)` 续跑的宽限期（秒）；设为 `0` 禁用续跑。 |
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | 压缩前是否触发潜意识总结 |

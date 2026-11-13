@@ -24,6 +24,10 @@
 | Provider | Implementation of a model API dialect such as Anthropic, OpenAI, or DeepSeek |
 | Provider instance | One uniquely named Provider configuration with key, Base URL, and default model |
 | fallback | Ordered Provider/model chain used after main-model failure |
+| Main model | Model currently used by the main line; during a fallback a backup model takes over |
+| Fallback chain | Ordered list of backup Provider/model entries used after a main-model failure; `LLM__FALLBACKS` |
+| Takeover | A backup model replacing the main model in service; distinct from a Bubble conversation handoff |
+| Recovery probe | Background check of whether the main model recovered, using the real request input with a tiny output budget |
 | Relay | Self-hosted single-node entry point forwarding end-to-end-encrypted bytes between remote Desktop and Coworker |
 | Bridge | Rust runtime in Desktop connecting Local, Codex, Claude Code, and Coworker |
 | Emergency backup | Short-term-context snapshot after repeated Agent errors, not a full disaster backup |

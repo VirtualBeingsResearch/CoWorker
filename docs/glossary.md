@@ -24,6 +24,10 @@
 | Provider | Anthropic、OpenAI、DeepSeek 等模型 API 方言的实现 |
 | Provider 实例 | 具有唯一注册名、密钥、Base URL 和默认模型的一份 Provider 配置 |
 | fallback | 主模型失败时按顺序尝试的 Provider/模型链 |
+| 主模型 | 主线当前使用的模型；降级期间由备用模型接管 |
+| 降级链 | 主模型失败时按顺序尝试的备用 Provider/模型列表，对应 `LLM__FALLBACKS` |
+| 接管 | 备用模型接替主模型继续提供服务；与 Bubble 的会话接管不是同一个概念 |
+| 恢复探测 | 降级稳定后，用真实请求输入和极小输出预算在后台检查主模型是否恢复 |
 | Relay | 为远程 Desktop 和 Coworker 转发端到端加密字节流的自托管单节点入口 |
 | Bridge | Desktop 中连接 Local、Codex、Claude Code 与 Coworker 的 Rust 运行层 |
 | 应急备份 | 连续 Agent 错误时保存的短期上下文快照，不是整实例灾难备份 |

@@ -148,7 +148,7 @@ OpenAI-compatible gateway looks like:
 
 `model_capabilities` declares `tools`, `vision`, and `video` for an exact model ID. A declaration
 overrides the protocol's built-in model detection; unlisted models continue to use the built-in
-catalog. A model with `video: true` must also set `vision: true`. Primary and fallback models require
+catalog. A model with `video: true` must also set `vision: true`. Main and fallback models require
 `tools`, while a vision specialist requires `vision`.
 
 ## Define model prices
@@ -169,10 +169,13 @@ usage; it neither changes `usage_stats.json` nor preserves the price that applie
 - summary: compression and summarization, usually without thinking to reduce cost; when a Provider splits thinking tokens (for example Anthropic's `output_tokens_details.thinking_tokens`), summary content and thinking tokens are counted separately and memory-tree nodes are sized by content only;
 - vision: image/video analysis, requiring declared Provider capability;
 - long_term: long-term-memory extraction (run by the mem0 backend by default);
-- fallback: ordered takeover after main-model failure.
+- fallback: ordered takeover after main-model failure. After a takeover, a background probe replays
+  the real request input with a tiny output budget; the Agent switches back automatically once the
+  main model recovers. The probe cadence is `LLM__FALLBACK_RECOVERY_SECONDS`.
 
 The usual practice is to validate each specialist before adding it to fallback; a dead Provider
-first in the chain adds latency to every takeover.
+first in the chain adds latency to every takeover. While degraded, `switch_model` switches back
+immediately, and a manual switch clears the automatic-recovery target.
 
 ## Common failures
 

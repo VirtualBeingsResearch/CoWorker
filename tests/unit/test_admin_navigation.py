@@ -77,3 +77,21 @@ def test_channel_progress_config_labels_have_english_translations() -> None:
         if "communicate" in phrase or "Telegram" in phrase:
             assert phrase in presentation
 
+
+def test_fallback_recovery_config_labels_have_english_translations() -> None:
+    config_labels = (
+        REPOSITORY_ROOT / "web/src/admin/settings/configLabels.ts"
+    ).read_text(encoding="utf-8")
+    i18n = (REPOSITORY_ROOT / "web/src/i18n/catalog.ts").read_text(encoding="utf-8")
+    presentation = (
+        REPOSITORY_ROOT / "web/src/admin/settings/configFieldPresentation.ts"
+    ).read_text(encoding="utf-8")
+    assert "'llm.fallback_recovery_seconds': '主模型恢复探测间隔（秒）'" in config_labels
+    for phrase in (
+        "主模型恢复探测间隔（秒）",
+        "降级后等待该秒数再在后台探测主模型；0 表示下一轮请求后立即探测，负数关闭自动恢复。"
+        "探测失败按指数退避，最长 30 分钟。",
+    ):
+        assert f"'{phrase}':" in i18n
+    assert "负数关闭自动恢复" in presentation
+

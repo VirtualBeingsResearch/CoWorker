@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -610,10 +611,12 @@ class TestBrainFallback:
         # 降级后停在备用模型，并标记为失败降级
         assert brain.current_provider_name == "backup"
         assert brain.current_model == "backup-model"
+        assert brain.degraded is True
+        assert brain.recovery_target == ("primary", "primary-model")
         listener.assert_awaited_once_with("backup", "backup-model")
-        assert brain.consume_fallback_switch() is True
+        assert brain.consume_switch_cause() == "fallback"
         # consume 后复位
-        assert brain.consume_fallback_switch() is False
+        assert brain.consume_switch_cause() is None
 
     @pytest.mark.asyncio
     async def test_fallback_with_explicit_model(self):
@@ -662,7 +665,7 @@ class TestBrainFallback:
         assert result == "backup response"
         # 后台摘要借用了 fallback，但不得劫持主 agent 的 active model
         assert brain.current_provider_name == "primary"
-        assert brain.consume_fallback_switch() is False
+        assert brain.consume_switch_cause() is None
         assert len(seen) == 1
         assert seen[0][0].provider == "backup"
         assert seen[0][0].model == "backup-model"
@@ -686,6 +689,331 @@ class TestBrainFallback:
                 await brain.think(messages=[], system_prompt="", tools=[])
         finally:
             asyncio.sleep = original_sleep
+
+
+class _ControllableProvider(MockProvider):
+    """可切换故障状态并记录调用次数的测试 Provider。"""
+
+    def __init__(self, name: str, model: str, content: str) -> None:
+        super().__init__()
+        self.provider_name = name
+        self.default_model = model
+        self._current_model = model
+        self._content = content
+        self.failing = False
+        self.calls = 0
+        self.seen: list[dict] = []
+
+    async def complete(self, messages, system_prompt, tools, max_tokens=4096, **_):
+        self.calls += 1
+        self.seen.append(
+            {
+                "messages": list(messages),
+                "system_prompt": system_prompt,
+                "tools": tools,
+                "max_tokens": max_tokens,
+            }
+        )
+        if self.failing:
+            raise RuntimeError(f"{self.provider_name} down")
+        return LLMResponse(
+            content=self._content,
+            tool_calls=[],
+            stop_reason="end_turn",
+            model=self._current_model,
+            usage={"input_tokens": 1, "output_tokens": 1},
+        )
+
+
+class _NoRetrySleep:
+    """跳过指数退避等待，同时避免真实 sleep 拖慢测试。"""
+
+    def __enter__(self):
+        self._original = asyncio.sleep
+        asyncio.sleep = AsyncMock()
+        return self
+
+    def __exit__(self, *exc_info):
+        asyncio.sleep = self._original
+        return False
+
+
+class TestBrainFallbackRecovery:
+    def _degraded_brain(
+        self,
+        *,
+        recovery_seconds: float = 0.0,
+        fallbacks: list[str] | None = None,
+    ) -> tuple[Brain, _ControllableProvider, _ControllableProvider, AsyncMock]:
+        primary = _ControllableProvider("primary", "primary-model", "primary response")
+        backup = _ControllableProvider("backup", "backup-model", "backup response")
+        primary.failing = True
+        brain = Brain(
+            "primary",
+            "primary-model",
+            fallbacks=fallbacks or ["backup"],
+            fallback_recovery_seconds=recovery_seconds,
+        )
+        brain.register_provider(primary)
+        brain.register_provider(backup)
+        listener = AsyncMock()
+        brain.add_model_switch_listener(listener)
+        return brain, primary, backup, listener
+
+    async def _settle_probe(self, brain: Brain) -> None:
+        task = brain._probe_task
+        assert task is not None, "background probe was not scheduled"
+        await asyncio.wait_for(task, timeout=5)
+
+    @pytest.mark.asyncio
+    async def test_background_probe_uses_real_request_with_small_output_budget(self):
+        brain, primary, _, _ = self._degraded_brain()
+        history = [Message(role="user", content="hello")]
+        tools = [{"name": "t", "description": "", "parameters": {}}]
+
+        with _NoRetrySleep():
+            response = await brain.think(
+                messages=history, system_prompt="sys", tools=tools
+            )
+
+        assert response.content == "backup response"
+        # 探针在本轮响应返回之后才开始，不占用这一轮请求。
+        assert len(primary.seen) == 3
+        assert brain._probe_task is not None
+        await self._settle_probe(brain)
+
+        main_request = primary.seen[0]
+        probe_request = primary.seen[-1]
+        assert probe_request["messages"] == main_request["messages"]
+        assert probe_request["system_prompt"] == "sys"
+        assert probe_request["tools"] == tools
+        assert probe_request["max_tokens"] == 16
+        assert main_request["max_tokens"] == brain.max_tokens
+
+    @pytest.mark.asyncio
+    async def test_recovers_on_next_turn_after_background_probe(self):
+        brain, primary, _, listener = self._degraded_brain()
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain.consume_switch_cause() == "fallback"
+
+        primary.failing = False
+        await self._settle_probe(brain)
+        # 探针结果只在下一轮应用，当前 active 仍是备用模型。
+        assert brain.current_provider_name == "backup"
+        assert len(primary.seen) == 4  # 3 次降级尝试 + 1 次后台探针
+
+        listener.reset_mock()
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "primary response"
+        assert len(primary.seen) == 5  # 再加 1 次恢复后的真实调用
+        assert brain.current_provider_name == "primary"
+        assert brain.current_model == "primary-model"
+        assert brain.degraded is False
+        assert brain.recovery_target is None
+        assert brain.consume_switch_cause() == "recovery"
+        listener.assert_awaited_once_with("primary", "primary-model")
+
+        # 恢复后不再安排探针。
+        assert brain._probe_task is None
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain._probe_task is None
+        listener.assert_awaited_once_with("primary", "primary-model")
+
+    @pytest.mark.asyncio
+    async def test_failed_probe_keeps_fallback_and_backs_off(self):
+        brain, primary, _, listener = self._degraded_brain()
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain.consume_switch_cause() == "fallback"
+
+        await self._settle_probe(brain)
+        assert len(primary.seen) == 4  # 3 次降级尝试 + 1 次后台探针
+
+        listener.reset_mock()
+        started_at = time.monotonic()
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "backup response"
+        assert len(primary.seen) == 4  # 探针只尝试一次，本轮没有再撞主模型
+        assert brain.current_provider_name == "backup"
+        assert brain.degraded is True
+        assert brain.recovery_target == ("primary", "primary-model")
+        assert brain._recovery_attempts == 1
+        assert brain._recovery_not_before - started_at >= 59.0
+        # 探测失败不算新的切换，不重复通知。
+        assert brain.consume_switch_cause() is None
+        listener.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_probe_waits_for_cooldown(self):
+        brain, primary, _, _ = self._degraded_brain(recovery_seconds=300)
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain.degraded is True
+        assert primary.calls == 3  # 降级时主模型按 3 次重试全部失败
+        assert brain._probe_task is None
+
+        # 冷却内不探测：备用模型直接服务，不额外撞主模型。
+        primary.failing = False
+        primary.calls = 0
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "backup response"
+        assert primary.calls == 0
+        assert brain._probe_task is None
+        assert brain.degraded is True
+
+    @pytest.mark.asyncio
+    async def test_negative_recovery_seconds_disables_probe(self):
+        brain, primary, _, _ = self._degraded_brain(recovery_seconds=-1)
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain._probe_task is None
+
+        primary.failing = False
+        primary.calls = 0
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "backup response"
+        assert primary.calls == 0
+        assert brain._probe_task is None
+        assert brain.degraded is True
+
+    @pytest.mark.asyncio
+    async def test_manual_switch_clears_degraded_state(self):
+        brain, _, _, _ = self._degraded_brain(recovery_seconds=300)
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain.degraded is True
+        assert brain.consume_switch_cause() == "fallback"
+
+        await brain.switch_model("primary", "primary-model")
+
+        assert brain.current_provider_name == "primary"
+        assert brain.degraded is False
+        assert brain.recovery_target is None
+        # 主动切换不标记为失败降级或自动恢复。
+        assert brain.consume_switch_cause() is None
+
+    @pytest.mark.asyncio
+    async def test_manual_switch_cancels_pending_probe(self):
+        brain, _, _, _ = self._degraded_brain()
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        task = brain._probe_task
+        assert task is not None and not task.done()
+
+        await brain.switch_model("primary", "primary-model")
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert brain.degraded is False
+
+    @pytest.mark.asyncio
+    async def test_summarize_never_schedules_or_applies_probe(self):
+        brain, primary, _, _ = self._degraded_brain(recovery_seconds=300)
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        assert brain.degraded is True
+        assert brain.consume_switch_cause() == "fallback"
+
+        primary.failing = False
+        primary.calls = 0
+        with _NoRetrySleep():
+            result = await brain.summarize(messages=[Message(role="user", content="history")])
+
+        # 跟随主线的摘要只借用当前候选，不安排也不应用后台探针。
+        assert result == "backup response"
+        assert primary.calls == 0
+        assert brain._probe_task is None
+        assert brain.current_provider_name == "backup"
+        assert brain.degraded is True
+        assert brain.consume_switch_cause() is None
+
+    @pytest.mark.asyncio
+    async def test_new_fallback_keeps_original_recovery_target(self):
+        brain, primary, backup, _ = self._degraded_brain(
+            recovery_seconds=300, fallbacks=["backup", "third"]
+        )
+        third = _ControllableProvider("third", "third-model", "third response")
+        brain.register_provider(third)
+        primary.failing = True
+        backup.failing = True
+
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "third response"
+        assert brain.current_provider_name == "third"
+        assert brain.degraded is True
+        # 再次由更靠后的备用模型接管，不改变恢复目标：仍是最初的主模型。
+        assert brain.recovery_target == ("primary", "primary-model")
+        assert brain.consume_switch_cause() == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_restore_fallback_state_resumes_recovery_after_restart(self):
+        # 模拟重启：快照把 active 恢复成备用模型，随后恢复降级状态继续自动切回。
+        primary = _ControllableProvider("primary", "primary-model", "primary response")
+        backup = _ControllableProvider("backup", "backup-model", "backup response")
+        brain = Brain(
+            "backup",
+            "backup-model",
+            fallbacks=["backup"],
+            fallback_recovery_seconds=0,
+        )
+        brain.register_provider(primary)
+        brain.register_provider(backup)
+        brain.restore_fallback_state("primary", "primary-model")
+
+        assert brain.degraded is True
+        assert brain.recovery_target == ("primary", "primary-model")
+
+        with _NoRetrySleep():
+            first = await brain.think(messages=[], system_prompt="", tools=[])
+        assert first.content == "backup response"
+        await self._settle_probe(brain)
+
+        with _NoRetrySleep():
+            second = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert second.content == "primary response"
+        assert brain.current_provider_name == "primary"
+        assert brain.degraded is False
+        assert brain.consume_switch_cause() == "recovery"
+
+    @pytest.mark.asyncio
+    async def test_probe_result_is_ignored_after_manual_switch(self):
+        brain, primary, _, _ = self._degraded_brain()
+
+        with _NoRetrySleep():
+            await brain.think(messages=[], system_prompt="", tools=[])
+        primary.failing = False
+        await self._settle_probe(brain)
+
+        # 探针成功但结果尚未应用时手动切换：旧结果必须作废。
+        await brain.switch_model("backup", "backup-model")
+
+        with _NoRetrySleep():
+            response = await brain.think(messages=[], system_prompt="", tools=[])
+
+        assert response.content == "backup response"
+        assert brain.current_provider_name == "backup"
+        assert brain.degraded is False
+        assert brain.consume_switch_cause() is None
 
 
 class TestBrainModelConfig:

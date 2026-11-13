@@ -86,6 +86,10 @@ uv run playwright install --with-deps chromium
 
 手动输入的模型没有经过在线能力探测。普通文本生成成功并不代表它能执行工具调用。
 
+主模型失败后 fallback 会接管；备用模型成功接管后，系统会在后台用真实请求输入探测主模型并自动切回。
+如果长时间停在备用模型，检查第 6 项和 `LLM__FALLBACK_RECOVERY_SECONDS`（负数会关闭自动恢复），
+或直接手动切换回去。
+
 刚更换长期记忆 embedding 模型后，新写入会立即使用新模型；已有 Chroma 数据不能假定与
 另一个 embedding 模型兼容，需先确认迁移要求。
 

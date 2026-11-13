@@ -220,6 +220,8 @@ def _make_brain(content="ok", tool_calls=None, stop_reason="end_turn", usage=Non
     brain.current_provider_name = "mock"
     brain.current_model = "mock-model"
     brain.summarize = AsyncMock(return_value="s")
+    # 未降级的替身：快照同步不应写入恢复目标。
+    brain.recovery_target = None
     return brain
 
 
@@ -650,6 +652,45 @@ async def test_background_compression_saves_snapshot(tmp_path):
 
     data = json.loads(loop._snapshot_path.read_text(encoding="utf-8"))
     assert len(data["primary"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_recovery_notice_announces_switch_back_to_primary_model():
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    brain.current_provider_name = "primary"
+    brain.current_model = "primary-model"
+    brain.consume_switch_cause = MagicMock(return_value="recovery")
+    loop = _make_loop(brain, mem)
+    loop.state.current_provider = "backup"
+    loop.state.current_model = "backup-model"
+
+    await loop._cycle()
+
+    notices = [message for message in mem.primary if message.source == "model_switch"]
+    assert len(notices) == 1
+    assert "已自动从备用模型切回 primary/primary-model" in str(notices[0].content)
+    assert loop.state.current_provider == "primary"
+    assert loop.state.current_model == "primary-model"
+
+
+def test_snapshot_records_fallback_recovery_target(tmp_path):
+    mem = ShortTermMemory()
+    brain = _make_brain()
+    brain.current_provider_name = "backup"
+    brain.current_model = "backup-model"
+    brain.recovery_target = ("primary", "primary-model")
+    loop = _make_loop(brain, mem)
+    loop._snapshot_path = tmp_path / "short_term_snapshot.json"
+
+    loop._sync_snapshot_model_state()
+    loop._short_term.save_to_file(loop._snapshot_path)
+
+    data = json.loads(loop._snapshot_path.read_text(encoding="utf-8"))
+    assert data["active_provider"] == "backup"
+    assert data["active_model"] == "backup-model"
+    assert data["preferred_provider"] == "primary"
+    assert data["preferred_model"] == "primary-model"
 
 
 @pytest.mark.asyncio

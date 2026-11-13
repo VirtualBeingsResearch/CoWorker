@@ -178,7 +178,7 @@ AGENT__BUBBLE_HANDOFF_TRANSPARENCY_STREAM_TRANSPORTS=["websocket","sse"]
 
 只填写其中一项即可只启用该传输层，设为 `[]` 可全部关闭。Desktop 身份不会回退到这条通用规则：它必须显式命中 participant glob，因此默认只透明 `coworker-desktop:d:local:…`，不会透明 `claude` 或 `codex` actor。
 
-支持结构化 `extra` 的出站通道（通用 WebSocket/SSE 与 Desktop）还会在透明转交消息的 `extra.bubble` 中携带来源，接管状态以 `extra.bubble` 为准，提示文案不是稳定接口：
+支持结构化 `extra` 的出站信道（通用 WebSocket/SSE 与 Desktop）还会在透明转交消息的 `extra.bubble` 中携带来源，接管状态以 `extra.bubble` 为准，提示文案不是稳定接口：
 
 ```json
 {

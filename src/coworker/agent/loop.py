@@ -157,8 +157,7 @@ class AgentLoop:
                 await self._cycle()
                 self._consecutive_errors = 0  # 成功周期，重置错误计数
                 if self._snapshot_path and not self.state.restart_requested:
-                    self._short_term.active_provider = self._brain.current_provider_name
-                    self._short_term.active_model = self._brain.current_model
+                    self._sync_snapshot_model_state()
                     self._short_term.save_to_file(self._snapshot_path)
             except RestartRequestedException:
                 self.state.restart_requested = True
@@ -169,8 +168,7 @@ class AgentLoop:
                 self._consecutive_errors = 0
                 # 本轮已经从 inbox 取走了消息：保存快照，重启后不会丢掉这一回合。
                 if self._snapshot_path and not self.state.restart_requested:
-                    self._short_term.active_provider = self._brain.current_provider_name
-                    self._short_term.active_model = self._brain.current_model
+                    self._sync_snapshot_model_state()
                     self._short_term.save_to_file(self._snapshot_path)
                 continue
             except Exception as e:
@@ -311,6 +309,14 @@ class AgentLoop:
 
         await self._stop_event.wait()
 
+    def _sync_snapshot_model_state(self) -> None:
+        """把当前主模型与降级恢复目标写进短期快照，重启后自动切回仍能继续。"""
+        self._short_term.active_provider = self._brain.current_provider_name
+        self._short_term.active_model = self._brain.current_model
+        provider, model = self._brain.recovery_target or ("", "")
+        self._short_term.preferred_provider = provider
+        self._short_term.preferred_model = model
+
     def request_restart(self, reason: str = "normal") -> None:
         """由受信任的管理入口请求安全重启。
 
@@ -318,8 +324,7 @@ class AgentLoop:
         因此只记录重启意图并唤醒外层生命周期等待器。
         """
         if self._snapshot_path is not None and not self.state.setup_mode and reason != "bootstrap":
-            self._short_term.active_provider = self._brain.current_provider_name
-            self._short_term.active_model = self._brain.current_model
+            self._sync_snapshot_model_state()
             self._short_term.save_to_file(self._snapshot_path)
         self.state.restart_requested = True
         self.state.restart_reason = reason
@@ -436,10 +441,17 @@ class AgentLoop:
         ):
             self.state.current_provider = self._brain.current_provider_name
             self.state.current_model = self._brain.current_model
-            # 区分「失败降级」与「主动切换」：降级用更明确的措辞，提示模型这是被动容错。
-            if self._brain.consume_fallback_switch():
+            # 区分「失败降级」「自动切回原主模型」与「主动切换」：降级和恢复都提示模型这是被动容错。
+            cause = self._brain.consume_switch_cause()
+            if cause == "fallback":
                 notice = tr(
                     "loop.model_fallback",
+                    provider=self.state.current_provider,
+                    model=self.state.current_model,
+                )
+            elif cause == "recovery":
+                notice = tr(
+                    "loop.model_restored",
                     provider=self.state.current_provider,
                     model=self.state.current_model,
                 )
@@ -670,8 +682,7 @@ class AgentLoop:
             f"Context compression budget reached ({source}); compressed {compressed} message(s)"
         )
         if self._snapshot_path is not None and not self.state.restart_requested:
-            self._short_term.active_provider = self._brain.current_provider_name
-            self._short_term.active_model = self._brain.current_model
+            self._sync_snapshot_model_state()
             try:
                 self._short_term.save_to_file(self._snapshot_path)
             except OSError as e:

@@ -1012,7 +1012,7 @@ function Models() {
   const mem0ModelOptions = modelOptionsFor(draft.mem0.provider || draft.active.provider);
   return <div className="page-stack">
     <Panel title="主线模型" note="切换立即生效，并会中断正在执行的主线调用（可用来解卡）。">
-      <div className="active-model"><Bot size={28} /><div><span>{t('当前接棒者')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
+      <div className="active-model"><Bot size={28} /><div><span>{t('当前生效模型')}</span><strong>{draft.active.provider}/{draft.active.model}</strong></div></div>
       <div className="inline-form"><select aria-label={t('选择 Provider')} value={switchTo.provider} onChange={e => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, provider: e.target.value }); }}><option value="">{t('选择 Provider')}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select><EditableCombobox id="switch-model-input" value={switchTo.model_id} options={switchModels.map((modelId: string) => ({ value: modelId }))} onChange={next => { setActionMessage(''); setSwitchError(''); setSwitchTo({ ...switchTo, model_id: next }); }} placeholder={t('模型 ID（留空使用默认）')} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /><div className="inline-form-actions"><button className="primary" disabled={!switchTo.provider || switching} onClick={() => void switchModel()}>{switching ? t('正在切换…') : t('切换模型')}</button><button type="button" className="ghost mini" disabled={refreshingCatalog} onClick={() => void refreshCatalog()}>{t(refreshingCatalog ? '正在刷新目录…' : '刷新模型目录')}</button></div></div>
       <Field label="主线思考强度" hint="空值沿用 Provider 默认；none 关闭思考，其余档位按 Provider 原生能力映射" hot><select value={draft.thinking_effort || ''} onChange={e => set('thinking_effort', e.target.value)}>{THINKING_EFFORT_OPTIONS.map(level => <option key={level} value={level}>{level || t('Provider 默认')}</option>)}</select></Field>
       {(switchError || selectedCatalog?.error || catalog.error) && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{switchError || selectedCatalog?.error || catalog.error}</span></div>}
@@ -1029,7 +1029,7 @@ function Models() {
     <Panel title="记忆 LLM（mem0 抽取）" note="控制记忆提取/去重推断使用的模型；留空跟随主线，修改后立即生效。">
       <div className="field-grid"><Field label="Provider" hint="留空时跟随主线模型"><select value={draft.mem0.provider} onChange={e => set('mem0.provider', e.target.value)}><option value="">{t('跟随主线（{{provider}}）', { provider: draft.active.provider })}</option>{draft.providers.map((p: string) => <option key={p}>{p}</option>)}</select></Field><ComboboxField id="mem0-model-input" label="模型" hint="留空时跟随主线模型"><EditableCombobox id="mem0-model-input" value={draft.mem0.model} options={mem0ModelOptions} onChange={next => set('mem0.model', next)} placeholder={draft.active.model} emptyMessage={t('当前 Provider 暂无模型目录，可直接输入模型 ID')} toggleLabel={t('展开模型目录')} /></ComboboxField><label className="switch"><input type="checkbox" checked={draft.mem0.thinking} onChange={e => set('mem0.thinking', e.target.checked)} /><i /><span>{t('启用 Thinking')}</span></label></div>
     </Panel>
-    <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序接棒。">
+    <Panel title="失败降级链" note="每行填写 provider 或 provider/model，按从上到下的顺序依次接管。">
       <LineNumberTextarea className="code-area short" aria-label={t('失败降级链')} value={fallbackText} onChange={e => { setActionMessage(''); setFallbackText(e.target.value); setDraft({ ...draft, fallbacks: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }); }} />
       <div className="panel-actions"><button className="primary" disabled={saving || !modelsDirty} onClick={() => void save()}><Save size={15} />{t(saving ? '正在保存…' : '保存并热更新')}</button><button className="ghost" disabled={saving || !modelsDirty} onClick={() => { setActionMessage(''); setFallbackText((data?.fallbacks || []).join('\n')); void reload(); }}>{t('放弃修改')}</button></div>
     </Panel>
@@ -1375,6 +1375,7 @@ const LLM_CONFIG_FIELD_ORDER = [
   'summary_thinking',
   'summary_thinking_effort',
   'fallbacks',
+  'fallback_recovery_seconds',
   'vision_provider',
   'vision_model',
   'vision_thinking',

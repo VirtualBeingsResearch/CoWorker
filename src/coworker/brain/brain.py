@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import time
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -30,6 +32,19 @@ _MODEL_CATALOG_FETCH_TIMEOUT = 30.0
 
 # 显式切换模型会打断在途主线调用；连续切换时限制重试次数，避免无限循环。
 _MAX_MODEL_SWITCH_INTERRUPTS = 8
+
+# 降级后自动切回主模型的默认节奏（秒）：首次等待这么久再由后台探测，
+# 探测失败按指数退避，单次间隔不超过 _FALLBACK_RECOVERY_MAX_DELAY。
+DEFAULT_FALLBACK_RECOVERY_SECONDS = 300.0
+_FALLBACK_RECOVERY_MAX_DELAY = 1800.0
+# 配置为 0（下一次主循环请求后立即探测）时，失败退避仍需最小间隔，避免每个回合都探测。
+_FALLBACK_RECOVERY_MIN_DELAY = 60.0
+# 后台探针只复用小输出预算；输入仍是真实请求，成本主要是可被 prompt cache 命中的输入 token。
+_PROBE_MAX_TOKENS = 16
+
+# 上次 active 变化的原因：失败降级、自动恢复；手动切换不记录（None）。
+ModelSwitchCause = Literal["fallback", "recovery"]
+_CandidateKind = Literal["active", "fallback"]
 
 # 模型调用的协程归属。只有主循环（"main"）发起的调用会随管理端暂停中断，
 # 后台任务（Bubble、回溯等）保持运行。
@@ -76,6 +91,17 @@ class _InflightCall:
     abort: str | None = None  # "switch" | "suspend"
 
 
+@dataclass(frozen=True)
+class _Candidate:
+    """One entry of the per-call attempt chain."""
+
+    provider: str
+    model: str
+    tries: int
+    # active: 当前主模型；fallback: 配置的降级链。
+    kind: _CandidateKind
+
+
 def _prepend_timestamps(messages: list[Message]) -> list[Message]:
     """Return copies of user messages with their own timestamp prepended.
 
@@ -105,6 +131,7 @@ class Brain:
         message_time_prefix: bool = True,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         fallbacks: list[str] | None = None,
+        fallback_recovery_seconds: float = DEFAULT_FALLBACK_RECOVERY_SECONDS,
         thinking: bool = True,
         thinking_effort: str = "",
         summary_provider: str = "",
@@ -135,8 +162,17 @@ class Brain:
         self._model_switch_listener_lock = asyncio.Lock()
         # 降级链原始配置（"name" 或 "name/model"）；运行时按当前注册表解析，构造时不解析。
         self._fallbacks = list(fallbacks or [])
-        # 上次切换是否由主模型失败触发（区别于用户/模型主动 switch_model），供主循环措辞使用。
-        self._last_switch_was_fallback = False
+        # 降级后要切回的原主模型；None 表示未降级（此时 active 本身就是主模型）。
+        self._recovery_target: tuple[str, str] | None = None
+        # 负值关闭自动恢复；0 表示下一次主循环请求后立即探测，其余为首次等待秒数。
+        self._fallback_recovery_seconds = float(fallback_recovery_seconds)
+        self._recovery_attempts = 0
+        self._recovery_not_before = 0.0
+        # 后台探针：只由一个任务执行，结果在下一轮 think 里统一应用，避免与前台调用竞争。
+        self._probe_task: asyncio.Task[None] | None = None
+        self._probe_result: tuple[tuple[str, str], bool] | None = None
+        # 上次 active 变化的原因，供主循环区分降级、恢复与主动切换的措辞。
+        self._last_switch_cause: ModelSwitchCause | None = None
         self._summary_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._vision_usage_listeners: list[Callable[[LLMResponse, dict[str, Any]], None]] = []
         self._model_switch_listeners: list[Callable[[str, str], Awaitable[None]]] = []
@@ -279,6 +315,30 @@ class Brain:
         return list(self._fallbacks)
 
     @property
+    def degraded(self) -> bool:
+        """当前是否处于失败降级状态（active 已离开原主模型）。"""
+        return self._recovery_target is not None
+
+    @property
+    def recovery_target(self) -> tuple[str, str] | None:
+        """降级期间待恢复的原主模型；未降级返回 None。供快照持久化。"""
+        return self._recovery_target
+
+    def restore_fallback_state(self, provider_name: str, model: str) -> None:
+        """重启后恢复「降级中」状态，让自动切回跨进程继续生效。
+
+        active 保持快照恢复出来的备用模型，下一次主循环调用就会探测原主模型。
+        """
+        if not provider_name or not model:
+            return
+        if (provider_name, model) == (self._active_provider_name, self._active_model):
+            return
+        self._recovery_target = (provider_name, model)
+        self._recovery_attempts = 0
+        # 重启通常伴随配置或连接修复，下一次主循环调用立即探测，不额外等待冷却。
+        self._recovery_not_before = 0.0
+
+    @property
     def vision_provider_name(self) -> str:
         return self._vision_provider_name
 
@@ -298,11 +358,11 @@ class Brain:
     def active_provider(self) -> BaseLLMProvider | None:
         return self._providers.get(self._active_provider_name)
 
-    def consume_fallback_switch(self) -> bool:
-        """读并复位「上次切换是否为失败降级」标志。主循环用它决定切换通知的措辞。"""
-        flag = self._last_switch_was_fallback
-        self._last_switch_was_fallback = False
-        return flag
+    def consume_switch_cause(self) -> ModelSwitchCause | None:
+        """读并复位「上次切换原因」。主循环用它决定切换通知的措辞。"""
+        cause = self._last_switch_cause
+        self._last_switch_cause = None
+        return cause
 
     @property
     def current_model_has_vision(self) -> bool:
@@ -501,15 +561,153 @@ class Brain:
             return sum(estimate_content_tokens(m.content) for m in messages)
         return await provider.count_tokens(messages, self._active_model)
 
-    def _resolve_candidates(self) -> list[tuple[str, str, int]]:
-        """构造降级候选链 [(provider_name, model, tries), ...]，首选为当前 active。
+    def _maybe_schedule_probe(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+    ) -> None:
+        """降级且冷却结束时，用一个后台任务拿真实请求探测原主模型。
 
-        按运行时 active（可能已被 switch_model 或上次降级改过）去重；fallback 项按当前
-        注册表解析：未注册 / 无可用模型 / 模型不支持 tool use / 与 active 重复者跳过。
+        探针不进入本轮请求路径；结果留到下一轮 ``think`` 统一应用。``_probe_task``
+        非空即表示结果还没被消费，同一时间只允许一个探针。
+        """
+        target = self._recovery_target
+        if target is None or self._fallback_recovery_seconds < 0:
+            return
+        if self._probe_task is not None or time.monotonic() < self._recovery_not_before:
+            return
+        provider = self._providers.get(target[0])
+        if provider is None or not provider.can_use_tools(target[1]):
+            return
+        self._probe_task = asyncio.create_task(
+            self._probe_recovery(target, messages, system_prompt, tools)
+        )
+
+    async def _probe_recovery(
+        self,
+        target: tuple[str, str],
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[dict],
+    ) -> None:
+        """后台探针：真实 messages/tools，只把输出预算压到 _PROBE_MAX_TOKENS。
+
+        用 provider 的浅拷贝单独设置模型，避免改到前台调用正在使用的
+        ``_current_model``；底层 HTTP 客户端仍然是共享的。
+        """
+        provider_name, model = target
+        provider = self._providers.get(provider_name)
+        if provider is None:
+            self._probe_result = (target, False)
+            return
+        probe_provider = copy.copy(provider)
+        probe_provider.set_model(model)
+        try:
+            response = await probe_provider.complete(
+                messages,
+                system_prompt,
+                tools,
+                _PROBE_MAX_TOKENS,
+                thinking=self._thinking,
+                thinking_effort=self._thinking_effort,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._probe_result = (target, False)
+            logger.warning(f"Recovery probe {provider_name}/{model} failed: {e}")
+            return
+        self._probe_result = (target, True)
+        usage = response.usage or {}
+        logger.info(
+            f"Recovery probe {provider_name}/{model} succeeded "
+            f"(input_tokens={usage.get('input_tokens', 0)}, "
+            f"output_tokens={usage.get('output_tokens', 0)})"
+        )
+
+    async def _adopt_fallback(self, provider_name: str, model: str) -> None:
+        """主模型候选全部失败后，把 active 持久切到成功接管的备用模型。
+
+        状态修改都是同步赋值，事件循环不会在中间切走，因此不需要加锁；
+        需要通知观察者时才 await。
+        """
+        old = (self._active_provider_name, self._active_model)
+        if old == (provider_name, model):
+            return
+        if self._recovery_target is None:
+            # 第一次降级：记住离开的主模型，并按配置安排首次后台探测。
+            self._recovery_target = old
+            self._recovery_attempts = 0
+            self._recovery_not_before = time.monotonic() + max(
+                self._fallback_recovery_seconds, 0.0
+            )
+        self._active_provider_name, self._active_model = provider_name, model
+        self._last_switch_cause = "fallback"
+        logger.warning(
+            f"Fell back to {provider_name}/{model} after {old[0]}/{old[1]} failed"
+        )
+        await self._notify_model_switch_listeners(provider_name, model)
+
+    async def _restore_preferred(self, provider_name: str, model: str) -> None:
+        """恢复探测成功：把 active 切回原主模型并清空降级状态。"""
+        old = (self._active_provider_name, self._active_model)
+        self._active_provider_name, self._active_model = provider_name, model
+        self._recovery_target = None
+        self._recovery_attempts = 0
+        self._recovery_not_before = 0.0
+        if old == (provider_name, model):
+            return
+        self._last_switch_cause = "recovery"
+        logger.warning(
+            f"Recovered to {provider_name}/{model} after running on {old[0]}/{old[1]}"
+        )
+        await self._notify_model_switch_listeners(provider_name, model)
+
+    def _schedule_next_recovery(self) -> None:
+        """探测失败后按指数退避安排下一次探测，避免主模型长期不可用时每轮都撞一次。"""
+        base = max(self._fallback_recovery_seconds, _FALLBACK_RECOVERY_MIN_DELAY)
+        delay = min(
+            base * (2 ** max(self._recovery_attempts - 1, 0)),
+            _FALLBACK_RECOVERY_MAX_DELAY,
+        )
+        self._recovery_not_before = time.monotonic() + delay
+
+    def _note_recovery_failure(self) -> None:
+        """恢复探测失败：保持降级，推迟下一次探测。"""
+        if self._recovery_target is None:
+            return
+        self._recovery_attempts += 1
+        self._schedule_next_recovery()
+
+    async def _apply_probe_result(self) -> None:
+        """把上一轮后台探针的结果应用到 active；只在主循环调用里执行。"""
+        pending = self._probe_result
+        if pending is None:
+            return
+        self._probe_result = None
+        self._probe_task = None
+        target, ok = pending
+        if self._recovery_target != target:
+            return
+        if not ok:
+            self._note_recovery_failure()
+            return
+        provider = self._providers.get(target[0])
+        if provider is None or not provider.can_use_tools(target[1]):
+            # Provider 已被移除或不再支持工具调用：保留降级状态，等它重新注册。
+            return
+        await self._restore_preferred(*target)
+
+    def _resolve_candidates(self) -> list[_Candidate]:
+        """构造本次调用的候选链：当前 active -> 配置的 fallback。
+
+        active 可能已被 switch_model 或上次降级改过；fallback 项按当前注册表解析：
+        未注册 / 无可用模型 / 模型不支持 tool use / 与已有候选重复者跳过。
         """
         active = (self._active_provider_name, self._active_model)
-        candidates: list[tuple[str, str, int]] = [(active[0], active[1], 3)]
-        seen = {active}
+        candidates: list[_Candidate] = [_Candidate(active[0], active[1], 3, "active")]
+        seen: set[tuple[str, str]] = {active}
         for entry in self._fallbacks:
             name, _, model = entry.partition("/")
             provider = self._providers.get(name)
@@ -521,7 +719,7 @@ class Brain:
             if (name, model) in seen:
                 continue
             seen.add((name, model))
-            candidates.append((name, model, 2))
+            candidates.append(_Candidate(name, model, 2, "fallback"))
         return candidates
 
     async def _complete_interruptible(
@@ -672,6 +870,10 @@ class Brain:
             messages = _prepend_timestamps(messages)
         tokens = max_tokens if max_tokens is not None else self._max_tokens
 
+        # 只有会持久化切换的主线调用才应用后台探针结果；跟随主线的摘要不参与恢复。
+        if _persist_switch:
+            await self._apply_probe_result()
+
         last_err: Exception | None = None
         interruptions = 0
         while True:
@@ -679,7 +881,8 @@ class Brain:
             generation = self._switch_generation
             candidates = self._resolve_candidates()
             interrupted: ModelCallInterrupted | None = None
-            for idx, (name, model, tries) in enumerate(candidates):
+            for candidate in candidates:
+                name, model = candidate.provider, candidate.model
                 try:
                     response = await self._attempt(
                         name,
@@ -688,7 +891,7 @@ class Brain:
                         system_prompt,
                         tools,
                         tokens,
-                        tries,
+                        candidate.tries,
                         thinking=(
                             self._thinking if _thinking_override is None else _thinking_override
                         ),
@@ -708,19 +911,17 @@ class Brain:
                     break
                 except Exception as e:
                     last_err = e
-                    logger.warning(f"Provider {name}/{model} exhausted ({tries} tries): {e}")
+                    logger.warning(
+                        f"Provider {name}/{model} exhausted ({candidate.tries} tries): {e}"
+                    )
                     continue
                 response.provider = name
-                # 非首选候选成功 = 主模型已降级。_persist_switch 时把 active 切到它（停在备用，
-                # 等手动切回）；summarize 等后台调用传 False，仅本次借用 fallback，不劫持主模型。
-                if idx > 0 and _persist_switch:
-                    async with self._lock:
-                        old = (self._active_provider_name, self._active_model)
-                        self._active_provider_name = name
-                        self._active_model = model
-                        self._last_switch_was_fallback = True
-                    logger.warning(f"Fell back to {name}/{model} after {old[0]}/{old[1]} failed")
-                    await self._notify_model_switch_listeners(name, model)
+                # _persist_switch 为 False 时（跟随主线的后台摘要）只借用候选，不劫持主模型。
+                if candidate.kind == "fallback" and _persist_switch:
+                    await self._adopt_fallback(name, model)
+                if _persist_switch:
+                    # 本轮已经服务完，再把真实请求交给后台探测原主模型，不阻塞这次响应。
+                    self._maybe_schedule_probe(messages, system_prompt, tools)
                 return response
 
             if interrupted is None:
@@ -871,6 +1072,15 @@ class Brain:
             old = (self._active_provider_name, self._active_model)
             self._active_provider_name = provider_name
             self._active_model = model_id
+            # 手动选择即新的主模型：清空降级状态与后台探针，之后不再自动切回旧模型。
+            self._recovery_target = None
+            self._recovery_attempts = 0
+            self._recovery_not_before = 0.0
+            self._probe_result = None
+            if self._probe_task is not None:
+                self._probe_task.cancel()
+                self._probe_task = None
+            self._last_switch_cause = None
             logger.info(f"Switched model: {old[0]}/{old[1]} → {provider_name}/{model_id}")
         # 显式切换必须打断在途调用：旧 Provider 的请求可能永远不返回，否则主循环会一直卡着。
         interrupted = self._interrupt_inflight_calls()

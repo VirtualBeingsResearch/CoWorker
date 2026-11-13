@@ -81,8 +81,15 @@ export function configFieldPresentation(
   if (path === 'llm.fallbacks') {
     return {
       editor: 'fallback-list',
-      hint: '按接棒顺序填写 provider 或 provider/model；留空表示不配置降级链。',
+      hint: '按降级顺序填写 provider 或 provider/model；留空表示不配置降级链。',
       placeholder: 'provider/model',
+    };
+  }
+  if (path === 'llm.fallback_recovery_seconds') {
+    return {
+      editor: 'default',
+      step: 'any',
+      hint: '降级后等待该秒数再在后台探测主模型；0 表示下一轮请求后立即探测，负数关闭自动恢复。探测失败按指数退避，最长 30 分钟。',
     };
   }
   if (path === 'api.cors_origins') {

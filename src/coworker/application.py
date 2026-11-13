@@ -420,6 +420,7 @@ async def _run_check() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            fallback_recovery_seconds=config.llm.fallback_recovery_seconds,
             thinking_effort=config.llm.thinking_effort,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
@@ -477,6 +478,7 @@ async def _run_backfill() -> int:
             message_time_prefix=config.agent.message_time_prefix,
             max_tokens=config.llm.max_tokens,
             fallbacks=config.llm.fallbacks,
+            fallback_recovery_seconds=config.llm.fallback_recovery_seconds,
             thinking_effort=config.llm.thinking_effort,
             summary_provider=config.llm.summary_provider,
             summary_model=config.llm.summary_model,
@@ -569,6 +571,7 @@ async def _main() -> bool:
         message_time_prefix=config.agent.message_time_prefix,
         max_tokens=config.llm.max_tokens,
         fallbacks=config.llm.fallbacks,
+        fallback_recovery_seconds=config.llm.fallback_recovery_seconds,
         thinking_effort=config.llm.thinking_effort,
         summary_provider=config.llm.summary_provider,
         summary_model=config.llm.summary_model,
@@ -718,6 +721,15 @@ async def _main() -> bool:
             logger.info(
                 f"Restored model from snapshot: {short_term.active_provider}/{short_term.active_model}"
             )
+            # 快照记录了降级前的原主模型：恢复降级状态，下一次主循环调用就会探测它。
+            if short_term.preferred_provider and short_term.preferred_model:
+                brain.restore_fallback_state(
+                    short_term.preferred_provider, short_term.preferred_model
+                )
+                logger.info(
+                    "Restored fallback recovery target from snapshot: "
+                    f"{short_term.preferred_provider}/{short_term.preferred_model}"
+                )
         except (ProviderNotFoundError, ModelNotSupportedError) as e:
             logger.warning(
                 f"Could not restore previous model ({short_term.active_provider}/{short_term.active_model}): {e}"
@@ -1346,8 +1358,11 @@ async def _main() -> bool:
         logger.info("Browser store stopped")
 
         if not agent_state.restart_requested and not setup_required:
+            provider, model = brain.recovery_target or ("", "")
             short_term.active_provider = brain.current_provider_name
             short_term.active_model = brain.current_model
+            short_term.preferred_provider = provider
+            short_term.preferred_model = model
             short_term.save_to_file(snapshot_path)
             logger.info(f"Short-term memory snapshot saved ({len(short_term.primary)} messages)")
 

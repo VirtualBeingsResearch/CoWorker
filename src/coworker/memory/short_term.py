@@ -98,6 +98,10 @@ class ShortTermMemory:
         self.threads: dict[str, ConversationThread] = {}
         self.active_provider: str = ""
         self.active_model: str = ""
+        # 失败降级期间待恢复的原主模型；两者为空表示当前没有降级。随快照持久化，
+        # 使重启后仍能自动切回原主模型。
+        self.preferred_provider: str = ""
+        self.preferred_model: str = ""
         self._max_tokens = max_tokens
         self._compress_ratio = compress_ratio
         self._compressing = False
@@ -1243,6 +1247,8 @@ class ShortTermMemory:
             "threads": {pid: t.to_dict() for pid, t in self.threads.items()},
             "active_provider": self.active_provider,
             "active_model": self.active_model,
+            "preferred_provider": self.preferred_provider,
+            "preferred_model": self.preferred_model,
             "tree": self.tree.serialize(),
         }
 
@@ -1284,6 +1290,8 @@ class ShortTermMemory:
             mem.threads[pid] = ConversationThread.from_dict(t)
         mem.active_provider = data.get("active_provider", "")
         mem.active_model = data.get("active_model", "")
+        mem.preferred_provider = data.get("preferred_provider", "")
+        mem.preferred_model = data.get("preferred_model", "")
         return mem
 
     def save_to_file(self, path: Path) -> None:
