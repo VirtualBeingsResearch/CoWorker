@@ -11,6 +11,7 @@ Read the [contributing guide](../../CONTRIBUTING.en.md) before submitting code. 
 uv sync --dev
 # When using the default mem0 memory backend, also install its optional deps: uv sync --dev --extra mem0
 # Keep passing --extra mem0 on every later sync (uv sync --dev --extra mem0 / uv run --extra mem0), otherwise uv sync prunes mem0 from the environment
+# Without it the service automatically falls back to the file memory backend (token search, no semantic vector search)
 
 # Install Chromium for the browser tool (once)
 uv run playwright install chromium

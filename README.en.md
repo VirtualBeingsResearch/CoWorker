@@ -171,9 +171,12 @@ This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
 `uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
-A plain `uv sync` installs enough to run the **`file` memory backend**. To enable the
-**`mem0` semantic memory backend** (the bundled default configuration), install its
-optional dependencies:
+A plain `uv sync` installs only the slim dependency set. Unless `MEMORY__BACKEND` is set
+explicitly, startup picks the backend from dependency availability: with the `mem0` optional
+dependencies installed it uses **`mem0` semantic memory**, otherwise it automatically falls back to
+the **`file` backend** (token search, no semantic vector search), so a fresh install starts as-is.
+
+To enable the bundled **`mem0` semantic memory backend**, install its optional dependencies:
 
 ```bash
 uv sync --extra mem0
@@ -181,7 +184,10 @@ uv sync --extra mem0
 
 To keep `mem0`, keep passing `--extra mem0` on every subsequent sync
 (`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`);
-otherwise `uv sync` will prune the extra from the environment.
+otherwise `uv sync` will prune the extra from the environment and the next start falls back to the
+`file` backend, where existing mem0 memories are not visible. If `MEMORY__BACKEND=mem0` is set
+explicitly while the dependencies are missing, startup fails with installation guidance instead of
+falling back.
 
 </details>
 

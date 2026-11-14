@@ -311,11 +311,32 @@ def _register_providers(brain: Brain, config: Config) -> None:
             logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 
+def _memory_backend_explicit(inherited: Config, config: Config) -> bool:
+    """用户是否显式指定了长期记忆后端（.env/环境变量或管理端持久化配置）。"""
+
+    if "backend" in inherited.memory.model_fields_set:
+        return True
+    overrides = load_admin_overrides(config.admin.config_file)
+    memory_overrides = overrides.get("memory")
+    return isinstance(memory_overrides, dict) and "backend" in memory_overrides
+
+
+def _warn_memory_backend_fallback(inherited: Config, config: Config) -> None:
+    """精简安装默认回退到 file 后端时给出可见提示；显式选择 file 时不提示。"""
+
+    if config.memory.backend != "file" or _memory_backend_explicit(inherited, config):
+        return
+    if "mem0" in available_backends():
+        return
+    logger.warning(tr("system.memory_backend_fallback"))
+
+
 def _load_config_layers() -> tuple[Config, Config]:
     inherited = Config()
     normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
+    _warn_memory_backend_fallback(inherited, config)
     apply_runtime_model_config_file(config.llm)
     migrations = migrate_model_configuration(config, inherited)
     for migration in migrations:

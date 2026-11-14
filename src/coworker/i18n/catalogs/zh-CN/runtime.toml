@@ -586,6 +586,7 @@ system_started = "系统启动。当前时间：{{time}}。{{environment}}。"
 
 [system]
 memory_backend_missing_deps = "无法启动：配置的长期记忆后端 \"{{backend}}\" 缺少必要依赖（{{missing}}）。请执行 `uv sync --extra mem0` 安装。"
+memory_backend_fallback = "未安装 mem0 可选依赖，长期记忆已自动使用 file 后端（词项检索，无向量语义检索）。如需 mem0 语义记忆，请执行 `uv sync --extra mem0` 安装后重启。"
 
 [config.tunnel]
 public_url_invalid = "TUNNEL__PUBLIC_URL 不是有效的地址"

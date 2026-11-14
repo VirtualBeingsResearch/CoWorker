@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import os
@@ -359,9 +360,16 @@ def _default_memory_backend() -> MemoryBackend:
     """长期记忆后端的兜底默认值，可被 MEMORY_DEFAULT_BACKEND 覆盖。
 
     仅在变量取值为合法后端时生效；否则回退到 mem0，避免无效镜像默认值破坏启动。
+
+    精简安装（没有 ``uv sync --extra mem0``）时默认改用无需额外依赖的 ``file``
+    后端，让首次安装即可启动；默认配置的语义记忆则要求装好 mem0 可选依赖。
+    该回退只作用于默认值：显式设置 ``MEMORY__BACKEND=mem0`` 时仍原样保留，
+    由启动校验给出缺依赖的安装引导，而不是静默降级。
     """
     value = os.getenv("MEMORY_DEFAULT_BACKEND", "mem0")
     if value == "file":
+        return "file"
+    if importlib.util.find_spec("mem0") is None:
         return "file"
     return "mem0"
 
@@ -372,7 +380,8 @@ class MemoryConfig(_EnvSettings):
     db_path: str = "data/memory"
     # 长期记忆后端：mem0 为默认后端，file 为最简文件存储后端。
     # 默认值可被 MEMORY_DEFAULT_BACKEND 覆盖（例如 lite-offline 镜像默认使用 file）；
-    # 显式设置 MEMORY__BACKEND（.env 或环境变量）时仍以其为准。
+    # 精简安装未装 mem0 依赖时默认回退到 file；显式设置 MEMORY__BACKEND
+    # （.env 或环境变量）时仍以其为准。
     backend: MemoryBackend = Field(default_factory=_default_memory_backend)
     short_term_max_tokens: int = Field(default=120_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。

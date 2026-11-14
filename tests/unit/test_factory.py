@@ -78,6 +78,19 @@ def test_build_long_term_backend_raises_localized_error_when_unavailable(
     assert "uv sync --extra mem0" in str(excinfo.value)
 
 
+def test_build_long_term_backend_falls_back_to_file_when_mem0_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未显式配置后端时，缺 mem0 依赖应直接构建 file 后端而不是报错。"""
+    monkeypatch.delenv("MEMORY__BACKEND", raising=False)
+    monkeypatch.delenv("MEMORY_DEFAULT_BACKEND", raising=False)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "mem0" else True)
+
+    config = Config.model_validate({})
+    assert config.memory.backend == "file"
+    assert isinstance(build_long_term_backend(config), FileBackend)
+
+
 def test_build_mem0_backend_reads_relevance_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
     config = Config.model_validate(
         {"memory": {"backend": "mem0", "auto_recall_relevance_threshold": 0.72}}
