@@ -53,9 +53,9 @@ call_client_tool = "Dispatch a function supplied by the current OpenAI-compatibl
 [tool_schema.parameter.set_alarm]
 trigger_at = "Time mode: first trigger time in YYYY-MM-DD HH:MM:SS format."
 condition = "Condition mode: one of file_changed, http_changed, task_state."
-target = "Condition target: file path, URL, or task ID; task_state may omit it for any task."
+target = "Condition target: file path, URL, or task ID; task_state may omit it for any task. A watched file may be created later."
 every_seconds = "Condition check interval in seconds; minimum 60, default 300."
-pattern = "Optional http_changed regex; only the matched text is compared."
+pattern = "Optional http_changed regex; only the matched text is compared, and a disappearing match also counts as a change."
 status = "Optional task_state target status, such as completed."
 stale_seconds = "Optional task_state age in seconds after which an unchanged task counts as changed."
 message = "Reminder content."

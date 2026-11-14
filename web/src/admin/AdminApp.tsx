@@ -2239,30 +2239,44 @@ function Alarms() {
     target: '',
     message: '',
     every_seconds: '300',
+    pattern: '',
     status: '',
     stale_minutes: '',
   });
+  const [actionError, setActionError] = useState('');
   if (loading || !data) return <Loading error={error} />;
 
   const create = async () => {
-    await api('/api/admin/alarms', { method: 'POST', body: JSON.stringify({ message: draft.message, trigger_at: localDateTimeInputToIso(draft.trigger_at), repeat_seconds: draft.repeat_seconds ? Number(draft.repeat_seconds) : null }) });
-    setDraft({ trigger_at: '', message: '', repeat_seconds: '' });
-    await reload();
+    setActionError('');
+    try {
+      await api('/api/admin/alarms', { method: 'POST', body: JSON.stringify({ message: draft.message, trigger_at: localDateTimeInputToIso(draft.trigger_at), repeat_seconds: draft.repeat_seconds ? Number(draft.repeat_seconds) : null }) });
+      setDraft({ trigger_at: '', message: '', repeat_seconds: '' });
+      await reload();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : t('创建失败'));
+    }
   };
   const createCondition = async () => {
-    await api('/api/admin/alarm-conditions', {
-      method: 'POST',
-      body: JSON.stringify({
-        condition: conditionDraft.condition,
-        target: conditionDraft.target.trim(),
-        message: conditionDraft.message.trim(),
-        every_seconds: Number(conditionDraft.every_seconds) || 300,
-        status: conditionDraft.status.trim(),
-        stale_seconds: conditionDraft.stale_minutes ? Number(conditionDraft.stale_minutes) * 60 : 0,
-      }),
-    });
-    setConditionDraft({ ...conditionDraft, target: '', message: '', status: '', stale_minutes: '' });
-    await reload();
+    setActionError('');
+    const staleMinutes = Number(conditionDraft.stale_minutes);
+    try {
+      await api('/api/admin/alarm-conditions', {
+        method: 'POST',
+        body: JSON.stringify({
+          condition: conditionDraft.condition,
+          target: conditionDraft.target.trim(),
+          message: conditionDraft.message.trim(),
+          every_seconds: Math.max(60, Math.floor(Number(conditionDraft.every_seconds) || 300)),
+          pattern: conditionDraft.pattern,
+          status: conditionDraft.status.trim(),
+          stale_seconds: Number.isFinite(staleMinutes) && staleMinutes > 0 ? Math.floor(staleMinutes) * 60 : 0,
+        }),
+      });
+      setConditionDraft(current => ({ ...current, target: '', message: '', status: '', stale_minutes: '' }));
+      await reload();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : t('创建失败'));
+    }
   };
 
   const alarms = [...data.alarms].sort((a: Json, b: Json) => (timestampMillis(a.trigger_at) ?? 0) - (timestampMillis(b.trigger_at) ?? 0));
@@ -2275,13 +2289,15 @@ function Alarms() {
     http_changed: t('网页内容'),
     task_state: t('任务状态'),
   };
+  const isTaskCondition = conditionDraft.condition === 'task_state';
   const conditionCanSubmit = Boolean(conditionDraft.message.trim())
     && Number(conditionDraft.every_seconds) >= 60
-    && (conditionDraft.condition === 'task_state'
-      ? Boolean(conditionDraft.status.trim() || conditionDraft.stale_minutes)
+    && (isTaskCondition
+      ? Boolean(conditionDraft.status.trim() || Number(conditionDraft.stale_minutes) > 0)
       : Boolean(conditionDraft.target.trim()));
 
-  return <Panel title="闹钟与守候" note="时间按本地时区输入；到点后提醒会进入 Coworker 的 inbox。">
+  return <Panel title="闹钟与守候" note="时间按本地时区输入；到点或条件满足后，提醒会进入 Coworker 的 inbox。">
+    {actionError && <div className="notice error"><TriangleAlert size={16} /><span>{actionError}</span></div>}
     <div className="alarm-compose">
       <Field label="提醒时间"><input type="datetime-local" value={draft.trigger_at} min={toLocalDateTimeInput(new Date(), 'minute')} onChange={event => setDraft({ ...draft, trigger_at: event.target.value })} /></Field>
       <Field label="重复"><select value={draft.repeat_seconds} onChange={event => setDraft({ ...draft, repeat_seconds: event.target.value })}><option value="">{t('仅一次')}</option><option value="3600">{t('每小时')}</option><option value="86400">{t('每天')}</option><option value="604800">{t('每周')}</option></select></Field>
@@ -2289,10 +2305,11 @@ function Alarms() {
       <button className="primary" disabled={!draft.trigger_at || !draft.message.trim()} onClick={() => void create()}><AlarmClock size={15} />{t('设定闹钟')}</button>
     </div>
     <div className="alarm-compose condition">
-      <Field label="条件类型"><select value={conditionDraft.condition} onChange={event => setConditionDraft({ ...conditionDraft, condition: event.target.value })}><option value="file_changed">{t('文件变化')}</option><option value="http_changed">{t('网页内容')}</option><option value="task_state">{t('任务状态')}</option></select></Field>
-      <Field label="目标"><input value={conditionDraft.target} onChange={event => setConditionDraft({ ...conditionDraft, target: event.target.value })} placeholder={conditionDraft.condition === 'task_state' ? t('任务 ID，可留空') : t('文件路径或 URL')} /></Field>
+      <Field label="条件类型"><select value={conditionDraft.condition} onChange={event => setConditionDraft({ ...conditionDraft, condition: event.target.value, pattern: '', status: '', stale_minutes: '' })}><option value="file_changed">{t('文件变化')}</option><option value="http_changed">{t('网页内容')}</option><option value="task_state">{t('任务状态')}</option></select></Field>
+      <Field label="目标"><input value={conditionDraft.target} onChange={event => setConditionDraft({ ...conditionDraft, target: event.target.value })} placeholder={isTaskCondition ? t('任务 ID，可留空') : t('文件路径或 URL')} /></Field>
       <Field label="检查间隔 / 秒"><input type="number" min="60" value={conditionDraft.every_seconds} onChange={event => setConditionDraft({ ...conditionDraft, every_seconds: event.target.value })} /></Field>
-      {conditionDraft.condition === 'task_state' && <>
+      {conditionDraft.condition === 'http_changed' && <Field label="匹配正则（可选）"><input value={conditionDraft.pattern} onChange={event => setConditionDraft({ ...conditionDraft, pattern: event.target.value })} placeholder="<main>(.*?)</main>" /></Field>}
+      {isTaskCondition && <>
         <Field label="目标状态"><input value={conditionDraft.status} onChange={event => setConditionDraft({ ...conditionDraft, status: event.target.value })} placeholder="completed" /></Field>
         <Field label="未更新 / 分钟"><input type="number" min="1" value={conditionDraft.stale_minutes} onChange={event => setConditionDraft({ ...conditionDraft, stale_minutes: event.target.value })} /></Field>
       </>}
@@ -2302,7 +2319,7 @@ function Alarms() {
     <div className="alarm-summary"><Clock3 size={16} /><span>{summary}</span><button className="icon-btn" onClick={() => void reload()} title={t('刷新闹钟')} aria-label={t('刷新闹钟')}><RefreshCw size={14} /></button></div>
     <div className="record-list alarm-list">{alarms.length ? alarms.map((alarm: Json) => <article className="record alarm-record" key={alarm.id}><div className="alarm-time"><strong>{formatDate(alarm.trigger_at, [], { month: 'short', day: 'numeric' })}</strong><b>{formatTime(alarm.trigger_at, [], { hour: '2-digit', minute: '2-digit' })}</b></div><div className="record-main"><span className="alarm-due">{timeFromNow(alarm.trigger_at)}</span><b>{alarm.message}</b><small>{repeatLabel(alarm.repeat_seconds)}{' · '}{alarm.id}</small></div><button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: alarm.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: alarm.message }))) { await api('/api/admin/alarms/' + alarm.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有闹钟，设定一个需要按时记起的提醒。" />}</div>
     <div className="alarm-summary"><Clock3 size={16} /><span>{t('正在守候 {{count}} 个条件提醒', { count: conditions.length })}</span></div>
-    <div className="record-list alarm-list">{conditions.length ? conditions.map((item: Json) => <article className="record alarm-record" key={item.id}><div className="alarm-time"><strong>{conditionLabels[item.condition] || item.condition}</strong><b>{t('每 {{seconds}} 秒', { seconds: item.every_seconds })}</b></div><div className="record-main"><span className="alarm-due">{item.paused ? t('已暂停') : item.last_checked_at ? t('上次检查 {{time}}', { time: timeFromNow(item.last_checked_at) }) : t('尚未检查')}</span><b>{item.message}</b><small>{item.target || t('任意任务')}{item.last_error ? ' · ' + item.last_error : ''}{' · '}{item.id}</small></div><button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: item.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: item.message }))) { await api('/api/admin/alarms/' + item.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有条件闹钟，模型也可以通过 set_alarm 创建。" />}</div>
+    <div className="record-list alarm-list">{conditions.length ? conditions.map((item: Json) => <article className="record alarm-record" key={item.id}><div className="alarm-time"><strong>{conditionLabels[item.condition] || item.condition}</strong><b>{t('每 {{seconds}} 秒', { seconds: item.every_seconds })}</b></div><div className="record-main"><span className="alarm-due">{item.paused ? t('已暂停') : item.last_checked_at ? t('上次检查 {{time}}', { time: timeFromNow(item.last_checked_at) }) : t('尚未检查')}</span><b>{item.message}</b><small>{[item.target || t('任意任务'), item.pattern ? t('正则 {{pattern}}', { pattern: item.pattern }) : '', item.status ? t('状态 {{status}}', { status: item.status }) : '', item.stale_seconds ? t('{{minutes}} 分钟未更新', { minutes: Math.round(item.stale_seconds / 60) }) : '', item.last_error, item.id].filter(Boolean).join(' · ')}</small></div>{item.paused && <button className="icon-btn" title={t('恢复守候')} aria-label={t('恢复条件守候“{{message}}”', { message: item.message })} onClick={async () => { setActionError(''); try { await api('/api/admin/alarm-conditions/' + item.id + '/resume', { method: 'POST' }); await reload(); } catch (reason) { setActionError(reason instanceof Error ? reason.message : t('请求失败')); } }}><Play size={14} /></button>}<button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: item.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: item.message }))) { await api('/api/admin/alarms/' + item.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有条件闹钟，模型也可以通过 set_alarm 创建。" />}</div>
   </Panel>;
 }
 function Logs() {

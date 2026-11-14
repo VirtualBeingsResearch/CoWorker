@@ -7,15 +7,40 @@ from typing import cast
 
 from coworker.core.types import ToolResult
 from coworker.i18n import tr
-from coworker.tools.alarm.conditions import AlarmCondition, ConditionKind
+from coworker.tools.alarm.conditions import (
+    AlarmCondition,
+    ConditionKind,
+    local_datetime,
+    local_now,
+)
 from coworker.tools.alarm.constants import (
     CONDITION_KINDS,
     DEFAULT_INTERVAL_SECONDS,
     MAX_MESSAGE_CHARS,
     MIN_CONDITION_INTERVAL_SECONDS,
 )
-from coworker.tools.alarm.manager import AlarmManager, _local_datetime, _local_now
+from coworker.tools.alarm.manager import AlarmManager
 from coworker.tools.base import Tool, ToolDefinition
+
+_ALARM_ID_RE = re.compile(r"^[\w.:-]{1,64}$")
+
+
+def _text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _int_value(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lstrip("-").isdigit():
+            return int(text)
+    return None
 
 
 class SetAlarmTool(Tool):
@@ -45,7 +70,7 @@ class SetAlarmTool(Tool):
                     },
                     "target": {
                         "type": "string",
-                        "description": "条件模式的目标：文件路径、URL 或 task_id；task_state 可留空表示任意任务。",
+                        "description": "条件模式的目标：文件路径、URL 或 task_id；task_state 可留空表示任意任务。文件可以稍后才出现。",
                     },
                     "every_seconds": {
                         "type": "integer",
@@ -55,7 +80,7 @@ class SetAlarmTool(Tool):
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "http_changed 可选正则；只对匹配内容计算变化。",
+                        "description": "http_changed 可选正则；只对匹配内容计算变化，匹配消失也算变化。",
                     },
                     "status": {
                         "type": "string",
@@ -97,36 +122,56 @@ class SetAlarmTool(Tool):
         repeat_seconds: int | None = None,
         **_,
     ) -> ToolResult:
-        has_time = bool(trigger_at.strip())
-        has_condition = bool(condition.strip())
+        message_text = _text(message)
+        trigger_text = _text(trigger_at)
+        condition_text = _text(condition)
+        target_text = _text(target)
+        pattern_text = _text(pattern)
+        status_text = _text(status)
+        alarm_id_text = _text(alarm_id)
+        every = _int_value(every_seconds)
+        stale = _int_value(stale_seconds)
+        repeat = _int_value(repeat_seconds)
+        if every is None or stale is None:
+            return self._error("tool_result.alarm.invalid_condition_fields")
+        if repeat_seconds is not None and repeat is None:
+            return self._error("tool_result.alarm.invalid_condition_fields")
+        if repeat is not None and repeat < 0:
+            return self._error("tool_result.alarm.invalid_repeat")
+
+        has_time = bool(trigger_text)
+        has_condition = bool(condition_text)
         if has_time == has_condition:
             return self._error("tool_result.alarm.invalid_mode")
-        if not message.strip():
+        if not message_text:
             return self._error("tool_result.alarm.message_required")
-        if len(message) > MAX_MESSAGE_CHARS:
+        if len(message_text) > MAX_MESSAGE_CHARS:
             return self._error("tool_result.alarm.message_too_long", limit=MAX_MESSAGE_CHARS)
+        if alarm_id_text and not _ALARM_ID_RE.match(alarm_id_text):
+            return self._error("tool_result.alarm.invalid_alarm_id")
+        alarm_id_value = alarm_id_text or None
 
         if has_time:
-            if target or pattern or status or stale_seconds or every_seconds:
+            if target_text or pattern_text or status_text or stale or every:
                 return self._error("tool_result.alarm.invalid_condition_fields")
             return await self._set_time(
-                message=message,
-                trigger_at=trigger_at,
-                alarm_id=alarm_id,
-                repeat_seconds=repeat_seconds,
+                message=message_text,
+                trigger_at=trigger_text,
+                alarm_id=alarm_id_value,
+                repeat_seconds=repeat,
             )
 
-        if repeat_seconds not in (None, 0):
+        if repeat not in (None, 0):
             return self._error("tool_result.alarm.invalid_condition_fields")
         return await self._set_condition(
-            message=message,
-            condition=condition.strip(),
-            target=target.strip(),
-            every_seconds=every_seconds,
-            pattern=pattern,
-            status=status.strip(),
-            stale_seconds=stale_seconds,
-            alarm_id=alarm_id,
+            message=message_text,
+            condition=condition_text,
+            target=target_text,
+            every_seconds=every,
+            pattern=pattern_text,
+            status=status_text,
+            stale_seconds=stale,
+            alarm_id=alarm_id_value,
         )
 
     async def _set_time(
@@ -141,8 +186,8 @@ class SetAlarmTool(Tool):
             dt = datetime.fromisoformat(trigger_at)
         except ValueError:
             return self._error("tool_result.alarm.invalid_time")
-        dt = _local_datetime(dt)
-        delay = (dt - _local_now()).total_seconds()
+        dt = local_datetime(dt)
+        delay = (dt - local_now()).total_seconds()
         if delay < 0:
             return self._error("tool_result.alarm.past_time", time=trigger_at)
         if not alarm_id:
@@ -262,6 +307,24 @@ class ListAlarmsTool(Tool):
                     target=alarm["target"] or "*",
                     seconds=alarm["every_seconds"],
                 )
+                details: list[str] = []
+                if alarm.get("pattern"):
+                    details.append(
+                        tr("tool_result.alarm.condition_pattern", pattern=alarm["pattern"])
+                    )
+                if alarm.get("status"):
+                    details.append(
+                        tr("tool_result.alarm.condition_status", status=alarm["status"])
+                    )
+                if alarm.get("stale_seconds"):
+                    details.append(
+                        tr(
+                            "tool_result.alarm.condition_stale",
+                            seconds=alarm["stale_seconds"],
+                        )
+                    )
+                if details:
+                    mode += " (" + ", ".join(details) + ")"
                 if alarm.get("paused"):
                     mode += " " + tr(
                         "tool_result.alarm.condition_paused_label",

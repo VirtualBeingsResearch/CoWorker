@@ -147,7 +147,7 @@ The agent can trigger a safe restart through `restart_self`, for example after u
 
 Alarm state is persisted to `data/memory/alarms.json` and rescheduled after restart. Missed alarms fire immediately with their lateness included in the message. Repeating alarms fire only once to catch up, then continue on their original interval.
 
-An alarm can also watch a condition: `set_alarm(condition=..., target=..., every_seconds=...)` supports file changes, web page changes, and task state changes. Condition checks do not call a model; the first check only records a baseline, and later state changes wake the agent. Condition alarms are stored separately in `data/memory/alarm_conditions.json` and restored together with time alarms after restart; they back off on failure and pause after five consecutive failures with an explanatory message.
+An alarm can also watch a condition: `set_alarm(condition=..., target=..., every_seconds=...)` supports file changes, web page changes, and task state changes. Condition checks do not call a model; the first check only records a baseline, and later state changes wake the agent. A file that does not exist yet and a web page where the regex does not match are recorded as states, so the file appearing, the match returning, or the match disappearing all trigger. Condition alarms are stored separately in `data/memory/alarm_conditions.json` and restored together with time alarms after restart; they back off on failure and pause after five consecutive failures with an explanatory message, and a paused alarm can be resumed from the admin console. The admin console's "Alarms & watch" page can create, resume, and cancel condition alarms directly.
 
 For a clean start, delete the snapshot files:
 

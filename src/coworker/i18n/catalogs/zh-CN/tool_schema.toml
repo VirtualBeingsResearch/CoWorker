@@ -53,9 +53,9 @@ fetch_url = "获取 URL 的正文内容。超过 1 秒仍未返回时转入后�
 [tool_schema.parameter.set_alarm]
 trigger_at = "定时模式：首次触发时间，格式 YYYY-MM-DD HH:MM:SS。"
 condition = "条件模式：file_changed、http_changed 或 task_state。"
-target = "条件目标：文件路径、URL 或任务 ID；task_state 可留空表示任意任务。"
+target = "条件目标：文件路径、URL 或任务 ID；task_state 可留空表示任意任务。文件可以稍后才出现。"
 every_seconds = "条件检查间隔秒数；最小 60，默认 300。"
-pattern = "http_changed 可选正则；只比较匹配到的文本。"
+pattern = "http_changed 可选正则；只比较匹配到的文本，匹配消失也算一次变化。"
 status = "task_state 可选目标状态，如 completed。"
 stale_seconds = "task_state 可选：任务超过该秒数未更新也算变化。"
 message = "提醒内容。"

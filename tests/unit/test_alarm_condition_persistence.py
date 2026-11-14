@@ -186,3 +186,65 @@ async def test_corrupt_condition_file_does_not_block_time_restore(inbox, tmp_pat
     assert count == 1
     assert any(item["id"] == "time1" for item in manager.list())
     manager.cancel("time1")
+
+
+def _condition_record(target: str, **overrides: object) -> dict:
+    record = {
+        "alarm_id": "c1",
+        "kind": "condition",
+        "message": "watch",
+        "condition": {
+            "kind": "file_changed",
+            "target": target,
+            "pattern": "",
+            "status": "",
+            "stale_seconds": 0,
+        },
+        "every_seconds": 300,
+        "last_state": "",
+        "last_stat": "",
+        "last_error": "",
+        "failures": 0,
+        "paused": False,
+    }
+    record.update(overrides)
+    return record
+
+
+async def test_condition_outside_allowed_roots_restores_paused(inbox, tmp_path):
+    outside = str(tmp_path.parent / "outside.txt")
+    (tmp_path / "alarm_conditions.json").write_text(
+        json.dumps([_condition_record(outside)]), encoding="utf-8"
+    )
+
+    manager = _manager(inbox, tmp_path)
+    count = await manager.restore()
+
+    assert count == 1
+    entry = manager.get_condition("c1")
+    assert entry is not None
+    assert entry.paused is True
+    assert entry.task is None
+    assert entry.last_error
+    manager.cancel("c1")
+
+
+async def test_missing_file_state_survives_restore(inbox, tmp_path):
+    target = tmp_path / "later.txt"
+    (tmp_path / "alarm_conditions.json").write_text(
+        json.dumps(
+            [_condition_record(str(target), last_state="missing", paused=True)]
+        ),
+        encoding="utf-8",
+    )
+
+    manager = _manager(inbox, tmp_path)
+    await manager.restore()
+
+    entry = manager.get_condition("c1")
+    assert entry is not None
+    assert entry.last_state == "missing"
+
+    target.write_text("now", encoding="utf-8")
+    assert await manager.check_once("c1") is True
+    manager.cancel("c1")

@@ -2644,7 +2644,7 @@ async def create_alarm_condition(
     condition = AlarmCondition(
         kind=payload.condition,
         target=payload.target.strip(),
-        pattern=payload.pattern,
+        pattern=payload.pattern.strip(),
         status=payload.status.strip(),
         stale_seconds=payload.stale_seconds,
     )
@@ -2657,11 +2657,27 @@ async def create_alarm_condition(
         ) from error
 
     alarm_id = f"alarm_{uuid.uuid4().hex[:8]}"
-    await manager.set_condition(
-        alarm_id, payload.message, condition, payload.every_seconds
-    )
+    try:
+        await manager.set_condition(
+            alarm_id, payload.message.strip(), condition, payload.every_seconds
+        )
+    except ValueError as error:
+        # add_condition rejects the configured limit with a localized ValueError.
+        raise HTTPException(status_code=400, detail=str(error)) from error
     _audit(request, "alarm.condition.create", alarm_id)
     return {"id": alarm_id}
+
+
+@router.post("/alarm-conditions/{alarm_id}/resume")
+async def resume_alarm_condition(
+    alarm_id: str,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    if not _require_alarms().resume_condition(alarm_id):
+        raise HTTPException(status_code=404, detail=tr("api.admin.alarm_missing"))
+    _audit(request, "alarm.condition.resume", alarm_id)
+    return {"resumed": True}
 
 
 @router.post("/alarms")

@@ -16,10 +16,15 @@ from loguru import logger
 from coworker.core.types import IncomingEvent
 from coworker.i18n import bind_locale, tr
 from coworker.tools.alarm.conditions import (
+    MISSING_MATCH_STATE,
+    MISSING_STATE,
     AlarmCondition,
     ConditionChecker,
     ConditionKind,
     TaskStoreLike,
+    local_datetime,
+    local_now,
+    parse_optional_time,
 )
 from coworker.tools.alarm.constants import (
     CONDITION_KINDS,
@@ -28,14 +33,6 @@ from coworker.tools.alarm.constants import (
 
 if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
-
-
-def _local_datetime(value: datetime) -> datetime:
-    return value.astimezone()
-
-
-def _local_now() -> datetime:
-    return datetime.now().astimezone()
 
 
 @dataclass
@@ -129,8 +126,8 @@ class AlarmManager:
         repeat_seconds: int | None = None,
     ) -> None:
         removed = self._cancel(alarm_id)
-        trigger_at = _local_datetime(trigger_at)
-        delay = max(0.0, (trigger_at - _local_now()).total_seconds())
+        trigger_at = local_datetime(trigger_at)
+        delay = max(0.0, (trigger_at - local_now()).total_seconds())
         task = asyncio.create_task(
             bind_locale(partial(self._fire, alarm_id, delay, message, repeat_seconds))
         )
@@ -182,11 +179,15 @@ class AlarmManager:
         )
 
     async def close(self) -> None:
-        tasks = [entry.task for entry in self._conditions.values() if entry.task is not None]
-        for task in tasks:
+        tasks = [task for task, *_ in self._alarms.values()]
+        tasks.extend(
+            entry.task for entry in self._conditions.values() if entry.task is not None
+        )
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
             task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         await self._checker.close()
 
     async def restore(self) -> int:
@@ -213,13 +214,13 @@ class AlarmManager:
     def _restore_time(self, entry: dict) -> bool:
         try:
             alarm_id = str(entry["alarm_id"])
-            next_trigger = _local_datetime(datetime.fromisoformat(entry["next_trigger_at"]))
+            next_trigger = local_datetime(datetime.fromisoformat(entry["next_trigger_at"]))
             message = str(entry["message"])
             repeat_seconds = entry.get("repeat_seconds")
         except (KeyError, TypeError, ValueError) as error:
             logger.warning(f"Skipping invalid alarm record {entry.get('alarm_id')}: {error}")
             return False
-        now = _local_now()
+        now = local_now()
         delay = max(0.0, (next_trigger - now).total_seconds())
         overdue_note: str | None = None
         if next_trigger < now:
@@ -272,8 +273,19 @@ class AlarmManager:
             condition.kind in {"file_changed", "http_changed"}
             and last_state
             and not last_state.startswith(("sha256:", "stat:"))
+            and last_state not in {MISSING_STATE, MISSING_MATCH_STATE}
         ):
             last_state = ""
+        # A condition that no longer passes validation (for example after the
+        # allowed roots shrank) is restored paused so it neither burns checks nor
+        # fails silently; the reason shows up in list_alarms and the admin panel.
+        try:
+            self._checker.validate_target(condition)
+        except ValueError as error:
+            logger.warning(f"Condition alarm {alarm_id} cannot run: {error}")
+            validation_error = str(error)
+        else:
+            validation_error = ""
         restored = ConditionAlarm(
             alarm_id=alarm_id,
             message=str(entry.get("message") or ""),
@@ -281,10 +293,10 @@ class AlarmManager:
             every_seconds=every_seconds,
             last_state=last_state,
             last_stat=str(entry.get("last_stat") or ""),
-            last_error=str(entry.get("last_error") or ""),
-            last_checked_at=_parse_optional_time(entry.get("last_checked_at")),
+            last_error=str(entry.get("last_error") or "") or validation_error,
+            last_checked_at=parse_optional_time(entry.get("last_checked_at")),
             failures=max(0, int(entry.get("failures") or 0)),
-            paused=bool(entry.get("paused")),
+            paused=bool(entry.get("paused")) or bool(validation_error),
         )
         self._conditions[alarm_id] = restored
         if not restored.paused:
@@ -316,7 +328,7 @@ class AlarmManager:
             )
             logger.info(f"Alarm fired: [{alarm_id}] {message}")
             if repeat_seconds and repeat_seconds > 0:
-                next_trigger = _local_now() + timedelta(seconds=repeat_seconds)
+                next_trigger = local_now() + timedelta(seconds=repeat_seconds)
                 new_task = asyncio.create_task(
                     bind_locale(
                         partial(self._fire, alarm_id, float(repeat_seconds), message, repeat_seconds)
@@ -353,7 +365,7 @@ class AlarmManager:
                 except Exception as error:
                     entry.failures += 1
                     entry.last_error = str(error)[:200]
-                    entry.last_checked_at = _local_now()
+                    entry.last_checked_at = local_now()
                     logger.warning(f"Condition alarm {alarm_id} check failed: {error}")
                     if entry.failures >= 5:
                         entry.paused = True
@@ -374,7 +386,7 @@ class AlarmManager:
     def _admit_check(self, entry: ConditionAlarm) -> bool:
         now = time.monotonic()
         cutoff = now - 3600
-        while entry.checks and entry.checks[0] < cutoff:
+        while entry.checks and entry.checks[0] <= cutoff:
             entry.checks.popleft()
         if len(entry.checks) >= MAX_CHECKS_PER_HOUR:
             logger.warning(f"Condition alarm {entry.alarm_id} exceeded hourly check budget")
@@ -399,7 +411,7 @@ class AlarmManager:
         entry.last_state = result.state
         entry.last_stat = result.stat_key
         entry.last_error = ""
-        entry.last_checked_at = _local_now()
+        entry.last_checked_at = local_now()
         entry.next_check_at = entry.last_checked_at + timedelta(seconds=entry.every_seconds)
         if baseline or changed or had_error:
             self._save_conditions()
@@ -457,6 +469,21 @@ class AlarmManager:
             self._save_conditions()
         return removed is not None
 
+    def resume_condition(self, alarm_id: str) -> bool:
+        """Restart a paused condition; returns False when the alarm is unknown."""
+        entry = self._conditions.get(alarm_id)
+        if entry is None:
+            return False
+        if entry.paused:
+            entry.paused = False
+            entry.failures = 0
+            entry.last_error = ""
+            entry.next_check_at = None
+            entry.checks.clear()
+            self._start_condition(entry)
+            self._save_conditions()
+        return True
+
     def list(self) -> list[dict]:
         result: list[dict] = [
             {
@@ -475,6 +502,9 @@ class AlarmManager:
                 "kind": "condition",
                 "condition": entry.condition.kind,
                 "target": entry.condition.target,
+                "pattern": entry.condition.pattern,
+                "status": entry.condition.status,
+                "stale_seconds": entry.condition.stale_seconds,
                 "every_seconds": entry.every_seconds,
                 "message": entry.message,
                 "failures": entry.failures,
@@ -566,14 +596,5 @@ def _write_records(path: Path | None, records: list[dict]) -> None:
         temp_path.replace(path)
     except Exception as error:
         logger.warning(f"Failed to save alarm state to {path}: {error}")
-
-
-def _parse_optional_time(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return _local_datetime(datetime.fromisoformat(value))
-    except ValueError:
-        return None
 
 

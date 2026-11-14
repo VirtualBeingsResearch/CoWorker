@@ -4,11 +4,13 @@ import asyncio
 import os
 import time
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
+from coworker.i18n import locale_context
 from coworker.tools.alarm import (
     AlarmCondition,
     AlarmManager,
@@ -314,6 +316,26 @@ async def test_condition_alarm_can_be_listed_and_cancelled(manager):
     assert manager.list() == []
 
 
+async def test_list_shows_condition_details(manager):
+    manager.add_condition(
+        "p1",
+        "watch version",
+        AlarmCondition(
+            kind="http_changed",
+            target="https://93.184.216.34/",
+            pattern=r"v(\d+)",
+        ),
+        300,
+    )
+
+    result = await ListAlarmsTool(manager).execute()
+
+    assert not result.is_error
+    assert r"v(\d+)" in result.content
+    assert "300" in result.content
+    manager.cancel("p1")
+
+
 async def test_condition_limit(inbox, tmp_path):
     manager = AlarmManager(
         inbox,
@@ -410,3 +432,208 @@ def test_validate_public_url_rejects_private_and_credentials():
         validate_public_url("ftp://example.com/")
     with pytest.raises(ValueError):
         validate_public_url("https://user:pass@93.184.216.34/")
+
+
+async def test_missing_file_baseline_then_creation_fires(manager, inbox, tmp_path):
+    target = tmp_path / "later.txt"
+    manager.add_condition(
+        "later",
+        "file appeared",
+        AlarmCondition(kind="file_changed", target=str(target)),
+        1,
+    )
+
+    # A watched file that does not exist yet is a state, not a failure.
+    assert await manager.check_once("later") is False
+    inbox.push.assert_not_awaited()
+
+    target.write_text("now", encoding="utf-8")
+
+    assert await manager.check_once("later") is True
+    inbox.push.assert_awaited_once()
+
+
+async def test_deleting_watched_file_fires(manager, inbox, tmp_path):
+    target = tmp_path / "gone.txt"
+    target.write_text("here", encoding="utf-8")
+    manager.add_condition(
+        "gone",
+        "file disappeared",
+        AlarmCondition(kind="file_changed", target=str(target)),
+        1,
+    )
+
+    assert await manager.check_once("gone") is False
+    target.unlink()
+
+    assert await manager.check_once("gone") is True
+    inbox.push.assert_awaited_once()
+
+
+async def test_directory_target_is_rejected(manager, tmp_path):
+    with pytest.raises(ValueError):
+        manager.validate_condition(
+            AlarmCondition(kind="file_changed", target=str(tmp_path))
+        )
+    result = await SetAlarmTool(manager).execute(
+        message="watch",
+        condition="file_changed",
+        target=str(tmp_path),
+        every_seconds=60,
+    )
+    assert result.is_error
+
+
+async def test_http_pattern_disappearing_counts_as_change(inbox):
+    body = {"text": "<main>one</main>"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body["text"])
+
+    manager = AlarmManager(
+        inbox,
+        options=AlarmOptions(
+            http_transport=httpx.MockTransport(handler),
+            min_interval_seconds=1,
+            http_max_bytes=1024,
+        ),
+    )
+    manager.add_condition(
+        "h5",
+        "main section gone",
+        AlarmCondition(
+            kind="http_changed",
+            target="https://93.184.216.34/page",
+            pattern=r"<main>(.*?)</main>",
+        ),
+        1,
+    )
+
+    assert await manager.check_once("h5") is False
+    body["text"] = "<footer>section removed</footer>"
+
+    assert await manager.check_once("h5") is True
+    inbox.push.assert_awaited_once()
+
+
+def test_url_shape_errors_are_localized():
+    with locale_context("en"):
+        with pytest.raises(ValueError, match="port is invalid"):
+            validate_public_url("https://93.184.216.34:99999/")
+        with pytest.raises(ValueError, match="could not be parsed"):
+            validate_public_url("http://[::1/")
+    with locale_context("zh-CN"):
+        with pytest.raises(ValueError, match="端口无效"):
+            validate_public_url("https://93.184.216.34:99999/")
+
+
+def test_condition_validation_errors_follow_active_locale(manager):
+    def outside_root() -> None:
+        manager.validate_condition(
+            AlarmCondition(kind="file_changed", target="/etc/passwd")
+        )
+
+    with locale_context("en"):
+        with pytest.raises(ValueError, match="outside the allowed roots"):
+            outside_root()
+    with locale_context("zh-CN"):
+        with pytest.raises(ValueError, match="允许的根目录"):
+            outside_root()
+
+
+async def test_hourly_check_budget_allows_check_at_exact_hour(manager, mocker, tmp_path):
+    entry = manager.add_condition(
+        "budget",
+        "watch",
+        AlarmCondition(kind="file_changed", target=str(tmp_path / "budget.txt")),
+        60,
+    )
+    clock = iter([0.0] * 60 + [3600.0])
+    mocker.patch(
+        "coworker.tools.alarm.manager.time",
+        SimpleNamespace(monotonic=lambda: next(clock)),
+    )
+
+    for _ in range(60):
+        assert manager._admit_check(entry) is True
+
+    # The oldest check is exactly one hour old, so the budget admits the next one.
+    assert manager._admit_check(entry) is True
+
+
+async def test_close_cancels_time_and_condition_tasks(manager, tmp_path):
+    await manager.set("t1", datetime.now() + timedelta(seconds=60), "later")
+    target = tmp_path / "watched.txt"
+    target.write_text("x", encoding="utf-8")
+    await manager.set_condition(
+        "c1", "watch", AlarmCondition(kind="file_changed", target=str(target)), 60
+    )
+
+    await manager.close()
+
+    assert manager._alarms["t1"][0].done()
+    entry = manager.get_condition("c1")
+    assert entry is not None and entry.task is not None and entry.task.done()
+
+
+async def test_resume_condition_restarts_paused_alarm(manager, tmp_path):
+    target = tmp_path / "resume.txt"
+    target.write_text("x", encoding="utf-8")
+    entry = manager.add_condition(
+        "r1",
+        "watch",
+        AlarmCondition(kind="file_changed", target=str(target)),
+        60,
+    )
+    entry.paused = True
+    entry.failures = 5
+    entry.last_error = "boom"
+
+    assert manager.resume_condition("r1") is True
+    assert entry.paused is False
+    assert entry.failures == 0
+    assert entry.last_error == ""
+    assert entry.next_check_at is None
+    assert entry.task is not None and not entry.task.done()
+
+    assert manager.resume_condition("missing") is False
+    manager.cancel("r1")
+
+
+class TestSetAlarmInputHandling:
+    async def test_null_fields_do_not_crash(self, manager):
+        result = await SetAlarmTool(manager).execute(
+            message=None,  # type: ignore[arg-type]
+            trigger_at=None,  # type: ignore[arg-type]
+            condition=None,  # type: ignore[arg-type]
+        )
+        assert result.is_error
+
+    async def test_rejects_unsafe_alarm_id(self, manager):
+        future = (datetime.now() + timedelta(seconds=60)).strftime("%Y-%m-%d %H:%M:%S")
+        result = await SetAlarmTool(manager).execute(
+            message="x", trigger_at=future, alarm_id="bad id"
+        )
+        assert result.is_error
+
+    async def test_rejects_negative_repeat(self, manager):
+        future = (datetime.now() + timedelta(seconds=60)).strftime("%Y-%m-%d %H:%M:%S")
+        result = await SetAlarmTool(manager).execute(
+            message="x", trigger_at=future, repeat_seconds=-5
+        )
+        assert result.is_error
+
+    async def test_accepts_numeric_strings(self, manager, tmp_path):
+        target = tmp_path / "numeric.txt"
+        target.write_text("x", encoding="utf-8")
+        result = await SetAlarmTool(manager).execute(
+            message="watch",
+            condition="file_changed",
+            target=str(target),
+            every_seconds="60",  # type: ignore[arg-type]
+            stale_seconds="0",  # type: ignore[arg-type]
+            alarm_id="numeric",
+        )
+        assert not result.is_error
+        assert manager.has_condition("numeric")
+        manager.cancel("numeric")
