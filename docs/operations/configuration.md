@@ -158,6 +158,12 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | `AGENT__SUBCONSCIOUS_THINKING` | `true` | 是否启用潜意识后台思考 |
 | `AGENT__SUBCONSCIOUS_SUMMARIZE_BEFORE_COMPRESS` | `true` | 压缩前是否触发潜意识总结 |
 | `AGENT__SUBCONSCIOUS_MAX_CYCLES` | `5` | 单次潜意识任务最大 cycle 数 |
+| `AGENT__ALARM_ALLOWED_ROOTS` | `[]` | 条件闹钟 `file_changed` 允许的额外根目录（JSON 数组）；空表示只允许当前工作目录。 |
+| `AGENT__ALARM_MAX_CONDITIONS` | `32` | 单实例最多同时存在的条件闹钟数。 |
+| `AGENT__ALARM_MIN_INTERVAL_SECONDS` | `60` | 条件闹钟的最小检查间隔（秒），不得小于 60。 |
+| `AGENT__ALARM_HTTP_MAX_BYTES` | `262144` | `http_changed` 单次响应读取上限（字节），超出按检查失败处理。 |
+| `AGENT__ALARM_CHECK_TIMEOUT_SECONDS` | `20.0` | 单次条件检查的超时（秒），超时按检查失败退避。 |
+| `AGENT__ALARM_FILE_MAX_BYTES` | `8388608` | 文件大于该值时只比较 mtime 和大小，不再计算全文哈希。 |
 
 `AGENT__SYSTEM_PROMPT_TEMPLATE` 可以引用 `{{IDENTITY}}`、`{{ENVIRONMENT}}`、
 `{{INSTINCTS}}`、`{{GUIDELINES}}`、`{{LANGUAGE_POLICY}}`、`{{THINKING}}`、

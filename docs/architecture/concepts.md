@@ -141,11 +141,14 @@ Agent 可通过 `restart_self` 工具主动触发安全重启（例如在更新�
 
 闹钟状态持久化到 `data/memory/alarms.json`，重启后自动恢复调度。错过触发时间的闹钟会立即补发，消息中标注迟到时长；循环闹钟仅补发一次，之后按原间隔继续运行。
 
+闹钟也可以监听条件：`set_alarm(condition=..., target=..., every_seconds=...)` 支持文件变化、网页内容变化和任务状态变化。条件检查不调用模型；首次检查只建立基线，之后状态变化才唤醒。文件还没出现、网页里匹配不到正则，都按一种状态记录，因此文件出现、匹配重新出现或消失同样会触发。条件闹钟单独存到 `data/memory/alarm_conditions.json`，与定时闹钟一起在重启后恢复；连续失败会退避，5 次后暂停并留下一条说明，暂停后可以在管理页恢复。管理页的“闹钟与守候”可以直接创建、恢复和取消条件闹钟。
+
 如需全新启动，删除快照文件即可：
 
 ```bash
 rm data/memory/short_term_snapshot.json
-rm data/memory/alarms.json  # 同时清除闹钟状态（可选）
+rm data/memory/alarms.json  # 同时清除定时闹钟（可选）
+rm data/memory/alarm_conditions.json  # 同时清除条件闹钟（可选）
 ```
 
 ## 记忆宫殿（Memory Block Tree）

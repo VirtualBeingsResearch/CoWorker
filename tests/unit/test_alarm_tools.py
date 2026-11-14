@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.tools.alarm_tools import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
+from coworker.tools.alarm import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
 
 
 @pytest.fixture

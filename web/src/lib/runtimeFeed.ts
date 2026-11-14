@@ -238,7 +238,12 @@ const TOOL_SUMMARY: Record<string, (e: RuntimeLogEvent) => { tag: string; text: 
   execute_code: e => ({ tag: t('执行代码'), text: arg(e, 'code') || t('执行代码') }),
   task_create: e => ({ tag: t('新建任务'), text: arg(e, 'description') || t('新建任务') }),
   task_update: e => ({ tag: t('更新任务'), text: [arg(e, 'task_id'), arg(e, 'status')].filter(Boolean).join(' → ') || t('更新任务') }),
-  set_alarm: e => ({ tag: t('设置提醒'), text: [arg(e, 'trigger_at'), arg(e, 'message')].filter(Boolean).join(' · ') || t('设置提醒') }),
+  set_alarm: e => {
+    const mode = arg(e, 'condition')
+      ? [arg(e, 'condition'), arg(e, 'target')].filter(Boolean).join(': ')
+      : arg(e, 'trigger_at');
+    return { tag: t('设置提醒'), text: [mode, arg(e, 'message')].filter(Boolean).join(' · ') || t('设置提醒') };
+  },
   bubble_spawn: e => ({ tag: t('分裂泡泡'), text: arg(e, 'goal') || t('分裂泡泡') }),
   switch_model: e => ({ tag: t('切换模型'), text: arg(e, 'model_id') || t('切换模型') }),
 };
