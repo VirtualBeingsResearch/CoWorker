@@ -37,7 +37,6 @@ export const ENGLISH_SINGULAR_OVERRIDES: Record<string, string> = {
   '{{count}} 条消息': '{{count}} message',
   '续跑 {{count}} 次': 'Resumed {{count}} time',
   '{{count}} 条结果': '{{count}} result',
-  '正在守候 {{count}} 个提醒，最近一个 {{time}}': 'Watching {{count}} reminder; the next is {{time}}',
   '本页 {{count}} 条，可继续向更早的记录回溯。': '{{count}} record on this page; earlier history is available.',
   '本页 {{count}} 条，已到最早记录。': '{{count}} record on this page; this is the earliest history.',
   '{{count}} / 100000 字符': '{{count}} / 100000 character',
