@@ -107,8 +107,8 @@ fallbacks 和 vision 设置。容器或服务管理器注入环境变量时，�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MEMORY__DB_PATH` | `data/memory` | Coworker 记忆数据目录（短期快照、状态文件，以及默认 mem0 后端数据） |
-| `MEMORY__BACKEND` | `mem0`（未设置 `MEMORY_DEFAULT_BACKEND` 时；mem0 依赖未安装且未显式设置时自动使用 `file`） | 长期记忆后端：`mem0`（语义记忆）或 `file`（最简文件存储后端，词项倒排索引查询）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）；精简安装未装该 extra 时默认值会自动回退到 `file`，显式设置 `mem0` 则仍报缺失依赖。若使用 `mem0`，日常 `uv sync` / `uv run --sync` 也要带 `--extra mem0`，否则该 extra 会被从环境摘除 |
-| `MEMORY_DEFAULT_BACKEND` | `mem0` | 未显式设置 `MEMORY__BACKEND` 时采用的默认记忆后端（`mem0` 或 `file`）。仅供如 `lite-offline` 之类精简镜像在构建时变更默认值，便于它们默认使用无需可选依赖的 `file` 后端；取值为 `mem0`（或无效值）而 mem0 依赖未安装时，默认值同样回退到 `file`；显式配置的 `MEMORY__BACKEND` 永远优先 |
+| `MEMORY__BACKEND` | `mem0`（未设置 `MEMORY_DEFAULT_BACKEND` 时；仅首次初始化且后端未建立、mem0 依赖缺失时使用 `file`） | 长期记忆后端：`mem0`（语义记忆）或 `file`（最简文件存储后端，词项倒排索引查询）。`mem0` 需安装可选依赖（`uv sync --extra mem0`）。首次初始化成功后，实际后端会记录到 `MEMORY__DB_PATH/memory_backend.json`，后续启动沿用该记录；此后缺依赖会报错并提示安装，而不是回退。显式设置本变量始终优先；若使用 `mem0`，日常 `uv sync` / `uv run --sync` 也要带 `--extra mem0`，否则该 extra 会被从环境摘除 |
+| `MEMORY_DEFAULT_BACKEND` | `mem0` | 未显式设置 `MEMORY__BACKEND` 时采用的默认记忆后端（`mem0` 或 `file`）。仅供如 `lite-offline` 之类精简镜像在构建时变更默认值，便于它们默认使用无需可选依赖的 `file` 后端；取值为 `mem0`（或无效值）而 mem0 依赖未安装时，仅在首次初始化（后端尚未建立）阶段回退到 `file`；显式配置的 `MEMORY__BACKEND` 永远优先 |
 | `MEMORY__SHORT_TERM_MAX_TOKENS` | `120000` | 最近一次完整模型输入达到该预算后触发一次短期记忆压缩；允许短暂超过 |
 | `MEMORY__COMPRESS_RATIO` | `0.30` | 每次压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用 |
 | `MEMORY__TREE_ENABLED` | `true` | 启用多分辨率记忆树（关闭则回退旧的单锚点压缩） |

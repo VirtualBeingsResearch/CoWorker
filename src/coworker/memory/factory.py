@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 
-from coworker.core.config import Config
+from coworker.core.config import Config, MemoryBackend
 from coworker.memory.base import LongTermMemoryBackend
 from coworker.memory.long_term import build_memory_llm_config
 
@@ -18,6 +19,9 @@ _BACKEND_ENTRIES: dict[str, str] = {
     "file": "FileBackend",
     "mem0": "Mem0Backend",
 }
+
+# 记录首次成功初始化后端时实际使用的后端；此后启动保持该后端，不再随依赖变化回退。
+_MEMORY_BACKEND_STATE_FILE = "memory_backend.json"
 
 
 class BackendClass(Protocol):
@@ -83,6 +87,70 @@ def missing_backend_modules(backend_id: str) -> list[str]:
                 if importlib.util.find_spec(module) is None
             ]
     return []
+
+
+def memory_backend_state_path(db_path: str | Path) -> Path:
+    """长期记忆后端状态文件；记录首次初始化成功时实际使用的后端。"""
+
+    return Path(db_path) / _MEMORY_BACKEND_STATE_FILE
+
+
+def load_memory_backend_state(db_path: str | Path) -> MemoryBackend | None:
+    """读取已建立的长期记忆后端；没有记录、损坏或取值无效时返回 None。"""
+
+    try:
+        raw = json.loads(memory_backend_state_path(db_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    backend = raw.get("backend") if isinstance(raw, dict) else None
+    if backend in ("mem0", "file"):
+        return backend
+    return None
+
+
+def write_memory_backend_state(db_path: str | Path, backend_id: str) -> None:
+    """记录已初始化的长期记忆后端，供后续启动保持后端不变。"""
+
+    if backend_id not in _BACKEND_ENTRIES:
+        return
+    state_path = memory_backend_state_path(db_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = state_path.with_suffix(state_path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"backend": backend_id}), encoding="utf-8")
+    temporary.replace(state_path)
+
+
+def mem0_data_present(db_path: str | Path) -> bool:
+    """升级兼容：没有状态文件、但目录里已有 mem0（Chroma）持久化数据。"""
+
+    return (Path(db_path) / "chroma.sqlite3").exists()
+
+
+def resolve_memory_backend(
+    config: Config,
+    *,
+    backend_explicit: bool,
+) -> tuple[MemoryBackend, bool]:
+    """决定本次启动实际使用的长期记忆后端。
+
+    返回 ``(backend_id, fell_back)``。只有在**尚未建立长期记忆后端**时才允许
+    因 mem0 依赖缺失回退到 ``file``：没有状态记录、没有既有 mem0 数据，且用户
+    没有显式指定 mem0。后端一旦初始化过，就按记录保持，不再随依赖增减切换；
+    显式配置始终优先，缺依赖时仍由 :func:`build_long_term_backend` 给出安装引导。
+    """
+    configured = config.memory.backend
+    if configured != "mem0":
+        return configured, False
+    if "mem0" in available_backends():
+        return "mem0", False
+    if backend_explicit:
+        return "mem0", False
+    recorded = load_memory_backend_state(config.memory.db_path)
+    if recorded is not None:
+        return recorded, False
+    if mem0_data_present(config.memory.db_path):
+        return "mem0", False
+    return "file", True
 
 
 def build_long_term_backend(

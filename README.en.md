@@ -171,10 +171,12 @@ This path requires **Python 3.13+** and [uv](https://docs.astral.sh/uv/).
 `uv run python -m coworker` is equivalent to the last command; you do not need to create `.env`
 before the first run.
 
-A plain `uv sync` installs only the slim dependency set. Unless `MEMORY__BACKEND` is set
-explicitly, startup picks the backend from dependency availability: with the `mem0` optional
-dependencies installed it uses **`mem0` semantic memory**, otherwise it automatically falls back to
-the **`file` backend** (token search, no semantic vector search), so a fresh install starts as-is.
+A plain `uv sync` installs only the slim dependency set. **Only during the initial setup, while no
+long-term memory backend has been established yet**, does startup fall back to the **`file` backend**
+(token search, no semantic vector search) when `MEMORY__BACKEND` is not set explicitly and the `mem0`
+dependencies are missing, so a fresh install starts as-is. The effective backend is then recorded in
+`MEMORY__DB_PATH/memory_backend.json`, and later starts keep using it instead of switching with
+dependency changes.
 
 To enable the bundled **`mem0` semantic memory backend**, install its optional dependencies:
 
@@ -182,12 +184,12 @@ To enable the bundled **`mem0` semantic memory backend**, install its optional d
 uv sync --extra mem0
 ```
 
-To keep `mem0`, keep passing `--extra mem0` on every subsequent sync
-(`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`);
-otherwise `uv sync` will prune the extra from the environment and the next start falls back to the
-`file` backend, where existing mem0 memories are not visible. If `MEMORY__BACKEND=mem0` is set
-explicitly while the dependencies are missing, startup fails with installation guidance instead of
-falling back.
+Installing them before the initial setup makes Coworker use `mem0` directly. If the installation has
+already fallen back to `file`, also set `MEMORY__BACKEND=mem0` explicitly and restart (the two
+backends do not see or migrate each other's memories). Once a backend has been established, pruning
+`--extra mem0` with `uv sync` no longer falls back silently: startup fails with installation
+guidance instead. When using `mem0`, keep passing `--extra mem0` on every later sync
+(`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`).
 
 </details>
 

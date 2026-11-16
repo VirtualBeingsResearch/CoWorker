@@ -30,8 +30,9 @@ optional dependencies:
 uv sync --dev --extra mem0
 ```
 
-Without that extra the service automatically falls back to the `file` memory backend, so
-memory-related behavior differs from the default `mem0` setup.
+Without that extra the service falls back to the `file` memory backend only during the initial
+setup; once a backend is established, missing dependencies fail startup instead. Memory-related
+behavior also differs from the default `mem0` setup.
 
 Install Chromium once if you work on the browser tool or run browser integration tests:
 

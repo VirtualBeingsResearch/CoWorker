@@ -119,10 +119,13 @@ other embedding model, so migration requirements come first.
   history.
 - Long-term memory is not found: verify the mem0 Provider, embedding model, and
   database path did not change.
-- Long-term memory only supports token search: a slim install without the mem0
-  optional dependencies automatically falls back to the `file` backend and the
-  startup log says so; run `uv sync --extra mem0` and restart to restore mem0.
+- Long-term memory only supports token search: when the mem0 optional dependencies
+  are missing during the initial setup, startup falls back to the `file` backend
+  and records that choice; the startup log says so. To switch back to mem0, run
+  `uv sync --extra mem0`, then set `MEMORY__BACKEND=mem0` explicitly and restart.
   Memories written while the `file` backend was active are not migrated to mem0.
+  Once mem0 is established, missing dependencies fail startup instead of falling
+  back.
 - Recent state is missing after restart: inspect the short-term snapshot,
   `data/logs`, and emergency backups in Runtime Center.
 - A task or alarm does not fire: check time zone, Passive mode, Agent state, and

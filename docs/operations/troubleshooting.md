@@ -99,9 +99,7 @@ uv run playwright install --with-deps chromium
 - 回溯一直运行：进度见 `GET /backfill_tree` 或管理页；同时执行离线回溯会重复处理相同
   历史。
 - 长期记忆搜不到：确认 mem0 Provider、embedding 模型和数据库路径没有改变。
-- 长期记忆只有词项检索：精简安装未装 mem0 可选依赖时会自动回退到 `file` 后端，启动日志
-  会给出提示；执行 `uv sync --extra mem0` 后重启即可恢复 mem0。`file` 后端期间写入的记忆
-  不会自动迁移到 mem0。
+- 长期记忆只有词项检索：首次初始化时未装 mem0 可选依赖会回退到 `file` 后端并记录该选择，启动日志会给出提示。要切回 mem0，先执行 `uv sync --extra mem0`，再显式设置 `MEMORY__BACKEND=mem0` 并重启；`file` 后端期间写入的记忆不会自动迁移。已建立 mem0 的安装缺依赖时会直接报错，而不是回退。
 - 重启后缺少近期状态：检查短期快照和 `data/logs`，再查看“运行中心”的应急备份。
 - 任务或闹钟不触发：确认时区、Passive mode、Agent 是否正在运行，以及任务是否已被取消。
 

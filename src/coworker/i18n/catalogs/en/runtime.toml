@@ -586,7 +586,7 @@ system_started = "The system started. Current time: {{time}}. {{environment}}."
 
 [system]
 memory_backend_missing_deps = "Cannot start: the configured long-term memory backend \"{{backend}}\" is missing required dependencies ({{missing}}). Install them with `uv sync --extra mem0`."
-memory_backend_fallback = "The mem0 optional dependency is not installed, so long-term memory automatically uses the file backend (token search, no semantic vector search). To enable mem0 semantic memory, install it with `uv sync --extra mem0` and restart."
+memory_backend_fallback = "The mem0 optional dependency is not installed for the initial setup, so long-term memory falls back to the file backend (token search, no semantic vector search) and later starts keep using it. To enable mem0 semantic memory, install it with `uv sync --extra mem0`, set `MEMORY__BACKEND=mem0` explicitly, and restart."
 
 [config.tunnel]
 public_url_invalid = "TUNNEL__PUBLIC_URL is not a valid URL"

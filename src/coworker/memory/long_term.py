@@ -127,6 +127,10 @@ class LongTermMemory:
     def backend(self) -> LongTermMemoryBackend:
         return self._backend
 
+    @property
+    def backend_id(self) -> str:
+        return self._backend.backend_id
+
     async def initialize(self) -> None:
         await self._backend.initialize()
 
