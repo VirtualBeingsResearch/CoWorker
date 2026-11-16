@@ -259,6 +259,12 @@ The first real call may incur cost or expose an incompatible model or gateway.
 The common practice is to confirm the Provider's data boundary, tool-calling
 support, and cost before changing it.
 
+OpenAI Responses calls preserve historical `system` messages, including Bubble
+identity and goals, as `user` input in their original order, with the main System
+Prompt passed separately. Returned reasoning summaries remain in the interaction
+log; later calls use ordinary conversation and tool history. Native reasoning-state
+replay is not implemented.
+
 ### Runtime Settings
 
 Runtime Settings groups model connections, memory, Agent, API, Channel, and

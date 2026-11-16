@@ -340,7 +340,7 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> LLMResponse:
         effort = resolve_effort(thinking, thinking_effort)
         try:
-            input_items, _ = self._to_responses_input(messages, self._current_model)
+            input_items = self._to_responses_input(messages, self._current_model)
             kwargs: dict = {
                 "model": self._current_model,
                 "input": input_items,
@@ -368,14 +368,10 @@ class OpenAIProvider(BaseLLMProvider):
             reasoning_content=reasoning_content,
         )
 
-    def _to_responses_input(self, messages: list[Message], model_id: str) -> tuple[list[dict], str]:
-        """Convert conversation history to Responses API input items."""
-        instructions = ""
+    def _to_responses_input(self, messages: list[Message], model_id: str) -> list[dict]:
+        """Keep history system context in order as user input, matching the Chat adapter."""
         input_items: list[dict] = []
         for m in messages:
-            if m.role == "system":
-                instructions = m.content if isinstance(m.content, str) else ""
-                continue
             if m.role == "tool":
                 input_items.append(
                     {
@@ -386,15 +382,7 @@ class OpenAIProvider(BaseLLMProvider):
                 )
                 continue
             if m.role == "assistant":
-                if m.reasoning_content:
-                    rc_id = "rs_" + hashlib.sha256(m.reasoning_content.encode()).hexdigest()[:24]
-                    input_items.append(
-                        {
-                            "type": "reasoning",
-                            "id": rc_id,
-                            "summary": [{"type": "summary_text", "text": m.reasoning_content}],
-                        }
-                    )
+                # reasoning_content is a display summary, not replayable provider state.
                 if m.content:
                     input_items.append(
                         {
@@ -421,14 +409,12 @@ class OpenAIProvider(BaseLLMProvider):
                     "content": self._to_responses_content_blocks(m.content, m.role, model_id),
                 }
             )
-        return input_items, instructions
+        return input_items
 
     async def count_tokens(self, messages: list[Message], model_id: str) -> int:
         try:
-            input_items, instructions = self._to_responses_input(messages, model_id)
+            input_items = self._to_responses_input(messages, model_id)
             kwargs: dict = {"model": model_id, "input": input_items}
-            if instructions:
-                kwargs["instructions"] = instructions
             result = await self._client.responses.input_tokens.count(**kwargs)
             return result.input_tokens
         except Exception:
