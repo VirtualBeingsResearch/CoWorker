@@ -105,7 +105,7 @@ async def test_unchanged_check_does_not_rewrite_state(manager, mocker, tmp_path)
     )
 
     assert await manager.check_once("stable1") is False
-    spy = mocker.spy(manager, "_save_conditions")
+    spy = mocker.spy(manager, "_save")
     spy.reset_mock()
 
     assert await manager.check_once("stable1") is False

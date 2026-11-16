@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 import time
 from collections import deque
@@ -35,6 +36,9 @@ if TYPE_CHECKING:
     from coworker.agent.inbox_watcher import InboxWatcher
 
 
+_SCHEMA_VERSION = 2
+
+
 @dataclass
 class AlarmOptions:
     task_store: TaskStoreLike | None = None
@@ -45,7 +49,6 @@ class AlarmOptions:
     check_timeout_seconds: float = 20.0
     file_max_bytes: int = 8 * 1024 * 1024
     http_transport: httpx.AsyncBaseTransport | None = None
-    condition_persist_path: Path | None = None
 
 
 @dataclass
@@ -76,9 +79,7 @@ class AlarmManager:
         self._inbox = inbox
         self._persist_path = persist_path
         self._options = options or AlarmOptions()
-        self._condition_path = self._options.condition_persist_path
-        if self._condition_path is None and persist_path is not None:
-            self._condition_path = persist_path.with_name("alarm_conditions.json")
+        self._persistence_blocked = False
         # alarm_id -> (task, next_trigger_at, message, repeat_seconds)
         self._alarms: dict[str, tuple[asyncio.Task, datetime, str, int | None]] = {}
         self._conditions: dict[str, ConditionAlarm] = {}
@@ -105,10 +106,6 @@ class AlarmManager:
     def condition_count(self) -> int:
         return len(self._conditions)
 
-    @property
-    def condition_persist_path(self) -> Path | None:
-        return self._condition_path
-
     def has_condition(self, alarm_id: str) -> bool:
         return alarm_id in self._conditions
 
@@ -125,16 +122,14 @@ class AlarmManager:
         message: str,
         repeat_seconds: int | None = None,
     ) -> None:
-        removed = self._cancel(alarm_id)
+        self._cancel(alarm_id)
         trigger_at = local_datetime(trigger_at)
         delay = max(0.0, (trigger_at - local_now()).total_seconds())
         task = asyncio.create_task(
             bind_locale(partial(self._fire, alarm_id, delay, message, repeat_seconds))
         )
         self._alarms[alarm_id] = (task, trigger_at, message, repeat_seconds)
-        self._save_time()
-        if removed == "condition":
-            self._save_conditions()
+        self._save()
 
     def add_condition(
         self,
@@ -154,7 +149,7 @@ class AlarmManager:
         )
         self._conditions[alarm_id] = entry
         if removed == "time":
-            self._save_time()
+            self._save()
         return entry
 
     async def set_condition(
@@ -169,7 +164,7 @@ class AlarmManager:
         entry = self.add_condition(alarm_id, message, condition, every_seconds)
         if start:
             self._start_condition(entry)
-        self._save_conditions()
+        self._save()
 
     def _start_condition(self, entry: ConditionAlarm) -> None:
         if entry.paused:
@@ -191,25 +186,34 @@ class AlarmManager:
         await self._checker.close()
 
     async def restore(self) -> int:
+        state = _load_state(self._persist_path)
+        self._persistence_blocked = not state.readable
         count = 0
-        migrated = False
-        for entry in _load_records(self._persist_path):
-            if entry.get("kind") == "condition":
-                if self._restore_condition(entry):
-                    count += 1
-                    migrated = True
-                continue
+        for entry in state.alarms:
             if self._restore_time(entry):
                 count += 1
-        for entry in _load_records(self._condition_path):
+        for entry in state.conditions:
             if self._restore_condition(entry):
                 count += 1
-        if migrated:
-            self._save_time()
-            self._save_conditions()
+        if state.legacy:
+            # v1 kept every alarm in one flat list; keep a copy a pre-feature build
+            # can still read, then upgrade the live file to the versioned shape.
+            self._backup_legacy_file()
+            self._save()
         if count:
             logger.info(f"Restored {count} trigger(s)")
         return count
+
+    def _backup_legacy_file(self) -> None:
+        path = self._persist_path
+        if path is None or not path.exists():
+            return
+        backup = path.with_name(path.name + ".v1.bak")
+        try:
+            backup.write_bytes(path.read_bytes())
+            logger.info(f"Kept legacy alarm state at {backup}")
+        except OSError as error:
+            logger.warning(f"Failed to back up legacy alarm state {path}: {error}")
 
     def _restore_time(self, entry: dict) -> bool:
         try:
@@ -335,10 +339,10 @@ class AlarmManager:
                     )
                 )
                 self._alarms[alarm_id] = (new_task, next_trigger, message, repeat_seconds)
-                self._save_time()
+                self._save()
             else:
                 self._alarms.pop(alarm_id, None)
-                self._save_time()
+                self._save()
         except asyncio.CancelledError:
             pass
 
@@ -369,10 +373,10 @@ class AlarmManager:
                     logger.warning(f"Condition alarm {alarm_id} check failed: {error}")
                     if entry.failures >= 5:
                         entry.paused = True
-                        self._save_conditions()
+                        self._save()
                         await self._push_condition_failure(entry, error)
                         return
-                    self._save_conditions()
+                    self._save()
                     delay = min(
                         300.0,
                         float(entry.every_seconds) * (2 ** min(entry.failures, 8)),
@@ -414,7 +418,7 @@ class AlarmManager:
         entry.last_checked_at = local_now()
         entry.next_check_at = entry.last_checked_at + timedelta(seconds=entry.every_seconds)
         if baseline or changed or had_error:
-            self._save_conditions()
+            self._save()
         return changed
 
     async def _fire_condition(self, entry: ConditionAlarm, degraded: bool) -> None:
@@ -464,9 +468,9 @@ class AlarmManager:
     def cancel(self, alarm_id: str) -> bool:
         removed = self._cancel(alarm_id)
         if removed == "time":
-            self._save_time()
+            self._save()
         elif removed == "condition":
-            self._save_conditions()
+            self._save()
         return removed is not None
 
     def resume_condition(self, alarm_id: str) -> bool:
@@ -481,7 +485,7 @@ class AlarmManager:
             entry.next_check_at = None
             entry.checks.clear()
             self._start_condition(entry)
-            self._save_conditions()
+            self._save()
         return True
 
     def list(self) -> list[dict]:
@@ -526,73 +530,110 @@ class AlarmManager:
         )
         return result
 
-    def _save_time(self) -> None:
-        _write_records(
-            self._persist_path,
-            [
-                {
-                    "alarm_id": alarm_id,
-                    "next_trigger_at": trigger_at.isoformat(timespec="seconds"),
-                    "message": message,
-                    "repeat_seconds": repeat_seconds,
-                }
-                for alarm_id, (_, trigger_at, message, repeat_seconds) in self._alarms.items()
-            ],
-        )
+    def _save(self) -> None:
+        if self._persistence_blocked:
+            return
+        _write_state(self._persist_path, self._time_records(), self._condition_records())
 
-    def _save_conditions(self) -> None:
-        _write_records(
-            self._condition_path,
-            [
-                {
-                    "alarm_id": entry.alarm_id,
-                    "kind": "condition",
-                    "message": entry.message,
-                    "condition": {
-                        "kind": entry.condition.kind,
-                        "target": entry.condition.target,
-                        "pattern": entry.condition.pattern,
-                        "status": entry.condition.status,
-                        "stale_seconds": entry.condition.stale_seconds,
-                    },
-                    "every_seconds": entry.every_seconds,
-                    "last_state": entry.last_state,
-                    "last_stat": entry.last_stat,
-                    "last_error": entry.last_error,
-                    "last_checked_at": (
-                        entry.last_checked_at.isoformat(timespec="seconds")
-                        if entry.last_checked_at
-                        else None
-                    ),
-                    "failures": entry.failures,
-                    "paused": entry.paused,
-                }
-                for entry in self._conditions.values()
-            ],
-        )
+    def _time_records(self) -> builtins.list[dict]:
+        return [
+            {
+                "alarm_id": alarm_id,
+                "next_trigger_at": trigger_at.isoformat(timespec="seconds"),
+                "message": message,
+                "repeat_seconds": repeat_seconds,
+            }
+            for alarm_id, (_, trigger_at, message, repeat_seconds) in self._alarms.items()
+        ]
+
+    def _condition_records(self) -> builtins.list[dict]:
+        return [
+            {
+                "alarm_id": entry.alarm_id,
+                "kind": "condition",
+                "message": entry.message,
+                "condition": {
+                    "kind": entry.condition.kind,
+                    "target": entry.condition.target,
+                    "pattern": entry.condition.pattern,
+                    "status": entry.condition.status,
+                    "stale_seconds": entry.condition.stale_seconds,
+                },
+                "every_seconds": entry.every_seconds,
+                "last_state": entry.last_state,
+                "last_stat": entry.last_stat,
+                "last_error": entry.last_error,
+                "last_checked_at": (
+                    entry.last_checked_at.isoformat(timespec="seconds")
+                    if entry.last_checked_at
+                    else None
+                ),
+                "failures": entry.failures,
+                "paused": entry.paused,
+            }
+            for entry in self._conditions.values()
+        ]
 
 
-def _load_records(path: Path | None) -> list[dict]:
+@dataclass(frozen=True)
+class _PersistedState:
+    alarms: list[dict] = field(default_factory=list)
+    conditions: list[dict] = field(default_factory=list)
+    legacy: bool = False
+    readable: bool = True
+
+
+def _load_state(path: Path | None) -> _PersistedState:
     if path is None or not path.exists():
-        return []
+        return _PersistedState()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as error:
         logger.warning(f"Failed to read alarm state from {path}: {error}")
-        return []
-    if not isinstance(data, list):
-        logger.warning(f"Alarm state is not a list: {path}")
-        return []
-    return [entry for entry in data if isinstance(entry, dict)]
+        return _PersistedState()
+    if isinstance(data, list):
+        # Version 1 kept only time alarms in a flat list; the interim build of the
+        # condition feature mixed both kinds there, so accept both shapes.
+        alarms: list[dict] = []
+        conditions: list[dict] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("kind") == "condition":
+                conditions.append(entry)
+            else:
+                alarms.append(entry)
+        return _PersistedState(alarms, conditions, legacy=True)
+    if not isinstance(data, dict):
+        logger.warning(f"Alarm state is neither a list nor an object: {path}")
+        return _PersistedState(readable=False)
+    version = data.get("version")
+    if version != _SCHEMA_VERSION:
+        logger.warning(
+            f"Alarm state version {version!r} is not supported; leaving {path} untouched"
+        )
+        return _PersistedState(readable=False)
+    raw_alarms = data.get("alarms")
+    raw_conditions = data.get("conditions")
+    if not isinstance(raw_alarms, list) or not isinstance(raw_conditions, list):
+        logger.warning(f"Alarm state is missing its alarm or condition list: {path}")
+        return _PersistedState(readable=False)
+    return _PersistedState(
+        alarms=[entry for entry in raw_alarms if isinstance(entry, dict)],
+        conditions=[entry for entry in raw_conditions if isinstance(entry, dict)],
+    )
 
 
-def _write_records(path: Path | None, records: list[dict]) -> None:
+def _write_state(path: Path | None, alarms: list[dict], conditions: list[dict]) -> None:
     if path is None:
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"version": _SCHEMA_VERSION, "alarms": alarms, "conditions": conditions}
         temp_path = path.with_suffix(path.suffix + ".tmp")
-        temp_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         temp_path.replace(path)
     except Exception as error:
         logger.warning(f"Failed to save alarm state to {path}: {error}")
