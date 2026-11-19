@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from pathlib import Path
 
 import pytest
 
@@ -12,8 +13,17 @@ from coworker.memory.factory import (
     _load_backends,
     available_backends,
     build_long_term_backend,
+    load_memory_backend_state,
     missing_backend_modules,
+    resolve_memory_backend,
+    write_memory_backend_state,
 )
+
+
+def _memory_config(db_path: Path) -> Config:
+    return Config.model_validate(
+        {"memory": {"backend": "mem0", "db_path": str(db_path)}}
+    )
 
 
 def test_file_backend_is_always_available() -> None:
@@ -76,6 +86,69 @@ def test_build_long_term_backend_raises_localized_error_when_unavailable(
     with pytest.raises(RuntimeError) as excinfo:
         build_long_term_backend(config)
     assert "uv sync --extra mem0" in str(excinfo.value)
+
+
+def test_build_long_term_backend_falls_back_to_file_when_mem0_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """尚未建立后端且缺 mem0 依赖时，解析结果直接构建 file 后端而不是报错。"""
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "mem0" else True)
+    config = _memory_config(tmp_path)
+
+    backend_id, fell_back = resolve_memory_backend(config, backend_explicit=False)
+    assert (backend_id, fell_back) == ("file", True)
+
+    config.memory.backend = backend_id
+    assert isinstance(build_long_term_backend(config), FileBackend)
+
+
+def test_resolve_memory_backend_keeps_explicit_mem0(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """显式指定 mem0 时不做回退，交给启动校验给出安装引导。"""
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "mem0" else True)
+    config = _memory_config(tmp_path)
+
+    assert resolve_memory_backend(config, backend_explicit=True) == ("mem0", False)
+
+
+def test_resolve_memory_backend_keeps_recorded_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """后端一旦初始化过，后续启动按记录保持，不随依赖缺失再次回退。"""
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "mem0" else True)
+    config = _memory_config(tmp_path)
+
+    write_memory_backend_state(tmp_path, "file")
+    assert resolve_memory_backend(config, backend_explicit=False) == ("file", False)
+
+    write_memory_backend_state(tmp_path, "mem0")
+    assert resolve_memory_backend(config, backend_explicit=False) == ("mem0", False)
+
+
+def test_resolve_memory_backend_keeps_mem0_when_data_exists_without_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """升级兼容：没有状态文件但已有 mem0（Chroma）数据时同样不回退。"""
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "mem0" else True)
+    (tmp_path / "chroma.sqlite3").write_text("", encoding="utf-8")
+
+    assert resolve_memory_backend(_memory_config(tmp_path), backend_explicit=False) == (
+        "mem0",
+        False,
+    )
+
+
+def test_memory_backend_state_file_ignores_invalid_values(tmp_path: Path) -> None:
+    write_memory_backend_state(tmp_path, "bogus")
+    assert load_memory_backend_state(tmp_path) is None
+
+    (tmp_path / "memory_backend.json").write_text("{broken", encoding="utf-8")
+    assert load_memory_backend_state(tmp_path) is None
 
 
 def test_build_mem0_backend_reads_relevance_threshold(monkeypatch: pytest.MonkeyPatch) -> None:

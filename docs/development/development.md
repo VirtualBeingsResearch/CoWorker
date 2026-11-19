@@ -12,6 +12,7 @@
 uv sync --dev
 # 使用默认配置的 mem0 记忆后端时，需额外安装其可选依赖：uv sync --dev --extra mem0
 # 之后每次同步也请带 --extra mem0（uv sync --dev --extra mem0 / uv run --extra mem0），否则 uv sync 会把 mem0 从环境摘除
+# 未安装时仅首次初始化会回退到 file 记忆后端（词项检索，无向量语义检索）；后端建立后缺依赖会报错
 
 # 安装 browser 工具使用的 Chromium（只需一次）
 uv run playwright install chromium

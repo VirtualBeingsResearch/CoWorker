@@ -359,6 +359,8 @@ def _default_memory_backend() -> MemoryBackend:
     """长期记忆后端的兜底默认值，可被 MEMORY_DEFAULT_BACKEND 覆盖。
 
     仅在变量取值为合法后端时生效；否则回退到 mem0，避免无效镜像默认值破坏启动。
+    依赖缺失时是否回退到 ``file`` 由启动阶段的后端解析决定，而不是配置默认值：
+    该回退只允许发生在记忆后端尚未建立时，详见 ``memory.factory``。
     """
     value = os.getenv("MEMORY_DEFAULT_BACKEND", "mem0")
     if value == "file":
@@ -372,7 +374,8 @@ class MemoryConfig(_EnvSettings):
     db_path: str = "data/memory"
     # 长期记忆后端：mem0 为默认后端，file 为最简文件存储后端。
     # 默认值可被 MEMORY_DEFAULT_BACKEND 覆盖（例如 lite-offline 镜像默认使用 file）；
-    # 显式设置 MEMORY__BACKEND（.env 或环境变量）时仍以其为准。
+    # 显式设置 MEMORY__BACKEND（.env 或环境变量）时仍以其为准。首次初始化且未显式
+    # 指定时，启动阶段可能在 mem0 依赖缺失时回退到 file（见 memory.factory）。
     backend: MemoryBackend = Field(default_factory=_default_memory_backend)
     short_term_max_tokens: int = Field(default=120_000, gt=0)
     # 每次自动压缩处理当前 primary 中最旧消息的 token 比例；tree/legacy 共用。

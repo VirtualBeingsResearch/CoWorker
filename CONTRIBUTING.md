@@ -28,6 +28,8 @@ uv sync --dev
 uv sync --dev --extra mem0
 ```
 
+未安装该 extra 时，仅首次初始化会回退到 `file` 记忆后端；后端建立后缺依赖会报错，记忆相关行为也与默认的 `mem0` 配置不同。
+
 如果要修改浏览器工具或运行浏览器集成测试，需要安装一次 Chromium：
 
 ```bash

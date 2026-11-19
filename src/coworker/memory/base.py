@@ -83,6 +83,9 @@ class MemoryQuerySettings(Protocol):
 class LongTermMemoryBackend(Protocol):
     """Backend-agnostic long-term memory service contract."""
 
+    @property
+    def backend_id(self) -> str: ...
+
     async def initialize(self) -> None: ...
 
     def is_ready(self) -> bool: ...

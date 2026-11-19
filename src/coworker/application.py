@@ -72,6 +72,8 @@ from coworker.memory.factory import (
     available_backends,
     build_long_term_backend,
     missing_backend_modules,
+    resolve_memory_backend,
+    write_memory_backend_state,
 )
 from coworker.memory.long_term import LongTermMemory, build_memory_llm_config
 from coworker.memory.short_term import ShortTermMemory
@@ -311,11 +313,42 @@ def _register_providers(brain: Brain, config: Config) -> None:
             logger.error(tr("log.provider_skipped", provider=repr(spec.name), error=e))
 
 
+def _memory_backend_explicit(inherited: Config, config: Config) -> bool:
+    """用户是否显式指定了长期记忆后端（.env/环境变量或管理端持久化配置）。"""
+
+    if "backend" in inherited.memory.model_fields_set:
+        return True
+    overrides = load_admin_overrides(config.admin.config_file)
+    memory_overrides = overrides.get("memory")
+    return isinstance(memory_overrides, dict) and "backend" in memory_overrides
+
+
+async def _initialize_long_term(config: Config, long_term: LongTermMemory) -> None:
+    """初始化长期记忆，并记录实际后端供后续启动保持。"""
+
+    await long_term.initialize()
+    write_memory_backend_state(config.memory.db_path, long_term.backend_id)
+
+
+def _apply_memory_backend_resolution(inherited: Config, config: Config) -> None:
+    """首次初始化时应用 mem0→file 回退；后端已建立或显式配置时保持不变。"""
+
+    backend_id, fell_back = resolve_memory_backend(
+        config,
+        backend_explicit=_memory_backend_explicit(inherited, config),
+    )
+    if backend_id != config.memory.backend:
+        config.memory.backend = backend_id
+    if fell_back:
+        logger.warning(tr("system.memory_backend_fallback"))
+
+
 def _load_config_layers() -> tuple[Config, Config]:
     inherited = Config()
     normalize_admin_overrides_file(inherited)
     config = apply_admin_config_file(inherited.model_copy(deep=True))
     configure_locale(config.i18n.locale)
+    _apply_memory_backend_resolution(inherited, config)
     apply_runtime_model_config_file(config.llm)
     migrations = migrate_model_configuration(config, inherited)
     for migration in migrations:
@@ -609,7 +642,7 @@ async def _main() -> bool:
         Path(config.memory.db_path).mkdir(parents=True, exist_ok=True)
         logger.warning("Long-term memory initialization deferred until first-run setup completes")
     else:
-        await long_term.initialize()
+        await _initialize_long_term(config, long_term)
     _bind_memory_model_following(brain, long_term, config)
 
     snapshot_path = Path(config.memory.db_path) / "short_term_snapshot.json"

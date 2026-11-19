@@ -168,13 +168,15 @@ uv run coworker
 需要 **Python 3.13+** 和 [uv](https://docs.astral.sh/uv/)。
 `uv run python -m coworker` 与最后一条命令等价；首次运行不需要提前创建 `.env`。
 
-默认 `uv sync` 依赖已足够运行 **`file` 记忆后端**。要启用默认配置的 **`mem0` 语义记忆后端**，需安装其可选依赖：
+默认 `uv sync` 只安装精简依赖。**仅在首次初始化、且长期记忆后端尚未建立时**，如果未显式设置 `MEMORY__BACKEND` 而 `mem0` 依赖缺失，启动会回退到 **`file` 文件后端**（词项检索，无向量语义检索），保证首次安装即可启动；回退后会把实际后端记录到 `MEMORY__DB_PATH/memory_backend.json`，后续启动沿用它，不再随依赖增减切换。
+
+要启用默认的 **`mem0` 语义记忆后端**，安装其可选依赖：
 
 ```bash
 uv sync --extra mem0
 ```
 
-使用 `mem0` 时，后续每次同步也要带 `--extra mem0`（`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`），否则 `uv sync` 会把该 extra 从环境摘除。
+首次初始化前装好 `mem0` 就会直接使用 `mem0`；如果已经回退到 `file` 后想切回 `mem0`，还需要显式设置 `MEMORY__BACKEND=mem0` 后重启（两种后端的记忆互不可见，也不会自动迁移）。后端建立之后，`uv sync` 摘除 `--extra mem0` 不会静默回退，启动会报错并提示安装。因此使用 `mem0` 时，后续每次同步仍要带 `--extra mem0`（`uv sync --extra mem0` / `uv run --extra mem0` / `uv run --sync --extra mem0`）。
 
 </details>
 
