@@ -145,13 +145,17 @@ At the end of each cycle, short-term memory is snapshotted automatically to `dat
 
 The agent can trigger a safe restart through `restart_self`, for example after updating its own code. The restart flow first validates the code environment with `--check`, then saves a snapshot and replaces the process in place. The new process restores short-term memory, and the `restart_self` tool result is replaced with a real success message containing the number of restored messages and alarms.
 
-Alarm state is persisted to `data/memory/alarms.json` and rescheduled after restart. Missed alarms fire immediately with their lateness included in the message. Repeating alarms fire only once to catch up, then continue on their original interval.
+Alarm state is persisted to `data/memory/alarms.json` as a versioned envelope that holds time alarms and condition alarms together, and rescheduled after restart. Missed alarms fire immediately with their lateness included in the message. Repeating alarms fire only once to catch up, then continue on their original interval.
+
+An alarm can also watch a condition: `set_alarm(condition=..., target=..., every_seconds=...)` supports file changes, web page changes, and task state changes. Condition checks do not call a model; the first check only records a baseline, and later state changes wake the agent. A file that does not exist yet and a web page where the regex does not match are recorded as states, so the file appearing, the match returning, or the match disappearing all trigger. Condition alarms share `alarms.json` with time alarms, and each state change rewrites the whole file atomically; they back off on failure and pause after five consecutive failures with an explanatory message, and a paused alarm can be resumed from the admin console. The admin console's "Alarms & watch" page can create, resume, and cancel condition alarms directly.
+
+Upgrade and rollback: a legacy flat list is first backed up as `data/memory/alarms.json.v1.bak` and then rewritten in the versioned format. To roll back to a build that predates condition alarms, stop the service and restore that backup over `alarms.json` (condition alarms are lost), or delete the file for a clean start. Later versions can migrate the file by its version field.
 
 For a clean start, delete the snapshot files:
 
 ```bash
 rm data/memory/short_term_snapshot.json
-rm data/memory/alarms.json  # Also clear alarm state (optional)
+rm data/memory/alarms.json  # Also clear time and condition alarms (optional)
 ```
 
 ## Memory palaces (Memory Block Tree)

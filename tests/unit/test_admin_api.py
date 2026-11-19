@@ -233,6 +233,108 @@ def test_admin_alarm_accepts_browser_utc_timestamp(tmp_path):
     assert scheduled_at.tzinfo is not None
 
 
+def test_admin_alarm_lists_separate_condition_entries(tmp_path):
+    items = [
+        {"id": "time1", "kind": "time", "trigger_at": "2026-01-01 00:00:00"},
+        {"id": "cond1", "kind": "condition", "condition": "file_changed"},
+    ]
+    alarm_manager = SimpleNamespace(list=MagicMock(return_value=items))
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    alarms = client.get(
+        "/api/admin/alarms", headers={"Authorization": "Bearer secret"}
+    )
+    conditions = client.get(
+        "/api/admin/alarm-conditions", headers={"Authorization": "Bearer secret"}
+    )
+
+    assert [item["id"] for item in alarms.json()["alarms"]] == ["time1"]
+    assert [item["id"] for item in conditions.json()["conditions"]] == ["cond1"]
+
+
+def test_admin_creates_condition_alarm(tmp_path):
+    alarm_manager = SimpleNamespace(
+        validate_condition=MagicMock(),
+        set_condition=AsyncMock(),
+    )
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "condition": "file_changed",
+            "target": "/tmp/watched.txt",
+            "message": "watch it",
+            "every_seconds": 300,
+        },
+    )
+
+    assert response.status_code == 200
+    alarm_manager.validate_condition.assert_called_once()
+    alarm_manager.set_condition.assert_awaited_once()
+
+
+def test_admin_condition_alarm_reports_invalid_target(tmp_path):
+    alarm_manager = SimpleNamespace(
+        validate_condition=MagicMock(side_effect=ValueError("outside roots")),
+        set_condition=AsyncMock(),
+    )
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions",
+        headers={"Authorization": "Bearer secret"},
+        json={"condition": "file_changed", "target": "/etc/passwd", "message": "x"},
+    )
+
+    assert response.status_code == 400
+    assert "outside roots" in response.json()["detail"]
+
+
+def test_admin_condition_limit_is_a_bad_request(tmp_path):
+    alarm_manager = SimpleNamespace(
+        validate_condition=MagicMock(),
+        set_condition=AsyncMock(side_effect=ValueError("Too many condition alarms")),
+    )
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions",
+        headers={"Authorization": "Bearer secret"},
+        json={"condition": "file_changed", "target": "/tmp/watched.txt", "message": "x"},
+    )
+
+    assert response.status_code == 400
+    assert "Too many condition alarms" in response.json()["detail"]
+
+
+def test_admin_resumes_condition_alarm(tmp_path):
+    alarm_manager = SimpleNamespace(resume_condition=MagicMock(return_value=True))
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions/cond1/resume",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"resumed": True}
+    alarm_manager.resume_condition.assert_called_once_with("cond1")
+
+
+def test_admin_resume_reports_missing_condition(tmp_path):
+    alarm_manager = SimpleNamespace(resume_condition=MagicMock(return_value=False))
+    client, _ = _client(tmp_path, alarm_manager=alarm_manager)
+
+    response = client.post(
+        "/api/admin/alarm-conditions/missing/resume",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_setup_admin_refreshes_config_service_for_each_runtime(tmp_path):
     _client(tmp_path / "first")
     first_service = admin._require_admin_config_service()

@@ -2069,19 +2069,52 @@ html:has(.admin-login),
 .task-modal { width: min(560px, calc(100vw - 32px)); }
 .task-modal .field { margin-top: 13px; }
 .task-modal .field textarea { min-height: 150px; }
-.alarm-compose { display: grid; grid-template-columns: 1.15fr .75fr 1.6fr auto; gap: 10px; align-items: end; }
-.alarm-compose .primary { min-height: 42px; }
-.alarm-summary { display: flex; align-items: center; gap: 8px; min-height: 46px; margin: 14px 0 9px; padding: 0 3px 0 11px; border-left: 2px solid var(--admin-vital); color: var(--admin-muted); background: linear-gradient(90deg, var(--admin-soft), transparent 55%); font-size: 11px; }
+/* Alarms: one list and one create dialog. */
+.alarm-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.alarm-field-full { grid-column: 1 / -1; }
+.alarm-kind-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.alarm-kind-switch button { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 56px; padding: 9px 11px; border: 1px solid var(--admin-line); border-radius: 10px; color: var(--admin-ink); background: var(--admin-surface); text-align: left; cursor: pointer; }
+.alarm-kind-switch button:hover { border-color: color-mix(in oklch, var(--admin-vital) 32%, var(--admin-line)); }
+.alarm-kind-switch button.active { border-color: color-mix(in oklch, var(--admin-vital) 46%, var(--admin-line)); background: var(--admin-soft); }
+.alarm-kind-switch button > span:first-child { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--admin-vital); background: var(--admin-paper); }
+.alarm-kind-switch button.active > span:first-child { color: white; background: var(--admin-vital); }
+.alarm-kind-switch b,
+.alarm-kind-switch small { display: block; }
+.alarm-kind-switch b { font-size: 11px; font-weight: 680; }
+.alarm-kind-switch small { overflow: hidden; margin-top: 2px; color: var(--admin-muted); font-size: 9px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.confirm-modal.alarm-modal { width: min(620px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 24px; border-color: var(--admin-line); }
+.confirm-modal.alarm-modal h3 { margin: 0; font: 660 18px var(--admin-display); }
+.confirm-modal.alarm-modal > .alarm-modal-note { margin: 6px 0 0; color: var(--admin-muted); font-size: 11px; line-height: 1.6; }
+.alarm-modal .alarm-form { margin-top: 16px; }
+.confirm-modal.alarm-modal > .alarm-modal-hint { margin: 10px 0 0; color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
+.alarm-modal .notice { margin-top: 13px; }
+.alarm-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--admin-line); }
+.alarm-modal-footer > span { color: var(--admin-muted); font-size: 10px; line-height: 1.5; }
+.alarm-modal-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
+.alarm-summary { display: flex; align-items: center; gap: 8px; min-height: 46px; margin: 0 0 9px; padding: 0 3px 0 11px; border-left: 2px solid var(--admin-vital); color: var(--admin-muted); background: linear-gradient(90deg, var(--admin-soft), transparent 55%); font-size: 11px; }
 .alarm-summary svg { color: var(--admin-vital); }
 .alarm-summary span { flex: 1; }
 .alarm-summary .icon-btn { width: 34px; height: 34px; }
-.alarm-record { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; }
-.alarm-time { align-self: stretch; display: grid; place-content: center; padding-right: 15px; border-right: 1px solid var(--admin-line); text-align: center; }
-.alarm-time strong,
-.alarm-time b { display: block; margin: 0; }
-.alarm-time strong { color: var(--admin-muted); font: 9px var(--admin-data); text-transform: uppercase; }
-.alarm-time b { margin-top: 4px; color: var(--admin-ink); font: 680 16px var(--admin-data); }
-.alarm-due { display: inline-block; margin-bottom: 1px; color: var(--admin-vital); font: 680 9px var(--admin-data); }
+.alarm-record { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: start; gap: 13px; }
+.alarm-record.paused { background: color-mix(in oklch, var(--admin-amber) 5%, var(--admin-surface)); }
+.alarm-record.paused:hover { background: color-mix(in oklch, var(--admin-amber) 8%, var(--admin-surface)); }
+.alarm-kind-mark { display: grid; place-items: center; width: 40px; height: 40px; margin-top: 1px; border-radius: 10px; color: var(--admin-vital); background: var(--admin-soft); }
+.alarm-kind-mark.file { color: color-mix(in oklch, var(--admin-peach) 62%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-peach) 14%, var(--admin-surface)); }
+.alarm-kind-mark.http { color: color-mix(in oklch, var(--admin-sky) 74%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-sky) 15%, var(--admin-surface)); }
+.alarm-kind-mark.task { color: color-mix(in oklch, var(--admin-amber) 68%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 13%, var(--admin-surface)); }
+.alarm-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.alarm-title b { margin: 0; overflow-wrap: anywhere; }
+.alarm-state { flex: 0 0 auto; padding: 2px 6px; border-radius: 99px; color: color-mix(in oklch, var(--admin-amber) 74%, var(--admin-ink)); background: color-mix(in oklch, var(--admin-amber) 12%, var(--admin-surface)); font: 680 8px var(--admin-data); }
+.alarm-when { display: block; margin: 3px 0 5px; color: var(--admin-vital); font: 680 9px var(--admin-data); }
+.alarm-record.paused .alarm-when { color: color-mix(in oklch, var(--admin-amber) 74%, var(--admin-ink)); }
+.alarm-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+.alarm-meta code { overflow: hidden; max-width: min(46ch, 100%); color: var(--admin-ink); font: 9px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
+.alarm-chip { max-width: 100%; overflow: hidden; padding: 2px 6px; border-radius: 5px; color: var(--admin-muted); background: var(--admin-paper); font: 9px var(--admin-data); text-overflow: ellipsis; white-space: nowrap; }
+.alarm-id { color: color-mix(in oklch, var(--admin-muted) 72%, var(--admin-surface)); font: 9px var(--admin-data); }
+.alarm-error { display: flex; align-items: flex-start; gap: 5px; margin: 5px 0 0; color: var(--admin-red); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.alarm-actions { display: flex; align-items: center; gap: 6px; }
+.alarm-actions .icon-btn,
+.alarm-actions .danger-icon { width: 34px; height: 34px; }
 .danger-icon,
 .icon-btn { display: grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--admin-line); border-radius: 9px; color: var(--admin-muted); background: var(--admin-surface); transition: color .16s ease, border-color .16s ease, background .16s ease; }
 .icon-btn:hover { color: var(--admin-vital); border-color: color-mix(in oklch, var(--admin-vital) 42%, var(--admin-line)); background: var(--admin-soft); }
@@ -2686,8 +2719,6 @@ html:has(.admin-login),
 .admin-security-hero > div:nth-child(2) > span,
 .admin-security-hero > b,
 .status-pill,
-.alarm-time strong,
-.alarm-due,
 .file-tree i,
 .source-create-card > div:nth-child(2) > span,
 .source-create-card small,
@@ -3459,7 +3490,7 @@ html:has(.admin-login),
   .memory-footnote { align-items: flex-start; justify-content: flex-start; line-height: 1.5; }
   .inline-form,
   .task-compose,
-  .alarm-compose,
+  .alarm-form,
   .field-grid,
   .config-fields,
   .memory-results,
@@ -3487,8 +3518,18 @@ html:has(.admin-login),
   .record,
   .bubble-record-head { align-items: flex-start; flex-direction: column; }
   .bubble-history { padding-left: 14px; }
-  .alarm-record { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; }
-  .alarm-record .danger-icon { align-self: center; }
+  .alarm-kind-switch { grid-template-columns: 1fr; }
+  .alarm-kind-switch small { white-space: normal; }
+  .alarm-new { width: 100%; justify-content: center; }
+  .confirm-modal.alarm-modal { padding: 18px; }
+  .alarm-modal-footer { align-items: stretch; flex-direction: column; }
+  .alarm-modal-footer > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .alarm-modal-footer button { width: 100%; justify-content: center; }
+  .alarm-record { grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
+  .alarm-kind-mark { width: 36px; height: 36px; }
+  .alarm-actions { gap: 5px; }
+  .alarm-actions .icon-btn,
+  .alarm-actions .danger-icon { width: 34px; height: 34px; }
   .provider-row { grid-template-columns: 1fr; padding-top: 52px; }
   .provider-row .field:nth-of-type(n) { grid-column: auto; }
   .provider-model-capabilities { grid-column: auto; }

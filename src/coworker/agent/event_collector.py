@@ -39,7 +39,12 @@ _ARG_SPECS: dict[str, list[tuple[str, bool, int]]] = {
     "sleep": [("seconds", False, 10)],
     "task_create": [("description", True, 80)],
     "task_update": [("task_id", False, 40), ("status", False, 20)],
-    "set_alarm": [("trigger_at", False, 40), ("message", True, 60)],
+    "set_alarm": [
+        ("trigger_at", False, 40),
+        ("condition", False, 40),
+        ("target", False, 80),
+        ("message", True, 60),
+    ],
     "bubble_spawn": [("goal", True, 80)],
     "switch_model": [("model_id", False, 40)],
 }

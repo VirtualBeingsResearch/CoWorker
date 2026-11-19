@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from coworker.tools.alarm_tools import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
+from coworker.tools.alarm import AlarmManager, CancelAlarmTool, ListAlarmsTool, SetAlarmTool
 
 
 @pytest.fixture
@@ -98,10 +98,12 @@ class TestPersistence:
         persist_file = tmp_path / "alarms.json"
         assert persist_file.exists()
         records = json.loads(persist_file.read_text(encoding="utf-8"))
-        assert len(records) == 1
-        assert records[0]["alarm_id"] == "p1"
-        assert records[0]["message"] == "saved?"
-        assert records[0]["repeat_seconds"] is None
+        assert records["version"] == 2
+        assert len(records["alarms"]) == 1
+        assert records["alarms"][0]["alarm_id"] == "p1"
+        assert records["alarms"][0]["message"] == "saved?"
+        assert records["alarms"][0]["repeat_seconds"] is None
+        assert records["conditions"] == []
 
         persisted_manager.cancel("p1")
 
@@ -112,7 +114,8 @@ class TestPersistence:
 
         persist_file = tmp_path / "alarms.json"
         records = json.loads(persist_file.read_text(encoding="utf-8"))
-        assert records == []
+        assert records["alarms"] == []
+        assert records["conditions"] == []
 
     async def test_restore_future_alarm(self, mock_inbox, tmp_path):
         future = datetime.now() + timedelta(seconds=60)
@@ -212,7 +215,7 @@ class TestPersistence:
         assert sum("first message" in content for content in contents) == 1
         assert sum("second message" in content for content in contents) == 1
         assert new_manager.list() == []
-        assert json.loads(persist_file.read_text(encoding="utf-8")) == []
+        assert json.loads(persist_file.read_text(encoding="utf-8"))["alarms"] == []
 
     async def test_restore_is_idempotent_for_pending_alarm(self, mock_inbox, tmp_path):
         future = datetime.now() + timedelta(milliseconds=100)
@@ -253,7 +256,7 @@ class TestPersistence:
 
         await asyncio.sleep(0.15)
 
-        records = json.loads(persist_file.read_text(encoding="utf-8"))
+        records = json.loads(persist_file.read_text(encoding="utf-8"))["alarms"]
         assert len(records) == 1
         # next_trigger_at should have been updated to ~now+600s
         next_t = datetime.fromisoformat(records[0]["next_trigger_at"])

@@ -81,7 +81,7 @@ if TYPE_CHECKING:
     from coworker.persona import PersonaCard, PersonStore
     from coworker.relay import RelayClient
     from coworker.skills.loader import Skill, SkillLoader
-    from coworker.tools.alarm_tools import AlarmManager
+    from coworker.tools.alarm import AlarmManager
     from coworker.tools.reasoning_tools import Task, TaskStore
 
 type ApiResponse = dict[str, object]
@@ -265,6 +265,16 @@ class AlarmPayload(BaseModel):
     trigger_at: datetime
     message: str
     repeat_seconds: int | None = Field(default=None, ge=1)
+
+
+class AlarmConditionPayload(BaseModel):
+    condition: Literal["file_changed", "http_changed", "task_state"]
+    message: str = Field(min_length=1, max_length=2000)
+    target: str = Field(default="", max_length=2048)
+    every_seconds: int = Field(default=300, ge=60)
+    pattern: str = Field(default="", max_length=512)
+    status: str = Field(default="", max_length=100)
+    stale_seconds: int = Field(default=0, ge=0)
 
 
 class ContentPayload(BaseModel):
@@ -1366,7 +1376,13 @@ async def overview(_: None = Depends(require_admin)) -> ApiResponse:
             "active_bubbles": len(bubbles),
             "long_term_memories": memory_count,
             "short_term_messages": len(stm.primary),
-            "alarms": len(_require_alarms().list()),
+            "alarms": len(
+                [
+                    item
+                    for item in _require_alarms().list()
+                    if item.get("kind") == "time"
+                ]
+            ),
         },
         "memory": {
             "max_tokens": stm._max_tokens,
@@ -2600,7 +2616,68 @@ async def delete_admin_backup(
 
 @router.get("/alarms")
 async def list_alarms(_: None = Depends(require_admin)) -> ApiResponse:
-    return {"alarms": _require_alarms().list()}
+    return {
+        "alarms": [
+            item for item in _require_alarms().list() if item.get("kind") == "time"
+        ]
+    }
+
+
+@router.get("/alarm-conditions")
+async def list_alarm_conditions(_: None = Depends(require_admin)) -> ApiResponse:
+    return {
+        "conditions": [
+            item for item in _require_alarms().list() if item.get("kind") == "condition"
+        ]
+    }
+
+
+@router.post("/alarm-conditions")
+async def create_alarm_condition(
+    payload: AlarmConditionPayload,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    from coworker.tools.alarm import AlarmCondition
+
+    manager = _require_alarms()
+    condition = AlarmCondition(
+        kind=payload.condition,
+        target=payload.target.strip(),
+        pattern=payload.pattern.strip(),
+        status=payload.status.strip(),
+        stale_seconds=payload.stale_seconds,
+    )
+    try:
+        manager.validate_condition(condition)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=tr("api.admin.alarm_condition_invalid", error=str(error)),
+        ) from error
+
+    alarm_id = f"alarm_{uuid.uuid4().hex[:8]}"
+    try:
+        await manager.set_condition(
+            alarm_id, payload.message.strip(), condition, payload.every_seconds
+        )
+    except ValueError as error:
+        # add_condition rejects the configured limit with a localized ValueError.
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    _audit(request, "alarm.condition.create", alarm_id)
+    return {"id": alarm_id}
+
+
+@router.post("/alarm-conditions/{alarm_id}/resume")
+async def resume_alarm_condition(
+    alarm_id: str,
+    request: Request,
+    _: None = Depends(require_admin),
+) -> ApiResponse:
+    if not _require_alarms().resume_condition(alarm_id):
+        raise HTTPException(status_code=404, detail=tr("api.admin.alarm_missing"))
+    _audit(request, "alarm.condition.resume", alarm_id)
+    return {"resumed": True}
 
 
 @router.post("/alarms")

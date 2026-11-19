@@ -7,7 +7,7 @@ import {
 import { clearAdminToken, persistAdminToken, readAdminToken } from '../lib/adminToken';
 import {
   Activity, AlarmClock, ArchiveRestore, BarChart3, Bot, Brain, CalendarDays, ChevronLeft, ChevronRight, CircleGauge,
-  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, HeartPulse, KeyRound, ListTodo, LogOut,
+  Check, Clock3, CloudUpload, Database, Download, ExternalLink, FileArchive, FileCode2, FileCog, FileText, Fingerprint, FolderOpen, Globe, HeartPulse, KeyRound, ListTodo, LogOut,
   MessagesSquare, Orbit, Pause, Play, RefreshCw, Save, Search, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, TerminalSquare, Trash2, TriangleAlert, Wrench, X, Pencil, Plus, PackageOpen, Rocket, RotateCcw, Users,
 } from 'lucide-react';
@@ -1036,7 +1036,7 @@ function Models() {
   </div>;
 }
 
-function Field({ label, children, hint, hot = false }: { label: string; children: ReactNode; hint?: string; hot?: boolean }) { return <label className="field"><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
+function Field({ label, children, hint, hot = false, className = '' }: { label: string; children: ReactNode; hint?: string; hot?: boolean; className?: string }) { return <label className={`field ${className}`.trim()}><span>{t(label)}{hot && <em className="effect-badge hot">{t('立即生效')}</em>}</span>{children}{hint && <small>{t(hint)}</small>}</label>; }
 
 function ComboboxField({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }) {
   return <div className="field"><label className="field-label" htmlFor={id}>{t(label)}</label>{children}{hint && <small>{t(hint)}</small>}</div>;
@@ -2222,23 +2222,290 @@ function Memories() {
   </Panel>;
 }
 
-function Alarms() {
-  const { data, error, loading, reload } = useLoad(() => api<Json>('/api/admin/alarms'), []);
-  const [draft, setDraft] = useState({ trigger_at: '', message: '', repeat_seconds: '' });
-  if (loading || !data) return <Loading error={error} />;
-  const create = async () => {
-    await api('/api/admin/alarms', { method: 'POST', body: JSON.stringify({ message: draft.message, trigger_at: localDateTimeInputToIso(draft.trigger_at), repeat_seconds: draft.repeat_seconds ? Number(draft.repeat_seconds) : null }) });
-    setDraft({ trigger_at: '', message: '', repeat_seconds: '' });
-    await reload();
+type AlarmKind = 'time' | 'file_changed' | 'http_changed' | 'task_state';
+
+const ALARM_INTERVALS = [60, 300, 900, 1800, 3600];
+
+function alarmKindIcon(kind: string) {
+  if (kind === 'file_changed') return FileText;
+  if (kind === 'http_changed') return Globe;
+  if (kind === 'task_state') return ListTodo;
+  return AlarmClock;
+}
+
+function alarmKindTone(kind: string) {
+  if (kind === 'file_changed') return 'file';
+  if (kind === 'http_changed') return 'http';
+  if (kind === 'task_state') return 'task';
+  return 'time';
+}
+
+function alarmIntervalLabel(seconds: number) {
+  if (seconds === 60) return t('每分钟');
+  if (seconds === 300) return t('每 5 分钟');
+  if (seconds === 900) return t('每 15 分钟');
+  if (seconds === 1800) return t('每 30 分钟');
+  return t('每小时');
+}
+
+function alarmKindLabel(kind: string) {
+  if (kind === 'file_changed') return t('文件变化');
+  if (kind === 'http_changed') return t('网页内容');
+  if (kind === 'task_state') return t('任务状态');
+  return t('定时提醒');
+}
+
+function AlarmKindMark({ kind }: { kind: string }) {
+  const Icon = alarmKindIcon(kind);
+  return <span className={'alarm-kind-mark ' + alarmKindTone(kind)} role="img" aria-label={alarmKindLabel(kind)}><Icon size={17} /></span>;
+}
+
+function AlarmEmpty({ text }: { text: string }) {
+  return <div className="empty"><AlarmClock size={23} /><p>{text}</p></div>;
+}
+
+function AlarmChips({ item }: { item: Json }) {
+  const chips: string[] = [];
+  if (item.kind === 'condition') {
+    const every = Number(item.every_seconds);
+    if (every > 0) chips.push(repeatLabel(every));
+    if (item.pattern) chips.push(t('正则 {{pattern}}', { pattern: item.pattern }));
+    if (item.status) chips.push(t('状态 {{status}}', { status: t(TASK_STATUS[item.status] || item.status) }));
+    if (Number(item.stale_seconds) > 0) {
+      chips.push(t('{{minutes}} 分钟未更新', { minutes: Math.round(Number(item.stale_seconds) / 60) }));
+    }
+  } else if (item.repeat_seconds) {
+    chips.push(repeatLabel(Number(item.repeat_seconds)));
+  }
+  return <>{chips.map(chip => <span className="alarm-chip" key={chip}>{chip}</span>)}</>;
+}
+
+function alarmTimeText(value: string) {
+  return `${formatDate(value, [], { month: 'short', day: 'numeric' })} ${formatTime(value, [], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function AlarmRecord({ item, onCancel, onResume }: { item: Json; onCancel: (item: Json) => void; onResume: (item: Json) => void }) {
+  const isTime = item.kind === 'time';
+  const paused = Boolean(item.paused);
+  const when = isTime
+    ? `${alarmTimeText(item.trigger_at)} · ${timeFromNow(item.trigger_at)}`
+    : `${alarmKindLabel(item.condition)} · ${item.last_checked_at ? t('上次检查 {{time}}', { time: formatTime(item.last_checked_at, [], { hour: '2-digit', minute: '2-digit' }) }) : t('尚未检查')}`;
+  return <article className={'record alarm-record' + (paused ? ' paused' : '')}>
+    <AlarmKindMark kind={isTime ? 'time' : item.condition} />
+    <div className="record-main">
+      <div className="alarm-title"><b>{item.message}</b>{paused && <em className="alarm-state">{t('已暂停')}</em>}</div>
+      <span className="alarm-when">{when}</span>
+      <div className="alarm-meta">
+        {!isTime && (item.target ? <code title={String(item.target)}>{item.target}</code> : <span className="alarm-chip">{t('任意任务')}</span>)}
+        <AlarmChips item={item} />
+        <span className="alarm-id">{item.id}</span>
+      </div>
+      {!isTime && paused && item.last_error && <p className="alarm-error"><TriangleAlert size={12} /><span>{item.last_error}</span></p>}
+    </div>
+    <div className="alarm-actions">
+      {!isTime && paused && <button className="icon-btn" title={t('恢复守候')} aria-label={t('恢复条件守候“{{message}}”', { message: item.message })} onClick={() => onResume(item)}><Play size={14} /></button>}
+      <button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: item.message })} onClick={() => onCancel(item)}><X size={15} /></button>
+    </div>
+  </article>;
+}
+
+function AlarmComposer({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
+  const [kind, setKind] = useState<AlarmKind>('time');
+  const [triggerAt, setTriggerAt] = useState('');
+  const [repeatSeconds, setRepeatSeconds] = useState('');
+  const [message, setMessage] = useState('');
+  const [target, setTarget] = useState('');
+  const [pattern, setPattern] = useState('');
+  const [status, setStatus] = useState('completed');
+  const [staleMinutes, setStaleMinutes] = useState('');
+  const [everySeconds, setEverySeconds] = useState('300');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !creating) onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [creating, onClose]);
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  const isTime = kind === 'time';
+  const isTask = kind === 'task_state';
+  const stale = Math.max(0, Math.floor(Number(staleMinutes) || 0));
+  const ready = Boolean(message.trim()) && (isTime
+    ? Boolean(triggerAt)
+    : isTask ? Boolean(status || stale > 0) : Boolean(target.trim()));
+  const kindOptions: Array<{ kind: AlarmKind; label: string; note: string }> = [
+    { kind: 'time', label: t('定时提醒'), note: t('到点推送一次或循环') },
+    { kind: 'file_changed', label: t('文件变化'), note: t('文件出现或内容变化') },
+    { kind: 'http_changed', label: t('网页内容'), note: t('公网页面内容或正则匹配') },
+    { kind: 'task_state', label: t('任务状态'), note: t('任务进入状态或长时间未更新') },
+  ];
+
+  const chooseKind = (next: AlarmKind) => {
+    setKind(next);
+    setError('');
+    setTarget('');
+    setPattern('');
+    setStatus('completed');
+    setStaleMinutes('');
   };
+  const create = async () => {
+    if (!ready || creating) return;
+    setCreating(true); setError('');
+    try {
+      if (isTime) {
+        await api('/api/admin/alarms', {
+          method: 'POST',
+          body: JSON.stringify({
+            message: message.trim(),
+            trigger_at: localDateTimeInputToIso(triggerAt),
+            repeat_seconds: repeatSeconds ? Number(repeatSeconds) : null,
+          }),
+        });
+      } else {
+        await api('/api/admin/alarm-conditions', {
+          method: 'POST',
+          body: JSON.stringify({
+            condition: kind,
+            target: target.trim(),
+            message: message.trim(),
+            every_seconds: Math.max(60, Math.floor(Number(everySeconds) || 300)),
+            pattern: pattern.trim(),
+            status: isTask ? status : '',
+            stale_seconds: isTask ? stale * 60 : 0,
+          }),
+        });
+      }
+      await onCreated();
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('创建失败'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return <div className="modal-layer" onMouseDown={event => { if (event.target === event.currentTarget && !creating) onClose(); }}>
+    <section className="confirm-modal alarm-modal" role="dialog" aria-modal="true" aria-labelledby="alarm-composer-title">
+      <h3 id="alarm-composer-title">{t('新建闹钟')}</h3>
+      <p className="alarm-modal-note">{t('定时提醒到点触发，条件守候在状态变化时触发。')}</p>
+      <div className="alarm-kind-switch" role="radiogroup" aria-label={t('闹钟类型')}>
+        {kindOptions.map(item => {
+          const Icon = alarmKindIcon(item.kind);
+          const selected = kind === item.kind;
+          return <button type="button" role="radio" aria-checked={selected} className={selected ? 'active' : ''} key={item.kind} onClick={() => chooseKind(item.kind)}>
+            <span aria-hidden="true"><Icon size={15} /></span>
+            <span><b>{item.label}</b><small>{item.note}</small></span>
+          </button>;
+        })}
+      </div>
+      {!isTime && <p className="alarm-modal-hint">{t('首次检查只建立基线，之后发生变化才提醒。')}</p>}
+      <div className="alarm-form">
+        {isTime ? <>
+          <Field label="提醒时间" hint="按本地时区选择日期和时间。"><input type="datetime-local" autoFocus value={triggerAt} min={toLocalDateTimeInput(new Date(), 'minute')} onChange={event => setTriggerAt(event.target.value)} /></Field>
+          <Field label="重复"><select value={repeatSeconds} onChange={event => setRepeatSeconds(event.target.value)}><option value="">{t('仅一次')}</option><option value="3600">{t('每小时')}</option><option value="86400">{t('每天')}</option><option value="604800">{t('每周')}</option></select></Field>
+          <Field className="alarm-field-full" label="提醒内容"><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && ready) void create(); }} placeholder={t('到点要提醒什么？')} /></Field>
+        </> : <>
+          {kind === 'file_changed' && <>
+            <Field className="alarm-field-full" label="文件路径" hint="文件可以还没出现；出现或内容变化都会提醒。"><input autoFocus value={target} onChange={event => setTarget(event.target.value)} placeholder="data/notes.md" /></Field>
+            <Field label="检查间隔"><select value={everySeconds} onChange={event => setEverySeconds(event.target.value)}>{ALARM_INTERVALS.map(seconds => <option key={seconds} value={seconds}>{alarmIntervalLabel(seconds)}</option>)}</select></Field>
+            <Field className="alarm-field-full" label="提醒内容"><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && ready) void create(); }} placeholder={t('条件满足时要提醒什么？')} /></Field>
+          </>}
+          {kind === 'http_changed' && <>
+            <Field className="alarm-field-full" label="页面 URL" hint="只访问公网地址。"><input autoFocus value={target} onChange={event => setTarget(event.target.value)} placeholder="https://example.com/status" /></Field>
+            <Field className="alarm-field-full" label="匹配正则（可选）" hint="只比较匹配到的文本；匹配消失也算变化。"><input value={pattern} onChange={event => setPattern(event.target.value)} placeholder="<main>(.*?)</main>" /></Field>
+            <Field label="检查间隔"><select value={everySeconds} onChange={event => setEverySeconds(event.target.value)}>{ALARM_INTERVALS.map(seconds => <option key={seconds} value={seconds}>{alarmIntervalLabel(seconds)}</option>)}</select></Field>
+            <Field className="alarm-field-full" label="提醒内容"><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && ready) void create(); }} placeholder={t('条件满足时要提醒什么？')} /></Field>
+          </>}
+          {isTask && <>
+            <Field label="任务 ID（可选）" hint="留空表示任意任务。"><input autoFocus value={target} onChange={event => setTarget(event.target.value)} placeholder="task-1234" /></Field>
+            <Field label="目标状态" hint="任务进入该状态时提醒。"><select value={status} onChange={event => setStatus(event.target.value)}><option value="">{t('不限状态')}</option>{Object.entries(TASK_STATUS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></Field>
+            <Field label="未更新 / 分钟" hint="超过这个时间没有更新也算变化。"><input type="number" min="1" value={staleMinutes} onChange={event => setStaleMinutes(event.target.value)} placeholder="30" /></Field>
+            <Field label="检查间隔"><select value={everySeconds} onChange={event => setEverySeconds(event.target.value)}>{ALARM_INTERVALS.map(seconds => <option key={seconds} value={seconds}>{alarmIntervalLabel(seconds)}</option>)}</select></Field>
+            <Field className="alarm-field-full" label="提醒内容"><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && ready) void create(); }} placeholder={t('条件满足时要提醒什么？')} /></Field>
+          </>}
+        </>}
+      </div>
+      {error && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{error}</span></div>}
+      <footer className="alarm-modal-footer">
+        <span>{isTime ? t('到点后由服务端推送到 inbox，无需保持页面打开。') : t('检查在服务端只读执行，不会调用模型。')}</span>
+        <div>
+          <button className="ghost" disabled={creating} onClick={onClose}>{t('取消')}</button>
+          <button className="primary" disabled={!ready || creating} onClick={() => void create()}><Check size={15} />{t('创建')}</button>
+        </div>
+      </footer>
+    </section>
+  </div>;
+}
+
+function Alarms() {
+  const { data, error, loading, reload } = useLoad<{ alarms: Json[]; conditions: Json[] }>(async () => {
+    const [alarms, conditions] = await Promise.all([
+      api<Json>('/api/admin/alarms'),
+      api<Json>('/api/admin/alarm-conditions'),
+    ]);
+    return {
+      alarms: (alarms.alarms || []) as Json[],
+      conditions: (conditions.conditions || []) as Json[],
+    };
+  }, []);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [actionError, setActionError] = useState('');
+  if (loading || !data) return <Loading error={error} />;
+
   const alarms = [...data.alarms].sort((a: Json, b: Json) => (timestampMillis(a.trigger_at) ?? 0) - (timestampMillis(b.trigger_at) ?? 0));
-  const summary = alarms.length
-    ? t('正在守候 {{count}} 个提醒，最近一个 {{time}}', { count: alarms.length, time: timeFromNow(alarms[0].trigger_at) })
-    : t('当前没有待触发提醒');
-  return <Panel title="闹钟与守候" note="时间按本地时区输入；到点后提醒会进入 Coworker 的 inbox。">
-    <div className="alarm-compose"><Field label="提醒时间"><input type="datetime-local" value={draft.trigger_at} min={toLocalDateTimeInput(new Date(), 'minute')} onChange={event => setDraft({ ...draft, trigger_at: event.target.value })} /></Field><Field label="重复"><select value={draft.repeat_seconds} onChange={event => setDraft({ ...draft, repeat_seconds: event.target.value })}><option value="">{t('仅一次')}</option><option value="3600">{t('每小时')}</option><option value="86400">{t('每天')}</option><option value="604800">{t('每周')}</option></select></Field><Field label="提醒内容"><input value={draft.message} onChange={event => setDraft({ ...draft, message: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && draft.trigger_at && draft.message.trim()) void create(); }} placeholder={t('到点要提醒什么？')} /></Field><button className="primary" disabled={!draft.trigger_at || !draft.message.trim()} onClick={() => void create()}><AlarmClock size={15} />{t('设定闹钟')}</button></div>
-    <div className="alarm-summary"><Clock3 size={16} /><span>{summary}</span><button className="icon-btn" onClick={() => void reload()} title={t('刷新闹钟')} aria-label={t('刷新闹钟')}><RefreshCw size={14} /></button></div>
-    <div className="record-list alarm-list">{alarms.length ? alarms.map((alarm: Json) => <article className="record alarm-record" key={alarm.id}><div className="alarm-time"><strong>{formatDate(alarm.trigger_at, [], { month: 'short', day: 'numeric' })}</strong><b>{formatTime(alarm.trigger_at, [], { hour: '2-digit', minute: '2-digit' })}</b></div><div className="record-main"><span className="alarm-due">{timeFromNow(alarm.trigger_at)}</span><b>{alarm.message}</b><small>{repeatLabel(alarm.repeat_seconds)}{' · '}{alarm.id}</small></div><button className="danger-icon" title={t('取消闹钟')} aria-label={t('取消闹钟“{{message}}”', { message: alarm.message })} onClick={async () => { if (confirm(t('取消闹钟“{{message}}”？', { message: alarm.message }))) { await api('/api/admin/alarms/' + alarm.id, { method: 'DELETE' }); await reload(); } }}><X size={15} /></button></article>) : <Empty text="还没有闹钟，设定一个需要按时记起的提醒。" />}</div>
+  const conditions = [...data.conditions].sort((a: Json, b: Json) => Number(Boolean(b.paused)) - Number(Boolean(a.paused)));
+  const pausedConditions = conditions.filter((item: Json) => item.paused);
+  const entries = [...pausedConditions, ...alarms, ...conditions.filter((item: Json) => !item.paused)];
+  const summary = entries.length
+    ? [
+        t('正在守候 {{count}} 个闹钟', { count: entries.length }),
+        alarms.length ? t('最近一个：{{time}}', { time: timeFromNow(alarms[0].trigger_at) }) : '',
+        pausedConditions.length ? t('{{count}} 个已暂停', { count: pausedConditions.length }) : '',
+      ].filter(Boolean).join(' · ')
+    : t('当前没有闹钟');
+
+  const resumeCondition = async (item: Json) => {
+    setActionError('');
+    try {
+      await api('/api/admin/alarm-conditions/' + item.id + '/resume', { method: 'POST' });
+      await reload();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : t('请求失败'));
+    }
+  };
+  const cancelAlarm = async (item: Json) => {
+    if (!confirm(t('取消闹钟“{{message}}”？', { message: item.message }))) return;
+    setActionError('');
+    try {
+      await api('/api/admin/alarms/' + item.id, { method: 'DELETE' });
+      await reload();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : t('请求失败'));
+    }
+  };
+
+  return <Panel
+    title="闹钟与守候"
+    note="时间按本地时区输入；到点或条件满足后，提醒会进入 Coworker 的 inbox。"
+    action={<button className="primary alarm-new" onClick={() => setComposerOpen(true)}><Plus size={15} />{t('新建闹钟')}</button>}
+  >
+    {actionError && <div className="notice error" role="alert"><TriangleAlert size={16} /><span>{actionError}</span></div>}
+    <div className="alarm-summary">
+      <AlarmClock size={16} />
+      <span>{summary}</span>
+      <button className="icon-btn" onClick={() => void reload()} title={t('刷新闹钟')} aria-label={t('刷新闹钟')}><RefreshCw size={14} /></button>
+    </div>
+    <div className="record-list alarm-list">
+      {entries.length
+        ? entries.map(item => <AlarmRecord key={item.id} item={item} onCancel={item => void cancelAlarm(item)} onResume={item => void resumeCondition(item)} />)
+        : <AlarmEmpty text={t('还没有闹钟，设定一个需要按时记起的提醒。')} />}
+    </div>
+    {composerOpen && <AlarmComposer onClose={() => setComposerOpen(false)} onCreated={reload} />}
   </Panel>;
 }
 
